@@ -1,0 +1,79 @@
+Cybersart Events and triggers
+
+%% %%%%%%%%%%%% %%
+%   Event list   %
+%%%%%%%%%%%%%%%%%%
+
+%Sart
+X %'onNonTargetItemDisplay' : data=itemNumber
+X %'onTargetItemDisplay' :    data=itemNumber
+X %'onLastItemDisplay' :      data=itemNumber
+X %'onClick' :                data=valid (valid=1 if correct, valid=0 if incorrect)
+X %'onEndQuestion' :          data is a struct of questions answer (*questionNameN* is the first parameters for each question)
+  %                           data.Numquest                % Ith times in task
+  %                           data.finished                
+  %                           data.*questionNameN*         % answer
+  %                           data.firstRT_*questionNameN* % first response time
+  %                           data.finalRT_*questionNameN* % last response time (if modification allowed)
+  
+%Sart Question
+X %'onQuestionDisplay' :  data=triggerID of the question -> questions
+X %'onAnswer' :           data=answer value 0.0-10.0
+
+%NTS
+X %'onQuestionDisplay' :  data=triggerID of the question -> questions
+X %'onAnswer' :           data=answer value 0.0-10.0
+
+%EVA
+X %'onQuestionDisplay' :  data=triggerID of the question -> questions
+X %'onAnswer' :           data=answer value 0.0-10.0
+
+%Cyberball
+% 'onPlayerToComputer'
+% 'ComputerToComputer'
+% 'ComputerToPlayer'
+
+%% %%%%%%%%%%%% %%
+%  trigger list  %
+%%%%%%%%%%%%%%%%%%
+
+raz :							0
+reserve :						1-10
+
+%% Questions NTS %%
+NTSrejected	:					11 %X
+NTSappreciated :				12 %X
+NTSmaster :						13 %X
+NTSlifeNoSens : 				14 %X
+NTSaverage :					15 %X
+
+%% Questions EVA %%
+EVAtense :						21 %X
+EVAfeel :						22 %X
+EVAmood : 						23 %X
+EVAhurt : 						24 %X
+EVAaverage :					25 %X
+
+%% Questions TP %%
+TPOnoff :						31 %X
+TPSelfother :					32 %X
+TPTime :						33 %X
+TPValence :						34 %X
+TPConfidance :					35 %X
+TPaverage :						36 %X 
+
+%% Sart %%
+SartNonTargetItem :				41 %X
+SartTargetItem :				42 %X
+SartLastItem :					43 %X
+SartCorrectClick :				44 %X
+SartIncorrectClick :			45 %X
+
+%% Cyberball %%
+PlayerToComputer :				51 %X
+ComputerToComputer :			52 %X
+ComputerToPlayer :				53 %X
+Reiceved :				54 %X
+
+%% Answers %%
+question Answer / average : 	100-200 %X
