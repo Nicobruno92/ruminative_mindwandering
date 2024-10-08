@@ -2,10 +2,11 @@
 #SBATCH --job-name=EEGPreprocessing
 #SBATCH --output=logs/preprocessing_%A_%a.out
 #SBATCH --error=logs/preprocessing_%A_%a.err
-#SBATCH --cpus-per-task=24
+#SBATCH --cpus-per-task=5
 #SBATCH --time=72:00:00
-#SBATCH --mem=64G
+#SBATCH --mem=16G
 #SBATCH --chdir=/network/lustre/iss02/home/nicolas.bruno/
+#SBATCH --array=0-167  # Adjust array size (subjects * tasks)
 module load conda
 activate my_eeg
 
@@ -22,8 +23,5 @@ task=${tasks[$task_idx]}
 
 echo "Processing subject $subject for task $task"
 
-# Load necessary modules (if applicable)
-module load python/3.8  # Adjust based on your environment
-
 # Run the Python script with the current subject and task
-python preprocess_subject_task.py $subject $task
+python Preprocessing/cluster_preprocessing,py $subject $task
