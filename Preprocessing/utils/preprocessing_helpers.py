@@ -12,7 +12,7 @@ def set_chs_montage(raw):
     raw.set_channel_types(eog_chs)
     
     try:
-        montage_file = './Preprocessing/CACS-64_REF.bvef'
+        montage_file = './depressed_mindwandering/Preprocessing/CACS-64_REF.bvef'
     except:
         montage_file = './CACS-64_REF.bvef'
 

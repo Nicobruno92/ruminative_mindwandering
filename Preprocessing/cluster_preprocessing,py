@@ -28,8 +28,8 @@ subject = f'S0{subject_id}'
 task = sys.argv[2]
 data = 'eeg'
 
-data_root = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/"
-raw_path = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/_RAW_DATA/"
+data_root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
+raw_path = os.path.join(data_root,"_RAW_DATA")
 
 # Initialize dataframe
 df = pd.DataFrame(columns=['subject', 'task', 'data', 'status'])
@@ -359,7 +359,7 @@ log_preprocessing.log_detail("epochs_drop_log_description", epochs_ica_clean.dro
 epochs_ica_clean = mne.add_reference_channels(epochs_ica_clean.load_data(), ref_channels=["FCz"])
 
 # Path to your .bvef file
-bvef_file_path = './Preprocessing/CACS-64_withREF.bvef'
+bvef_file_path = './depressed_mindwandering/Preprocessing/CACS-64_withREF.bvef'
 # Load the extended montage
 montage = mne.channels.read_custom_montage(bvef_file_path)
 

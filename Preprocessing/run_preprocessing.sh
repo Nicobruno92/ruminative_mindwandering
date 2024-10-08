@@ -24,4 +24,4 @@ task=${tasks[$task_idx]}
 echo "Processing subject $subject for task $task"
 
 # Run the Python script with the current subject and task
-python Preprocessing/cluster_preprocessing,py $subject $task
+python depressed_mindwandering/Preprocessing/cluster_preprocessing,py $subject $task
