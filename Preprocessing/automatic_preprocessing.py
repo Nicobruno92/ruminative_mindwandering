@@ -428,6 +428,15 @@ for subject_id in subjects_id:
             event_id=event_id,
         )
 
+        evoked_go = epochs_interpolate["go/correct"].pick('eeg').average()
+        evoked_nogo = epochs_interpolate["nogo/correct"].pick('eeg').average()
+
+
+        report = mne.Report(title="Evoked example")
+        report.add_evokeds(
+            evokeds=[evoked_go, evoked_nogo],  # List of evoked
+            titles=["Evoked Go", "Evoked NoGo"],  # Manually specify titles
+        )
         # Save the report as an HTML file
         html_report_fname = make_bids_basename(
             subject=subject_id,
@@ -436,7 +445,7 @@ for subject_id in subjects_id:
             extension=".html",
             desc="autoPreprocReport",
         )
-        report.save(os.path.join(derivative_bids_dir, html_report_fname), overwrite=True)
+        report.save(os.path.join(derivative_bids_dir, html_report_fname), open_browser=False, overwrite=True)
 
         # Save the preprocessing details to the JSON file
         log_preprocessing.save_preprocessing_details()
@@ -449,4 +458,4 @@ for subject_id in subjects_id:
         #     df.loc[len(df)] = {"subject": subject, "session": session, "task": task, "data": data, "status": 'failed preprocessing'}
         #     continue
                 
-        df.to_csv(os.path.join(derivatives_folder, "derivatives", "preprocessing_status.csv"), index=False)
+        df.to_csv(os.path.join(derivatives_folder, "preprocessing_status.csv"), index=False)
