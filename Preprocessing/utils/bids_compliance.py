@@ -1,5 +1,6 @@
 import os
 import json
+import glob
 import pandas as pd
 
 import mne
@@ -8,13 +9,67 @@ from mne_bids.utils import _write_json, _write_tsv
 
 #### BIDS ####
 
-def make_bids_basename(subject, session, task, suffix, extension, desc = None):
+def read_raw_custom(subject, task, root):
+    """
+    Reads raw EEG data from a FieldTrip-preprocessed .mat file without requiring the date parameter.
+
+    Parameters:
+    - subject (str): Subject identifier (e.g., 'S002')
+    - task (str): Task identifier (e.g., 'Sart1', 'Sart2', etc.)
+    - root (str): Root directory of the data (default is 'DATA')
+    - data_name (str): Name of the data variable in the .mat file (default is 'data')
+    - original_data_path (str): Path to the original raw EEG file to extract info.
+
+    Returns:
+    - raw (mne.io.Raw): The raw EEG data with the correct info object.
+    """
+    # Construct the directory path for the subject's EEG data
+    eeg_dir = os.path.join(root, f'sub-{subject}', 'eeg')
+    
+    # Create a search pattern for the .mat files matching the task
+    pattern = f'CYBERSART_*_{task}.vhdr'
+    search_path = os.path.join(eeg_dir, pattern)
+
+    # Find all files matching the pattern
+    matching_files = glob.glob(search_path)
+
+    if not matching_files:
+        raise FileNotFoundError(f"No files found for subject {subject} and task {task} in {eeg_dir}")
+
+    if len(matching_files) > 1:
+        # If multiple files are found, decide how to handle this
+        # For this example, we'll select the first one and print a warning
+        print(f"Warning: Multiple files found for subject {subject} and task {task}. Using the first one.")
+
+    # Select the first matching file
+    eeg_filepath = matching_files[0]
+
+    # Optional: Extract the date from the filename if needed
+    filename = os.path.basename(eeg_filepath)
+    # Filename format: 'CYBERSART_YYYY-MM-DD_Task_eeg.mat'
+    parts = filename.split('_')
+    if len(parts) >= 3:
+        date = parts[1]  # Extract the date part
+    else:
+        date = 'Unknown'
+
+    print(f"Reading data for subject {subject}, task {task}, date {date}")
+
+    # Read the FieldTrip .mat data using the extracted info
+    raw = mne.io.read_raw_brainvision((eeg_filepath))
+    
+    raw.set_meas_date(date)
+
+    return raw
+
+#### BIDS ####
+
+def make_bids_basename(subject, task, suffix, extension, desc = None):
     """
     Create a BIDS-compliant basename.
     
     Parameters:
     subject (str): Subject ID
-    session (str): Session ID
     task (str): Task name
     suffix (str): Data suffix (e.g., 'eeg', 'gaze')
     extension (str): File extension
@@ -23,18 +78,17 @@ def make_bids_basename(subject, session, task, suffix, extension, desc = None):
     str: BIDS-compliant basename
     """
     if desc == None:
-        return f"sub-{subject}_ses-{session}_task-{task}_{suffix}{extension}"
+        return f"sub-{subject}_task-{task}_{suffix}{extension}"
     else:
-        return f"sub-{subject}_ses-{session}_task-{task}_desc-{desc}_{suffix}{extension}"
+        return f"sub-{subject}__task-{task}_desc-{desc}_{suffix}{extension}"
 
 
-def save_raw_bids_compliant(subject, session, task, data_type, raw, root_folder):
+def save_raw_bids_compliant(subject, task, data_type, raw, root_folder):
     """
     Save raw data in BIDS-compliant format using the BrainVision format.
     
     Parameters:
     subject (str): Subject ID
-    session (str): Session ID
     task (str): Task name
     data_type (str): Data type (e.g., 'eeg', 'meg')
     raw (mne.io.Raw): Raw data to be saved
@@ -44,7 +98,6 @@ def save_raw_bids_compliant(subject, session, task, data_type, raw, root_folder)
     if data_type == 'eeg':
         # Define the BIDS path using mne_bids
         bids_path = BIDSPath(subject=subject,
-                            session=session,
                             task=task,
                             datatype=data_type,
                             root=root_folder,
@@ -55,54 +108,8 @@ def save_raw_bids_compliant(subject, session, task, data_type, raw, root_folder)
         # Use the bids_path to save your data
         write_raw_bids(raw, bids_path, format='BrainVision', allow_preload=True, overwrite=True)
         print(f"Data saved at BIDS path: {bids_path}")
-        
-    elif data_type == 'gaze':
-        # Define the BIDS path for gaze data
-        bids_basename = make_bids_basename(subject=subject, session=session, task=task, suffix='gaze', extension='.vhdr')
-        gaze_dir = os.path.join(root_folder, f'sub-{subject}', f'ses-{session}', 'gaze')
-        os.makedirs(gaze_dir, exist_ok=True)
-        gaze_filepath = os.path.join(gaze_dir, bids_basename)
-        
-        # raw.save(gaze_filepath, overwrite=True)
-        mne.export.export_raw(gaze_filepath, raw, fmt='brainvision',add_ch_type=True ,overwrite=True)
-        print(f"Gaze data saved at: {gaze_filepath}")
 
-        # Metadata for gaze data
-        gaze_metadata = {
-            "TaskName": task,
-            "Manufacturer": "Gazepoint GP3",
-            "PowerLineFrequency": "n/a",
-            "SamplingFrequency": raw.info['sfreq'],
-            "SoftwareFilters": "n/a",
-            "RecordingDuration": raw.times[-1],
-            "RecordingType": "continuous",
-            "GazeChannelCount": len(raw.ch_names)
-        }
-        gaze_metadata_path = gaze_filepath.replace('.vhdr', '.json')
-        with open(gaze_metadata_path, 'w') as f:
-            json.dump(gaze_metadata, f, indent=4)
-        print(f"Gaze metadata saved at: {gaze_metadata_path}")
-
-        # Event handling: save events to .tsv
-        events, event_id = mne.events_from_annotations(raw)
-        events_df = pd.DataFrame(events, columns=['onset', 'duration', 'description'])
-        events_path = os.path.join(gaze_dir, f'sub-{subject}_ses-{session}_task-{task}_events.tsv')
-        events_df.to_csv(events_path, sep='\t', index=False)
-        print(f"Events saved at: {events_path}")
-
-        # Event metadata
-        events_metadata = {
-            "onset": {"Description": "Event onset", "Units": "seconds"},
-            "duration": {"Description": "Event duration", "Units": "seconds"},
-            "description": {"Description": "Event description", "event_id": event_id}
-        }
-        events_metadata_path = events_path.replace('.tsv', '.json')
-        with open(events_metadata_path, 'w') as f:
-            json.dump(events_metadata, f, indent=4)
-        print(f"Events metadata saved at: {events_metadata_path}")
-
-
-def save_epoched_bids(epoched_data, root_path, subject, session, task, data, desc, events, event_id):
+def save_epoched_bids(epoched_data, root_path, subject, task, data, desc, events, event_id):
     """
     Save epoched data in BIDS format.
     
@@ -114,8 +121,6 @@ def save_epoched_bids(epoched_data, root_path, subject, session, task, data, des
         The root path of the BIDS dataset.
     subject : str
         Subject ID.
-    session : str
-        Session ID.
     task : str
         Task name.
     desc : str
@@ -125,8 +130,8 @@ def save_epoched_bids(epoched_data, root_path, subject, session, task, data, des
         raise ValueError("epoched_data must be an instance of mne.Epochs")
     
     # Create BIDS path
-    bids_fname = make_bids_basename(subject=subject, session=session, task=task, suffix=data, extension='.fif', desc = desc,)
-    bids_directory = os.path.join(root_path, f"sub-{subject}", f"ses-{session}", data)
+    bids_fname = make_bids_basename(subject=subject, task=task, suffix=data, extension='.fif', desc = desc,)
+    bids_directory = os.path.join(root_path, f"sub-{subject}", data)
     # Ensure the directory exists
     if not os.path.exists(bids_directory):
         os.makedirs(bids_directory)
@@ -137,7 +142,7 @@ def save_epoched_bids(epoched_data, root_path, subject, session, task, data, des
     
     # Create events file
     event_id = event_id
-    events_fname = os.path.join(bids_directory, make_bids_basename(subject=subject, session=session, task=task, suffix= 'events', extension='.tsv', desc = desc))
+    events_fname = os.path.join(bids_directory, make_bids_basename(subject=subject, task=task, suffix= 'events', extension='.tsv', desc = desc))
     events_df = pd.DataFrame(events, columns=['onset', 'duration', 'description'])
     events_df.to_csv(events_fname, sep='\t', index=False)
     print(f"Events saved at: {events_fname}")
@@ -181,7 +186,7 @@ def save_epoched_bids(epoched_data, root_path, subject, session, task, data, des
         json.dump(json_metadata, f, indent=4)
     print(f"Epoch object metadata saved at: {sidecar_json_fname}")
 
-def read_epochs(root_path, subject, session, task, data, desc=None):
+def read_epochs(root_path, subject, task, data, desc=None):
     """
     Read epoched data from a BIDS-compliant file.
     
@@ -191,8 +196,6 @@ def read_epochs(root_path, subject, session, task, data, desc=None):
         Root path to the BIDS dataset.
     subject : str
         Subject ID.
-    session : str
-        Session ID.
     task : str
         Task name.
     data : str
@@ -208,8 +211,8 @@ def read_epochs(root_path, subject, session, task, data, desc=None):
         The events array associated with the epochs.
     """
     # Construct BIDS-compliant file name
-    bids_fname = make_bids_basename(subject=subject, session=session, task=task, suffix=data, extension='.fif', desc=desc)
-    bids_directory = os.path.join(root_path, f"sub-{subject}", f"ses-{session}", data)
+    bids_fname = make_bids_basename(subject=subject, task=task, suffix=data, extension='.fif', desc=desc)
+    bids_directory = os.path.join(root_path, f"sub-{subject}", data)
     
     # Full file path to the epochs file
     bids_path = os.path.join(bids_directory, bids_fname)
@@ -221,7 +224,7 @@ def read_epochs(root_path, subject, session, task, data, desc=None):
     epochs = mne.read_epochs(bids_path, preload=True)
     
     # Load events
-    events_fname = make_bids_basename(subject=subject, session=session, task=task, suffix='events', extension='.tsv', desc=desc)
+    events_fname = make_bids_basename(subject=subject,task=task, suffix='events', extension='.tsv', desc=desc)
     events_path = os.path.join(bids_directory, events_fname)
     
     if not os.path.exists(events_path):
@@ -236,7 +239,7 @@ def read_epochs(root_path, subject, session, task, data, desc=None):
     
     return epochs, events
 
-def save_evoked(evoked, derivatives_folder, subject, session, task, data, stim, resp, mind, conf, immersion):
+def save_evoked(evoked, derivatives_folder, subject, task, data, stim, resp, mind, conf, immersion):
     """
     Saves the evoked object to a specified folder structure.
 
@@ -244,7 +247,6 @@ def save_evoked(evoked, derivatives_folder, subject, session, task, data, stim, 
     evoked (mne.Evoked): The evoked object to save.
     derivatives_folder (str): Root folder where the data will be saved.
     subject (str): The subject ID (e.g., '12').
-    session (str): The session ID (e.g., 'b').
     task (str): The task name (e.g., 'sartauditiva').
     data (str): The type of data (e.g., 'eeg').
     stim (str): The stimulus condition (e.g., 'go').
@@ -260,7 +262,6 @@ def save_evoked(evoked, derivatives_folder, subject, session, task, data, stim, 
     output_folder = os.path.join(
         derivatives_folder, 
         f"sub-{subject}", 
-        f"ses-{session}", 
         data,
         'evoked'
     )
@@ -271,7 +272,7 @@ def save_evoked(evoked, derivatives_folder, subject, session, task, data, stim, 
     # Define the filename for the evoked file
     evoked_fname = os.path.join(
         output_folder, 
-        f"sub-{subject}_ses-{session}_task-{task}_cond-{stim}_{resp}_{mind}_{conf}_{immersion}-ave.fif"
+        f"sub-{subject}_task-{task}_cond-{stim}_{resp}_{mind}_{conf}_{immersion}-ave.fif"
     )
     
     # Save the evoked object
@@ -280,14 +281,13 @@ def save_evoked(evoked, derivatives_folder, subject, session, task, data, stim, 
     return evoked_fname  # Return the file path for confirmation or future use
 
 
-def load_evoked(derivatives_folder, subject, session, task, data, stim, resp, mind, conf, immersion):
+def load_evoked(derivatives_folder, subject,task, data, stim, resp, mind, conf, immersion):
     """
     Loads the evoked object from a specified folder structure.
 
     Parameters:
     derivatives_folder (str): Root folder where the data is stored.
     subject (str): The subject ID (e.g., '12').
-    session (str): The session ID (e.g., 'b').
     task (str): The task name (e.g., 'sartauditiva').
     data (str): The type of data (e.g., 'eeg').
     stim (str): The stimulus condition (e.g., 'go').
@@ -303,10 +303,9 @@ def load_evoked(derivatives_folder, subject, session, task, data, stim, resp, mi
     evoked_fname = os.path.join(
         derivatives_folder, 
         f"sub-{subject}", 
-        f"ses-{session}", 
         data,
         'evoked',
-        f"sub-{subject}_ses-{session}_task-{task}_cond-{stim}_{resp}_{mind}_{conf}_{immersion}-ave.fif"
+        f"sub-{subject}_task-{task}_cond-{stim}_{resp}_{mind}_{conf}_{immersion}-ave.fif"
     )
     
     # Check if the file exists

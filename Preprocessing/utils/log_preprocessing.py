@@ -3,10 +3,9 @@ import os
 import numpy as np
 
 class LogPreprocessingDetails:
-    def __init__(self, json_path, subject, session, task):
+    def __init__(self, json_path, subject, task):
         self.json_path = json_path
         self.subject = subject
-        self.session = session
         self.task = task
         self.logs = self.load_preprocessing_details()
 
@@ -41,24 +40,22 @@ class LogPreprocessingDetails:
     def initialize_log_structure(self):
         if self.subject not in self.logs:
             self.logs[self.subject] = {}
-        if self.session not in self.logs[self.subject]:
-            self.logs[self.subject][self.session] = {}
-        if self.task not in self.logs[self.subject][self.session]:
-            self.logs[self.subject][self.session][self.task] = {}
+        if self.task not in self.logs[self.subject]:
+            self.logs[self.subject][self.task] = {}
 
     def log_detail(self, key, value):
         self.initialize_log_structure()
         if isinstance(value, np.ndarray):
             value = value.tolist()  # Convert numpy arrays to lists
-        self.logs[self.subject][self.session][self.task][key] = value
+        self.logs[self.subject][self.task][key] = value
 
     def get_log(self):
         self.initialize_log_structure()
-        return self.logs[self.subject][self.session][self.task]
+        return self.logs[self.subject][self.task]
     
     def import_bad_channels_another_task(self):
         self.initialize_log_structure()
-        for other_task, details in self.logs[self.subject][self.session].items():
+        for other_task, details in self.logs[self.subject].items():
             if other_task != self.task and 'interpolated_channels' in details:
                 return details['interpolated_channels']
             else:

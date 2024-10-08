@@ -19,7 +19,9 @@ from mne_icalabel import label_components
 
 # Import helper functions for preprocessing
 from utils.log_preprocessing import LogPreprocessingDetails
-from utils import bids_compliance
+from utils.bids_compliance import read_raw_custom, save_raw_bids_compliant, save_epoched_bids,make_bids_basename
+from utils.preprocessing_helpers import set_chs_montage
+from utils.trigger_correction import TriggerCorrector
 
 """
 The following script performs EEG data preprocessing through several steps:
@@ -35,385 +37,416 @@ The following script performs EEG data preprocessing through several steps:
 10. Rereferenced to grand average
 """
 
-df = pd.DataFrame(columns = ['subject', 'session', 'task', 'data', 'status'])
+df = pd.DataFrame(columns = ['subject', 'task', 'data', 'status'])
 
 ##################################
 #####          LOAD          #####
 ##################################
-# Get the current working directory
-cwd = os.getcwd()
-
-# Assuming the script is run from within the repository
-repo = Repo(os.getcwd(), search_parent_directories=True)
-repo_root = repo.git.rev_parse("--show-toplevel")
-
+data_root ="//l2export/iss02.cenir/analyse/meeg/CYBERSART/"
 # Define the file path components
-results_folder = os.path.join(repo_root, 'results')
-# print_dir_tree(os.path.join(repo_root, results_folder,return_str = False))
+raw_path ="//l2export/iss02.cenir/analyse/meeg/CYBERSART/_RAW_DATA/"
 
-subjects = [str(i) if i > 9 else "0"+str(i) for i in range(1, 25)]
-sessions = ["a", "b"]
-tasks = ['sartauditiva', 'sartvisual']
+
+#select subject and task
+subjects_id = [str(i) if i > 9 else "0"+str(i) for i in range(2, 43)]
+tasks = ['Sart1', 'Sart2', 'Sart3', 'Sart4']
 data = "eeg"
 
 
 #%%
-for subject in subjects:
-    for session in sessions:
-        for task in tasks:
-            print(f"Processing subject {subject} for session {session} and {task}")
-            try:
-                #convert multi XDF to .vhdr
-                read_lsl(results_folder, subject, session)
-                # Create a BIDSPath object
-                bids_path = BIDSPath(
-                    subject=subject,
-                    session=session,
-                    task=task,
-                    datatype=data,
-                    suffix=data,
-                    extension=".vhdr",
-                    root=results_folder,
-                )
-                print(bids_path)
+for subject_id in subjects_id:
+    subject = f'S0{subject_id}'
+    for task in tasks:
+        print(f"Processing subject {subject} for {task}")
+        # try:
+        # Define the BIDS path for the raw data
+        ##################################
+        #####      FOR SAVING        #####
+        ##################################
+        # Defining the paths for saving results and raw data
+        derivatives_folder = os.path.join(data_root, "derivatives_nico")
+        derivative_bids_dir = os.path.join(derivatives_folder, f"sub-{subject_id}", "eeg")
+        os.makedirs(derivative_bids_dir, exist_ok=True)
 
-                ##################################
-                #####      FOR SAVING        #####
-                ##################################
+        # Initialize a report to document the preprocessing steps
+        report = mne.Report(
+            title=f"Preprocessing sub-{subject_id} for {task}", verbose = False
+        )
 
-                # Defining the paths for saving results and raw data
-                derivatives_folder = os.path.join(repo_root, "derivatives")
-                bids_dir = os.path.join(derivatives_folder, f"sub-{subject}", f"ses-{session}", "eeg")
-                os.makedirs(bids_dir, exist_ok=True)
+        # Path to the JSON file where preprocessing details will be stored
+        json_path = os.path.join(
+            derivatives_folder, "logs_preprocessing_details_all_subjects_eeg.json"
+        )
 
-                # Initialize a report to document the preprocessing steps
-                report = mne.Report(
-                    title=f"Preprocessing sub-{subject} for session {session} and {task}"
-                )
+        # Initialize the logging class
+        log_preprocessing = LogPreprocessingDetails(json_path, subject_id, task)
 
-                # Path to the JSON file where preprocessing details will be stored
-                json_path = os.path.join(
-                    repo_root, derivatives_folder, "logs_autopreprocessing_details_all_subjects_eeg.json"
-                )
+        ##################################
+        ########   1.READ RAW   ##########
+        ##################################
+        raw = read_raw_custom(subject,task, root=raw_path)
 
-                # Initialize the logging class
-                log_preprocessing = LogPreprocessingDetails(json_path, subject, session, task)
+        #set channel montage
+        raw = set_chs_montage(raw)
 
-                ##################################
-                ########   1.READ RAW   ##########
-                ##################################
+        # import bad chs from another task of same session
+        # Important to check if also bad!!!
+        raw.info["bads"] = log_preprocessing.import_bad_channels_another_task()
 
-                # Read Raw bids
-                raw = read_raw_bids(bids_path)
+        print(raw.info)
 
-                # import bad chs from another task of same session
-                # Important to check if also bad!!!
-                raw.info["bads"] = log_preprocessing.import_bad_channels_another_task()
+        # Plot sensor location in the scalp
+        # raw.plot_sensors(show_names=True)
+        # plt.show()
 
-                print(raw.info)
+        # Add the raw data info to the report
+        report.add_raw(raw=raw, title="Raw", psd=True)
 
-                # Add the raw data info to the report
-                report.add_raw(raw=raw, title="Raw", psd=True)
+        # Log the raw data info
+        log_preprocessing.log_detail("info", str(raw.info))
 
-                # Log the raw data info
-                log_preprocessing.log_detail("info", str(raw.info))
+        # %% [markdown]
+        # # 2.FILTERING
 
-                # %% 2.FILTERING
-                ##################################
-                #         2.FILTERING            #
-                ##################################
+        # %%
+        # Apply a band-pass filter to keep frequencies between 1 and 45 Hz
+        hpass = 0.5
+        lpass = 45
+        raw_filtered = raw.load_data().copy().notch_filter(np.arange(50, 250, 50)).filter(l_freq=hpass, h_freq=lpass)
 
-                # Apply a band-pass filter to keep frequencies between 1 and 45 Hz
-                hpass = 0.5
-                lpass = 45
-                raw_filtered = raw.load_data().copy().notch_filter(np.arange(50, 250, 50)).filter(l_freq=hpass, h_freq=lpass)
+        # Save the filtered data
+        # bids_path.update(root = derivatives_folder, description = 'filtered')
+        # write_raw_bids(raw_filtered, bids_path, format='BrainVision', allow_preload=True, overwrite=True)
 
-                # Save the filtered data
-                # bids_path.update(root = derivatives_folder, description = 'filtered')
-                # write_raw_bids(raw_filtered, bids_path, format='BrainVision', allow_preload=True, overwrite=True)
+        # Log the filter settings
+        log_preprocessing.log_detail("hpass_filter", hpass)
+        log_preprocessing.log_detail("lpass_filter", lpass)
+        log_preprocessing.log_detail("filter_type", "bandpass")
 
-                # Log the filter settings
-                log_preprocessing.log_detail("hpass_filter", hpass)
-                log_preprocessing.log_detail("lpass_filter", lpass)
-                log_preprocessing.log_detail("filter_type", "bandpass")
+        # %% [markdown]
+        # # 3.Visual inspection of CHs
 
-                # Add the filtered data to the report
-                report.add_raw(raw=raw_filtered, title="Filtered Raw", psd=True)
+        # %%
+        # Plots PSD of the raw data
+        # raw_filtered.compute_psd().plot()
 
-                #automatically mark bad channels
-                nd = NoisyChannels(raw_filtered,do_detrend = False, random_state=42)
-                nd.find_all_bads(ransac=True, channel_wise=True) #if it slows down, set channel_wise to False
-                bads = nd.get_bads()
-                print(f"Bad channels detected: {bads}")
-                if bads != None:
-                    raw_filtered.info["bads"] = bads
+        #automatically mark bad channels
+        nd = NoisyChannels(raw_filtered,do_detrend = False, random_state=42)
+        nd.find_all_bads(ransac=True, channel_wise=True) #if it slows down, set channel_wise to False
+        bads = nd.get_bads()
+        print(f"Bad channels detected: {bads}")
+        if bads != None:
+            raw_filtered.info["bads"] = bads
 
+        # Plot the filtered data for visual inspection to identify bad channels
+        # raw_filtered.plot(n_channels=32)
+        # plt.show(block=True)
 
-                # Log the identified bad channels
-                log_preprocessing.log_detail("bad_channels", raw_filtered.info["bads"])
+        # Add the filtered data to the report
+        report.add_raw(raw=raw_filtered, title="Filtered Raw", psd=True)
 
-                # %%
-                ##################################
-                ######    LOAD TRIGGGERS   #######
-                ##################################
-                # Filter annotations by description
-                filtered_annotations = mne.Annotations(onset=[], duration=[], description=[])
+        # Log the identified bad channels
+        log_preprocessing.log_detail("bad_channels", raw_filtered.info["bads"])
 
-                for ann in raw_filtered.annotations:
-                    if "go/" in ann["description"] or "nogo/" in ann["description"]:
-                        filtered_annotations.append(ann["onset"], ann["duration"], ann["description"])
+        # %% [markdown]
+        # # 4. EPOCHING
 
-                raw_filtered.set_annotations(filtered_annotations)
+        # %%
+        ##################################
+        ######    LOAD TRIGGGERS   #######
+        ##################################
+        # recode annotations
+        processor = TriggerCorrector(raw_filtered)
+        # get the recoded events and event_id
+        events, event_id = processor.process_annotations()
+        #filter out all non go nogo events
+        # Filter the event_id for 'go' and 'nogo' events
+        go_nogo_event_id = {key: value for key, value in event_id.items() if 'go' in key or 'nogo' in key}
 
-                events, event_id = mne.events_from_annotations(raw_filtered)
+        # Segment the continuous data into epochs of 2 seconds
+        tmin = -0.3
+        tmax = 1.2
+        # baseline correction should be done after ICA
+        epochs = mne.Epochs(
+            raw_filtered,
+            events=events,
+            event_id=go_nogo_event_id,
+            tmin=tmin,
+            tmax=tmax,
+            preload=False,
+            verbose=False,
+        )
 
-                # %%
-                # 4-EPOCHING
-                ##################################
-                #########    4.EPOCHS   ##########
-                ##################################
-                # Segment the continuous data into epochs of 2 seconds
-                tmin = -0.3
-                tmax = 1.2
-                # baseline correction should be done after ICA
-                epochs = mne.Epochs(
-                    raw_filtered,
-                    events=events,
-                    event_id=event_id,
-                    tmin=tmin,
-                    tmax=tmax,
-                    preload=False,
-                    verbose=False,
-                    baseline = None
-                )
+        # Save the epoched data
+        # bids_compliance.save_epoched_bids(epochs, derivatives_folder, subject, session,
+        #                                   task, data, desc = 'epoched', events = events, event_id =event_id)
 
-                # Save the epoched data
-                # bids_compliance.save_epoched_bids(epochs, derivatives_folder, subject, session,
-                #                                   task, data, desc = 'epoched', events = events, event_id =event_id)
+        # Add the epochs to the report
+        report.add_epochs(epochs=epochs, title="Epochs")
 
-                # Add the epochs to the report
-                report.add_epochs(epochs=epochs, title="Epochs")
+        # Log the number of epochs and their duration
+        log_preprocessing.log_detail("n_epochs", len(epochs))
+        log_preprocessing.log_detail("tmin", tmin)
+        log_preprocessing.log_detail("tmax", tmax)
 
-                # Log the number of epochs and their duration
-                log_preprocessing.log_detail("n_epochs", len(epochs))
-                log_preprocessing.log_detail("tmin", tmin)
-                log_preprocessing.log_detail("tmax", tmax)
+        # %% [markdown]
+        # # 5. Reject Bad Epochs 1
 
-                # %%
-                # REJECT EPOCHS
-                ##################################
-                ######    REJECT EPOCHS   ########
-                ##################################
+        # %%
+        # TODO: add rejection for acceloremeter (available from sub 14 onwards)
+        folds=10 # increase for more accuracy or decrease for speed
+        # Automatically reject bad epochs using AutoReject
+        ar = AutoReject(thresh_method="bayesian_optimization", cv = folds, random_state=42, n_jobs = -1, )
+        epochs_clean = ar.fit_transform(epochs)
+        reject = get_rejection_threshold(epochs)
 
-                # TODO: add rejection for acceloremeter (available from sub 14 onwards)
-                folds=10 # increase for more accuracy or decrease for speed
-                # Automatically reject bad epochs using AutoReject
-                ar = AutoReject(thresh_method="bayesian_optimization", cv = folds, random_state=42, n_jobs = -1, )
-                epochs_clean = ar.fit_transform(epochs)
-                reject = get_rejection_threshold(epochs)
+        # ar.get_reject_log(epochs).plot('horizontal')
 
-                # Log the epochs rejected by AutoReject
-                ar_reject_epochs = [
-                    n_epoch
-                    for n_epoch, log in enumerate(epochs_clean.drop_log)
-                    if log == ("AUTOREJECT",)
-                ]
+        # Log the epochs rejected by AutoReject
+        ar_reject_epochs = [
+            n_epoch
+            for n_epoch, log in enumerate(epochs_clean.drop_log)
+            if log == ("AUTOREJECT",)
+        ]
 
-                log_preprocessing.log_detail("autoreject_epochs", ar_reject_epochs)
-                log_preprocessing.log_detail("autoreject_threshold", reject)
-                log_preprocessing.log_detail("len_autoreject_epochs", len(ar_reject_epochs))
+        log_preprocessing.log_detail("autoreject_epochs", ar_reject_epochs)
+        log_preprocessing.log_detail("autoreject_threshold", reject)
+        log_preprocessing.log_detail("len_autoreject_epochs", len(ar_reject_epochs))
 
-                # Add the cleaned epochs to the report
-                report.add_epochs(epochs=epochs_clean, title="Epochs clean", psd=False)
+        # %%
+        # epochs_clean = epochs  # to skip autoreject
+        # ar_reject_epochs = []  # to skip autoreject
+        #Manually inspect and reject bad epochs
+        # epochs_clean.plot(n_channels=32)
+        # plt.show(block=True)
 
-                # Save the cleaned epochs
-                epochs_clean.drop_bad()
-                # bids_compliance.save_epoched_bids(epochs_clean, derivatives_folder, subject, session,
-                #                                   task, data, desc = 'epochedClean', events = events, event_id =event_id)
+        # Log the epochs rejected manually
+        manual_reject_epochs = [
+            n_epoch for n_epoch, log in enumerate(epochs_clean.drop_log) if log == ("USER",)
+        ]
+        print(f"Manually rejected epochs: {manual_reject_epochs}")
+        total_epochs_rejected = (
+            (len(ar_reject_epochs) + len(manual_reject_epochs)) / len(epochs) * 100
+        )
+        print(f"Total epochs rejected: {total_epochs_rejected}%")
+        log_preprocessing.log_detail("manual_reject_epochs", manual_reject_epochs)
+        log_preprocessing.log_detail("len_manual_reject_epochs", len(manual_reject_epochs))
 
-                # %%
-                ##################################
-                ######         ICA        ########
-                ##################################
-                # Parameters for ICA (Independent Component Analysis) to remove artifacts
-                n_components = 0.99
-                method = "picard"  # The algorithm to use for ICA
-                max_iter = (
-                    "auto"  # Maximum number of iterations; typically should be higher, like 500 or 1000
-                )
-                random_state = 42  # Seed for random number generator for reproducibility
+        # Plot the drop log for further inspection
+        # epochs_clean.plot_drop_log()
 
-                # Initialize the ICA object with the specified parameters
-                ica = mne.preprocessing.ICA(
-                    n_components=n_components,
-                    method=method,
-                    max_iter=max_iter,
-                    random_state=random_state,
-                )
+        # Add the cleaned epochs to the report
+        report.add_epochs(epochs=epochs_clean, title="Epochs clean", psd=False)
 
-                # Fit the ICA model to the cleaned epochs
-                ica.fit(epochs_clean)
+        # Save the cleaned epochs
+        epochs_clean.drop_bad()
+        # bids_compliance.save_epoched_bids(epochs_clean, derivatives_folder, subject, session,
+        #                                   task, data, desc = 'epochedClean', events = events, event_id =event_id)
 
-                # Find EOG artifacts in the data via pattern matching
-                eog_components, eog_scores = ica.find_bads_eog(
-                    inst=epochs_clean,
-                    ch_name="R_EYE",
-                )
+        # %% [markdown]
+        # # 6. Independent Component Analysis (ICA)
 
-                # Find ECG artifacts in the data via pattern matching
-                ecg_components, ecg_scores = ica.find_bads_ecg(
-                    inst=epochs_clean,
-                    ch_name="ECG",
-                )
+        # %%
+        # raw.plot()
 
-                # Find muscle artifacts in the data via pattern matching
-                muscle_components, muscle_scores = ica.find_bads_muscle(epochs_clean, threshold=0.7)
+        # %%
+        # Parameters for ICA (Independent Component Analysis) to remove artifacts
+        n_components = 0.99
+        method = "picard"  # The algorithm to use for ICA
+        max_iter = (
+            "auto"  # Maximum number of iterations; typically should be higher, like 500 or 1000
+        )
+        random_state = 42  # Seed for random number generator for reproducibility
 
-                # Get the labels from ICLabel
-                ic_labels = label_components(epochs_clean, ica, method="iclabel")
+        # Initialize the ICA object with the specified parameters
+        ica = mne.preprocessing.ICA(
+            n_components=n_components,
+            method=method,
+            max_iter=max_iter,
+            random_state=random_state,
+        )
 
-                # Extract ICA component labels
-                label_names = ic_labels['labels']
+        # Fit the ICA model to the cleaned epochs
+        ica.fit(epochs_clean)
 
-                # Combine all artifact components from the pattern matching methods
-                pattern_matching_artifacts = np.unique(ecg_components + eog_components + muscle_components)
+        # find EOG artifacts in the data via pattern matching, and exclude the EOG-related ICA components
+        eog_components, eog_scores = ica.find_bads_eog(
+            inst=epochs_clean,
+            ch_name=["VEOG","HEOG"]  # a channel close to the eye
+            # threshold=1  # lower than the default threshold
+        )
+        print(f"EOG components detected: {eog_components}")
 
-                # Identify the ICA components that correspond to a 'channel noise' in ICLabel
-                channel_artifact_indices = [i for i, label in enumerate(label_names) if label == 'channel noise']
+        # find muscle artifacts in the data via pattern matching, and exclude the muscle-related ICA components
+        muscle_components, muscle_scores = ica.find_bads_muscle(epochs_clean, threshold=0.7)
+        print(f"Muscle components detected: {muscle_components}")
+        # ica.plot_scores(muscle_scores, exclude=muscle_components)
 
-                # Find components that coincide between pattern matching and ICLabel output for exclusion
-                # We'll only exclude components that match the artifacts found via pattern matching 
-                # and are classified as 'muscle artifact', 'eye blink', 'heart beat', or 'channel noise'
-                to_exclude = []
-                for idx in pattern_matching_artifacts:
-                    if label_names[idx] in ['muscle artifact', 'eye blink', 'heart beat', 'channel noise']:
-                        to_exclude.append(idx)
+        # Combine all artifact components from the pattern matching methods
+        pattern_matching_artifacts = np.unique(eog_components + muscle_components)
 
-                # Also ensure to include 'channel noise' components that were found only by ICLabel
-                to_exclude = np.unique(to_exclude + channel_artifact_indices)
+        ##### Classify the components using ICLabel model #######
+        # run the model on the ICA components
+        ic_labels = label_components(epochs_clean, ica, method="iclabel")
+        # print labels of each component
+        print("Classification of all ICA components. Results:")
+        print(ic_labels["labels"])
 
-                # Exclude the selected components
-                ica.exclude = to_exclude.tolist()
+        # Extract ICA component labels
+        label_names = ic_labels['labels']
 
-                # Print the components being excluded
-                print(f"Components being excluded: {ica.exclude}")
-                # Add the ICA results to the report
-                report.add_ica(ica, title="ICA", inst=epochs_clean)
-
-                # Apply the ICA solution to the cleaned epochs
-                epochs_ica = ica.apply(inst=epochs_clean)
-
-                # Log the ICA parameters and excluded components
-                log_preprocessing.log_detail("ica_components", ica.exclude)
-                log_preprocessing.log_detail("ica_method", method)
-                log_preprocessing.log_detail("ica_max_iter", max_iter)
-                log_preprocessing.log_detail("ica_random_state", random_state)
+        # Identify the ICA components that correspond to a 'channel noise' in ICLabel
+        channel_artifact_indices = [i for i, label in enumerate(label_names) if label == 'channel noise']
+        cardiac_artifact_indices = [i for i, label in enumerate(label_names) if label == 'heart']
 
 
-                ##### FINAL EPOCH CLEANING #######
-                baseline = (-0.3, 0)  # to be done after ICA
-                epochs_ica.apply_baseline(baseline)
-                log_preprocessing.log_detail("baseline", baseline)
-
-
+        # Find components that coincide between pattern matching and ICLabel output for exclusion
+        # We'll only exclude components that match the artifacts found via pattern matching 
+        # and are classified as 'muscle artifact', 'eye blink', 'heart beat', or 'channel noise'
+        to_exclude = []
+        for idx in pattern_matching_artifacts:
+            if label_names[idx] in ['muscle artifact', 'eye blink', 'heart beat', 'channel noise']:
+                to_exclude.append(idx)
                 
-                ##################################
-                ######    REJECT EPOCHS   ########
-                ##################################
-                # TODO: add rejection for acceloremeter (available from sub 14 onwards)
-                folds=10 # increase for more accuracy or decrease for speed
-                # Automatically reject bad epochs using AutoReject
-                ar = AutoReject(thresh_method="bayesian_optimization", cv = folds, random_state=42, n_jobs = -1, )
-                epochs_ica_clean = ar.fit_transform(epochs_ica)
-                reject = get_rejection_threshold(epochs_ica)
+        if len(eog_components) > 0 and eog_components[0] < 3:
+            to_exclude.append(eog_components[0])
 
-                # Log the epochs rejected by AutoReject
-                ar_reject_epochs = [
-                    n_epoch
-                    for n_epoch, log in enumerate(epochs_ica_clean.drop_log)
-                    if log == ("AUTOREJECT",)
-                ]
+        # Also ensure to include 'channel noise' components that were found only by ICLabel
+        to_exclude = np.unique(to_exclude + channel_artifact_indices + cardiac_artifact_indices)
 
-                log_preprocessing.log_detail("autoreject_epochs", ar_reject_epochs)
-                log_preprocessing.log_detail("autoreject_threshold", reject)
-                log_preprocessing.log_detail("len_autoreject_epochs", len(ar_reject_epochs))
+        # Exclude the selected components
+        ica.exclude = to_exclude.tolist()
 
-                # Add the cleaned epochs to the report
-                report.add_epochs(epochs=epochs_ica_clean, title="Epochs clean after ICA", psd=False)
+        # (Optional) Plot the ICA components for visual inspection
+        # ica.plot_components(inst=epochs_clean, picks=range(15))
 
-                # Save the cleaned epochs
-                epochs_ica_clean.drop_bad()
+        # Plot the sources identified by ICA
+        # ica.plot_sources(epochs_clean, block=True, show=True)
+        # plt.show(block=True)
+
+        # Add the ICA results to the report
+        report.add_ica(ica, title="ICA", inst=epochs_clean)
+
+        # Apply the ICA solution to the cleaned epochs
+        epochs_ica = ica.apply(inst=epochs_clean)
+
+        # Log the ICA parameters and excluded components
+        log_preprocessing.log_detail("ica_components", ica.exclude)
+        log_preprocessing.log_detail("ica_method", method)
+        log_preprocessing.log_detail("ica_max_iter", max_iter)
+        log_preprocessing.log_detail("ica_random_state", random_state)
+
+        # %%
+        ##################################
+        ######    REJECT EPOCHS   ########
+        ##################################
+        folds=10 # increase for more accuracy or decrease for speed
+        # Automatically reject bad epochs using AutoReject
+        ar = AutoReject(thresh_method="bayesian_optimization", cv = folds, random_state=42, n_jobs = -1, )
+        epochs_ica_clean = ar.fit_transform(epochs_ica)
+        reject = get_rejection_threshold(epochs_ica)
+
+        # Log the epochs rejected by AutoReject
+        ar_reject_epochs = [
+            n_epoch
+            for n_epoch, log in enumerate(epochs_ica_clean.drop_log)
+            if log == ("AUTOREJECT",)
+        ]
+
+        log_preprocessing.log_detail("autoreject_epochs", ar_reject_epochs)
+        log_preprocessing.log_detail("autoreject_threshold", reject)
+        log_preprocessing.log_detail("len_autoreject_epochs", len(ar_reject_epochs))
+
+        # Add the cleaned epochs to the report
+        report.add_epochs(epochs=epochs_ica_clean, title="Epochs clean after ICA", psd=False)
+
+        # Save the cleaned epochs
+        epochs_ica_clean.drop_bad()
+        
+                        # Log the epochs dropped by ICA
+        log_preprocessing.log_detail("epochs_drop_log", epochs_ica_clean.drop_log)
+        log_preprocessing.log_detail("epochs_drop_log_description", epochs_ica_clean.drop_log)
+
+        # Save the epochs after ICA application and drop epochs
+        # bids_compliance.save_epoched_bids(epochs_ica, derivatives_folder, subject, session,
+        #                                   task, data, desc = 'epochedICA', events = events, event_id =event_id)
+
+        # %% [markdown]
+        # # 7. Interpolate Chs and Rereference
+
+        # %%
+        ##################################
+        #######    Rereference   #########
+        ##################################
+        epochs_ica_clean = mne.add_reference_channels(epochs_ica_clean.load_data(), ref_channels=["FCz"])
+
+        # Path to your .bvef file
+        bvef_file_path = './Preprocessing/CACS-64_withREF.bvef'
+        # Load the extended montage
+        montage = mne.channels.read_custom_montage(bvef_file_path)
+
+        # Apply the montage to your raw data
+        epochs_ica_clean.set_montage(montage)
+
+
+        # Rereference the data to the grand average reference
+        epochs_rereferenced, ref_data = mne.set_eeg_reference(
+            inst=epochs_ica_clean, ref_channels="average", copy=True
+        )
+
+        # Add the final epochs to the report
+        report.add_epochs(
+            epochs=epochs_rereferenced, title="Epochs interpolated and rereferenced", psd=True
+        )
+
+        # Log the rereferencing details
+        log_preprocessing.log_detail("rereferenced_channels", "grand_average")
+
+
+        ##################################
+        ######   Interpolate chs  ########
+        ##################################
+        # Interpolate bad channels in the epochs after ICA application
+        epochs_interpolate = epochs_rereferenced.copy().interpolate_bads()
+
+        # Log the interpolated channels
+        log_preprocessing.log_detail("interpolated_channels", epochs_ica.info["bads"])
+
+        # %% [markdown]
+        # # SAVE Preprocessed data 
+
+        # %%
+        # Save the rereferenced epochs
+        save_epoched_bids(
+            epochs_interpolate,
+            derivatives_folder,
+            subject_id,
+            task,
+            data,
+            desc="autoPreproc",
+            events=events,
+            event_id=event_id,
+        )
+
+        # Save the report as an HTML file
+        html_report_fname = make_bids_basename(
+            subject=subject_id,
+            task=task,
+            suffix=data,
+            extension=".html",
+            desc="autoPreprocReport",
+        )
+        report.save(os.path.join(derivative_bids_dir, html_report_fname), overwrite=True)
+
+        # Save the preprocessing details to the JSON file
+        log_preprocessing.save_preprocessing_details()
+
+
+        df.loc[len(df)] = {"subject": subject, "task": task, "data": data, "status": 'preprocessed'}
+
+        # except:
+        #     print(f"Error in subject {subject}")
+        #     df.loc[len(df)] = {"subject": subject, "session": session, "task": task, "data": data, "status": 'failed preprocessing'}
+        #     continue
                 
-                                # Log the epochs dropped by ICA
-                log_preprocessing.log_detail("epochs_drop_log", epochs_ica_clean.drop_log)
-                log_preprocessing.log_detail("epochs_drop_log_description", epochs_ica_clean.drop_log)
-
-                # Save the epochs after ICA application and drop epochs
-                # bids_compliance.save_epoched_bids(epochs_ica, derivatives_folder, subject, session,
-                #                                   task, data, desc = 'epochedICA', events = events, event_id =event_id)
-
-                # %%
-                ##################################
-                ######   Interpolate chs  ########
-                ##################################
-                # Interpolate bad channels in the epochs after ICA application
-                epochs_interpolate = epochs_ica_clean.copy().interpolate_bads()
-
-                # Log the interpolated channels
-                log_preprocessing.log_detail("interpolated_channels", epochs_ica_clean.info["bads"])
-
-                ##################################
-                #######    Rereference   #########
-                ##################################
-                # Rereference the data to the grand average reference
-                epochs_rereferenced, ref_data = mne.set_eeg_reference(
-                    inst=epochs_interpolate, ref_channels="average", copy=True
-                )
-
-                # Add the final epochs to the report
-                report.add_epochs(
-                    epochs=epochs_rereferenced, title="Epochs interpolated and rereferenced", psd=True
-                )
-
-                # Log the rereferencing details
-                log_preprocessing.log_detail("rereferenced_channels", "grand_average")
-
-                #######################################
-                #######    SAVE FINAL FILES   #########
-                #######################################
-
-                # Save the rereferenced epochs
-                bids_compliance.save_epoched_bids(
-                    epochs_rereferenced,
-                    derivatives_folder,
-                    subject,
-                    session,
-                    task,
-                    data,
-                    desc="autoPreproc",
-                    events=events,
-                    event_id=event_id,
-                )
-
-                # Save the report as an HTML file
-                html_report_fname = bids_compliance.make_bids_basename(
-                    subject=subject,
-                    session=session,
-                    task=task,
-                    suffix=data,
-                    extension=".html",
-                    desc="autoPreprocReport",
-                )
-                report.save(os.path.join(bids_dir, html_report_fname), open_browser=False,overwrite=True)
-
-                # Save the preprocessing details to the JSON file
-                log_preprocessing.save_preprocessing_details()
-
-                df.loc[len(df)] = {"subject": subject, "session": session, "task": task, "data": data, "status": 'preprocessed'}
-
-            except:
-                print(f"Error in subject {subject}")
-                df.loc[len(df)] = {"subject": subject, "session": session, "task": task, "data": data, "status": 'failed preprocessing'}
-                continue
-                    
-            df.to_csv(os.path.join(repo_root, "derivatives", "preprocessing_status.csv"), index=False)
+        df.to_csv(os.path.join(derivatives_folder, "derivatives", "preprocessing_status.csv"), index=False)
