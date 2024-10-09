@@ -4,10 +4,10 @@
 #SBATCH --error=logs/preprocessing_%A_%a.err
 #SBATCH --cpus-per-task=5
 #SBATCH --time=72:00:00
-#SBATCH --mem=16G
+#SBATCH --mem=64G
 #SBATCH --chdir=/network/lustre/iss02/home/nicolas.bruno/
 #SBATCH --array=0-167  # Adjust array size (subjects * tasks)
-module load conda
+module load anaconda
 activate my_eeg
 
 # Define subjects and tasks

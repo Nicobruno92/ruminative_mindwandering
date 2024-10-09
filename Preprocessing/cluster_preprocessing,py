@@ -410,10 +410,10 @@ evoked_go = epochs_interpolate["go/correct"].pick('eeg').average()
 evoked_nogo = epochs_interpolate["nogo/correct"].pick('eeg').average()
 
 
-report = mne.Report(title="Evoked example")
+p300_evoked = mne.combine_evoked([epochs_interpolate['go/correct'].average(), epochs_interpolate['nogo/correct'].average()], weights = [1,-1])
 report.add_evokeds(
-    evokeds=[evoked_go, evoked_nogo],  # List of evoked
-    titles=["Evoked Go", "Evoked NoGo"],  # Manually specify titles
+    evokeds=[p300_evoked],  # List of evoked
+    titles=["Evoked P300 Go/Nogo"],  # List of titles
 )
 
 # Save the report as an HTML file
