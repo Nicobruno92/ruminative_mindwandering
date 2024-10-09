@@ -8,6 +8,7 @@
 #SBATCH --chdir=/network/lustre/iss02/home/nicolas.bruno/
 #SBATCH --array=0-167  # Adjust array size (subjects * tasks)
 module load anaconda
+module load CUDA/12.1
 activate my_eeg
 
 # Define subjects and tasks
