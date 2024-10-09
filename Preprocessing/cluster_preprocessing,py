@@ -24,7 +24,7 @@ from utils.trigger_correction import TriggerCorrector
 
 # Read the subject and task from the command-line arguments
 subject_id = sys.argv[1]
-subject = f'S0{subject_id}'
+subject = f"S0{subject_id}"
 task = sys.argv[2]
 data = 'eeg'
 
