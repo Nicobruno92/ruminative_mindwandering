@@ -29,6 +29,7 @@ task = sys.argv[2]
 data = 'eeg'
 
 data_root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
+
 raw_path = os.path.join(data_root,"_RAW_DATA")
 
 # Initialize dataframe
@@ -432,4 +433,4 @@ log_preprocessing.save_preprocessing_details()
 # Save the final status of the preprocessing to the dataframe
 df.loc[len(df)] = {"subject": subject_id, "task": task, "data": 'eeg', "status": 'preprocessed'}
 
-df.to_csv(os.path.join(derivatives_folder, "derivatives", "preprocessing_status.csv"), index=False)
+df.to_csv(os.path.join(derivatives_folder,"preprocessing_status.csv"), index=False)

@@ -239,21 +239,17 @@ def read_epochs(root_path, subject, task, data, desc=None):
     
     return epochs, events
 
-def save_evoked(evoked, derivatives_folder, subject, task, data, stim, resp, mind, conf, immersion):
+
+def save_evokeds(evokeds, derivatives_folder, subject, task, data):
     """
-    Saves the evoked object to a specified folder structure.
+    Saves a list of evoked objects to a specified folder structure in one file.
 
     Parameters:
-    evoked (mne.Evoked): The evoked object to save.
+    evokeds (list of mne.Evoked): List of evoked objects to save.
     derivatives_folder (str): Root folder where the data will be saved.
     subject (str): The subject ID (e.g., '12').
     task (str): The task name (e.g., 'sartauditiva').
     data (str): The type of data (e.g., 'eeg').
-    stim (str): The stimulus condition (e.g., 'go').
-    resp (str): The response condition (e.g., 'correct').
-    mind (str): The mind condition (e.g., 'on-task').
-    conf (str): The confidence condition (e.g., 'very confident').
-    immersion (str): The immersion condition (e.g., 'completely immersed').
 
     Returns:
     str: The full path to the saved file.
@@ -263,7 +259,6 @@ def save_evoked(evoked, derivatives_folder, subject, task, data, stim, resp, min
         derivatives_folder, 
         f"sub-{subject}", 
         data,
-        'evoked'
     )
     
     # Create the directory if it doesn't exist
@@ -272,47 +267,37 @@ def save_evoked(evoked, derivatives_folder, subject, task, data, stim, resp, min
     # Define the filename for the evoked file
     evoked_fname = os.path.join(
         output_folder, 
-        f"sub-{subject}_task-{task}_cond-{stim}_{resp}_{mind}_{conf}_{immersion}-ave.fif"
+        f"sub-{subject}_task-{task}_evokeds-ave.fif"
     )
     
-    # Save the evoked object
-    evoked.save(evoked_fname)
+    # Save all the evoked objects into one file
+    mne.write_evokeds(evoked_fname, evokeds)
     
     return evoked_fname  # Return the file path for confirmation or future use
 
-
-def load_evoked(derivatives_folder, subject,task, data, stim, resp, mind, conf, immersion):
+def load_evokeds(derivatives_folder, subject, task, data):
     """
-    Loads the evoked object from a specified folder structure.
+    Loads evoked responses from a saved evoked file.
 
     Parameters:
-    derivatives_folder (str): Root folder where the data is stored.
+    derivatives_folder (str): Root folder where the data is saved.
     subject (str): The subject ID (e.g., '12').
     task (str): The task name (e.g., 'sartauditiva').
     data (str): The type of data (e.g., 'eeg').
-    stim (str): The stimulus condition (e.g., 'go').
-    resp (str): The response condition (e.g., 'correct').
-    mind (str): The mind condition (e.g., 'on-task').
-    conf (str): The confidence condition (e.g., 'very confident').
-    immersion (str): The immersion condition (e.g., 'completely immersed').
 
     Returns:
-    evoked (mne.Evoked): The loaded evoked object, or None if file does not exist.
+    list of mne.Evoked: A list of evoked objects for different conditions.
     """
-    # Define path for loading the evoked data
+    # Define the filename for the evoked file
     evoked_fname = os.path.join(
         derivatives_folder, 
         f"sub-{subject}", 
         data,
         'evoked',
-        f"sub-{subject}_task-{task}_cond-{stim}_{resp}_{mind}_{conf}_{immersion}-ave.fif"
+        f"sub-{subject}_task-{task}_evokeds-ave.fif"
     )
     
-    # Check if the file exists
-    if os.path.exists(evoked_fname):
-        # Load the evoked object
-        evoked = mne.read_evokeds(evoked_fname, verbose=False)  # Assuming the first evoked object
-        return evoked
-    else:
-        print(f"Evoked file not found: {evoked_fname}")
-        return None  # Return None if the file doesn't exist
+    # Load the evoked data
+    evokeds = mne.read_evokeds(evoked_fname)
+    
+    return evokeds
