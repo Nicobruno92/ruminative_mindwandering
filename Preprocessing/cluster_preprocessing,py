@@ -407,9 +407,8 @@ save_epoched_bids(
     event_id=event_id,
 )
 
-evoked_go = epochs_interpolate["go/correct"].pick('eeg').average()
-evoked_nogo = epochs_interpolate["nogo/correct"].pick('eeg').average()
-
+# evoked_go = epochs_interpolate["go/correct"].pick('eeg').average()
+# evoked_nogo = epochs_interpolate["nogo/correct"].pick('eeg').average()
 
 p300_evoked = mne.combine_evoked([epochs_interpolate['go/correct'].average(), epochs_interpolate['nogo/correct'].average()], weights = [1,-1])
 report.add_evokeds(

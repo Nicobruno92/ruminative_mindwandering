@@ -240,7 +240,7 @@ def read_epochs(root_path, subject, task, data, desc=None):
     return epochs, events
 
 
-def save_evokeds(evokeds, derivatives_folder, subject, task, data):
+def save_evokeds(evokeds, derivatives_folder, subject, data):
     """
     Saves a list of evoked objects to a specified folder structure in one file.
 
@@ -267,15 +267,15 @@ def save_evokeds(evokeds, derivatives_folder, subject, task, data):
     # Define the filename for the evoked file
     evoked_fname = os.path.join(
         output_folder, 
-        f"sub-{subject}_task-{task}_evokeds-ave.fif"
+        f"sub-{subject}_evokeds-ave.fif"
     )
     
     # Save all the evoked objects into one file
-    mne.write_evokeds(evoked_fname, evokeds)
+    mne.write_evokeds(evoked_fname, evokeds, overwrite=True)
     
     return evoked_fname  # Return the file path for confirmation or future use
 
-def load_evokeds(derivatives_folder, subject, task, data):
+def load_evokeds(derivatives_folder, subject, data):
     """
     Loads evoked responses from a saved evoked file.
 
@@ -293,8 +293,7 @@ def load_evokeds(derivatives_folder, subject, task, data):
         derivatives_folder, 
         f"sub-{subject}", 
         data,
-        'evoked',
-        f"sub-{subject}_task-{task}_evokeds-ave.fif"
+        f"sub-{subject}_evokeds-ave.fif"
     )
     
     # Load the evoked data

@@ -84,6 +84,7 @@ class TriggerCorrector:
         trial_counter = 0
         probe_distance = 0
         passed_probe = False
+        n_probe = 0
 
         # First pass: reverse through the dataframe
         for i in reversed(range(len(self.df))):
@@ -91,9 +92,10 @@ class TriggerCorrector:
             if 'Stimulus/S 36' in self.df.loc[i, 'description']:
                 probe_distance = 0
                 passed_probe = True
+                n_probe += 1
             if passed_probe and recoded_value.startswith(('go', 'nogo')):
                 probe_distance -= 1
-                self.df.loc[i, 'recoded'] = f"{recoded_value}/{probe_distance}"
+                self.df.loc[i, 'recoded'] = f"{recoded_value}/{probe_distance}/probe{n_probe}"
 
         # Second pass: forward through the dataframe
         trial_counter = 0
