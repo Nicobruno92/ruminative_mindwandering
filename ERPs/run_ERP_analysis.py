@@ -15,7 +15,7 @@ from utils.bids_compliance import load_evokeds
 from utils.analysis_helpers import compute_grand_averages, plot_erp
 from ERPs.create_evokeds2 import generate_save_evokeds_parallel
 
-print('packages loaded', flush=True)
+print('packages loaded')
 
 # from utils.bids_compliance import read_epochs, save_evokeds
 
@@ -45,7 +45,7 @@ posterior_roi = ['C3', 'Cz', 'C4', 'P3', 'Pz', 'P4']
 
 #%%
 for metric in offtask_metrics:
-    print(f"Computing grand averages for metric {metric}", flush=True)
+    print(f"Computing grand averages for metric {metric}")
     generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channels=['TP9', 'TP10'], distance=5, split=metric, max_workers=4)
     
     # conditions_of_interest = ['nogo/correct','go/correct']
