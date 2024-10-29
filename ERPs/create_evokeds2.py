@@ -22,8 +22,8 @@ def process_subject(subject, root, tasks, data="eeg", ref_channels=['TP9', 'TP10
     for task in tasks:
         try:
             epochs, events = read_epochs(derivatives_folder, subject, task, data, desc="autoPreproc")
-            # reref_epochs = epochs.set_eeg_reference(ref_channels=ref_channels)
-            epochs_tasks.append(epochs)
+            reref_epochs = epochs.set_eeg_reference(ref_channels=ref_channels)
+            epochs_tasks.append(reref_epochs)
         except Exception as e:
             print(f"Skipping {subject} {task}: {e}")
     
@@ -61,7 +61,7 @@ def generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channe
     """
     Parallelized version to generate and save evoked responses for multiple subjects.
     """
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with ProcessPoolExecutor(max_workers=8) as executor:
         futures = [
             executor.submit(process_subject, subject, root, tasks, data, ref_channels, distance, split)
             for subject in subjects
