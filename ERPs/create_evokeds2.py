@@ -1,6 +1,9 @@
 import os
 import mne
 from concurrent.futures import ProcessPoolExecutor
+
+import sys
+sys.path.insert(0, './')
 from utils.bids_compliance import read_epochs, save_evokeds
 from utils.analysis_helpers import filter_epochs_by_distance_to_probe, classify_onoff_epochs
 
@@ -67,7 +70,8 @@ def generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channe
             future.result()  # Wait for each task to complete
 
 # Usage example:
-root = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/"
+# root = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/"
+root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
 subjects = [f"{i:02}" for i in range(2, 43)]
 tasks = ['Sart1', 'Sart2', 'Sart3', 'Sart4']
 

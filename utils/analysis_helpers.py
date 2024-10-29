@@ -77,20 +77,20 @@ def classify_onoff_epochs(epochs, event_id_prefix="onoff", split="median"):
                     new_event_name = event + "/offtask"
             elif split == "quartiles":
                 if onoff_value <= thresholds[0]:
-                    new_event_name = event + "/Q1"
+                    new_event_name = event + "/offtask"
                 elif onoff_value <= thresholds[1]:
                     new_event_name = event + "/Q2"
                 elif onoff_value <= thresholds[2]:
                     new_event_name = event + "/Q3"
                 else:
-                    new_event_name = event + "/Q4"
+                    new_event_name = event + "/ontask"
             elif split == "tertiles":
                 if onoff_value <= thresholds[0]:
-                    new_event_name = event + "/T1"
+                    new_event_name = event + "/offtask"
                 elif onoff_value <= thresholds[1]:
                     new_event_name = event + "/T2"
                 else:
-                    new_event_name = event + "/T3"
+                    new_event_name = event + "/ontask"
 
             # Add the new event name to the dictionary, replacing the old one
             new_event_dict[new_event_name] = event_dict[event]
