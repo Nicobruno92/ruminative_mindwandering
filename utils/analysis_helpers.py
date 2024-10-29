@@ -64,13 +64,15 @@ def classify_onoff_epochs(epochs, event_id_prefix="onoff", split="median"):
             thresholds = np.percentile(onoff_values, [25, 50, 75])  # 3 thresholds for 4 groups
         elif split == "tertiles":
             thresholds = np.percentile(onoff_values, [33.33, 66.66])  # 2 thresholds for 3 groups
+        elif split == "highlow":
+            thresholds = [50]
         else:
             raise ValueError(f"Invalid split option '{split}'. Choose from 'median', 'mean', 'quartiles', or 'tertiles'.")
 
         # Step 3: Create new event names based on the split
         new_event_dict = {}
         for event, onoff_value in zip(onoff_event_names, onoff_values):
-            if split in ["median", "mean"]:
+            if split in ["median", "mean", "highlow"]:
                 if onoff_value >= thresholds[0]:
                     new_event_name = event + "/ontask"
                 else:
@@ -161,7 +163,7 @@ def compute_grand_averages(
     return participant_evokeds
 
 
-def plot_erp(evokeds,conditions_of_interest, roi):       
+def plot_erp(evokeds,conditions_of_interest, roi, return_fig = False):       
     # Prepare the figure
     fig = go.Figure()
 
@@ -260,6 +262,9 @@ def plot_erp(evokeds,conditions_of_interest, roi):
             ticks='outside'
         )
     )
-
-    # Mostrar la gráfica
-    fig.show()
+    
+    if return_fig:
+        return fig
+    else:
+        # Mostrar la gráfica
+        fig.show()

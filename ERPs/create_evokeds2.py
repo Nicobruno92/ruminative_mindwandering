@@ -22,8 +22,8 @@ def process_subject(subject, root, tasks, data="eeg", ref_channels=['TP9', 'TP10
     for task in tasks:
         try:
             epochs, events = read_epochs(derivatives_folder, subject, task, data, desc="autoPreproc")
-            reref_epochs = epochs.set_eeg_reference(ref_channels=ref_channels)
-            epochs_tasks.append(reref_epochs)
+            # reref_epochs = epochs.set_eeg_reference(ref_channels=ref_channels)
+            epochs_tasks.append(epochs)
         except Exception as e:
             print(f"Skipping {subject} {task}: {e}")
     
