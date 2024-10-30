@@ -22,8 +22,8 @@ print('packages loaded')
 # from utils import bids_compliance
 
 # %%
-root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
-# root = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/"
+# root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
+root = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/"
 # Defining the paths for saving results and raw data
 derivatives_folder = os.path.join(root, "derivatives_nico")
 # bids_dir = os.path.join(derivatives_folder, f"sub-{subject}", f"ses-{session}", "eeg")
@@ -46,7 +46,7 @@ posterior_roi = ['C3', 'Cz', 'C4', 'P3', 'Pz', 'P4']
 #%%
 for metric in offtask_metrics:
     print(f"Computing grand averages for metric {metric}")
-    generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channels=['TP9', 'TP10'], distance=5, split=metric, max_workers=4)
+    generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channels=['TP9', 'TP10'], distance=5, split=metric, n_jobs=-1)
     
     # conditions_of_interest = ['nogo/correct','go/correct']
 
@@ -57,5 +57,5 @@ for metric in offtask_metrics:
         conditions_of_interest=conditions_of_interest,
         derivatives_folder=derivatives_folder,)
     
-    fig = plot_erp(participant_evokeds,conditions_of_interest, posterior_roi)
+    fig = plot_erp(participant_evokeds,conditions_of_interest, posterior_roi, return_fig=True)
     fig.write_image(f"../results/ERPs/figs/ERP_{metric}_CAR.png")

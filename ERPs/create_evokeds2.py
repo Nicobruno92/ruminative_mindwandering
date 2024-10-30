@@ -1,6 +1,7 @@
 import os
 import mne
-from concurrent.futures import ProcessPoolExecutor
+from joblib import Parallel, delayed
+
 
 import sys
 sys.path.insert(0, './')
@@ -13,6 +14,7 @@ def process_subject(subject, root, tasks, data="eeg", ref_channels=['TP9', 'TP10
     
     Parameters are similar to `generate_save_evokeds`, but specific to a single subject.
     """
+    print(f"Processing subject {subject}")
     derivatives_folder = os.path.join(root, "derivatives_nico")
     stimulus_condition = ['go', 'nogo']
     response_condition = ['correct', 'incorrect']
@@ -57,22 +59,26 @@ def process_subject(subject, root, tasks, data="eeg", ref_channels=['TP9', 'TP10
     except Exception as e:
         print(f"Failed processing for subject {subject}: {e}")
 
-def generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channels=['TP9', 'TP10'], distance=5, split="median", max_workers=4):
+def generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channels=['TP9', 'TP10'], distance=5, split="median", n_jobs=4):
     """
     Parallelized version to generate and save evoked responses for multiple subjects.
     """
-    with ProcessPoolExecutor(max_workers=8) as executor:
-        futures = [
-            executor.submit(process_subject, subject, root, tasks, data, ref_channels, distance, split)
-            for subject in subjects
-        ]
-        for future in futures:
-            future.result()  # Wait for each task to complete
+    Parallel(n_jobs=n_jobs)(
+        delayed(process_subject)(subject, root, tasks, data, ref_channels, distance, split)
+        for subject in subjects
+    )
+    
+if __name__ == '__main__':
 
-# Usage example:
-# root = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/"
-root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
-subjects = [f"{i:02}" for i in range(2, 43)]
-tasks = ['Sart1', 'Sart2', 'Sart3', 'Sart4']
-
-generate_save_evokeds_parallel(root, subjects, tasks)
+    # root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
+    root = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/"
+    
+    subjects = [f"{i:02}" for i in range(2, 43)]
+    tasks = ['Sart1', 'Sart2', 'Sart3', 'Sart4']
+    generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channels=['TP9', 'TP10'], distance=5, split='median', n_jobs=4)
+    
+    
+    # metrics = ['mean', 'median', 'quartiles', 'teriles', 'highlow']
+    # for metric in metrics:
+    #     print(f"Computing grand averages for metric {metric}")
+    #     generate_save_evokeds_parallel(root, subjects, tasks, data="eeg", ref_channels=['TP9', 'TP10'], distance=5, split=metric, max_workers=4)
