@@ -14,7 +14,7 @@ def process_subject(subject, root, tasks, data="eeg", ref_channels=['TP9', 'TP10
     
     Parameters are similar to `generate_save_evokeds`, but specific to a single subject.
     """
-    print(f"Processing subject {subject}")
+    print()
     derivatives_folder = os.path.join(root, "derivatives_nico")
     stimulus_condition = ['go', 'nogo']
     response_condition = ['correct', 'incorrect']
