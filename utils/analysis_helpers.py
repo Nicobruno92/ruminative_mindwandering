@@ -112,6 +112,7 @@ def compute_grand_averages(
     data,
     conditions_of_interest,
     derivatives_folder,
+    metric=None,
     # sfreq=500,
     # desired_tmin=-0.3,
     # desired_tmax=1.2,
@@ -141,11 +142,9 @@ def compute_grand_averages(
 
     for subject in subjects:
         participant_evokeds[subject] = {condition: [] for condition in conditions_of_interest} 
-
-
         # Load the evoked objects
         try:
-            evokeds = load_evokeds(derivatives_folder, subject, data)
+            evokeds = load_evokeds(derivatives_folder, subject, data, metric)
         except Exception as e:
             print(
                 f"Could not read evoked file for subject {subject}: {e}"

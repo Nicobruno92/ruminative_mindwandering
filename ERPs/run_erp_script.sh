@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=EEGPreprocessing
+#SBATCH --job-name=erpAnalysis
 #SBATCH --output=logs/preprocessing_%A_%a.out
 #SBATCH --error=logs/preprocessing_%A_%a.err
 #SBATCH --cpus-per-task=16

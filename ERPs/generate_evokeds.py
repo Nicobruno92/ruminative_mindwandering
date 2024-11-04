@@ -26,7 +26,7 @@ def classify_all_metrics(subject_epochs, metrics=["mean", "median", "quartiles",
     """
     classified_epochs_dict = {}
     for metric in metrics:
-        classified_epochs_dict[metric] = classify_onoff_epochs(subject_epochs, split=metric)
+        classified_epochs_dict[metric] = classify_onoff_epochs(subject_epochs.copy(), split=metric)
     return classified_epochs_dict
 
 def process_subject_for_metrics(subject, root, tasks, metrics, data="eeg", ref_channels=['TP9', 'TP10'], distance=5):
@@ -52,7 +52,7 @@ def process_subject_for_metrics(subject, root, tasks, metrics, data="eeg", ref_c
         try:
             epochs, events = read_epochs(derivatives_folder, subject, task, data, desc="autoPreproc")
             reref_epochs = epochs.set_eeg_reference(ref_channels=ref_channels)
-            epochs_tasks.append(reref_epochs)
+            epochs_tasks.append(reref_epochs.copy())
         except Exception as e:
             print(f"Skipping {subject} {task}: {e}")
 
@@ -93,17 +93,8 @@ def generate_and_save_evokeds_for_metrics(classified_epochs_dict, subject, deriv
                         continue
 
         if evokeds:
-            save_evokeds(evokeds, derivatives_folder, f"{subject}_{metric}", data)
+            save_evokeds(evokeds, derivatives_folder, subject, data, desc=metric)
             print(f"Evoked responses saved for subject {subject} using metric {metric}")
-
-def process_subjects_parallel(root, subjects, tasks, metrics=["mean", "median", "quartiles", "teriles", "highlow"], data="eeg", ref_channels=['TP9', 'TP10'], distance=5, n_jobs=4):
-    """
-    Parallelized version to generate and save evoked responses for multiple subjects and metrics.
-    """
-    Parallel(n_jobs=n_jobs)(
-        delayed(process_and_save_subject)(subject, root, tasks, metrics, data, ref_channels, distance)
-        for subject in subjects
-    )
 
 def process_and_save_subject(subject, root, tasks, metrics, data, ref_channels, distance):
     """
@@ -114,6 +105,16 @@ def process_and_save_subject(subject, root, tasks, metrics, data, ref_channels, 
 
     if classified_epochs_dict:
         generate_and_save_evokeds_for_metrics(classified_epochs_dict, subject, derivatives_folder, data, metrics)
+        
+def process_subjects_parallel(root, subjects, tasks, metrics=["mean", "median", "quartiles", "teriles", "highlow"], data="eeg", ref_channels=['TP9', 'TP10'], distance=5, n_jobs=4):
+    """
+    Parallelized version to generate and save evoked responses for multiple subjects and metrics.
+    """
+    Parallel(n_jobs=n_jobs)(
+        delayed(process_and_save_subject)(subject, root, tasks, metrics, data, ref_channels, distance)
+        for subject in subjects
+    )
+
 
 if __name__ == '__main__':
     root = "//l2export/iss02.cenir/analyse/meeg/CYBERSART/"

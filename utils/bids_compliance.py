@@ -240,7 +240,7 @@ def read_epochs(root_path, subject, task, data, desc=None):
     return epochs, events
 
 
-def save_evokeds(evokeds, derivatives_folder, subject, data):
+def save_evokeds(evokeds, derivatives_folder, subject, data, desc=None):
     """
     Saves a list of evoked objects to a specified folder structure in one file.
 
@@ -264,18 +264,23 @@ def save_evokeds(evokeds, derivatives_folder, subject, data):
     # Create the directory if it doesn't exist
     os.makedirs(output_folder, exist_ok=True)
     
-    # Define the filename for the evoked file
-    evoked_fname = os.path.join(
-        output_folder, 
-        f"sub-{subject}_evokeds-ave.fif"
-    )
+    if desc == None:
+        evoked_fname = os.path.join(
+            output_folder, 
+            f"sub-{subject}_evokeds-ave.fif"
+        )
+    else:
+        evoked_fname = os.path.join(
+            output_folder, 
+            f"sub-{subject}_evokeds_desc-{desc}-ave.fif"
+        )
     
     # Save all the evoked objects into one file
     mne.write_evokeds(evoked_fname, evokeds, overwrite=True)
     
     return evoked_fname  # Return the file path for confirmation or future use
 
-def load_evokeds(derivatives_folder, subject, data):
+def load_evokeds(derivatives_folder, subject, data, desc=None):
     """
     Loads evoked responses from a saved evoked file.
 
@@ -288,14 +293,21 @@ def load_evokeds(derivatives_folder, subject, data):
     Returns:
     list of mne.Evoked: A list of evoked objects for different conditions.
     """
-    # Define the filename for the evoked file
-    evoked_fname = os.path.join(
-        derivatives_folder, 
-        f"sub-{subject}", 
-        data,
-        f"sub-{subject}_evokeds-ave.fif"
-    )
-    
+    if desc == None:
+        evoked_fname = os.path.join(
+            derivatives_folder, 
+            f"sub-{subject}", 
+            data,
+            f"sub-{subject}_evokeds-ave.fif"
+        )
+    else:
+        evoked_fname = os.path.join(
+            derivatives_folder, 
+            f"sub-{subject}", 
+            data,
+            f"sub-{subject}_evokeds_desc-{desc}-ave.fif"
+        )
+
     # Load the evoked data
     evokeds = mne.read_evokeds(evoked_fname)
     
