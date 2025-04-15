@@ -3,6 +3,10 @@
 # Import necessary libraries for the preprocessing
 import os
 import sys
+
+# Add the project root directory to Python path to find the utils module
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import pandas as pd
 import mne
@@ -21,6 +25,8 @@ from utils.bids_compliance import read_raw_custom, save_raw_bids_compliant, save
 from utils.preprocessing_helpers import set_chs_montage
 from utils.trigger_correction import TriggerCorrector
 
+# For memory optimization
+import gc
 
 # Read the subject and task from the command-line arguments
 subject_id = sys.argv[1]
@@ -28,7 +34,7 @@ subject = f"S0{subject_id}"
 task = sys.argv[2]
 data = 'eeg'
 
-data_root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
+data_root = "/network/iss/cenir/analyse/meeg/CYBERSART/"
 
 raw_path = os.path.join(data_root,"_RAW_DATA")
 
@@ -92,6 +98,10 @@ log_preprocessing.log_detail("info", str(raw.info))
 hpass = 0.5
 lpass = 45
 raw_filtered = raw.load_data().copy().notch_filter(np.arange(50, 250, 50)).filter(l_freq=hpass, h_freq=lpass)
+
+# Free memory by removing raw data that's no longer needed
+del raw
+gc.collect()
 
 # Save the filtered data
 # bids_path.update(root = derivatives_folder, description = 'filtered')
@@ -230,7 +240,13 @@ epochs_clean.drop_bad()
 epochs_clean = mne.add_reference_channels(epochs_clean.load_data(), ref_channels=["FCz"])
 
 # Path to your .bvef file
-bvef_file_path = './depressed_mindwandering/Preprocessing/CACS-64_withREF.bvef'
+current_dir = os.path.dirname(os.path.abspath(__file__))  # Preprocessing directory
+bvef_file_path = os.path.join(current_dir, 'CACS-64_withREF.bvef')
+
+# Check if file exists
+if not os.path.exists(bvef_file_path):
+    raise FileNotFoundError(f"Could not find montage file at {bvef_file_path}")
+
 # Load the extended montage
 montage = mne.channels.read_custom_montage(bvef_file_path)
 
@@ -283,6 +299,10 @@ ica = mne.preprocessing.ICA(
 
 # Fit the ICA model to the rereferenced and interpolated epochs
 ica.fit(epochs_interpolated)
+
+# Free memory by removing data that's no longer needed
+del epochs_rereferenced
+gc.collect()
 
 # find EOG artifacts in the data via pattern matching, and exclude the EOG-related ICA components
 eog_components, eog_scores = ica.find_bads_eog(

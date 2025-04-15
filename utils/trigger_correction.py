@@ -82,6 +82,8 @@ class TriggerCorrector:
 
     def propagate_trial_info(self):
         n_probe = 0
+        passed_probe = False  # Initialize the variable here
+        probe_distance = 0  # Initialize probe_distance variable
 
         # First pass: reverse through the dataframe
         for i in reversed(range(len(self.df))):
@@ -121,6 +123,72 @@ class TriggerCorrector:
                 trial_counter += 1
                 # Append trial counter to the existing string
                 self.df.loc[i, 'recoded'] = f"{recoded_value}/{trial_counter}"
+    
+    def fix_probe_distances(self):
+        """
+        Ensures that probe distances are properly formatted.
+        Keeps the negative values for trials before a probe and adds positive values for trials after a probe.
+        This preserves directional information about trial position relative to probes.
+        """
+        # Dictionary to track trial counts after each probe
+        post_probe_counters = {}
+        
+        # Iterate through the dataframe to identify trials after probes
+        for i in range(len(self.df)):
+            recoded_value = self.df.loc[i, 'recoded']
+            parts = recoded_value.split('/') if isinstance(recoded_value, str) else []
+            
+            # Detect probe markers
+            if 'Stimulus/S 36' in self.df.loc[i, 'description']:
+                current_probe = None
+                # Find the probe number from surrounding trials
+                for j in range(max(0, i-5), min(len(self.df), i+5)):
+                    r_value = self.df.loc[j, 'recoded']
+                    if isinstance(r_value, str) and 'probe' in r_value:
+                        probe_parts = r_value.split('/')
+                        for part in probe_parts:
+                            if part.startswith('probe') and part[5:].isdigit():
+                                current_probe = int(part[5:])
+                                break
+                        if current_probe:
+                            break
+                
+                if current_probe:
+                    # Initialize counter for this probe
+                    post_probe_counters[current_probe] = 0
+            
+            # Process trials after probes with existing probe numbers
+            elif isinstance(recoded_value, str) and recoded_value.startswith(('go', 'nogo')):
+                probe_num = None
+                for part in parts:
+                    if part.startswith('probe') and part[5:].isdigit():
+                        probe_num = int(part[5:])
+                        break
+                
+                if probe_num in post_probe_counters:
+                    # For trials after a probe, check if there's a negative distance value
+                    has_negative_distance = False
+                    for part in parts:
+                        if part.startswith('-') and part[1:].isdigit():
+                            has_negative_distance = True
+                            break
+                    
+                    if not has_negative_distance:
+                        # This is a trial after the probe, increment counter
+                        post_probe_counters[probe_num] += 1
+                        
+                        # Extract and reconstruct the string with positive distance
+                        new_parts = []
+                        for part in parts:
+                            if part == str(post_probe_counters[probe_num]):
+                                # Replace the trial count with trial count and positive distance
+                                new_parts.append(f"+{post_probe_counters[probe_num]}")
+                                new_parts.append(part)
+                            else:
+                                new_parts.append(part)
+                        
+                        # Update the recoded value
+                        self.df.loc[i, 'recoded'] = '/'.join(new_parts)
 
     def create_full_numerical_id_as_int(self):
         ids = []
@@ -227,6 +295,7 @@ class TriggerCorrector:
         self.retropropagate_tp_values()
         self.retropropagate_tp_to_trials()
         self.propagate_trial_info()
+        self.fix_probe_distances()  # New step to ensure proper distance formatting
         self.create_random_event_id()
 
         # Create events and event_id based on random numerical ID

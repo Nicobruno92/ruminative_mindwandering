@@ -112,7 +112,109 @@ def save_raw_bids_compliant(subject, task, data_type, raw, root_folder):
         write_raw_bids(raw, bids_path, format='BrainVision', allow_preload=True, overwrite=True)
         print(f"Data saved at BIDS path: {bids_path}")
 
-def save_epoched_bids(epoched_data, root_path, subject, task, data, desc, events, event_id):
+
+def combine_events_data_to_csv(tsv_path, json_path, output_csv_path):
+    """
+    Combines event information from TSV and JSON files into a single CSV file.
+    
+    Parameters
+    ----------
+    tsv_path : str
+        Path to the TSV file containing event data
+    json_path : str
+        Path to the JSON file containing event ID mappings
+    output_csv_path : str
+        Path to save the combined CSV file
+        
+    Returns
+    -------
+    str
+        Path to the saved CSV file
+    """
+    # Read TSV file
+    events_df = pd.read_csv(tsv_path, sep='\t')
+    
+    # Read JSON file
+    with open(json_path, 'r') as f:
+        events_json = json.load(f)
+    
+    # Extract event_id mapping from JSON
+    event_id = events_json.get('description', {}).get('event_id', {})
+    if not event_id and isinstance(events_json, dict):
+        # If the JSON structure is different, try to get event_id directly
+        event_id = events_json
+    
+    # Create a new column for event_id
+    events_df['event_id'] = None
+    
+    # Map event descriptions to their IDs
+    for i, row in events_df.iterrows():
+        desc = row['description']
+        if desc in event_id:
+            events_df.loc[i, 'event_id'] = event_id[desc]
+    
+    # Add a column for trial information relative to probe
+    # This combines the probe number and the trial count in one readable format
+    if 'probe_number' in events_df.columns and 'trial_count' in events_df.columns:
+        events_df['trial_info'] = events_df.apply(
+            lambda row: f"probe{row['probe_number'].replace('probe', '')}_{row['trial_count']}" 
+            if pd.notnull(row['probe_number']) and pd.notnull(row['trial_count']) 
+            else None, 
+            axis=1
+        )
+    
+    # Save the combined data to CSV
+    events_df.to_csv(output_csv_path, index=False)
+    print(f"Combined events data saved to: {output_csv_path}")
+    
+    return output_csv_path
+
+def save_events_combined(events_df, events_metadata, events_fname, create_combined_csv=True):
+    """
+    Save processed events data to TSV, JSON files, and optionally a combined CSV.
+    
+    Parameters
+    ----------
+    events_df : pd.DataFrame
+        Processed events DataFrame
+    events_metadata : dict
+        Updated events metadata
+    events_fname : str
+        Base filename for the events files (without extension)
+    create_combined_csv : bool, optional
+        Whether to create a combined CSV file (default is True)
+        
+    Returns
+    -------
+    None
+    """
+    # For TSV, only save basic event information for BIDS compliance
+    basic_events_df = events_df[['onset', 'duration', 'description']].copy()
+    basic_events_df.to_csv(events_fname, sep='\t', index=False)
+    print(f"BIDS-compliant events TSV saved at: {events_fname}")
+    
+    # Save the events metadata to JSON
+    events_metadata_path = events_fname.replace('.tsv', '.json')
+    
+    # Extract just the event_id for the JSON file to keep it simple
+    simple_metadata = {
+        "onset": {"Description": "Event onset", "Units": "seconds"},
+        "duration": {"Description": "Event duration", "Units": "seconds"},
+        "description": {"Description": "Event description", "event_id": events_metadata.get("description", {}).get("event_id", {})}
+    }
+    
+    with open(events_metadata_path, 'w') as f:
+        json.dump(simple_metadata, f, indent=4)
+    print(f"Events metadata saved at: {events_metadata_path}")
+    
+    # Create combined CSV with all processed information if requested
+    if create_combined_csv:
+        output_csv_path = events_fname.replace('.tsv', '_combined.csv')
+        # Directly save the full processed DataFrame to CSV
+        events_df.to_csv(output_csv_path, index=False)
+        print(f"Combined events data saved at: {output_csv_path}")
+
+def save_epoched_bids(epoched_data, root_path, subject, task, data, desc, events, event_id, create_combined_csv=True):
     """
     Save epoched data in BIDS format.
     
@@ -132,6 +234,8 @@ def save_epoched_bids(epoched_data, root_path, subject, task, data, desc, events
         Events array with columns [onset, duration, id]
     event_id : dict
         Mapping of event descriptions to numerical IDs
+    create_combined_csv : bool, optional
+        Whether to create a combined CSV file (default is True)
     """
     if not isinstance(epoched_data, mne.Epochs):
         raise ValueError("epoched_data must be an instance of mne.Epochs")
@@ -166,7 +270,7 @@ def save_epoched_bids(epoched_data, root_path, subject, task, data, desc, events
     processed_df, updated_metadata = process_bids_events(events_df, events_metadata, event_id)
     
     # Save the processed events
-    save_processed_events(processed_df, updated_metadata, events_fname)
+    save_events_combined(processed_df, updated_metadata, events_fname, create_combined_csv)
 
     # Create JSON sidecar metadata for the epochs
     sidecar_json_fname = bids_path.replace('.fif', '.json')
@@ -295,33 +399,6 @@ def process_bids_events(events_df, events_metadata, event_id):
     })
     
     return df, updated_metadata
-
-def save_processed_events(events_df, events_metadata, events_fname):
-    """
-    Save processed events data to TSV and JSON files.
-    
-    Parameters
-    ----------
-    events_df : pd.DataFrame
-        Processed events DataFrame
-    events_metadata : dict
-        Updated events metadata
-    events_fname : str
-        Base filename for the events files (without extension)
-        
-    Returns
-    -------
-    None
-    """
-    # Save the events data to TSV
-    events_df.to_csv(events_fname, sep='\t', index=False)
-    print(f"Events saved at: {events_fname}")
-    
-    # Save the events metadata to JSON
-    events_metadata_path = events_fname.replace('.tsv', '.json')
-    with open(events_metadata_path, 'w') as f:
-        json.dump(events_metadata, f, indent=4)
-    print(f"Events metadata saved at: {events_metadata_path}")
 
 def read_epochs(root_path, subject, task, data, desc=None):
     """

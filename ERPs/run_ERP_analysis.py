@@ -16,8 +16,7 @@ from ERPs.generate_evokeds import process_subjects_parallel
 print('Packages loaded')
 
 # Paths and settings
-# root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
-root = "//l2export/iss02.cenimodule r/analyse/meeg/CYBERSART/"
+root = "/network/iss/cenir/analyse/meeg/CYBERSART/"
 
 derivatives_folder = os.path.join(root, "derivatives_nico")
 subjects = [f"{i:02}" for i in range(2, 43)]

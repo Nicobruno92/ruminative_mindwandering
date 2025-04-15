@@ -4,7 +4,7 @@
 #SBATCH --error=logs/preprocessing_%A_%a.err
 #SBATCH --cpus-per-task=16
 #SBATCH --time=72:00:00
-#SBATCH --mem=16G
+#SBATCH --mem=32G
 #SBATCH --chdir=/network/iss/home/nicolas.bruno/depressed_mindwandering/
 #SBATCH --array=0-167  # Adjust array size (subjects * tasks)
 
