@@ -267,3 +267,40 @@ def plot_erp(evokeds,conditions_of_interest, roi, return_fig = False):
     else:
         # Mostrar la gráfica
         fig.show()
+
+def split_event_names_to_columns(csv_file_path, split_method="highlow"):
+    import pandas as pd
+    
+    # Load the CSV file into a DataFrame
+    df = pd.read_csv(csv_file_path)
+    
+    # Define the columns to split
+    columns_to_split = ["onoff", "confidence"]
+    
+    # Iterate over each row in the DataFrame
+    for index, row in df.iterrows():
+        event_name = row['event_name']
+        
+        # Split the event_name into components
+        components = event_name.split('/')
+        
+        # Extract values for each specified column
+        for component in components:
+            for col in columns_to_split:
+                if col in component:
+                    # Extract the numeric value
+                    value = int(re.search(rf"{col}(\d+)", component).group(1))
+                    df.at[index, col] = value
+                    
+                    # Determine binary split
+                    if split_method == "highlow":
+                        df.at[index, f"{col}_binary"] = 1 if value >= 50 else 0
+                    elif split_method == "midpoint":
+                        midpoint = 50  # Assuming midpoint is 50 for simplicity
+                        df.at[index, f"{col}_binary"] = 1 if value >= midpoint else 0
+                    # Add more methods if needed
+    
+    # Save the modified DataFrame back to CSV
+    df.to_csv(csv_file_path, index=False)
+    
+    return df

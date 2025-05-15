@@ -36,9 +36,5 @@ fi
 
 echo "Computing NICE markers"
 
-# Set analysis modes and max workers (edit as needed)
-MODES="all"  # Options: whole,all,roi (comma-separated, e.g. "roi" or "all,roi")
-MAX_WORKERS=32         # Or set to desired number of CPUs
-
 # Run the Python script with -u flag to avoid buffering output
-python -u NICE_markers/run_markers.py --modes "$MODES" --max-workers $MAX_WORKERS 
+python -u NICE_markers/run_markers.py 

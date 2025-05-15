@@ -163,3 +163,6 @@ DATA/
 .history/
 
 logs/
+
+results/nice_markers/*_per_electrode.csv
+results/nice_markers/

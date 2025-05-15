@@ -24,6 +24,12 @@ def process_subject_task(derivatives_folder, subject, task, output_dir, roi_mode
             desc="autoPreproc"
         )
         
+        # Ensure data is downsampled to 500 Hz if needed
+        current_sfreq = epochs.info['sfreq']
+        if current_sfreq > 500:
+            print(f"Downsampling from {current_sfreq} Hz to 500 Hz")
+            epochs = epochs.resample(500)
+        
         # Extract event IDs for each epoch
         event_ids = epochs.events[:, 2]
         event_id_names = {v: k for k, v in epochs.event_id.items()}
@@ -34,8 +40,6 @@ def process_subject_task(derivatives_folder, subject, task, output_dir, roi_mode
               f"with ROI mode: {roi_mode}, per_epoch: {per_epoch}")
         
         # Compute markers with specified ROI mode
-        # For any mode ('whole', 'all', or ROI dict), ensure we properly handle 
-        # event IDs and list values
         markers = all_markers(epochs, tmin=0, tmax=2, roi=roi_mode, per_epoch=per_epoch)
         
         # Initialize rows list for any mode
@@ -107,37 +111,36 @@ def process_subject_task(derivatives_folder, subject, task, output_dir, roi_mode
                         pass
         elif roi_mode == 'all':
             # Per-electrode mode: Each marker has one value per channel
-            if per_epoch:
-                # One row per epoch, channel, and marker
-                for marker_name, values in markers.items():
-                    if not isinstance(values, (np.ndarray, list)) or len(values) == 0:
+            print(f"Processing per-electrode data for {len(markers)} markers")
+            
+            # Get all available channels
+            all_channels = epochs.ch_names
+            
+            for marker_name, values in markers.items():
+                if values is None:
+                    continue
+                
+                # Add debug info about this marker
+                print(f"Processing marker '{marker_name}' with type {type(values)}")
+                
+                try:
+                    # Convert to numpy array for easier handling
+                    if isinstance(values, list):
+                        values_array = np.array(values)
+                    elif isinstance(values, np.ndarray):
+                        values_array = values
+                    else:
+                        print(f"Skipping marker {marker_name} - unsupported type {type(values)}")
                         continue
+                        
+                    print(f"Shape for {marker_name}: {values_array.shape}")
                     
-                    values_array = np.asarray(values)
-                    
-                    if values_array.ndim >= 2 and values_array.shape[0] == len(epochs):
-                        # Values per epoch and channel: shape (n_epochs, n_channels)
-                        for epoch_idx in range(len(epochs)):
-                            for ch_idx, channel in enumerate(epochs.ch_names):
-                                if ch_idx < values_array.shape[1]:
-                                    try:
-                                        value = float(values_array[epoch_idx, ch_idx])
-                                        rows.append({
-                                            'marker': marker_name,
-                                            'channel': channel,
-                                            'value': value,
-                                            'subject_id': subject,
-                                            'task': task,
-                                            'epoch': epoch_idx,
-                                            'event_id': event_ids[epoch_idx],
-                                            'event_name': event_names[epoch_idx]
-                                        })
-                                    except (ValueError, TypeError, IndexError):
-                                        pass
-                    elif values_array.ndim == 1 and len(values_array) == len(epochs.ch_names):
-                        # One value per channel, repeat for each epoch
-                        for epoch_idx in range(len(epochs)):
-                            for ch_idx, channel in enumerate(epochs.ch_names):
+                    # Simplified approach for per-electrode data
+                    # If values is a 1D array with the same length as channels
+                    if values_array.ndim == 1 and len(values_array) == len(all_channels):
+                        # One value per channel
+                        for ch_idx, channel in enumerate(all_channels):
+                            for epoch_idx in range(len(epochs)):
                                 try:
                                     value = float(values_array[ch_idx])
                                     rows.append({
@@ -150,41 +153,114 @@ def process_subject_task(derivatives_folder, subject, task, output_dir, roi_mode
                                         'event_id': event_ids[epoch_idx],
                                         'event_name': event_names[epoch_idx]
                                     })
-                                except (ValueError, TypeError, IndexError):
+                                except (ValueError, TypeError):
                                     pass
-            else:
-                # Average mode: One row per channel and marker
-                for marker_name, values in markers.items():
-                    if not isinstance(values, (np.ndarray, list)) or len(values) == 0:
-                        continue
-                    
-                    values_array = np.asarray(values)
-                    
-                    # For averaged data, we expect shape (n_channels,)
-                    if values_array.ndim > 1:
-                        # Reduce to 1D array with one value per channel
-                        if values_array.shape[1] == len(epochs.ch_names):
-                            values_array = values_array.mean(axis=0)
+                    # If values is a 2D array with shape (channels, epochs) or (epochs, channels)
+                    elif values_array.ndim == 2:
+                        # Determine if first dimension is channels or epochs
+                        if values_array.shape[0] == len(all_channels):
+                            # First dim is channels (channels, epochs or other)
+                            for ch_idx, channel in enumerate(all_channels):
+                                # Take mean across second dimension if it doesn't match epochs
+                                if values_array.shape[1] != len(epochs):
+                                    ch_value = float(np.mean(values_array[ch_idx]))
+                                    # Use the same value for all epochs
+                                    for epoch_idx in range(len(epochs)):
+                                        rows.append({
+                                            'marker': marker_name,
+                                            'channel': channel,
+                                            'value': ch_value,
+                                            'subject_id': subject,
+                                            'task': task,
+                                            'epoch': epoch_idx,
+                                            'event_id': event_ids[epoch_idx],
+                                            'event_name': event_names[epoch_idx]
+                                        })
+                                else:
+                                    # One value per epoch
+                                    for epoch_idx in range(len(epochs)):
+                                        try:
+                                            value = float(values_array[ch_idx, epoch_idx])
+                                            rows.append({
+                                                'marker': marker_name,
+                                                'channel': channel,
+                                                'value': value,
+                                                'subject_id': subject,
+                                                'task': task,
+                                                'epoch': epoch_idx,
+                                                'event_id': event_ids[epoch_idx],
+                                                'event_name': event_names[epoch_idx]
+                                            })
+                                        except (ValueError, TypeError, IndexError):
+                                            pass
+                        elif values_array.shape[1] == len(all_channels):
+                            # First dim is epochs or other, second is channels
+                            for ch_idx, channel in enumerate(all_channels):
+                                if values_array.shape[0] == len(epochs):
+                                    # Direct mapping (epochs, channels)
+                                    for epoch_idx in range(len(epochs)):
+                                        try:
+                                            value = float(values_array[epoch_idx, ch_idx])
+                                            rows.append({
+                                                'marker': marker_name,
+                                                'channel': channel,
+                                                'value': value,
+                                                'subject_id': subject,
+                                                'task': task,
+                                                'epoch': epoch_idx,
+                                                'event_id': event_ids[epoch_idx],
+                                                'event_name': event_names[epoch_idx]
+                                            })
+                                        except (ValueError, TypeError, IndexError):
+                                            pass
+                                else:
+                                    # Take mean across first dimension
+                                    ch_value = float(np.mean(values_array[:, ch_idx]))
+                                    # Use the same value for all epochs
+                                    for epoch_idx in range(len(epochs)):
+                                        rows.append({
+                                            'marker': marker_name,
+                                            'channel': channel,
+                                            'value': ch_value,
+                                            'subject_id': subject,
+                                            'task': task,
+                                            'epoch': epoch_idx,
+                                            'event_id': event_ids[epoch_idx],
+                                            'event_name': event_names[epoch_idx]
+                                        })
                         else:
-                            values_array = values_array.mean(axis=1)
-                    
-                    # Create a row for each channel
-                    for ch_idx, channel in enumerate(epochs.ch_names):
-                        try:
-                            if ch_idx < len(values_array):
-                                value = float(values_array[ch_idx])
-                            else:
-                                value = np.nan
+                            # Cannot directly map to channels - use mean across appropriate dimension
+                            avg_value = float(np.mean(values_array))
+                            for ch_idx, channel in enumerate(all_channels):
+                                for epoch_idx in range(len(epochs)):
+                                    rows.append({
+                                        'marker': marker_name,
+                                        'channel': channel,
+                                        'value': avg_value,
+                                        'subject_id': subject,
+                                        'task': task,
+                                        'epoch': epoch_idx,
+                                        'event_id': event_ids[epoch_idx],
+                                        'event_name': event_names[epoch_idx]
+                                    })
+                    else:
+                        # For higher dimensions or other cases, just use the mean
+                        avg_value = float(np.mean(values_array))
+                        for ch_idx, channel in enumerate(all_channels):
+                            for epoch_idx in range(len(epochs)):
+                                rows.append({
+                                    'marker': marker_name,
+                                    'channel': channel,
+                                    'value': avg_value,
+                                    'subject_id': subject,
+                                    'task': task,
+                                    'epoch': epoch_idx,
+                                    'event_id': event_ids[epoch_idx],
+                                    'event_name': event_names[epoch_idx]
+                                })
                                 
-                            rows.append({
-                                'marker': marker_name,
-                                'channel': channel,
-                                'value': value,
-                                'subject_id': subject,
-                                'task': task
-                            })
-                        except (ValueError, TypeError, IndexError):
-                            pass
+                except Exception as e:
+                    print(f"Error processing marker {marker_name} for per-electrode: {e}")
         elif isinstance(roi_mode, dict):
             # ROI-based mode: For each marker, we have values per ROI
             for marker_name, roi_values in markers.items():
@@ -246,6 +322,7 @@ def process_subject_task(derivatives_folder, subject, task, output_dir, roi_mode
             return None
             
         df = pd.DataFrame(rows)
+        print(f"Created DataFrame with {len(df)} rows from {len(markers)} markers")
         
         # Determine output file name based on ROI mode
         if roi_mode == 'whole':
