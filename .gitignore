@@ -161,3 +161,7 @@ cython_debug/
 
 DATA/
 .history/
+
+logs/
+
+results/nice_markers/

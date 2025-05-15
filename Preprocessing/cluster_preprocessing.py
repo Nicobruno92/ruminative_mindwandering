@@ -3,6 +3,10 @@
 # Import necessary libraries for the preprocessing
 import os
 import sys
+
+# Add the project root directory to Python path to find the utils module
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import pandas as pd
 import mne
@@ -21,6 +25,8 @@ from utils.bids_compliance import read_raw_custom, save_raw_bids_compliant, save
 from utils.preprocessing_helpers import set_chs_montage
 from utils.trigger_correction import TriggerCorrector
 
+# For memory optimization
+import gc
 
 # Read the subject and task from the command-line arguments
 subject_id = sys.argv[1]
@@ -28,7 +34,7 @@ subject = f"S0{subject_id}"
 task = sys.argv[2]
 data = 'eeg'
 
-data_root = "/network/lustre/iss02/cenir/analyse/meeg/CYBERSART/"
+data_root = "/network/iss/cenir/analyse/meeg/CYBERSART/"
 
 raw_path = os.path.join(data_root,"_RAW_DATA")
 
@@ -92,6 +98,10 @@ log_preprocessing.log_detail("info", str(raw.info))
 hpass = 0.5
 lpass = 45
 raw_filtered = raw.load_data().copy().notch_filter(np.arange(50, 250, 50)).filter(l_freq=hpass, h_freq=lpass)
+
+# Free memory by removing raw data that's no longer needed
+del raw
+gc.collect()
 
 # Save the filtered data
 # bids_path.update(root = derivatives_folder, description = 'filtered')
@@ -219,19 +229,59 @@ report.add_epochs(epochs=epochs_clean, title="Epochs clean", psd=False)
 
 # Save the cleaned epochs
 epochs_clean.drop_bad()
-# bids_compliance.save_epoched_bids(epochs_clean, derivatives_folder, subject, session,
-#                                   task, data, desc = 'epochedClean', events = events, event_id =event_id)
 
 # %% [markdown]
-# # 6. Independent Component Analysis (ICA)
+# # 6. Add Reference Channel, Re-reference and Interpolate Bad Channels
 
 # %%
-# raw.plot()
+##################################
+#######    Rereference   #########
+##################################
+epochs_clean = mne.add_reference_channels(epochs_clean.load_data(), ref_channels=["FCz"])
+
+# Path to your .bvef file
+current_dir = os.path.dirname(os.path.abspath(__file__))  # Preprocessing directory
+bvef_file_path = os.path.join(current_dir, 'CACS-64_withREF.bvef')
+
+# Check if file exists
+if not os.path.exists(bvef_file_path):
+    raise FileNotFoundError(f"Could not find montage file at {bvef_file_path}")
+
+# Load the extended montage
+montage = mne.channels.read_custom_montage(bvef_file_path)
+
+# Apply the montage to your raw data
+epochs_clean.set_montage(montage)
+
+# Rereference the data to the grand average reference
+epochs_rereferenced, ref_data = mne.set_eeg_reference(
+    inst=epochs_clean, ref_channels="average", copy=True
+)
+
+# Log the rereferencing details
+log_preprocessing.log_detail("rereferenced_channels", "grand_average")
+
+##################################
+######   Interpolate chs  ########
+##################################
+# Interpolate bad channels in the epochs
+epochs_interpolated = epochs_rereferenced.copy().interpolate_bads()
+
+# Log the interpolated channels
+log_preprocessing.log_detail("interpolated_channels", epochs_clean.info["bads"])
+
+# Add the rereference and interpolated epochs to the report
+report.add_epochs(
+    epochs=epochs_interpolated, title="Epochs rereferenced and interpolated", psd=True
+)
+
+# %% [markdown]
+# # 7. Independent Component Analysis (ICA)
 
 # %%
 # Parameters for ICA (Independent Component Analysis) to remove artifacts
 n_components = 0.99
-method = "picard"  # The algorithm to use for ICA
+method = "infomax"  # The algorithm to use for ICA
 max_iter = (
     "auto"  # Maximum number of iterations; typically should be higher, like 500 or 1000
 )
@@ -243,21 +293,27 @@ ica = mne.preprocessing.ICA(
     method=method,
     max_iter=max_iter,
     random_state=random_state,
+    fit_params=dict(extended=True),
+    
 )
 
-# Fit the ICA model to the cleaned epochs
-ica.fit(epochs_clean)
+# Fit the ICA model to the rereferenced and interpolated epochs
+ica.fit(epochs_interpolated)
+
+# Free memory by removing data that's no longer needed
+del epochs_rereferenced
+gc.collect()
 
 # find EOG artifacts in the data via pattern matching, and exclude the EOG-related ICA components
 eog_components, eog_scores = ica.find_bads_eog(
-    inst=epochs_clean,
+    inst=epochs_interpolated,
     ch_name=["VEOG","HEOG"]  # a channel close to the eye
     # threshold=1  # lower than the default threshold
 )
 print(f"EOG components detected: {eog_components}")
 
 # find muscle artifacts in the data via pattern matching, and exclude the muscle-related ICA components
-muscle_components, muscle_scores = ica.find_bads_muscle(epochs_clean, threshold=0.7)
+muscle_components, muscle_scores = ica.find_bads_muscle(epochs_interpolated, threshold=0.7)
 print(f"Muscle components detected: {muscle_components}")
 # ica.plot_scores(muscle_scores, exclude=muscle_components)
 
@@ -266,7 +322,7 @@ pattern_matching_artifacts = np.unique(eog_components + muscle_components)
 
 ##### Classify the components using ICLabel model #######
 # run the model on the ICA components
-ic_labels = label_components(epochs_clean, ica, method="iclabel")
+ic_labels = label_components(epochs_interpolated, ica, method="iclabel")
 # print labels of each component
 print("Classification of all ICA components. Results:")
 print(ic_labels["labels"])
@@ -296,18 +352,11 @@ to_exclude = np.unique(to_exclude + channel_artifact_indices + cardiac_artifact_
 # Exclude the selected components
 ica.exclude = to_exclude.tolist()
 
-# (Optional) Plot the ICA components for visual inspection
-# ica.plot_components(inst=epochs_clean, picks=range(15))
-
-# Plot the sources identified by ICA
-# ica.plot_sources(epochs_clean, block=True, show=True)
-# plt.show(block=True)
-
 # Add the ICA results to the report
-report.add_ica(ica, title="ICA", inst=epochs_clean)
+report.add_ica(ica, title="ICA", inst=epochs_interpolated)
 
-# Apply the ICA solution to the cleaned epochs
-epochs_ica = ica.apply(inst=epochs_clean)
+# Apply the ICA solution to the interpolated epochs
+epochs_ica = ica.apply(inst=epochs_interpolated)
 
 # Log the ICA parameters and excluded components
 log_preprocessing.log_detail("ica_components", ica.exclude)
@@ -342,62 +391,17 @@ report.add_epochs(epochs=epochs_ica_clean, title="Epochs clean after ICA", psd=F
 # Save the cleaned epochs
 epochs_ica_clean.drop_bad()
 
-                # Log the epochs dropped by ICA
+# Log the epochs dropped by ICA
 log_preprocessing.log_detail("epochs_drop_log", epochs_ica_clean.drop_log)
 log_preprocessing.log_detail("epochs_drop_log_description", epochs_ica_clean.drop_log)
-
-# Save the epochs after ICA application and drop epochs
-# bids_compliance.save_epoched_bids(epochs_ica, derivatives_folder, subject, session,
-#                                   task, data, desc = 'epochedICA', events = events, event_id =event_id)
-
-# %% [markdown]
-# # 7. Interpolate Chs and Rereference
-
-# %%
-##################################
-#######    Rereference   #########
-##################################
-epochs_ica_clean = mne.add_reference_channels(epochs_ica_clean.load_data(), ref_channels=["FCz"])
-
-# Path to your .bvef file
-bvef_file_path = './depressed_mindwandering/Preprocessing/CACS-64_withREF.bvef'
-# Load the extended montage
-montage = mne.channels.read_custom_montage(bvef_file_path)
-
-# Apply the montage to your raw data
-epochs_ica_clean.set_montage(montage)
-
-
-# Rereference the data to the grand average reference
-epochs_rereferenced, ref_data = mne.set_eeg_reference(
-    inst=epochs_ica_clean, ref_channels="average", copy=True
-)
-
-# Add the final epochs to the report
-report.add_epochs(
-    epochs=epochs_rereferenced, title="Epochs interpolated and rereferenced", psd=True
-)
-
-# Log the rereferencing details
-log_preprocessing.log_detail("rereferenced_channels", "grand_average")
-
-
-##################################
-######   Interpolate chs  ########
-##################################
-# Interpolate bad channels in the epochs after ICA application
-epochs_interpolate = epochs_rereferenced.copy().interpolate_bads()
-
-# Log the interpolated channels
-log_preprocessing.log_detail("interpolated_channels", epochs_ica.info["bads"])
 
 # %% [markdown]
 # # SAVE Preprocessed data 
 
 # %%
-# Save the rereferenced epochs
+# Save the final processed epochs
 save_epoched_bids(
-    epochs_interpolate,
+    epochs_ica_clean,
     derivatives_folder,
     subject_id,
     task,
@@ -407,10 +411,7 @@ save_epoched_bids(
     event_id=event_id,
 )
 
-# evoked_go = epochs_interpolate["go/correct"].pick('eeg').average()
-# evoked_nogo = epochs_interpolate["nogo/correct"].pick('eeg').average()
-
-p300_evoked = mne.combine_evoked([epochs_interpolate['go/correct'].average(), epochs_interpolate['nogo/correct'].average()], weights = [1,-1])
+p300_evoked = mne.combine_evoked([epochs_ica_clean['go/correct'].average(), epochs_ica_clean['nogo/correct'].average()], weights = [1,-1])
 report.add_evokeds(
     evokeds=[p300_evoked],  # List of evoked
     titles=["Evoked P300 Go/Nogo"],  # List of titles

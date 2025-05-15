@@ -193,7 +193,6 @@ for subject_id in subjects_id:
         # # 5. Reject Bad Epochs 1
 
         # %%
-        # TODO: add rejection for acceloremeter (available from sub 14 onwards)
         folds=10 # increase for more accuracy or decrease for speed
         # Automatically reject bad epochs using AutoReject
         ar = AutoReject(thresh_method="bayesian_optimization", cv = folds, random_state=42, n_jobs = -1, )
@@ -244,15 +243,51 @@ for subject_id in subjects_id:
         #                                   task, data, desc = 'epochedClean', events = events, event_id =event_id)
 
         # %% [markdown]
-        # # 6. Independent Component Analysis (ICA)
+        # # 6. Add Reference Channel, Re-reference and Interpolate Bad Channels
 
         # %%
-        # raw.plot()
+        ##################################
+        #######    Rereference   #########
+        ##################################
+        epochs_clean = mne.add_reference_channels(epochs_clean.load_data(), ref_channels=["FCz"])
+
+        # Path to your .bvef file
+        bvef_file_path = './Preprocessing/CACS-64_withREF.bvef'
+        # Load the extended montage
+        montage = mne.channels.read_custom_montage(bvef_file_path)
+
+        # Apply the montage to your raw data
+        epochs_clean.set_montage(montage)
+
+        # Rereference the data to the grand average reference
+        epochs_rereferenced, ref_data = mne.set_eeg_reference(
+            inst=epochs_clean, ref_channels="average", copy=True
+        )
+
+        # Log the rereferencing details
+        log_preprocessing.log_detail("rereferenced_channels", "grand_average")
+
+        ##################################
+        ######   Interpolate chs  ########
+        ##################################
+        # Interpolate bad channels in the epochs
+        epochs_interpolated = epochs_rereferenced.copy().interpolate_bads()
+
+        # Log the interpolated channels
+        log_preprocessing.log_detail("interpolated_channels", epochs_clean.info["bads"])
+
+        # Add the rereference and interpolated epochs to the report
+        report.add_epochs(
+            epochs=epochs_interpolated, title="Epochs rereferenced and interpolated", psd=True
+        )
+
+        # %% [markdown]
+        # # 7. Independent Component Analysis (ICA)
 
         # %%
         # Parameters for ICA (Independent Component Analysis) to remove artifacts
         n_components = 0.99
-        method = "picard"  # The algorithm to use for ICA
+        method = "infomax"  # The algorithm to use for ICA
         max_iter = (
             "auto"  # Maximum number of iterations; typically should be higher, like 500 or 1000
         )
@@ -263,22 +298,24 @@ for subject_id in subjects_id:
             n_components=n_components,
             method=method,
             max_iter=max_iter,
-            random_state=random_state,
+            random_state=random_state,                fit_params=dict(extended=True),
+
+
         )
 
-        # Fit the ICA model to the cleaned epochs
-        ica.fit(epochs_clean)
+        # Fit the ICA model to the rereferenced and interpolated epochs
+        ica.fit(epochs_interpolated)
 
         # find EOG artifacts in the data via pattern matching, and exclude the EOG-related ICA components
         eog_components, eog_scores = ica.find_bads_eog(
-            inst=epochs_clean,
+            inst=epochs_interpolated,
             ch_name=["VEOG","HEOG"]  # a channel close to the eye
             # threshold=1  # lower than the default threshold
         )
         print(f"EOG components detected: {eog_components}")
 
         # find muscle artifacts in the data via pattern matching, and exclude the muscle-related ICA components
-        muscle_components, muscle_scores = ica.find_bads_muscle(epochs_clean, threshold=0.7)
+        muscle_components, muscle_scores = ica.find_bads_muscle(epochs_interpolated, threshold=0.7)
         print(f"Muscle components detected: {muscle_components}")
         # ica.plot_scores(muscle_scores, exclude=muscle_components)
 
@@ -287,7 +324,7 @@ for subject_id in subjects_id:
 
         ##### Classify the components using ICLabel model #######
         # run the model on the ICA components
-        ic_labels = label_components(epochs_clean, ica, method="iclabel")
+        ic_labels = label_components(epochs_interpolated, ica, method="iclabel")
         # print labels of each component
         print("Classification of all ICA components. Results:")
         print(ic_labels["labels"])
@@ -325,10 +362,10 @@ for subject_id in subjects_id:
         # plt.show(block=True)
 
         # Add the ICA results to the report
-        report.add_ica(ica, title="ICA", inst=epochs_clean)
+        report.add_ica(ica, title="ICA", inst=epochs_interpolated)
 
-        # Apply the ICA solution to the cleaned epochs
-        epochs_ica = ica.apply(inst=epochs_clean)
+        # Apply the ICA solution to the interpolated epochs
+        epochs_ica = ica.apply(inst=epochs_interpolated)
 
         # Log the ICA parameters and excluded components
         log_preprocessing.log_detail("ica_components", ica.exclude)
@@ -367,58 +404,9 @@ for subject_id in subjects_id:
         log_preprocessing.log_detail("epochs_drop_log", epochs_ica_clean.drop_log)
         log_preprocessing.log_detail("epochs_drop_log_description", epochs_ica_clean.drop_log)
 
-        # Save the epochs after ICA application and drop epochs
-        # bids_compliance.save_epoched_bids(epochs_ica, derivatives_folder, subject, session,
-        #                                   task, data, desc = 'epochedICA', events = events, event_id =event_id)
-
-        # %% [markdown]
-        # # 7. Interpolate Chs and Rereference
-
-        # %%
-        ##################################
-        #######    Rereference   #########
-        ##################################
-        epochs_ica_clean = mne.add_reference_channels(epochs_ica_clean.load_data(), ref_channels=["FCz"])
-
-        # Path to your .bvef file
-        bvef_file_path = './Preprocessing/CACS-64_withREF.bvef'
-        # Load the extended montage
-        montage = mne.channels.read_custom_montage(bvef_file_path)
-
-        # Apply the montage to your raw data
-        epochs_ica_clean.set_montage(montage)
-
-
-        # Rereference the data to the grand average reference
-        epochs_rereferenced, ref_data = mne.set_eeg_reference(
-            inst=epochs_ica_clean, ref_channels="average", copy=True
-        )
-
-        # Add the final epochs to the report
-        report.add_epochs(
-            epochs=epochs_rereferenced, title="Epochs interpolated and rereferenced", psd=True
-        )
-
-        # Log the rereferencing details
-        log_preprocessing.log_detail("rereferenced_channels", "grand_average")
-
-
-        ##################################
-        ######   Interpolate chs  ########
-        ##################################
-        # Interpolate bad channels in the epochs after ICA application
-        epochs_interpolate = epochs_rereferenced.copy().interpolate_bads()
-
-        # Log the interpolated channels
-        log_preprocessing.log_detail("interpolated_channels", epochs_ica.info["bads"])
-
-        # %% [markdown]
-        # # SAVE Preprocessed data 
-
-        # %%
-        # Save the rereferenced epochs
+        # Save the final processed epochs
         save_epoched_bids(
-            epochs_interpolate,
+            epochs_ica_clean,
             derivatives_folder,
             subject_id,
             task,
@@ -428,7 +416,7 @@ for subject_id in subjects_id:
             event_id=event_id,
         )
 
-        p300_evoked = mne.combine_evoked([epochs_interpolate['go/correct'].average(), epochs_interpolate['nogo/correct'].average()], weights = [1,-1])
+        p300_evoked = mne.combine_evoked([epochs_ica_clean['go/correct'].average(), epochs_ica_clean['nogo/correct'].average()], weights = [1,-1])
         report.add_evokeds(
             evokeds=[p300_evoked],  # List of evoked
             titles=["Evoked P300 Go/Nogo"],  # List of titles
