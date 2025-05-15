@@ -6,15 +6,15 @@
 #SBATCH --time=36:00:00
 #SBATCH --mem=32G
 #SBATCH --chdir=/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/
-#SBATCH --array=0-42   # Replace XX with the number of subjects minus 1
+#SBATCH --array=0-41   # Set to number of subjects minus 1
 
 set -e
 
 MODES="all"
 MAX_WORKERS=32
 SCRIPT="NICE_markers/run_markers.py"
-SUBJECT_LIST="NICE_markers/subject_list.txt"
 OUTPUT_DIR="results/nice_markers"
+DERIVATIVES_DIR="/network/iss/cenir/analyse/meeg/CYBERSART/derivatives_nico"
 
 mkdir -p logs
 mkdir -p "$OUTPUT_DIR"
@@ -23,12 +23,21 @@ if [ ! -f "$SCRIPT" ]; then
     echo "ERROR: Script $SCRIPT not found!"
     exit 1
 fi
-if [ ! -f "$SUBJECT_LIST" ]; then
-    echo "ERROR: Subject list $SUBJECT_LIST not found!"
+if [ ! -d "$DERIVATIVES_DIR" ]; then
+    echo "ERROR: Derivatives directory $DERIVATIVES_DIR not found!"
     exit 1
 fi
 
-SUBJECT=$(sed -n "$((SLURM_ARRAY_TASK_ID+1))p" "$SUBJECT_LIST")
+# Dynamically generate the subject list from the derivatives_nico directory
+SUBJECTS=($(ls -d $DERIVATIVES_DIR/sub-* | xargs -n 1 basename | sort))
+NUM_SUBJECTS=${#SUBJECTS[@]}
+
+if [ "$SLURM_ARRAY_TASK_ID" -ge "$NUM_SUBJECTS" ]; then
+    echo "ERROR: SLURM_ARRAY_TASK_ID $SLURM_ARRAY_TASK_ID exceeds number of subjects $NUM_SUBJECTS"
+    exit 1
+fi
+
+SUBJECT=${SUBJECTS[$SLURM_ARRAY_TASK_ID]}
 if [ -z "$SUBJECT" ]; then
     echo "ERROR: No subject found for SLURM_ARRAY_TASK_ID $SLURM_ARRAY_TASK_ID"
     exit 1

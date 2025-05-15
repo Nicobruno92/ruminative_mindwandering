@@ -94,7 +94,7 @@ def process_file(derivatives_folder, subject, task, output_dir, modes):
             subject_id = subject.replace('sub-', '')
         if subject_id.startswith('S0'):
             subject_id = subject_id.replace('S0', '')
-
+        
         # Run selected modes
         if 'whole' in modes:
             try:
@@ -137,7 +137,7 @@ def process_file(derivatives_folder, subject, task, output_dir, modes):
                     success = True
             except Exception as e:
                 print(f"Error in ROI-based analysis for {subject}, task {task}: {str(e)}")
-
+    
     except Exception as e:
         print(f"Error processing {subject}, task {task}: {str(e)}")
         success = False
@@ -154,6 +154,8 @@ def main():
                         help="Comma-separated list of analysis modes to run: whole,all,roi (default: all)")
     parser.add_argument('--max-workers', type=int, default=None,
                         help="Maximum number of parallel workers (default: all available CPUs)")
+    parser.add_argument('--subject', type=str, default=None,
+                        help="Subject ID to process (e.g., sub-01). If not set, process all subjects.")
     args = parser.parse_args()
     modes = [m.strip().lower() for m in args.modes.split(',') if m.strip()]
     print(f"Selected analysis modes: {modes}")
@@ -163,11 +165,18 @@ def main():
     derivatives_folder = os.path.join(data_root, "derivatives_nico")
     output_dir = os.path.join("results", "nice_markers")
     os.makedirs(output_dir, exist_ok=True)
-    subjects = get_all_subjects(derivatives_folder)
-    if not subjects:
-        print(f"No subject directories found in {derivatives_folder}")
-        return
-    print(f"Found {len(subjects)} subjects: {subjects}")
+
+    # Get subjects
+    if args.subject is not None:
+        subjects = [args.subject]
+        print(f"Processing only subject: {args.subject}")
+    else:
+        subjects = get_all_subjects(derivatives_folder)
+        if not subjects:
+            print(f"No subject directories found in {derivatives_folder}")
+            return
+        print(f"Found {len(subjects)} subjects: {subjects}")
+
     subject_task_pairs = []
     for subject in subjects:
         tasks = get_all_tasks_for_subject(derivatives_folder, subject)
