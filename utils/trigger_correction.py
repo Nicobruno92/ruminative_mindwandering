@@ -1,12 +1,95 @@
 import numpy as np
 import mne
 import random
+import os
+try:
+    import yaml
+except Exception:
+    yaml = None
 
 class TriggerCorrector:
     def __init__(self, raw):
         # Extract annotations from the raw object and convert to a DataFrame
         self.df = raw.annotations.to_data_frame().copy()
         self.raw = raw
+
+    def annotate_rest_periods(self):
+        """
+        Insert BAD_rest annotations spanning from each rest start to the first
+        subsequent stimulus that starts a trial.
+
+        rest_start is identified as 'Stimulus/S 31'.
+        rest_end is the first of {'Stimulus/S 41', 'Stimulus/S 42', 'Stimulus/S 43'}
+        that appears after the rest_start.
+        """
+        potential_end_descriptions = {'Stimulus/S 41', 'Stimulus/S 42', 'Stimulus/S 43'}
+
+        bad_onsets = []
+        bad_durations = []
+        bad_descriptions = []
+
+        descriptions = list(self.raw.annotations.description)
+        onsets = list(self.raw.annotations.onset)
+
+        for i in range(len(descriptions)):
+            if descriptions[i] == 'Stimulus/S 31':
+                start_onset = float(onsets[i])
+                end_onset = None
+                for j in range(i + 1, len(descriptions)):
+                    if descriptions[j] in potential_end_descriptions:
+                        end_onset = float(onsets[j])
+                        break
+                if end_onset is not None and end_onset > start_onset:
+                    bad_onsets.append(start_onset)
+                    bad_durations.append(end_onset - start_onset)
+                    bad_descriptions.append('BAD_rest')
+
+        if bad_onsets:
+            new_annots = mne.Annotations(
+                onset=bad_onsets,
+                duration=bad_durations,
+                description=bad_descriptions,
+                orig_time=self.raw.annotations.orig_time,
+            )
+            # Append to raw annotations (use setter for compatibility)
+            self.raw.set_annotations(self.raw.annotations + new_annots)
+
+            # Refresh the working DataFrame so downstream logic stays aligned
+            self.df = self.raw.annotations.to_data_frame().copy()
+
+    def annotate_thought_probe_markers(self):
+        """
+        Insert THOUGHT_PROBE annotations at each 'Stimulus/S 31' onset.
+        Does not remove or overwrite existing annotations and avoids duplicates
+        if already present.
+        """
+        descriptions = list(self.raw.annotations.description)
+        onsets = list(self.raw.annotations.onset)
+
+        # Track existing THOUGHT_PROBE onsets to avoid duplicates (with small tolerance)
+        existing_tp_onsets = {float(onsets[idx]) for idx, desc in enumerate(descriptions) if desc == 'THOUGHT_PROBE'}
+
+        tp_onsets_to_add = []
+        tp_durations_to_add = []
+        tp_descriptions_to_add = []
+
+        for i in range(len(descriptions)):
+            if descriptions[i] == 'Stimulus/S 31':
+                onset_val = float(onsets[i])
+                if onset_val not in existing_tp_onsets:
+                    tp_onsets_to_add.append(onset_val)
+                    tp_durations_to_add.append(0.0)
+                    tp_descriptions_to_add.append('THOUGHT_PROBE')
+
+        if tp_onsets_to_add:
+            tp_annots = mne.Annotations(
+                onset=tp_onsets_to_add,
+                duration=tp_durations_to_add,
+                description=tp_descriptions_to_add,
+                orig_time=self.raw.annotations.orig_time,
+            )
+            self.raw.set_annotations(self.raw.annotations + tp_annots)
+            self.df = self.raw.annotations.to_data_frame().copy()
 
     def recode_annotations(self):
         # Step 1: Create new columns for the recoding process
@@ -81,9 +164,13 @@ class TriggerCorrector:
                 self.df.loc[i, 'recoded'] = trial_info
 
     def propagate_trial_info(self):
-        n_probe = 0
-        passed_probe = False  # Initialize the variable here
-        probe_distance = 0  # Initialize probe_distance variable
+        # Build a forward-ordered mapping of S36 (end-of-probe) rows to probe numbers (1..N)
+        s36_indices = [i for i in range(len(self.df)) if self.df.loc[i, 'description'] == 'Stimulus/S 36']
+        s36_index_to_num = {idx: num for num, idx in enumerate(s36_indices, start=1)}
+
+        passed_probe = False
+        probe_distance = 0
+        current_probe_num = None
 
         # First pass: reverse through the dataframe
         for i in reversed(range(len(self.df))):
@@ -92,17 +179,18 @@ class TriggerCorrector:
             # This ensures we don't try to process probes themselves in this logic
             is_trial = recoded_value.startswith(('go', 'nogo'))
             
-            if 'Stimulus/S 36' in self.df.loc[i, 'description']:
+            if self.df.loc[i, 'description'] == 'Stimulus/S 36':
                 probe_distance = 0
                 passed_probe = True
-                n_probe += 1
+                current_probe_num = s36_index_to_num.get(i)
                 # Skip adding probe distance/number to the probe marker itself
-                continue  # Go to the next iteration
+                continue
 
             if passed_probe and is_trial:
                 probe_distance -= 1
                 # Append probe distance and number
-                self.df.loc[i, 'recoded'] = f"{recoded_value}/{probe_distance}/probe{n_probe}"
+                probe_token = f"/probe{current_probe_num}" if current_probe_num is not None else ""
+                self.df.loc[i, 'recoded'] = f"{recoded_value}/{probe_distance}{probe_token}"
 
         # Second pass: forward through the dataframe
         trial_counter = 0
@@ -123,6 +211,264 @@ class TriggerCorrector:
                 trial_counter += 1
                 # Append trial counter to the existing string
                 self.df.loc[i, 'recoded'] = f"{recoded_value}/{trial_counter}"
+
+    def add_onoff_label(self):
+        """
+        Append '/ontask' or '/offtask' to recoded values based on onoff rating.
+        Uses threshold: onoff >= 50 -> ontask, onoff < 50 -> offtask.
+        Applies only to trial rows (go/nogo) that carry 'onoff' entries.
+        """
+        for i in range(len(self.df)):
+            recoded_value = self.df.loc[i, 'recoded']
+            if not isinstance(recoded_value, str):
+                continue
+            # Only label trials, skip probe markers and question rows
+            if not recoded_value.startswith(('go', 'nogo')):
+                continue
+            if ('onoff' not in recoded_value) or ('/ontask' in recoded_value or '/offtask' in recoded_value):
+                continue
+
+            onoff_value = None
+            for part in recoded_value.split('/'):
+                if part.startswith('onoff'):
+                    digits = ''.join(filter(str.isdigit, part))
+                    if digits:
+                        onoff_value = int(digits)
+                        break
+            if onoff_value is None:
+                continue
+
+            label = 'ontask' if onoff_value >= 50 else 'offtask'
+
+            # Insert the label just before the distance/probe/trial tokens if present;
+            # otherwise, append at the end. We detect tokens by their pattern to avoid
+            # disturbing the positional parsing.
+            parts = recoded_value.split('/')
+
+            # Identify indices for signed distance ('+N' or '-N'), 'probeN', and last pure digit (trial)
+            signed_distance_idx = None
+            probe_idx = None
+            last_pure_digit_idx = None
+            for idx, part in enumerate(parts):
+                if (part.startswith('+') or part.startswith('-')) and part[1:].isdigit():
+                    signed_distance_idx = idx
+                elif part.startswith('probe') and part[5:].isdigit():
+                    probe_idx = idx
+                elif part.isdigit():
+                    last_pure_digit_idx = idx
+
+            insertion_index = len(parts)
+            # If we have trial number detected, put the label before the distance/probe/trial block
+            if last_pure_digit_idx is not None:
+                # Aim to place before the first of the special tokens encountered towards the end
+                candidate_indices = [idx for idx in [signed_distance_idx, probe_idx, last_pure_digit_idx] if idx is not None]
+                if candidate_indices:
+                    insertion_index = min(candidate_indices)
+
+            parts.insert(insertion_index, label)
+            self.df.loc[i, 'recoded'] = '/'.join(parts)
+
+    # -------------------- Binarization helpers --------------------
+    def _load_thresholds(self):
+        """
+        Load thresholds for thought dimensions from YAML config.
+        Looks for Preprocessing_pipeline_new/config.yaml -> thought_thresholds.
+        Defaults = 50 for all dimensions if not found or YAML unavailable.
+        """
+        defaults = {
+            'onoff': 50,
+            'selfother': 50,
+            'valence': 50,
+            'time': 50,
+            'confidence': 50,
+            'average': 50,
+        }
+        try:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            cfg_path = os.path.join(project_root, 'Preprocessing_pipeline_new', 'config.yaml')
+            if yaml is None:
+                return defaults
+            if os.path.exists(cfg_path):
+                with open(cfg_path, 'r') as f:
+                    cfg = yaml.safe_load(f) or {}
+                if isinstance(cfg, dict) and 'thought_thresholds' in cfg:
+                    merged = defaults.copy()
+                    for k, v in (cfg.get('thought_thresholds') or {}).items():
+                        if k in merged:
+                            try:
+                                merged[k] = int(v)
+                            except Exception:
+                                pass
+                    return merged
+        except Exception:
+            return defaults
+        return defaults
+
+    def _extract_dimension_values(self, recoded_value: str):
+        values = {
+            'onoff': None,
+            'selfother': None,
+            'valence': None,
+            'time': None,
+            'confidence': None,
+            'average': None,
+        }
+        parts = recoded_value.split('/')
+        for part in parts:
+            for key in values.keys():
+                if part.startswith(key):
+                    digits = ''.join(filter(str.isdigit, part))
+                    if digits:
+                        try:
+                            values[key] = int(digits)
+                        except Exception:
+                            values[key] = None
+        return values
+
+    def append_binary_labels(self) -> None:
+        """
+        Append binarized tokens for all thought dimensions to all relevant rows
+        (trials and THOUGHT_PROBE aggregates). For trials, also append 'gonogoBin1'
+        for go and 'gonogoBin0' for nogo.
+
+        Tokens are inserted before the distance/probe/trial index block when present
+        to preserve positional parsing for distance/probe/trial.
+        """
+        thresholds = self._load_thresholds()
+
+        for i in range(len(self.df)):
+            recoded_value = self.df.loc[i, 'recoded']
+            if not isinstance(recoded_value, str):
+                continue
+
+            is_trial = recoded_value.startswith(('go', 'nogo'))
+            is_probe_marker = recoded_value.startswith('THOUGHT_PROBE/')
+            if not (is_trial or is_probe_marker):
+                # Also allow dimension-only rows (e.g., 'onoff91')
+                contains_dimension = any(k in recoded_value for k in ['onoff', 'selfother', 'valence', 'time', 'confidence', 'average'])
+                if not contains_dimension:
+                    continue
+
+            values = self._extract_dimension_values(recoded_value)
+
+            # Build bin tokens if not already present
+            parts = recoded_value.split('/')
+            existing_prefixes = {p.split('Bin')[0] + 'Bin' for p in parts if 'Bin' in p}
+            bin_tokens = []
+            for key, val in values.items():
+                if val is None:
+                    continue
+                prefix = f"{key}Bin"
+                if prefix in existing_prefixes:
+                    continue
+                thr = thresholds.get(key, 50)
+                bin_val = 1 if val >= thr else 0
+                bin_tokens.append(f"{prefix}{bin_val}")
+
+            if is_trial:
+                # Add gonogoBin
+                if not any(p.startswith('gonogoBin') for p in parts):
+                    bin_tokens.append('gonogoBin1' if recoded_value.startswith('go') else 'gonogoBin0')
+
+            if not bin_tokens:
+                continue
+
+            # Find insertion index before distance/probe/trial tokens
+            signed_distance_idx = None
+            probe_idx = None
+            last_pure_digit_idx = None
+            for idx, part in enumerate(parts):
+                if (part.startswith('+') or part.startswith('-')) and part[1:].isdigit():
+                    signed_distance_idx = idx
+                elif part.startswith('probe') and part[5:].isdigit():
+                    probe_idx = idx
+                elif part.isdigit():
+                    last_pure_digit_idx = idx
+
+            insertion_index = len(parts)
+            candidate_indices = [idx for idx in [signed_distance_idx, probe_idx, last_pure_digit_idx] if idx is not None]
+            if candidate_indices:
+                insertion_index = min(candidate_indices)
+
+            new_parts = parts[:insertion_index] + bin_tokens + parts[insertion_index:]
+            self.df.loc[i, 'recoded'] = '/'.join(new_parts)
+
+    def aggregate_thought_probe_info(self):
+        """
+        For each THOUGHT_PROBE marker, replace its recoded value with the
+        aggregated probe answers in the canonical order and append the probe
+        number (e.g., 'onoff91/selfother51/valence72/time68/confidence76/average71/probe15').
+
+        The probe number is inferred from nearby trials that already carry
+        '/probeN' (assigned in propagate_trial_info). If not found nearby,
+        numbering falls back to counting 'Stimulus/S 36' occurrences up to that
+        probe so it remains consistent.
+        """
+        if 'recoded' not in self.df.columns:
+            return
+
+        # Precompute cumulative count of S36 to provide a fallback probe index
+        s36_cumsum = []
+        count = 0
+        for i in range(len(self.df)):
+            if self.df.loc[i, 'description'] == 'Stimulus/S 36':
+                count += 1
+            s36_cumsum.append(count)
+
+        for i in range(len(self.df)):
+            if self.df.loc[i, 'description'] != 'THOUGHT_PROBE':
+                continue
+
+            # Collect probe answers between this marker and the next S36
+            values = {k: None for k in ['onoff', 'selfother', 'valence', 'time', 'confidence', 'average']}
+
+            # Search forward up to the next S36 (end of probe block)
+            end_idx = None
+            for j in range(i, len(self.df)):
+                desc_j = self.df.loc[j, 'description']
+                rec_j = str(self.df.loc[j, 'recoded']) if isinstance(self.df.loc[j, 'recoded'], str) else ''
+                for key in list(values.keys()):
+                    if values[key] is None and rec_j.startswith(key):
+                        values[key] = rec_j
+                if desc_j == 'Stimulus/S 36':
+                    end_idx = j
+                    break
+
+            # Infer probe number from nearby trials carrying '/probeN'
+            probe_num = None
+            # Prefer scanning backward to find trials before the marker
+            for j in range(i - 1, max(-1, i - 200), -1):
+                rec_j = self.df.loc[j, 'recoded']
+                if isinstance(rec_j, str) and rec_j.startswith(('go', 'nogo')):
+                    for part in rec_j.split('/'):
+                        if part.startswith('probe') and part[5:].isdigit():
+                            probe_num = int(part[5:])
+                            break
+                if probe_num is not None:
+                    break
+            # Fallback: look forward
+            if probe_num is None:
+                for j in range(i + 1, min(len(self.df), i + 200)):
+                    rec_j = self.df.loc[j, 'recoded']
+                    if isinstance(rec_j, str) and rec_j.startswith(('go', 'nogo')):
+                        for part in rec_j.split('/'):
+                            if part.startswith('probe') and part[5:].isdigit():
+                                probe_num = int(part[5:])
+                                break
+                    if probe_num is not None:
+                        break
+
+            # Second fallback: derive from s36 cumulative count up to end_idx
+            if probe_num is None and end_idx is not None:
+                probe_num = s36_cumsum[end_idx]
+
+            ordered_keys = ['onoff', 'selfother', 'valence', 'time', 'confidence', 'average']
+            parts = [values[k] for k in ordered_keys if values[k] is not None]
+            if probe_num is not None:
+                parts.append(f"probe{probe_num}")
+
+            if parts:
+                self.df.loc[i, 'recoded'] = 'THOUGHT_PROBE/' + '/'.join(parts)
     
     def fix_probe_distances(self):
         """
@@ -257,20 +603,26 @@ class TriggerCorrector:
                     average = int(''.join(filter(str.isdigit, part)))
                 # Do not parse probe number, distance, trial here yet
 
-            # Now parse distance, probe number, and trial number based on position
-            # Expected format for trials: .../distance/probeN/trial_count
-            if len(probe_parts) >= 4 and id_base in [1, 2]: # Only for go/nogo trials
-                 # Distance is third from end
-                 if probe_parts[-3].lstrip('-').isdigit():
-                     distance_to_probe = abs(int(probe_parts[-3])) # Use absolute value
+            # Now parse distance, probe number, and trial number in a position-agnostic way
+            # so that additional tokens (e.g., 'ontask'/'offtask') do not break parsing
+            if id_base in [1, 2]:  # Only for go/nogo trials
+                 # Distance: look for last signed numeric token like '+N' or '-N'
+                 for token in reversed(probe_parts):
+                     if (isinstance(token, str) and len(token) > 1 and (token[0] in ['+', '-']) and token[1:].isdigit()):
+                         distance_to_probe = abs(int(token))
+                         break
 
-                 # Probe number is second from end
-                 if probe_parts[-2].startswith('probe') and probe_parts[-2][5:].isdigit():
-                     probe_number = int(probe_parts[-2][5:])
+                 # Probe number: find 'probeN' token
+                 for token in probe_parts:
+                     if token.startswith('probe') and token[5:].isdigit():
+                         probe_number = int(token[5:])
+                         break
 
-                 # Trial number is last
-                 if probe_parts[-1].isdigit():
-                     trial_number = int(probe_parts[-1])
+                 # Trial number: take the last pure-digit token
+                 for token in reversed(probe_parts):
+                     if token.isdigit():
+                         trial_number = int(token)
+                         break
             
             # Combine all parts into a large integer (now including probe_number correctly)
             # Ensure consistent field widths
@@ -291,19 +643,21 @@ class TriggerCorrector:
 
     def process_annotations(self):
         # Combines all the steps into one function
+        # 0) Add BAD_rest annotations before any recoding so DF includes them
+        self.annotate_rest_periods()
+        # 0b) Add explicit THOUGHT_PROBE markers at S31
+        self.annotate_thought_probe_markers()
         self.recode_annotations()
         self.retropropagate_tp_values()
         self.retropropagate_tp_to_trials()
         self.propagate_trial_info()
         self.fix_probe_distances()  # New step to ensure proper distance formatting
-        self.create_random_event_id()
-
-        # Create events and event_id based on random numerical ID
-        onsets = mne.events_from_annotations(self.raw, event_id='auto')[0][:, 0]
-        durations = np.zeros_like(onsets)
-        ids = self.df['numerical_id'].values
-
-        events = np.vstack((onsets, durations, ids)).T
-        event_id = dict(zip(self.df['recoded'], self.df['numerical_id']))
-
+        # Add aggregated info to THOUGHT_PROBE markers and then label trials
+        self.aggregate_thought_probe_info()
+        # 5) Append /ontask or /offtask labels based on onoff value (trials only)
+        self.add_onoff_label()
+        # 6) Append binarized labels for all thought dimensions and gonogo
+        self.append_binary_labels()
+        # Build events directly from annotations to avoid length mismatch issues
+        events, event_id = mne.events_from_annotations(self.raw, event_id='auto')
         return events, event_id

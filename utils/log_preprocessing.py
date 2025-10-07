@@ -48,6 +48,11 @@ class LogPreprocessingDetails:
         if isinstance(value, np.ndarray):
             value = value.tolist()  # Convert numpy arrays to lists
         self.logs[self.subject][self.task][key] = value
+    
+    def clear_subject_task_data(self):
+        """Clear data for this specific subject/task to only keep latest run"""
+        if self.subject in self.logs and self.task in self.logs[self.subject]:
+            del self.logs[self.subject][self.task]
 
     def get_log(self):
         self.initialize_log_structure()

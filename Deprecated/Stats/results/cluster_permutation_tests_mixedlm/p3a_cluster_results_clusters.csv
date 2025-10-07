@@ -1,0 +1,2 @@
+cluster_id,p_value,significant,cluster_size,max_abs_t,mean_t,channels,marker,comparison
+1,0.031936127744510975,True,2,2.6882996676110094,-2.587607897425983,PO4; POz,p3a,high_vs_low

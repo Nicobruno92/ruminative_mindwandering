@@ -425,7 +425,8 @@ def read_epochs(root_path, subject, task, data, desc=None):
         The events array associated with the epochs.
     """
     # Construct BIDS-compliant file name
-    bids_fname = make_bids_basename(subject=subject, task=task, suffix=data, extension='.fif', desc=desc)
+    # bids_fname = make_bids_basename(subject=subject, task=task, suffix=data, extension='.fif', desc=desc)
+    bids_fname = f"sub-{subject}_task-{task}_desc-{desc}_epo.fif"
     bids_directory = os.path.join(root_path, f"sub-{subject}", data)
     
     # Full file path to the epochs file
@@ -438,7 +439,8 @@ def read_epochs(root_path, subject, task, data, desc=None):
     epochs = mne.read_epochs(bids_path, preload=True)
     
     # Load events
-    events_fname = make_bids_basename(subject=subject,task=task, suffix='events', extension='.tsv', desc=desc)
+    # events_fname = make_bids_basename(subject=subject,task=task, suffix='events', extension='.tsv', desc=desc)
+    events_fname = f"sub-{subject}_task-{task}_desc-{desc}_epo_events.tsv"
     events_path = os.path.join(bids_directory, events_fname)
     
     if not os.path.exists(events_path):
@@ -507,6 +509,7 @@ def load_evokeds(derivatives_folder, subject, data, desc=None):
     Returns:
     list of mne.Evoked: A list of evoked objects for different conditions.
     """
+    # Preferred BIDS-compliant filename
     if desc == None:
         evoked_fname = os.path.join(
             derivatives_folder, 
@@ -522,9 +525,19 @@ def load_evokeds(derivatives_folder, subject, data, desc=None):
             f"sub-{subject}_evokeds_desc-{desc}-ave.fif"
         )
 
+    # Fallback to legacy filename if BIDS-compliant file does not exist
+    if not os.path.exists(evoked_fname) and desc is not None:
+        legacy_fname = os.path.join(
+            derivatives_folder,
+            f"sub-{subject}",
+            data,
+            f"sub-{subject}_task-concat_{data}_evokeds_{desc}.fif"
+        )
+        if os.path.exists(legacy_fname):
+            evoked_fname = legacy_fname
+
     # Load the evoked data
     evokeds = mne.read_evokeds(evoked_fname)
-    
     return evokeds
 
 def save_psd_epochs(psds, derivatives_folder, subject, data, desc=None):

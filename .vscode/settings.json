@@ -1,0 +1,23 @@
+{
+    "files.exclude": {
+      ".history/": true,
+      "**/Results/**/*.db": true,
+      "**/Results/**/*.pkl": true,
+      "**/runs": true,
+      "**/permutation": true
+
+    },
+    "search.exclude": {
+      "**/runs": true,
+      "**/permutation": true
+    },
+    "github.copilot.chat.agent.thinkingTool": true,
+    "github.copilot.chat.commitMessageGeneration.instructions": [
+
+    ],
+    "github.copilot.chat.languageContext.fix.typescript.enabled": true,
+    "github.copilot.chat.languageContext.inline.typescript.enabled": true,
+    "github.copilot.chat.languageContext.typescript.enabled": true,
+    "github.copilot.chat.edits.temporalContext.enabled": true,
+    "github.copilot.chat.codesearch.enabled": true
+  }

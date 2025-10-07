@@ -1,0 +1,2 @@
+cluster_id,p_value,significant,cluster_size,max_abs_t,mean_t,channels,marker,analysis_type
+1,0.001996007984031936,True,8,2.120760608974833,1.7621661602175482,AF3; AF7; C1; Cz; F1; F7; FC1; FCz,b_n,PC1_regression

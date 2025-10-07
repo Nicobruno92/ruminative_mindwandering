@@ -1,0 +1,10 @@
+{
+    "files.exclude": {
+      "**/runs": true,
+      "**/permutation": true
+    },
+    "search.exclude": {
+      "**/runs": true,
+      "**/permutation": true
+    }
+  }

@@ -1,0 +1,184 @@
+# =============================================================================
+# DETERMINISTIC EEG PREPROCESSING PIPELINE CONFIGURATION
+# =============================================================================
+# This pipeline is designed for scientific replicability - no fallback methods.
+# All operations use exactly one specified method with fixed random seeds.
+# Changes to parameters will affect reproducibility.
+# =============================================================================
+
+# =============================================================================
+# 1. PROJECT CONFIGURATION AND DATA PATHS
+# =============================================================================
+project:
+  dataset_name: "EEG Multicenter Harmonized Dataset"
+  data_root: "/network/iss/cenir/analyse/meeg/CYBERSART/_RAW_DATA"  # input location
+  bids_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS"         # BIDS raw output root
+  raw_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/raw"         # BIDS raw output root
+  # raw_root: "/Volumes/cenir/analyse/meeg/CYBERSART/BIDS/raw" #if running on local machine
+  derivatives_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives"  # derivatives output root
+  brainvision_pattern: "CYBERSART_*_{task}.vhdr"
+  montage: "CACS-64_withREF.bvef"  # or CACS-64_REF.bvef
+  line_freq_hz: 50
+  overwrite: true
+  metadata_csv: "/network/iss/cenir/analyse/meeg/CYBERSART/_RAW_DATA/metadata_experiment.csv"
+
+# Subjects and tasks to process
+subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+tasks: ["Sart1", "Sart2", "Sart3", 'Sart4']
+
+# =============================================================================
+# 2. INITIAL PROCESSING PARAMETERS
+# =============================================================================
+# Target resampling rate and basic filtering
+sr_target: 250  # target resampling rate for the pipeline
+notch_freqs: [50, 100, 150]  # line noise removal frequencies
+avg_ref_projector: true  # apply average reference
+
+# =============================================================================
+# 3. BAD CHANNEL DETECTION (PYPREP)
+# =============================================================================
+pyprep:
+  ransac: true      # use RANSAC for bad channel detection
+  channel_wise: true # channel-wise detection
+  do_detrend: true  # detrend before detection
+
+# Optional light prefilter applied ONLY for bad-channel detection (PyPREP)
+# This helps avoid over-flagging frontal channels dominated by slow drifts
+# and strong blinks. The original Raw remains unfiltered for downstream steps.
+pyprep_prefilter:
+  apply: true     # set true to enable
+  l_freq: 1      # e.g., 0.5–40 Hz
+  h_freq: 30
+
+# Optional quick ICA on a copy before bad-channel detection
+# Helps reduce frontal over-flagging by removing ocular/muscle on the fly
+pyprep_pre_ica:
+  apply: true
+  method: fastica          # fast and deterministic
+  n_components: 0.95       # proportion of variance
+  max_iter: 200            # fewer iterations for speed
+  filters: { l_freq: 1.0, h_freq: 40 }
+  eog_channels: [VEOG, HEOG]  # set to your EOG channel names if available
+  muscle_threshold: 0.7
+
+# =============================================================================
+# 4. FILTERING PARAMETERS
+# =============================================================================
+filters:
+  ica: {l_freq: 1.5, h_freq: 40}      # Filter for ICA fitting
+  evoked: {l_freq: 0.5, h_freq: 45}   # Filter for evoked analysis
+  state: {l_freq: 0.1, h_freq: 80}    # Filter for state analysis
+
+# =============================================================================
+# 5. ICA PARAMETERS
+# =============================================================================
+ica:
+  method: picard        # Single deterministic method: 'picard', 'infomax', or 'fastica'
+  n_components: 0.99    # Number of components (proportion of variance)
+  max_iter: 1000        # Explicit iteration limit for reproducibility
+  random_state: 42      # Random seed for reproducibility
+
+# ICA component classification and exclusion
+iclabel_prob_min: 0.95     # Minimum probability threshold for ICLabel (stricter: require higher confidence)
+muscle_threshold: 0.95        # Threshold for muscle/ICM component detection (stricter to reduce false positives)
+max_ica_excluded_ratio: 0.3  # Maximum ratio of components to exclude
+
+# =============================================================================
+# 6. EPOCHING PARAMETERS
+# =============================================================================
+# Evoked epochs (event-related)
+epochs_evoked:
+  tmin: -0.2           # Start time relative to event (seconds)
+  tmax: 1            # End time relative to event (seconds)
+  baseline: [Null, Null] #[-0.2, 0]  # Baseline correction window
+
+evoked_filter_go_nogo_only: true  # Only include go/nogo events for evoked analysis
+
+# State windows (pre-probe analysis)
+state_windows:
+  pre_probe_s: 10                    # Duration before probe (seconds)
+  mini_epoch_s: 2                    # Mini-epoch duration (seconds)
+  exclude_last_s_before_resp: 0    # Exclude period before response
+
+state_windows_overlap_s: 1.0  # Overlap between state windows (seconds)
+
+# Response padding
+resp_pad:
+  pre_s: 0.5   # Pre-response padding
+  post_s: 1.0  # Post-response padding
+
+# Additional processing
+use_csd: false        # Compute current source density
+
+# =============================================================================
+# 7. ARTIFACT REJECTION (AUTOREJECT)
+# =============================================================================
+autoreject:
+  cv: 10           # Cross-validation folds
+  random_state: 42 # Random seed for reproducibility
+  n_jobs: -1        # Parallel jobs
+  # Parámetros menos estrictos para AutoReject
+  thresh_method: bayesian_optimization   # opciones: 'bayesian_optimization', 'random_search'
+  n_interpolate: [1, 2, 4, 8, 16]       # opciones de canales a interpolar
+  n_consensus: [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]  # proporción de consenso
+  picks: eeg  # canales a considerar (por defecto EEG)
+
+reject_threshold_uv: 150  # Manual rejection threshold (microvolts)
+
+# =============================================================================
+# 8. THOUGHT PROBE ANALYSIS PARAMETERS
+# =============================================================================
+# Thresholds for binarizing thought probe dimensions
+thought_thresholds:
+  onoff: 50       # On-task vs off-task threshold
+  selfother: 50   # Self vs other threshold
+  valence: 50     # Valence threshold
+  time: 50        # Temporal focus threshold
+  confidence: 50  # Confidence threshold
+  average: 50     # Average threshold
+
+# =============================================================================
+# 9. QUALITY ASSESSMENT (QA) PARAMETERS
+# =============================================================================
+# Frequency bands for QA analysis
+qa_bands:
+  line: [48, 52]      # Line noise band
+  emg: [30, 80]       # EMG/muscle activity band
+  blink_low: [1, 4]   # Low-frequency blink artifacts
+
+# QA thresholds for pass/fail criteria
+qa_thresholds:
+  max_bad_epochs_ratio: 0.35           # Maximum ratio of rejected epochs
+  min_line_noise_db_improvement: 3.0   # Minimum line noise reduction (dB)
+  max_bad_channels_ratio: 0.20         # Maximum ratio of bad channels
+  max_annot_dropped_epochs_ratio: 0.50 # Maximum ratio of annotation-dropped epochs
+
+# =============================================================================
+# 10. PASS/FAIL CRITERIA
+# =============================================================================
+# Pass/Fail criteria for preprocessing (controls inclusion in next steps)
+# A subject-task will be marked as failed if ANY flag in `fail_on_flags` is present.
+# If `require_all_flags_absent` is true, then the presence of ANY flag causes failure
+# regardless of `fail_on_flags` content.
+pass_criteria:
+  fail_on_flags: [
+    "max_bad_channels_ratio",
+    "max_bad_epochs_ratio",
+    "max_annot_dropped_epochs_ratio",
+    "max_ica_excluded_ratio",
+    "ocular_ic_required"
+  ]
+  require_all_flags_absent: false
+
+# =============================================================================
+# 11. OUTPUT FILE NAMING
+# =============================================================================
+# Derivative description names for BIDS compliance
+names:
+  raw_clean_desc: icaClean  # Clean raw data after ICA
+  csd_desc: csd            # Current source density data
+  ica_desc: ica            # ICA decomposition
+  evoked_desc: evoked      # Evoked epochs
+  state_desc: state        # State epochs
+
+

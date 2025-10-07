@@ -1,0 +1,926 @@
+# %%
+"""
+Multi-dimension Probe Analysis (LMM + Plots)
+
+This script repeats the On/Off linear mixed-model analysis across multiple
+dimensions: valence, time, selfother, and confidence. It fits three models per
+dimension (group effect, inclusion/exclusion effect, and their interaction),
+exports model results, and generates plots mirroring the On/Off analysis.
+
+Design notes
+------------
+- Configuration lives at the top of the script. Adjust paths and settings there.
+- The script expects a single tidy aggregated CSV with at least these columns:
+  [    # Plot 6 (1,2): SART Mean Trajectories by Group and Order (4 points per line)
+    ax6 = fig.add_subplot(gs[1, 2])
+    if 'order (IE/EI)' in df_lmm.columns:
+        # Calculate mean per SART for each group and order combination
+        sart_order = ['Sart1', 'Sart2', 'Sart3', 'Sart4']
+        x_positions = [1, 2, 3, 4]  # X-axis positions for each SART
+        
+        # Define line styles for orders
+        order_styles = {'IE': '-', 'EI': '--'}  # IE = Inclusion-Exclusion, EI = Exclusion-Inclusion
+        
+        for group_idx, group in enumerate(GROUP_ORDER):
+            if group not in df_lmm["group"].values:
+                continue
+            group_data = df_lmm[df_lmm["group"] == group]
+            color = GROUP_COLORS[group_idx]
+            
+            for order in ['IE', 'EI']:
+                if order not in group_data['order (IE/EI)'].values:
+                    continue
+                order_data = group_data[group_data['order (IE/EI)'] == order]', 'inclusion_exclusion', <dimension>]. We reuse this
+  same table for both the probe-level and inclusion/exclusion analyses.
+- For each dimension in DIMENSIONS, we run the same set of models and plots.
+
+Usage
+-----
+Simply run this script. Modify CONFIG variables as needed.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import ptitprince as pt
+import statsmodels.formula.api as smf
+
+
+# =============================================================================
+# CONFIGURATION - Modify these variables as needed
+# =============================================================================
+# Input tidy aggregated data file. Provide CSV path that contains the required columns.
+# If your data are in other formats (e.g., parquet/pickle), change the loader accordingly.
+DATA_FILE: str = "../../results/Behavior/probe_data/probe_level_aggregated_data.csv"
+
+# Dimensions to analyze as dependent variables. Columns must exist in the data.
+DIMENSIONS: List[str] = ["valence", "time", "selfother", "confidence"]
+
+# Output base directories for results and plots (will be created if missing)
+RESULTS_DIR: str = "../../results/Behavior/probe_data/lmm_analysis_multidim"
+PLOTS_DIR: str = "../../results/Behavior/probe_data/lmm_plots_multidim"
+
+# Plot aesthetics
+GROUP_ORDER: List[str] = ["Controls", "Risk of Depression"]
+IE_ORDER: List[str] = ["inclusion", "exclusion"]
+GROUP_COLORS: List[str] = ["#2E86AB", "#F24236"]
+IE_COLORS: List[str] = ["#A23B72", "#F18F01"]
+
+# Optional filter: analyze only rows where onoff < threshold
+APPLY_ONOFF_FILTER: bool = True
+ONOFF_MAX_EXCLUSIVE: float = 50
+
+# Optional filter: exclude baseline condition from inclusion/exclusion analysis
+EXCLUDE_BASELINE: bool = True  # Set to True to only analyze inclusion vs exclusion
+
+#%%
+# =============================================================================
+
+
+def ensure_directories() -> None:
+    """Create output directories if they do not exist."""
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+
+
+def load_dataframes() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Load input dataframes for LMM and Inclusion/Exclusion analyses.
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, pd.DataFrame]
+        df_lmm, df_lmm_ie
+    """
+    if not os.path.exists(DATA_FILE):
+        raise FileNotFoundError(
+            f"DATA_FILE not found: {DATA_FILE}. Update the path in the CONFIG section."
+        )
+
+    df = pd.read_csv(DATA_FILE)
+    # We reuse the same aggregated table for both uses
+    return df, df
+
+
+def validate_columns(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dimensions: List[str]) -> None:
+    """
+    Validate that required columns exist in the input data frames.
+
+    Parameters
+    ----------
+    df_lmm : pd.DataFrame
+        Probe-level data.
+    df_lmm_ie : pd.DataFrame
+        Inclusion/Exclusion-level data.
+    dimensions : List[str]
+        Dependent variable names to verify.
+    """
+    lmm_required = {"subject_id", "group"}
+    ie_required = {"subject_id", "group", "inclusion_exclusion"}
+
+    missing_lmm = lmm_required - set(df_lmm.columns)
+    missing_ie = ie_required - set(df_lmm_ie.columns)
+    if missing_lmm:
+        raise ValueError(f"df_lmm is missing required columns: {sorted(missing_lmm)}")
+    if missing_ie:
+        raise ValueError(f"df_lmm_ie is missing required columns: {sorted(missing_ie)}")
+
+    for dep in dimensions:
+        if dep not in df_lmm.columns:
+            raise ValueError(f"Dependent variable '{dep}' not in df_lmm columns")
+        if dep not in df_lmm_ie.columns:
+            raise ValueError(f"Dependent variable '{dep}' not in df_lmm_ie columns")
+
+
+def run_lmm_analysis(
+    data: pd.DataFrame,
+    dependent_var: str,
+    formula_rhs: str,
+    model_name: str,
+    output_dir: str,
+) -> Tuple[pd.DataFrame, object]:
+    """
+    Run linear mixed model analysis with random intercepts by subject.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Input data frame used for the model.
+    dependent_var : str
+        Dependent variable column name.
+    formula_rhs : str
+        Right-hand side of the formula (predictors and interactions).
+    model_name : str
+        Short name for the model used in filenames.
+    output_dir : str
+        Directory where results will be saved.
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, object]
+        results_df, fitted_model
+    """
+    print(f"\n=== FITTING MODEL: {model_name} ({dependent_var}) ===")
+    print(f"Formula: {dependent_var} ~ {formula_rhs}")
+    print(
+        f"Sample size: {len(data)} observations from {data['subject_id'].nunique()} subjects"
+    )
+
+    # Prepare clean data subset to avoid indexing issues
+    tokens = (
+        formula_rhs.replace("*", " ")
+        .replace(":", " ")
+        .replace("+", " ")
+        .replace("/", " ")
+        .replace("~", " ")
+        .split()
+    )
+    predictor_cols = {t.strip() for t in tokens if t.strip()}
+    required_cols = {dependent_var, "subject_id"} | predictor_cols
+    missing = required_cols - set(data.columns)
+    if missing:
+        raise ValueError(f"Missing required columns for model {model_name}: {sorted(missing)}")
+
+    model_df = data.loc[:, sorted(required_cols)].copy()
+    # Cast factors to category if present
+    for cat_col in ["group", "inclusion_exclusion"]:
+        if cat_col in model_df.columns:
+            model_df[cat_col] = model_df[cat_col].astype("category")
+    # Identify and report rows with NA in required columns
+    before_n = len(model_df)
+    na_mask = model_df.isna().any(axis=1)
+    dropped_df = model_df.loc[na_mask].copy()
+
+    # Drop rows with NA in required columns
+    model_df = (
+        model_df.dropna(axis=0, how="any").sort_values(["subject_id"]).reset_index(drop=True)
+    )
+    after_n = len(model_df)
+    num_dropped = before_n - after_n
+    if num_dropped > 0:
+        # Column-wise NA counts
+        na_counts = dropped_df.isna().sum()
+        # Subject-wise counts
+        subj_counts = dropped_df["subject_id"].value_counts().sort_index()
+        # Basic distributions for key factors if present
+        group_counts = (
+            dropped_df["group"].value_counts().sort_index() if "group" in dropped_df.columns else None
+        )
+        ie_counts = (
+            dropped_df["inclusion_exclusion"].value_counts().sort_index()
+            if "inclusion_exclusion" in dropped_df.columns
+            else None
+        )
+
+        print(
+            f"Dropped {num_dropped} rows with missing data for model '{model_name}' ({dependent_var})."
+        )
+        print("- Missing by column (only >0 shown):")
+        for col, cnt in na_counts.items():
+            if cnt > 0:
+                print(f"  {col}: {cnt}")
+        print("- Dropped rows by subject_id:")
+        for sid, cnt in subj_counts.items():
+            print(f"  {sid}: {cnt}")
+        if group_counts is not None:
+            print("- Dropped rows by group:")
+            for g, cnt in group_counts.items():
+                print(f"  {g}: {cnt}")
+        if ie_counts is not None:
+            print("- Dropped rows by inclusion_exclusion:")
+            for cond, cnt in ie_counts.items():
+                print(f"  {cond}: {cnt}")
+
+        # Save the dropped rows for audit
+        os.makedirs(output_dir, exist_ok=True)
+        dropped_path = os.path.join(
+            output_dir, f"dropped_rows_{model_name}_{dependent_var}.csv"
+        )
+        dropped_df.to_csv(dropped_path, index=False)
+        print(f"- Saved dropped rows to: {dropped_path}")
+
+    full_formula = f"{dependent_var} ~ {formula_rhs}"
+    model = smf.mixedlm(full_formula, model_df, groups="subject_id").fit()
+    print("Model fitted successfully!")
+    print(model.summary())
+
+    results_df = pd.DataFrame(
+        {
+            "predictor": model.params.index,
+            "estimate": model.params.values,
+            "std_error": model.bse.values,
+            "t_value": model.tvalues.values,
+            "p_value": model.pvalues.values,
+            "conf_lower": model.conf_int().iloc[:, 0].values,
+            "conf_upper": model.conf_int().iloc[:, 1].values,
+        }
+    )
+    results_df["significant_05"] = results_df["p_value"] < 0.05
+    results_df["significant_01"] = results_df["p_value"] < 0.01
+
+    # Extract model fit metrics
+    # Calculate n_groups from the data since model doesn't have this attribute
+    n_groups = model_df['subject_id'].nunique()
+    
+    # Try to get AIC/BIC from model, calculate manually if not available
+    aic_value = model.aic if hasattr(model, 'aic') and not pd.isna(model.aic) else None
+    bic_value = model.bic if hasattr(model, 'bic') and not pd.isna(model.bic) else None
+    
+    # Manual calculation if not available from model
+    if aic_value is None:
+        # AIC = -2*log-likelihood + 2*k (where k is number of parameters)
+        k = len(model.params)
+        aic_value = -2 * model.llf + 2 * k
+        print(f"Note: AIC calculated manually: {aic_value:.3f}")
+    
+    if bic_value is None:
+        # BIC = -2*log-likelihood + k*ln(n)
+        k = len(model.params)
+        n = model.nobs
+        bic_value = -2 * model.llf + k * np.log(n)
+        print(f"Note: BIC calculated manually: {bic_value:.3f}")
+    
+    model_metrics = {
+        'aic': aic_value,
+        'bic': bic_value,
+        'log_likelihood': model.llf,
+        'log_likelihood_restricted': model.llf_fe if hasattr(model, 'llf_fe') else None,
+        'n_observations': model.nobs,
+        'n_groups': n_groups,
+        'n_parameters': len(model.params),
+        'n_fixed_effects': len(model.fe_params) if hasattr(model, 'fe_params') else None,
+        'n_random_effects': len(model.cov_re) if hasattr(model, 'cov_re') else None,
+        'converged': model.converged,
+        'scale': model.scale if hasattr(model, 'scale') else None,
+        'deviance': -2 * model.llf if model.llf is not None else None,
+        'rsquared_within': None,
+        'rsquared_between': None
+    }
+    
+    # Print model fit metrics
+    print("\n=== MODEL FIT METRICS ===")
+    print(f"AIC: {model_metrics['aic']:.3f}")
+    print(f"BIC: {model_metrics['bic']:.3f}")
+    print(f"Log-Likelihood: {model_metrics['log_likelihood']:.3f}")
+    print(f"N observations: {model_metrics['n_observations']}")
+    print(f"N groups: {model_metrics['n_groups']}")
+    print(f"Converged: {model_metrics['converged']}")
+    if model_metrics['scale'] is not None:
+        print(f"Scale: {model_metrics['scale']:.6f}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    results_file = os.path.join(output_dir, f"{model_name}_{dependent_var}_results.csv")
+    results_df.to_csv(results_file, index=False)
+    
+    # Save model metrics
+    metrics_df = pd.DataFrame([model_metrics])
+    metrics_file = os.path.join(output_dir, f"{model_name}_{dependent_var}_metrics.csv")
+    metrics_df.to_csv(metrics_file, index=False)
+    
+    # Save enhanced model summary with metrics
+    summary_file = os.path.join(output_dir, f"{model_name}_{dependent_var}_summary.txt")
+    with open(summary_file, "w") as f:
+        f.write(str(model.summary()))
+        f.write("\n\n" + "="*60 + "\n")
+        f.write("MODEL FIT METRICS\n")
+        f.write("="*60 + "\n")
+        for key, value in model_metrics.items():
+            if value is not None:
+                if isinstance(value, float):
+                    f.write(f"{key.upper()}: {value:.6f}\n")
+                else:
+                    f.write(f"{key.upper()}: {value}\n")
+            else:
+                f.write(f"{key.upper()}: Not available\n")
+    
+    print(f"Results saved to: {results_file}")
+    print(f"Metrics saved to: {metrics_file}")
+    print(f"Enhanced summary saved to: {summary_file}")
+
+    return results_df, model
+
+
+def plot_dimension(
+    df_lmm: pd.DataFrame,
+    df_lmm_ie: pd.DataFrame,
+    dep: str,
+    out_dir: str,
+) -> None:
+    """
+    Create a comprehensive 2x3 figure combining all key analyses.
+    
+    Grid layout:
+    - Row 1: Raincloud (Group) | Raincloud (I/E) | Interaction
+    - Row 2: Time by Group | Time by I/E | SART Trajectories
+
+    Parameters
+    ----------
+    df_lmm : pd.DataFrame
+        Probe-level data.
+    df_lmm_ie : pd.DataFrame
+        Inclusion/Exclusion-level data.
+    dep : str
+        Dependent variable column to plot.
+    out_dir : str
+        Output directory for saved plots.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.style.use("default")
+    fig = plt.figure(figsize=(24, 14))
+    gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.25)
+
+    # =========================================================================
+    # ROW 1: DISTRIBUTION COMPARISONS
+    # =========================================================================
+
+    # Plot 1 (0,0): Raincloud for group comparison
+    ax1 = fig.add_subplot(gs[0, 0])
+    df_agg_group = df_lmm.groupby(["subject_id", "group"])[dep].mean().reset_index()
+    n_participants_by_group = df_agg_group.groupby("group")["subject_id"].nunique().to_dict()
+    
+    pt.RainCloud(
+        x="group",
+        y=dep,
+        data=df_agg_group,
+        palette=GROUP_COLORS,
+        order=GROUP_ORDER,
+        bw=0.2,
+        width_viol=0.6,
+        alpha=0.7,
+        dodge=True,
+        pointplot=True,
+        move=-0.1,
+        ax=ax1,
+    )
+    ax1.set_title(
+        f"{dep.upper()}: Group Effect",
+        fontsize=18,
+        fontweight="bold",
+        pad=15,
+    )
+    ax1.set_xlabel("Group", fontsize=14, fontweight="bold")
+    ax1.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+    ax1.grid(True, alpha=0.3)
+    
+    # Add sample sizes
+    for i, group in enumerate(GROUP_ORDER):
+        n = n_participants_by_group.get(group, 0)
+        ax1.text(
+            i, ax1.get_ylim()[1] * 0.95, f"n={n}",
+            ha="center", va="top", fontsize=12, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8)
+        )
+
+    # Plot 2 (0,1): Raincloud for inclusion/exclusion
+    ax2 = fig.add_subplot(gs[0, 1])
+    df_agg_ie = df_lmm_ie.groupby(["subject_id", "inclusion_exclusion"])[dep].mean().reset_index()
+    n_participants_by_ie = df_agg_ie.groupby("inclusion_exclusion")["subject_id"].nunique().to_dict()
+    
+    pt.RainCloud(
+        x="inclusion_exclusion",
+        y=dep,
+        data=df_agg_ie,
+        palette=IE_COLORS,
+        order=IE_ORDER,
+        bw=0.2,
+        width_viol=0.6,
+        alpha=0.7,
+        dodge=True,
+        pointplot=True,
+        move=-0.1,
+        ax=ax2,
+    )
+    ax2.set_title(
+        f"{dep.upper()}: Inclusion/Exclusion Effect",
+        fontsize=18,
+        fontweight="bold",
+        pad=15,
+    )
+    ax2.set_xlabel("Condition", fontsize=14, fontweight="bold")
+    ax2.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+    ax2.grid(True, alpha=0.3)
+    
+    # Add sample sizes
+    for i, condition in enumerate(IE_ORDER):
+        n = n_participants_by_ie.get(condition, 0)
+        ax2.text(
+            i, ax2.get_ylim()[1] * 0.95, f"n={n}",
+            ha="center", va="top", fontsize=12, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8)
+        )
+
+    # Plot 3 (0,2): Interaction plot (Group × I/E)
+    ax3 = fig.add_subplot(gs[0, 2])
+    for group in df_lmm_ie["group"].dropna().unique():
+        group_data = df_lmm_ie[df_lmm_ie["group"] == group]
+        if len(group_data) == 0:
+            continue
+        ie_means = (
+            group_data.groupby("inclusion_exclusion")[dep]
+            .agg(["mean", "sem"])
+            .reindex(IE_ORDER)
+            .reset_index()
+        )
+        n_participants_group = group_data["subject_id"].nunique()
+        color = GROUP_COLORS[0] if group == GROUP_ORDER[0] else GROUP_COLORS[1]
+        x_positions = [0, 1]
+        ax3.errorbar(
+            x_positions,
+            ie_means["mean"],
+            yerr=ie_means["sem"],
+            marker="o",
+            linewidth=3,
+            markersize=10,
+            capsize=5,
+            capthick=2,
+            label=f"{group} (n={n_participants_group})",
+            color=color,
+            alpha=0.9,
+        )
+    ax3.set_xticks([0, 1])
+    ax3.set_xticklabels(IE_ORDER, fontsize=14, fontweight="bold")
+    ax3.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+    ax3.set_title(
+        f"{dep.upper()}: Group × I/E Interaction",
+        fontsize=18,
+        fontweight="bold",
+        pad=15,
+    )
+    ax3.legend(fontsize=12, title_fontsize=12, loc='best')
+    ax3.grid(True, alpha=0.3)
+
+    # =========================================================================
+    # ROW 2: TIME-ON-TASK TRAJECTORIES
+    # =========================================================================
+
+    # Plot 4 (1,0): Time-on-task by group
+    ax4 = fig.add_subplot(gs[1, 0])
+    if 'time_on_task' in df_lmm.columns:
+        for i, group in enumerate(GROUP_ORDER):
+            if group in df_lmm["group"].values:
+                group_data = df_lmm[df_lmm["group"] == group]
+                time_group_agg = group_data.groupby("time_on_task")[dep].agg(["mean", "sem"]).reset_index()
+                color = GROUP_COLORS[i]
+                ax4.errorbar(
+                    time_group_agg["time_on_task"],
+                    time_group_agg["mean"],
+                    yerr=time_group_agg["sem"],
+                    marker="o",
+                    linewidth=2.5,
+                    markersize=6,
+                    capsize=3,
+                    alpha=0.8,
+                    color=color,
+                    label=group,
+                )
+        ax4.set_xlabel("Time on Task (Probe Number)", fontsize=14, fontweight="bold")
+        ax4.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+        ax4.set_title(
+            f"{dep.upper()}: Time-on-Task by Group",
+            fontsize=18,
+            fontweight="bold",
+            pad=15,
+        )
+        ax4.legend(fontsize=12, loc='best')
+        ax4.grid(True, alpha=0.3)
+    else:
+        ax4.text(0.5, 0.5, 'Time-on-task data not available', 
+                ha='center', va='center', transform=ax4.transAxes, fontsize=14)
+
+    # Plot 5 (1,1): Time-on-task by inclusion/exclusion (full trajectory 1-60)
+    ax5 = fig.add_subplot(gs[1, 1])
+    if 'time_on_task' in df_lmm_ie.columns:
+        for i, condition in enumerate(IE_ORDER):
+            if condition in df_lmm_ie["inclusion_exclusion"].values:
+                ie_data = df_lmm_ie[df_lmm_ie["inclusion_exclusion"] == condition]
+                time_ie_agg = ie_data.groupby("time_on_task")[dep].agg(["mean", "sem"]).reset_index()
+                color = IE_COLORS[i]
+                ax5.errorbar(
+                    time_ie_agg["time_on_task"],
+                    time_ie_agg["mean"],
+                    yerr=time_ie_agg["sem"],
+                    marker="s",
+                    linewidth=2.5,
+                    markersize=6,
+                    capsize=3,
+                    alpha=0.8,
+                    color=color,
+                    label=condition.capitalize(),
+                )
+        ax5.set_xlabel("Time on Task (Probe Number)", fontsize=14, fontweight="bold")
+        ax5.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+        ax5.set_title(
+            f"{dep.upper()}: Time-on-Task by I/E",
+            fontsize=18,
+            fontweight="bold",
+            pad=15,
+        )
+        ax5.legend(fontsize=12, loc='best')
+        ax5.grid(True, alpha=0.3)
+    else:
+        ax5.text(0.5, 0.5, 'Time-on-task data not available', 
+                ha='center', va='center', transform=ax5.transAxes, fontsize=14)
+
+    # Plot 6 (1,2): SART Mean Trajectories by Group and Order (4 points per line)
+    ax6 = fig.add_subplot(gs[1, 2])
+    if 'task' in df_lmm.columns and 'order (IE/EI)' in df_lmm.columns:
+        # Calculate mean per SART for each group and order combination
+        sart_order = ['Sart1', 'Sart2', 'Sart3', 'Sart4']
+        x_positions = [1, 2, 3, 4]  # X-axis positions for each SART
+        
+        # Define line styles for orders
+        order_styles = {'IE': '-', 'EI': '--'}  # IE = Inclusion-Exclusion, EI = Exclusion-Inclusion
+        
+        for group_idx, group in enumerate(GROUP_ORDER):
+            if group not in df_lmm["group"].values:
+                continue
+            group_data = df_lmm[df_lmm["group"] == group]
+            color = GROUP_COLORS[group_idx]
+            
+            for order in ['IE', 'EI']:
+                if order not in group_data['order (IE/EI)'].values:
+                    continue
+                order_data = group_data[group_data['order (IE/EI)'] == order]
+                
+                # Calculate n for this group-order combination
+                n_subjects = order_data['subject_id'].nunique()
+                
+                means = []
+                sems = []
+                for sart in sart_order:
+                    sart_data = order_data[order_data['task'] == sart]
+                    if len(sart_data) > 0:
+                        means.append(sart_data[dep].mean())
+                        sems.append(sart_data[dep].sem())
+                    else:
+                        means.append(np.nan)
+                        sems.append(np.nan)
+                
+                # Plot line with error bars
+                linestyle = order_styles[order]
+                label = f"{group} - {order} (n={n_subjects})"
+                
+                line = ax6.errorbar(
+                    x_positions,
+                    means,
+                    yerr=sems,
+                    marker='o',
+                    linewidth=2.5,
+                    markersize=8,
+                    linestyle=linestyle,
+                    capsize=5,
+                    capthick=2,
+                    alpha=0.8,
+                    color=color,
+                    label=label,
+                )
+        
+        ax6.set_xticks(x_positions)
+        ax6.set_xticklabels(sart_order, fontsize=12, fontweight='bold')
+        ax6.set_xlabel("SART Task", fontsize=14, fontweight="bold")
+        ax6.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+        ax6.set_title(
+            f"{dep.upper()}: SART Trajectory by Group & Order\n(Solid=IE, Dashed=EI)",
+            fontsize=18,
+            fontweight="bold",
+            pad=15,
+        )
+        # Create legend with only lines (no markers)
+        handles, labels = ax6.get_legend_handles_labels()
+        # Remove markers from legend handles - errorbar returns containers, need to access the line
+        new_handles = []
+        for handle in handles:
+            if hasattr(handle, 'get_children'):
+                # ErrorbarContainer - get the line component
+                lines = [child for child in handle.get_children() if hasattr(child, 'set_marker')]
+                if lines:
+                    line = lines[0]
+                    line.set_marker('')
+                    line.set_markersize(0)
+                    new_handles.append(line)
+            else:
+                # Regular line object
+                handle.set_marker('')
+                handle.set_markersize(0)
+                new_handles.append(handle)
+        ax6.legend(new_handles, labels, fontsize=11, loc='best')
+        ax6.grid(True, alpha=0.3)
+        ax6.set_xlim(0.5, 4.5)
+    else:
+        ax6.text(0.5, 0.5, 'Order data not available', 
+                ha='center', va='center', transform=ax6.transAxes, fontsize=14)
+
+    # =========================================================================
+    # SAVE AND DISPLAY
+    # =========================================================================
+
+    plt.suptitle(
+        f"Comprehensive Analysis: {dep.upper()}",
+        fontsize=22,
+        fontweight="bold",
+        y=0.995,
+    )
+
+    out_png = os.path.join(out_dir, f"{dep}_comprehensive_analysis.png")
+    out_svg = os.path.join(out_dir, f"{dep}_comprehensive_analysis.svg")
+    plt.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.savefig(out_svg, dpi=300, bbox_inches="tight")
+    plt.show()
+    plt.close(fig)
+
+
+def descriptive_statistics(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: str, out_dir: str) -> None:
+    """
+    Compute and save descriptive statistics mirroring the On/Off block.
+
+    Parameters
+    ----------
+    df_lmm : pd.DataFrame
+        Probe-level data.
+    df_lmm_ie : pd.DataFrame
+        Inclusion/Exclusion-level data.
+    dep : str
+        Dependent variable column.
+    out_dir : str
+        Output directory for CSV export.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+
+    overall_stats = df_lmm[dep].describe()
+    print(f"Overall: Mean = {overall_stats['mean']:.3f}, SD = {overall_stats['std']:.3f}")
+
+    print("\nBy Group:")
+    group_stats = df_lmm.groupby("group")[dep].agg(["count", "mean", "std"]).round(3)
+    print(group_stats)
+
+    print("\nBy Inclusion/Exclusion:")
+    ie_stats = (
+        df_lmm_ie.groupby("inclusion_exclusion")[dep].agg(["count", "mean", "std"]).round(3)
+    )
+    print(ie_stats)
+
+    print("\nBy Group × Inclusion/Exclusion:")
+    interaction_stats = (
+        df_lmm_ie.groupby(["group", "inclusion_exclusion"])[dep]
+        .agg(["count", "mean", "std"])
+        .round(3)
+    )
+    print(interaction_stats)
+
+    # Save cell-wise stats (similar to original script)
+    stats_list: List[Dict[str, float]] = []
+    for group in df_lmm_ie["group"].dropna().unique():
+        for ie in df_lmm_ie["inclusion_exclusion"].dropna().unique():
+            subset = df_lmm_ie[
+                (df_lmm_ie["group"] == group) & (df_lmm_ie["inclusion_exclusion"] == ie)
+            ]
+            if len(subset) > 0:
+                stats_list.append(
+                    {
+                        "Group": group,
+                        "Inclusion_Exclusion": ie,
+                        "N": int(len(subset)),
+                        "Mean": float(subset[dep].mean()),
+                        "SD": float(subset[dep].std()),
+                        "SE": float(subset[dep].sem()),
+                    }
+                )
+    stats_df = pd.DataFrame(stats_list)
+    stats_file = os.path.join(out_dir, f"{dep}_descriptive_statistics.csv")
+    stats_df.to_csv(stats_file, index=False)
+    print(f"Descriptive statistics saved to: {stats_file}")
+
+
+def analyze_dimension(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: str) -> None:
+    """
+    Run the full pipeline (3 LMMs + plots + descriptives) for one dimension.
+
+    Parameters
+    ----------
+    df_lmm : pd.DataFrame
+        Probe-level data.
+    df_lmm_ie : pd.DataFrame
+        Inclusion/Exclusion-level data.
+    dep : str
+        Dependent variable to analyze.
+    """
+    print("\n" + "=" * 60)
+    print(f"LINEAR MIXED MODEL ANALYSIS FOR {dep.upper()}")
+    print("=" * 60)
+
+    dim_results_dir = os.path.join(RESULTS_DIR, dep)
+    dim_plots_dir = os.path.join(PLOTS_DIR, dep)
+    os.makedirs(dim_results_dir, exist_ok=True)
+    os.makedirs(dim_plots_dir, exist_ok=True)
+
+    # Model 1: Group effect
+    run_lmm_analysis(df_lmm, dep, "group", "group_effect", dim_results_dir)
+
+    # Model 2: Inclusion/Exclusion effect
+    run_lmm_analysis(
+        df_lmm_ie, dep, "inclusion_exclusion", "inclusion_exclusion_effect", dim_results_dir
+    )
+
+    # Model 3: Interaction effect
+    run_lmm_analysis(
+        df_lmm_ie, dep, "group * inclusion_exclusion", "group_ie_interaction", dim_results_dir
+    )
+    
+    # Model 4: Time on task effect (if available)
+    if 'time_on_task' in df_lmm.columns:
+        run_lmm_analysis(
+            df_lmm, dep, "time_on_task", "time_on_task_effect", dim_results_dir
+        )
+        
+        # Model 5: Group + Time on task
+        run_lmm_analysis(
+            df_lmm, dep, "group + time_on_task", "group_time_additive", dim_results_dir
+        )
+        
+        # Model 6: Group × Time on task interaction
+        run_lmm_analysis(
+            df_lmm, dep, "group * time_on_task", "group_time_interaction", dim_results_dir
+        )
+        
+        # Model 7: Inclusion/Exclusion + Time on task
+        run_lmm_analysis(
+            df_lmm_ie, dep, "inclusion_exclusion + time_on_task", "ie_time_additive", dim_results_dir
+        )
+        
+        # Model 8: Full model with all factors
+        run_lmm_analysis(
+            df_lmm_ie, dep, "group * inclusion_exclusion + time_on_task", "full_model_with_time", dim_results_dir
+        )
+        
+        # Model 9: Inclusion/Exclusion × Time on task interaction
+        run_lmm_analysis(
+            df_lmm_ie, dep, "inclusion_exclusion * time_on_task", "ie_time_interaction", dim_results_dir
+        )
+        
+        # Model 10: Group × Inclusion/Exclusion × Time on task (three-way interaction)
+        run_lmm_analysis(
+            df_lmm_ie, dep, "group * inclusion_exclusion * time_on_task", "three_way_interaction", dim_results_dir
+        )
+        
+        # Model 11: Full model with Group × Time interaction
+        run_lmm_analysis(
+            df_lmm_ie, dep, "group * time_on_task + inclusion_exclusion", "group_time_int_plus_ie", dim_results_dir
+        )
+    else:
+        print("Skipping time-on-task models (time_on_task column not available)")
+
+    print("\n" + "=" * 60)
+    print(f"CREATING VISUALIZATIONS FOR {dep.upper()}")
+    print("=" * 60)
+    plot_dimension(df_lmm, df_lmm_ie, dep, dim_plots_dir)
+
+    print("\n" + "=" * 60)
+    print(f"DESCRIPTIVE STATISTICS FOR {dep.upper()}")
+    print("=" * 60)
+    descriptive_statistics(df_lmm, df_lmm_ie, dep, dim_results_dir)
+
+    print(f"\nCompleted dimension: {dep}")
+    print(f"Results saved to: {dim_results_dir}")
+    print(f"Plots saved to:   {dim_plots_dir}")
+
+
+def main() -> None:
+    """Entry point to run the multi-dimension analysis loop."""
+    ensure_directories()
+    df_lmm, df_lmm_ie = load_dataframes()
+    
+    # Optional filtering by onoff < threshold
+    if APPLY_ONOFF_FILTER:
+        if "onoff" not in df_lmm.columns or "onoff" not in df_lmm_ie.columns:
+            raise ValueError(
+                "APPLY_ONOFF_FILTER is True but 'onoff' column is missing in the data."
+            )
+        def _filter(df: pd.DataFrame) -> pd.DataFrame:
+            return df[df["onoff"] < ONOFF_MAX_EXCLUSIVE].copy()
+        before_n_lmm = len(df_lmm)
+        before_s_lmm = df_lmm["subject_id"].nunique()
+        before_n_ie = len(df_lmm_ie)
+        before_s_ie = df_lmm_ie["subject_id"].nunique()
+        df_lmm = _filter(df_lmm)
+        df_lmm_ie = _filter(df_lmm_ie)
+        after_n_lmm = len(df_lmm)
+        after_s_lmm = df_lmm["subject_id"].nunique()
+        after_n_ie = len(df_lmm_ie)
+        after_s_ie = df_lmm_ie["subject_id"].nunique()
+        print("\nApplying onoff filter: onoff <", ONOFF_MAX_EXCLUSIVE)
+        print(
+            f"Probe-level: {before_n_lmm} rows/{before_s_lmm} subjects -> {after_n_lmm} rows/{after_s_lmm} subjects"
+        )
+        print(
+            f"IE-level:    {before_n_ie} rows/{before_s_ie} subjects -> {after_n_ie} rows/{after_s_ie} subjects"
+        )
+        # Use subfolders to mark the filtered analysis
+        global RESULTS_DIR, PLOTS_DIR
+        RESULTS_DIR = os.path.join(RESULTS_DIR, "onoff_lt50")
+        PLOTS_DIR = os.path.join(PLOTS_DIR, "onoff_lt50")
+        ensure_directories()
+    
+    # Optional filtering to exclude baseline condition
+    if EXCLUDE_BASELINE:
+        if "inclusion_exclusion" not in df_lmm_ie.columns:
+            raise ValueError(
+                "EXCLUDE_BASELINE is True but 'inclusion_exclusion' column is missing."
+            )
+        before_n_ie = len(df_lmm_ie)
+        before_s_ie = df_lmm_ie["subject_id"].nunique()
+        df_lmm_ie = df_lmm_ie[df_lmm_ie["inclusion_exclusion"] != "baseline"].copy()
+        after_n_ie = len(df_lmm_ie)
+        after_s_ie = df_lmm_ie["subject_id"].nunique()
+        print("\nExcluding baseline condition from IE analysis")
+        print(
+            f"IE-level: {before_n_ie} rows/{before_s_ie} subjects -> {after_n_ie} rows/{after_s_ie} subjects"
+        )
+        # Mark in folder names
+        RESULTS_DIR = os.path.join(RESULTS_DIR, "no_baseline")
+        PLOTS_DIR = os.path.join(PLOTS_DIR, "no_baseline")
+        ensure_directories()
+    
+    validate_columns(df_lmm, df_lmm_ie, DIMENSIONS)
+
+    # Create time_on_task variable (probe_number + 15 * (sart_number - 1))
+    # Extract SART number from task name
+    if 'task' in df_lmm.columns and 'probe_number' in df_lmm.columns:
+        df_lmm['sart_number'] = df_lmm['task'].str.extract(r'(\d+)').astype(int)
+        
+        # Calculate time_on_task: probe_number + (15 * (sart_number - 1))
+        # This ensures: Sart1 = 1-15, Sart2 = 16-30, Sart3 = 31-45, Sart4 = 46-60
+        df_lmm['time_on_task'] = df_lmm['probe_number'] + (15 * (df_lmm['sart_number'] - 1))
+        
+        # Create relative_time_on_task for within-SART comparisons (probe 1-15)
+        df_lmm['relative_time_on_task'] = df_lmm['probe_number']
+        
+        # Also add to IE subset
+        df_lmm_ie['sart_number'] = df_lmm_ie['task'].str.extract(r'(\d+)').astype(int)
+        df_lmm_ie['time_on_task'] = df_lmm_ie['probe_number'] + (15 * (df_lmm_ie['sart_number'] - 1))
+        df_lmm_ie['relative_time_on_task'] = df_lmm_ie['probe_number']
+        
+        print(f"Added time_on_task variable: range {df_lmm['time_on_task'].min()} to {df_lmm['time_on_task'].max()}")
+        print(f"Added relative_time_on_task (within-SART): range 1 to 15")
+    else:
+        print("Warning: 'task' column not found, skipping time_on_task creation")
+
+    for dep in DIMENSIONS:
+        analyze_dimension(df_lmm, df_lmm_ie, dep)
+
+    print("\n" + "=" * 60)
+    print("ANALYSIS COMPLETE")
+    print("=" * 60)
+    print(f"All results base dir: {RESULTS_DIR}")
+    print(f"All plots base dir:   {PLOTS_DIR}")
+
+
+if __name__ == "__main__":
+    main()
+
+#%%

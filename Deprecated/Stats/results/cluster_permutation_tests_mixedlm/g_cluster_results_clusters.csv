@@ -1,0 +1,3 @@
+cluster_id,p_value,significant,cluster_size,max_abs_t,mean_t,channels,marker,comparison
+1,0.001996007984031936,True,31,4.6934593460560405,3.2891488567838487,AF4; C1; C2; C4; C5; CP1; CP2; CP3; CP4; CP5; CPz; Cz; F2; F4; F5; F6; FC2; FC4; FC5; FC6; FT7; FT8; FT9; P1; P5; P6; P8; PO3; T7; TP7; TP9,g,high_vs_low
+2,0.35728542914171657,False,1,3.1797653119911904,3.1797653119911904,PO4,g,high_vs_low

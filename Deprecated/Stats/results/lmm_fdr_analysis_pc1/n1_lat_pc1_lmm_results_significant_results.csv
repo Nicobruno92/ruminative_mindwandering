@@ -1,0 +1,2 @@
+channel,coefficient,std_err,effect_size,t_statistic,p_value,p_corrected,significant,converged,method_used,marker,formula,random_formula,z_scored_pc1,z_scored_markers,fdr_alpha,fdr_method
+T7,-0.0005712896646342772,0.00016523751397127327,-3.457384772404628,-3.457384772404628,0.0005454454475043371,0.0070907908175563816,True,False,nm,n1_lat,mean ~ PC1,~1 + PC1,True,False,0.05,indep

@@ -1,0 +1,123 @@
+---
+description:## Cursor Instructions for EEG Mind-Wandering Repository
+
+### Purpose
+These instructions guide AI assistants working in Cursor on how to read, edit, and extend this EEG mind-wandering analysis codebase safely and productively.
+
+### Prime Directives
+- Use configuration-driven design. Never hardcode analysis parameters; read them from YAML configs (see below).
+- Maintain BIDS-like file naming and I/O via utilities in `utils/`.
+- Prefer simplicity, readability, and maintainability in Python. Follow PEP 8 and add NumPy-style docstrings with type hints.
+- Ensure reproducibility: deterministic preprocessing, explicit seeds, and consistent paths.
+- Keep changes minimal and targeted. Do not create demo/example scripts.
+
+### Environments
+- Activate the appropriate conda env before running or proposing commands:
+  - `eeg`: preprocessing, ERPs, NICE markers
+  - `plots`: visualization tasks
+  - `ML`: machine learning tasks
+  - `nlp`: NLP tasks
+  - `base`: basic operations
+- On cluster: run `module load proxy` before installing packages.
+
+### Configuration Files
+- All pipelines MUST read from YAML configs (do not hardcode):
+  - `Preprocessing_pipeline_new/config.yaml`
+  - `ERPs_new/config.yaml`
+- Configs define: data paths, thresholds, subject lists, tasks, ROIs, batching, and performance options.
+- If adding new parameters, update the relevant YAML, default values, and validation logic. Reference them centrally rather than embedding constants in code.
+
+### Data Flow and BIDS I/O
+- Overall flow:
+  - Raw BrainVision `.vhdr` → `BIDS/raw` → `BIDS/derivatives` → `BIDS/features` → `results/`
+- Use utilities (do not reimplement): `utils/bids_compliance.py`
+  - `read_epochs(...)`
+  - `save_evokeds(...)`
+  - `make_bids_basename(...)`
+- Naming pattern: `sub-XX_task-YY_desc-ZZ_suffix.extension`
+- Subject codes: zero-padded strings (`02`–`43`). Tasks: `Sart1`–`Sart4`.
+
+### Events and Labels
+- Event strings follow: `go/correct/onoff99/selfother72/valence47/time71/confidence71/average72/-5/probe15`
+- Parsing is handled by `utils/trigger_correction.py`. Do not duplicate logic.
+- Binary labels (e.g., `ontask`/`offtask`) are appended during parsing.
+- Distance to probe rules:
+  - Negative (`-5` to `-1`): pre-probe trials
+  - `0`: probe response
+  - Positive (`+1` to `+N`): post-probe trials
+
+### Common Workflows
+- Preprocessing single subject/task:
+```bash
+conda activate eeg && python Preprocessing_pipeline_new/preprocessing_pipeline.py --config Preprocessing_pipeline_new/config.yaml --subject 04 --task Sart1
+```
+- ERP probe evokeds:
+```bash
+conda activate eeg && python ERPs_new/make_probe_evokeds.py --config ERPs_new/config.yaml --subject 04 --task Sart1
+```
+- SLURM: use provided scripts (e.g., `run_preprocessing.sh`, `NICE_markers/run_markers_slurm.sh`). Array index: `subject_idx * 4 + task_idx`.
+
+### Performance and Memory
+- For large datasets, use batch processing (`max_files_per_batch`) set in config.
+- Prefer parallelization via `joblib.Parallel` or `ProcessPoolExecutor` where supported by the codebase.
+- After large ops: free memory with `del` and `gc.collect()`.
+- Typical SLURM resources: 32 CPUs, 32GB RAM, 36–72h time limits.
+
+### Python Coding Standards
+- Simplicity first; keep functions small (≤ 20–30 lines where possible).
+- Use descriptive names; avoid abbreviations. Add type hints for parameters and returns.
+- NumPy-style docstrings with clear parameter/return documentation and assumptions.
+- Linear, readable pipelines; avoid deep nesting; early returns for guard clauses.
+- Prefer vectorized `numpy`/`pandas` operations; use `sklearn/scipy` built-ins over custom reimplementations.
+- Group related functionality and avoid unnecessary abstractions.
+
+### Editing Rules in This Repo
+- Single-script delivery for requested utilities. Do not create example/demo files.
+- Centralize configuration at top of scripts for in-script defaults; allow optional CLI via `argparse` but never require it.
+- Respect existing module boundaries:
+  - Preprocessing logic stays under `Preprocessing_pipeline_new/`
+  - ERP logic under `ERPs_new/`
+  - NICE markers under `NICE_markers/`
+  - Shared I/O and parsing under `utils/`
+- Preserve BIDS naming and directory structure. Use helpers rather than manual path concatenation.
+- Add basic input validation and clear error messages.
+
+### Testing and Linting Expectations
+- Ensure new/modified code runs without syntax or import errors.
+- Add docstrings and minimal inline comments for non-obvious logic.
+- Favor deterministic operations; set seeds when introducing randomness.
+- When possible, test on a single subject/task to validate I/O and shapes before scaling.
+
+### Visualization
+- Activate `plots` env for figure generation.
+- Keep figure code separated from heavy computations; reuse precomputed derivatives/features when available.
+- Save figures and data products to `results/` with informative names linked to config parameters.
+
+### Integration Points
+- Downstream analyses depend on outputs from preprocessing and ERPs. Maintain file compatibility and metadata.
+- Any change to event parsing, epoching, or ROI definitions must be reflected consistently across modules and configurations.
+
+### Safe-Change Checklist (before finalizing edits)
+- Parameters are read from YAML or a top-of-script config block.
+- BIDS-compliant names via `utils/bids_compliance.py` utilities.
+- Event parsing uses `utils/trigger_correction.py`.
+- Subject/task handling respects zero-padded `sub-XX` format.
+- Memory considerations addressed for large data (batching, cleanup).
+- Clear docstrings, type hints, and minimal but sufficient comments.
+- No demo scripts or unnecessary files introduced.
+
+### Quick References
+- Raw data: `_RAW_DATA/`
+- BIDS derivatives: `BIDS/derivatives/sub-XX/eeg/` with suffix `desc-autoPreproc_eeg.fif`
+- Features: `BIDS/features/sub-XX/eeg/` (e.g., `desc-probe-015_onTask_ave.fif`)
+- Results: `results/`
+
+### When Unsure
+- Prefer discovering existing utilities with semantic search before adding new code.
+- Mirror existing patterns in `Preprocessing_pipeline_new/` and `ERPs_new/`.
+- Keep edits minimal, reversible, and well-documented.
+
+
+globs:
+alwaysApply: true
+---

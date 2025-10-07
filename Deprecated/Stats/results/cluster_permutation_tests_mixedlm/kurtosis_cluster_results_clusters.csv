@@ -1,0 +1,2 @@
+cluster_id,p_value,significant,cluster_size,max_abs_t,mean_t,channels,marker,comparison
+1,0.001996007984031936,True,5,2.588036558656805,2.463434899780944,CP1; P1; P3; PO3; Pz,kurtosis,high_vs_low

@@ -1,0 +1,9 @@
+# Add directories or file patterns to ignore during indexing (e.g. foo/ or *.csv)
+*.db
+*.pkl
+*.npy
+Results/**/*.db
+Results/**/*.pkl
+Results/**/runs/
+Results/**/permutation/
+.history/

@@ -1,0 +1,4 @@
+cluster_id,p_value,significant,cluster_size,max_abs_t,mean_t,channels,marker,comparison
+1,0.03592814371257485,True,2,2.8315438264376587,2.7178197793381793,C6; FC6,std,high_vs_low
+2,0.4151696606786427,False,1,2.780032831477121,2.780032831477121,TP7,std,high_vs_low
+3,0.6826347305389222,False,1,2.501008848906188,2.501008848906188,TP8,std,high_vs_low
