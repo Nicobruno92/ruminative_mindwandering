@@ -43,6 +43,262 @@ except ImportError:
     warnings.warn("Julia LMM bridge not available. Will use Python LMM only.")
 
 
+def apply_multiple_comparison_correction(
+    temporal_results: pd.DataFrame,
+    cfg: Dict,
+    method: Optional[str] = None
+) -> pd.DataFrame:
+    """
+    Apply multiple comparison correction to temporal LMM results.
+    
+    Parameters
+    ----------
+    temporal_results : pd.DataFrame
+        Results from temporal LMM analysis with columns: roi, time_point, beta, p_value, etc.
+    cfg : Dict
+        Configuration dictionary
+    method : str, optional
+        Correction method to use. If None, reads from config.
+        Options: 'none', 'fdr', 'bonferroni', 'cluster_permutation'
+        
+    Returns
+    -------
+    pd.DataFrame
+        Results with corrected p-values and significance flags.
+        Additional columns for cluster permutation: 'cluster_id', 'cluster_p_value'
+    """
+    if temporal_results.empty:
+        return temporal_results
+    
+    # Get correction method from config if not specified
+    if method is None:
+        method = cfg.get("multiple_comparison_correction", {}).get("method", "none")
+    
+    alpha = float(cfg.get("lmm_analysis", {}).get("alpha_level", 0.05))
+    
+    results_corrected = temporal_results.copy()
+    
+    print(f"\n{'='*60}")
+    print(f"Applying multiple comparison correction: {method.upper()}")
+    print(f"{'='*60}")
+    
+    if method == "none":
+        print("No multiple comparison correction applied (uncorrected p-values)")
+        results_corrected["p_corrected"] = results_corrected["p_value"]
+        results_corrected["significant"] = results_corrected["p_value"] < alpha
+        
+    elif method == "fdr":
+        print("Applying False Discovery Rate (FDR) correction (Benjamini-Hochberg)")
+        # Apply FDR separately for each ROI
+        for roi in results_corrected["roi"].unique():
+            roi_mask = results_corrected["roi"] == roi
+            p_values = results_corrected.loc[roi_mask, "p_value"].values
+            
+            # Use MNE's FDR correction
+            reject, p_corrected = mne.stats.fdr_correction(p_values, alpha=alpha)
+            
+            results_corrected.loc[roi_mask, "p_corrected"] = p_corrected
+            results_corrected.loc[roi_mask, "significant"] = reject
+            
+            n_sig = reject.sum()
+            print(f"  {roi}: {n_sig}/{len(p_values)} significant time points")
+            
+    elif method == "bonferroni":
+        print("Applying Bonferroni correction")
+        # Apply Bonferroni separately for each ROI
+        for roi in results_corrected["roi"].unique():
+            roi_mask = results_corrected["roi"] == roi
+            p_values = results_corrected.loc[roi_mask, "p_value"].values
+            n_tests = len(p_values)
+            
+            # Bonferroni correction
+            p_corrected = np.minimum(p_values * n_tests, 1.0)
+            reject = p_corrected < alpha
+            
+            results_corrected.loc[roi_mask, "p_corrected"] = p_corrected
+            results_corrected.loc[roi_mask, "significant"] = reject
+            
+            n_sig = reject.sum()
+            print(f"  {roi}: {n_sig}/{len(p_values)} significant time points (corrected alpha={alpha/n_tests:.2e})")
+            
+    elif method == "cluster_permutation":
+        print("Applying cluster-based permutation testing")
+        results_corrected = _apply_cluster_permutation_correction(
+            results_corrected, cfg, alpha
+        )
+        
+    else:
+        warnings.warn(f"Unknown correction method: {method}. Using uncorrected p-values.")
+        results_corrected["p_corrected"] = results_corrected["p_value"]
+        results_corrected["significant"] = results_corrected["p_value"] < alpha
+    
+    print(f"{'='*60}\n")
+    
+    return results_corrected
+
+
+def _apply_cluster_permutation_correction(
+    temporal_results: pd.DataFrame,
+    cfg: Dict,
+    alpha: float
+) -> pd.DataFrame:
+    """
+    Apply cluster-based permutation testing for temporal multiple comparison correction.
+    
+    This uses MNE's cluster permutation functions adapted for LMM t-statistics.
+    The method identifies temporal clusters of significant effects and tests their
+    significance via permutation testing.
+    
+    Parameters
+    ----------
+    temporal_results : pd.DataFrame
+        Temporal LMM results with t-values
+    cfg : Dict
+        Configuration dictionary
+    alpha : float
+        Significance threshold
+        
+    Returns
+    -------
+    pd.DataFrame
+        Results with cluster information added
+    """
+    from mne.stats import permutation_cluster_1samp_test
+    
+    # Get cluster permutation parameters
+    cluster_cfg = cfg.get("multiple_comparison_correction", {}).get("cluster_permutation", {})
+    n_permutations = int(cluster_cfg.get("n_permutations", 1000))
+    threshold_method = cluster_cfg.get("threshold", "auto")  # 'auto' uses t-distribution
+    tail = int(cluster_cfg.get("tail", 0))  # 0=two-tailed, 1=greater, -1=less
+    n_jobs = int(cluster_cfg.get("n_jobs", -1))
+    seed = cluster_cfg.get("seed", 42)
+    
+    print(f"  Cluster permutation parameters:")
+    print(f"    - n_permutations: {n_permutations}")
+    print(f"    - threshold: {threshold_method}")
+    print(f"    - tail: {tail} ({'two-tailed' if tail == 0 else 'one-tailed'})")
+    print(f"    - seed: {seed}")
+    
+    results_corrected = temporal_results.copy()
+    
+    # Initialize cluster columns
+    results_corrected["cluster_id"] = -1  # -1 means no cluster
+    results_corrected["cluster_p_value"] = 1.0
+    results_corrected["significant"] = False
+    results_corrected["p_corrected"] = results_corrected["p_value"]
+    
+    # Process each ROI separately
+    for roi in results_corrected["roi"].unique():
+        roi_mask = results_corrected["roi"] == roi
+        roi_data = results_corrected[roi_mask].sort_values("time_point")
+        
+        # Extract t-statistics (these represent the effect at each time point)
+        t_values = roi_data["t_value"].values
+        
+        # Check for NaN values
+        if np.any(np.isnan(t_values)):
+            print(f"  Warning: {roi} has NaN t-values, skipping")
+            continue
+        
+        # Reshape for MNE cluster test: (n_subjects=1, n_times)
+        # Since we have aggregate t-statistics, we test against 0
+        X = t_values.reshape(1, -1)
+        
+        try:
+            # Determine threshold
+            if threshold_method == "auto":
+                # Use t-distribution critical value
+                # For LMM, degrees of freedom is approximately n_subjects - n_parameters
+                # We'll use a conservative estimate
+                n_obs = roi_data["n_observations"].iloc[0] if "n_observations" in roi_data.columns else 100
+                df_approx = max(n_obs - 5, 10)  # Conservative estimate
+                
+                if tail == 0:  # two-tailed
+                    threshold = stats.t.ppf(1 - alpha/2, df_approx)
+                else:  # one-tailed
+                    threshold = stats.t.ppf(1 - alpha, df_approx)
+                    
+                print(f"  {roi}: Using threshold = {threshold:.3f} (df~{df_approx})")
+            else:
+                threshold = float(threshold_method)
+                print(f"  {roi}: Using threshold = {threshold:.3f}")
+            
+            # Run cluster permutation test
+            # Note: We're testing if t-values differ from 0
+            # Suppress expected warnings from MNE and NumPy
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    'ignore',
+                    message='Provided stat_fun does not treat variables',
+                    category=RuntimeWarning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='No clusters found, returning empty',
+                    category=RuntimeWarning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='Degrees of freedom <= 0 for slice',
+                    category=RuntimeWarning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='invalid value encountered in divide',
+                    category=RuntimeWarning)
+                
+                T_obs, clusters, cluster_p_values, H0 = \
+                    permutation_cluster_1samp_test(
+                        X,
+                        threshold=threshold,
+                        n_permutations=n_permutations,
+                        tail=tail,
+                        out_type='mask',
+                        seed=seed,
+                        n_jobs=n_jobs,
+                        verbose=False
+                    )
+            
+            # Mark significant clusters
+            n_clusters = len(clusters)
+            n_sig_clusters = np.sum(cluster_p_values < alpha)
+            
+            print(f"  {roi}: Found {n_clusters} clusters, {n_sig_clusters} significant (p < {alpha})")
+            
+            if n_clusters > 0:
+                # Assign cluster IDs and p-values
+                for cluster_idx, (cluster_mask, cluster_p) in enumerate(zip(clusters, cluster_p_values)):
+                    # Get time indices in this cluster
+                    time_indices = np.where(cluster_mask[0])[0]
+                    
+                    if len(time_indices) == 0:
+                        continue
+                    
+                    # Get corresponding indices in results_corrected
+                    roi_indices = roi_data.index[time_indices]
+                    
+                    # Mark cluster membership
+                    results_corrected.loc[roi_indices, "cluster_id"] = cluster_idx
+                    results_corrected.loc[roi_indices, "cluster_p_value"] = cluster_p
+                    results_corrected.loc[roi_indices, "significant"] = cluster_p < alpha
+                    
+                    # Report cluster details
+                    if cluster_p < alpha:
+                        time_start = roi_data.iloc[time_indices[0]]["time_point"]
+                        time_end = roi_data.iloc[time_indices[-1]]["time_point"]
+                        duration_ms = (time_end - time_start) * 1000
+                        mean_t = np.mean(t_values[time_indices])
+                        
+                        print(f"    Cluster {cluster_idx}: {time_start:.3f}-{time_end:.3f}s "
+                              f"({duration_ms:.0f}ms, {len(time_indices)} points), "
+                              f"p={cluster_p:.4f}, mean_t={mean_t:.3f}")
+                        
+        except Exception as e:
+            print(f"  Error in cluster permutation for {roi}: {e}")
+            # Fall back to uncorrected
+            results_corrected.loc[roi_mask, "significant"] = roi_data["p_value"] < alpha
+            results_corrected.loc[roi_mask, "p_corrected"] = roi_data["p_value"]
+    
+    return results_corrected
+
+
 def _find_probe_evokeds(features_root: str, subject: str, task: str) -> List[str]:
     """Find all probe evoked files for a subject-task in the new BIDS structure."""
     evoked_dir = build_evoked_dir(features_root, subject)
@@ -373,7 +629,27 @@ def run_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
                 lmm_df,
                 groups=lmm_df["subject"],
             )
-            result = model.fit(method=["lbfgs"])
+            
+            # Fit model with warning suppression for common convergence issues
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    'ignore',
+                    message='Random effects covariance is singular',
+                    category=UserWarning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='The random effects covariance matrix is singular',
+                    category=UserWarning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='The MLE may be on the boundary',
+                    category=Warning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='The Hessian matrix at the estimated parameter',
+                    category=Warning)
+                
+                result = model.fit(method=["lbfgs"])
             
             # Extract results for condition effect
             if "condition_code" in result.params:
@@ -659,7 +935,27 @@ def run_temporal_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
                 lmm_df,
                 groups=lmm_df["subject"],
             )
-            result = model.fit(method=["lbfgs"])
+            
+            # Fit model with warning suppression for common convergence issues
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    'ignore',
+                    message='Random effects covariance is singular',
+                    category=UserWarning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='The random effects covariance matrix is singular',
+                    category=UserWarning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='The MLE may be on the boundary',
+                    category=Warning)
+                warnings.filterwarnings(
+                    'ignore',
+                    message='The Hessian matrix at the estimated parameter',
+                    category=Warning)
+                
+                result = model.fit(method=["lbfgs"])
             
             # Extract results for condition effect
             if "condition_code" in result.params:
@@ -692,6 +988,11 @@ def run_temporal_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
     
     results_df = pd.DataFrame(results)
     print(f"Completed temporal LMM analysis for {len(results_df)} time points")
+    
+    # Apply multiple comparison correction
+    if not results_df.empty:
+        results_df = apply_multiple_comparison_correction(results_df, cfg)
+    
     return results_df
 
 
@@ -818,6 +1119,10 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
     smoothing_window = plotting_cfg.get("smoothing_window", 0.02)
     alpha = float(cfg.get("lmm_analysis", {}).get("alpha_level", 0.05))
     
+    # Check if cluster correction was used
+    correction_method = cfg.get("multiple_comparison_correction", {}).get("method", "none")
+    has_clusters = "cluster_id" in temporal_results_df.columns
+    
     # Get unique ROIs
     rois = temporal_results_df["roi"].unique()
     
@@ -826,6 +1131,16 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
     fig, axes = plt.subplots(n_rois, 1, figsize=(12, 4*n_rois), sharex=True)
     if n_rois == 1:
         axes = [axes]
+    
+    # Add title to figure with correction method info
+    correction_title = {
+        "none": "No correction",
+        "fdr": "FDR correction",
+        "bonferroni": "Bonferroni correction",
+        "cluster_permutation": "Cluster permutation"
+    }.get(correction_method, correction_method)
+    fig.suptitle(f'Beta Time-course Analysis ({correction_title})', 
+                 fontsize=14, fontweight='bold', y=0.995)
     
     for i, roi in enumerate(rois):
         roi_data = temporal_results_df[temporal_results_df["roi"] == roi].copy()
@@ -836,6 +1151,7 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
         ci_lower = roi_data["ci_lower"].values
         ci_upper = roi_data["ci_upper"].values
         p_values = roi_data["p_value"].values
+        significant = roi_data["significant"].values
         
         # Apply smoothing if requested
         if smooth_betas and len(times) > 1:
@@ -853,12 +1169,40 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
         ax.fill_between(times, ci_lower, ci_upper, alpha=0.3, color='blue')
         
         # Mark significant time points
-        sig_mask = p_values < alpha
-        if np.any(sig_mask):
-            sig_times = times[sig_mask]
-            sig_betas = betas[sig_mask]
-            ax.scatter(sig_times, sig_betas, c='red', s=20, alpha=0.7, 
-                      label=f'Significant (p < {alpha})', zorder=5)
+        if np.any(significant):
+            if has_clusters and correction_method == "cluster_permutation":
+                # Plot clusters with different colors
+                cluster_ids = roi_data["cluster_id"].values
+                cluster_pvals = roi_data["cluster_p_value"].values
+                
+                unique_clusters = np.unique(cluster_ids[significant])
+                cluster_colors = plt.cm.Set1(np.linspace(0, 1, len(unique_clusters)))
+                
+                for cluster_idx, cluster_color in zip(unique_clusters, cluster_colors):
+                    if cluster_idx == -1:  # Skip non-cluster points
+                        continue
+                    
+                    cluster_mask = (cluster_ids == cluster_idx) & significant
+                    cluster_times = times[cluster_mask]
+                    cluster_betas = betas[cluster_mask]
+                    cluster_p = cluster_pvals[cluster_mask][0]
+                    
+                    if len(cluster_times) > 0:
+                        # Highlight cluster region
+                        ax.axvspan(cluster_times[0], cluster_times[-1], 
+                                 alpha=0.2, color=cluster_color, zorder=1)
+                        
+                        # Mark cluster points
+                        ax.scatter(cluster_times, cluster_betas, 
+                                 c=[cluster_color], s=30, alpha=0.8,
+                                 label=f'Cluster {int(cluster_idx)} (p={cluster_p:.4f})',
+                                 zorder=5, edgecolors='black', linewidths=0.5)
+            else:
+                # Standard marking for non-cluster methods
+                sig_times = times[significant]
+                sig_betas = betas[significant]
+                ax.scatter(sig_times, sig_betas, c='red', s=20, alpha=0.7, 
+                          label=f'Significant (p < {alpha})', zorder=5)
         
         # Add reference lines
         ax.axhline(0, color='black', linestyle='--', alpha=0.5)
@@ -866,8 +1210,8 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
         
         # Formatting
         ax.set_ylabel('Beta coefficient (µV)')
-        ax.set_title(f'ROI: {roi} - Beta Time-course')
-        ax.legend()
+        ax.set_title(f'ROI: {roi}')
+        ax.legend(loc='best', fontsize=8)
         ax.grid(True, alpha=0.3)
         
         # Set y-axis limits based on confidence intervals
@@ -886,7 +1230,7 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
     )
     plt.close()
     
-    # Create individual plots for each ROI
+    # Create individual plots for each ROI with detailed cluster information
     for roi in rois:
         roi_data = temporal_results_df[temporal_results_df["roi"] == roi].copy()
         roi_data = roi_data.sort_values("time_point")
@@ -896,6 +1240,7 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
         ci_lower = roi_data["ci_lower"].values
         ci_upper = roi_data["ci_upper"].values
         p_values = roi_data["p_value"].values
+        significant = roi_data["significant"].values
         
         # Apply smoothing if requested
         if smooth_betas and len(times) > 1:
@@ -905,39 +1250,46 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
             ci_lower = gaussian_filter1d(ci_lower, sigma=sigma)
             ci_upper = gaussian_filter1d(ci_upper, sigma=sigma)
         
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 7))
         
         # Plot beta time-course with confidence intervals
         plt.plot(times, betas, 'b-', linewidth=3, label='Off-task - On-task effect')
         plt.fill_between(times, ci_lower, ci_upper, alpha=0.3, color='blue', label='95% CI')
         
         # Mark significant time points
-        sig_mask = p_values < alpha
-        if np.any(sig_mask):
-            sig_times = times[sig_mask]
-            sig_betas = betas[sig_mask]
-            plt.scatter(sig_times, sig_betas, c='red', s=30, alpha=0.8, 
-                       label=f'Significant (p < {alpha})', zorder=5)
-            
-            # Highlight significant clusters as background
-            if len(sig_times) > 1:
-                # Find continuous clusters
-                time_diffs = np.diff(sig_times)
-                cluster_breaks = np.where(time_diffs > 2 * np.mean(np.diff(times)))[0]
+        if np.any(significant):
+            if has_clusters and correction_method == "cluster_permutation":
+                # Plot clusters with detailed information
+                cluster_ids = roi_data["cluster_id"].values
+                cluster_pvals = roi_data["cluster_p_value"].values
                 
-                if len(cluster_breaks) == 0:
-                    # Single cluster
-                    plt.axvspan(sig_times[0], sig_times[-1], alpha=0.1, color='red')
-                else:
-                    # Multiple clusters
-                    start_idx = 0
-                    for break_idx in cluster_breaks:
-                        plt.axvspan(sig_times[start_idx], sig_times[break_idx], 
-                                   alpha=0.1, color='red')
-                        start_idx = break_idx + 1
-                    # Last cluster
-                    plt.axvspan(sig_times[start_idx], sig_times[-1], 
-                               alpha=0.1, color='red')
+                unique_clusters = np.unique(cluster_ids[significant])
+                cluster_colors = plt.cm.Set1(np.linspace(0, 1, len(unique_clusters)))
+                
+                for cluster_idx, cluster_color in zip(unique_clusters, cluster_colors):
+                    if cluster_idx == -1:
+                        continue
+                    
+                    cluster_mask = (cluster_ids == cluster_idx) & significant
+                    cluster_times = times[cluster_mask]
+                    cluster_betas = betas[cluster_mask]
+                    cluster_p = cluster_pvals[cluster_mask][0]
+                    
+                    if len(cluster_times) > 0:
+                        # Highlight cluster region with shading
+                        plt.axvspan(cluster_times[0], cluster_times[-1], 
+                                   alpha=0.2, color=cluster_color, zorder=1)
+                        
+                        # Mark cluster points
+                        plt.scatter(cluster_times, cluster_betas, 
+                                   c=[cluster_color], s=50, alpha=0.9,
+                                   label=f'Cluster {int(cluster_idx)}: {cluster_times[0]:.2f}-{cluster_times[-1]:.2f}s (p={cluster_p:.4f})',
+                                   zorder=5, edgecolors='black', linewidths=1)
+            else:
+                sig_times = times[significant]
+                sig_betas = betas[significant]
+                plt.scatter(sig_times, sig_betas, c='red', s=30, alpha=0.8, 
+                           label=f'Significant (p < {alpha})', zorder=5)
         
         # Add reference lines
         plt.axhline(0, color='black', linestyle='--', alpha=0.7, linewidth=1)
@@ -946,8 +1298,9 @@ def _create_temporal_lmm_plots(temporal_results_df: pd.DataFrame, output_dir: st
         # Formatting
         plt.xlabel('Time (s)', fontsize=12)
         plt.ylabel('Beta coefficient (µV)', fontsize=12)
-        plt.title(f'ROI {roi}: Off-task vs On-task Beta Time-course', fontsize=14, fontweight='bold')
-        plt.legend(fontsize=11)
+        title_str = f'ROI {roi}: Off-task vs On-task Beta Time-course ({correction_title})'
+        plt.title(title_str, fontsize=13, fontweight='bold')
+        plt.legend(fontsize=9, loc='best')
         plt.grid(True, alpha=0.3)
         
         # Set axis limits

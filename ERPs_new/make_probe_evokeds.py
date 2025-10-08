@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import mne
 
-# Local imports
+# Local importsy
 try:
     from helpers import (
         load_yaml_config,

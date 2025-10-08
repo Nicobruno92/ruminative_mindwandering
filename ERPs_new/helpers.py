@@ -31,9 +31,9 @@ def build_derivative_dir(derivatives_root: str, subject: str, datatype: str = "e
 def build_evoked_dir(features_root: str, subject: str) -> str:
     """
     Create and return mne-evokeds directory for a subject in features.
-    Uses new BIDS structure: features/sub-XX/mne-evokeds/
+    Uses new BIDS structure: features/sub-XX/eeg/mne-evokeds/
     """
-    out_dir = os.path.join(os.path.abspath(features_root), f"sub-{subject}", "mne-evokeds")
+    out_dir = os.path.join(os.path.abspath(features_root), f"sub-{subject}", "eeg", "mne-evokeds")
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
@@ -176,7 +176,7 @@ def write_probe_report_html(
     Write an HTML report with full annotation details for all selected trials grouped by probe.
     Returns the path to the HTML file.
     """
-    out_dir = build_derivative_dir(features_root, subject, datatype="eeg")
+    out_dir = build_evoked_dir(features_root, subject)
     html_path = os.path.join(out_dir, f"sub-{subject}_task-{task}_probe_trials.html")
 
     # Prepare a clean table
@@ -407,7 +407,8 @@ def save_evoked(
     extra_meta: Optional[Dict] = None,
 ) -> str:
     """
-    Save an MNE Evoked as a feature file in the new BIDS structure: features/sub-XX/mne-evokeds/
+    Save an MNE Evoked as a feature file in the new BIDS structure: 
+    features/sub-XX/eeg/mne-evokeds/
     """
     out_dir = build_evoked_dir(features_root, subject)
     fname = make_derivative_fname(subject, task, suffix="ave", desc=desc, extension=".fif")

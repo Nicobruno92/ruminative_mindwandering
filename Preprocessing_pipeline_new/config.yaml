@@ -79,8 +79,8 @@ ica:
   random_state: 42      # Random seed for reproducibility
 
 # ICA component classification and exclusion
-iclabel_prob_min: 0.90     # Minimum probability threshold for ICLabel (stricter: require higher confidence)
-muscle_threshold: 0.90        # Threshold for muscle/ICM component detection (stricter to reduce false positives)
+iclabel_prob_min: 0.95     # Minimum probability threshold for ICLabel (stricter: require higher confidence)
+muscle_threshold: 0.95        # Threshold for muscle/ICM component detection (stricter to reduce false positives)
 max_ica_excluded_ratio: 0.3  # Maximum ratio of components to exclude
 
 # =============================================================================

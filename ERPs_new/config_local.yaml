@@ -76,6 +76,20 @@ lmm_analysis:
   # Advanced temporal analysis with Unfold.jl
   use_julia: true
   use_unfold: true           # Set to true to use Unfold.jl for temporal LMM analysis
+
+# Multiple comparison correction for temporal LMM analysis
+multiple_comparison_correction:
+  # Method for correcting multiple comparisons across time points
+  # Options: 'none', 'fdr', 'bonferroni', 'cluster_permutation'
+  method: "cluster_permutation"  # Recommended for temporal data
+  
+  # Cluster permutation testing parameters
+  cluster_permutation:
+    n_permutations: 1000      # Number of permutations (1000 for testing, 5000 for final)
+    threshold: "auto"         # 'auto' or numeric value
+    tail: 0                   # 0=two-tailed, 1=right, -1=left
+    n_jobs: -1                # Use all CPUs
+    seed: 42                  # For reproducibility
   
 # Plotting options
 plotting:

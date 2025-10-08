@@ -1,6 +1,17 @@
 ### ERP per-probe Evoked pipeline (ERPs_new)
 
-This pipeline reads preprocessed evoked epochs produced by `Preprocessing_pipeline_new`, selects trials per probe based on configurable rules, averages them to obtain one Evoked per probe, labels probes on-task/off-task from the `onoff` rating embedded in event descriptions, runs statistical analysis, and generates two types of ERP visualizations following a BIDS-like structure.
+This pipeline reads preprocessed evoked epochs produced by `Preprocessing_pipeline_new`, selects trials per probe based on configurable rules, averages them to obtain one Evoked per probe, labels probes on-task/off-task from the `onoff` rating embedded in event descriptions, runs statistical analysis with **multiple comparison correction**, and generates two types of ERP visualizations following a BIDS-like structure.
+
+## Key Features
+
+### ✨ Multiple Comparison Correction (NEW!)
+- **Cluster permutation testing**: Recommended for temporal ERP data
+- **FDR correction**: False Discovery Rate (Benjamini-Hochberg)
+- **Bonferroni correction**: Conservative point-wise correction
+- **Configurable**: Easy selection via config file
+- **Visualization**: Automatic cluster highlighting in plots
+
+👉 **See [CLUSTER_PERMUTATION_GUIDE.md](./CLUSTER_PERMUTATION_GUIDE.md) for detailed documentation**
 
 ## Plot Types Available
 
@@ -18,12 +29,20 @@ The pipeline now supports two complementary types of ERP visualization:
 - Displays sliding window analysis of condition differences over time
 - Highlights significant time periods where on-task vs off-task differ
 - Represents pure statistical effects independent of baseline
+- **Now includes cluster permutation results with colored cluster regions**
 - File suffix: `*_beta_timecourse.png`
 
 Configure in `config.yaml`:
 ```yaml
 plotting:
   plot_type: "both"  # Options: "classic_erp", "beta_timecourse", "both"
+
+multiple_comparison_correction:
+  method: "cluster_permutation"  # Options: "none", "fdr", "bonferroni", "cluster_permutation"
+  cluster_permutation:
+    n_permutations: 1000
+    threshold: "auto"
+    tail: 0  # 0=two-tailed, 1=right, -1=left
   
 lmm_analysis:
   formula: "amplitude ~ condition_code + baseline_centered"  # Default formula

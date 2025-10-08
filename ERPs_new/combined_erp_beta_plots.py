@@ -310,11 +310,17 @@ def create_combined_erp_beta_plot(erp_data: Dict, beta_results: pd.DataFrame,
     beta_values = roi_beta['beta'].values
     beta_ci_lower = roi_beta['ci_lower'].values
     beta_ci_upper = roi_beta['ci_upper'].values
-    beta_pvalues = roi_beta['p_value'].values
+    beta_pvalues = roi_beta.get('p_value', roi_beta.get('p_corrected', np.ones(len(beta_times)))).values
     
-    # Determine significance
+    # Check if cluster correction was used
+    has_clusters = 'cluster_id' in roi_beta.columns and 'cluster_p_value' in roi_beta.columns
+    
+    # Determine significance (use corrected significance if available)
     alpha = 0.05
-    significant = beta_pvalues < alpha
+    if 'significant' in roi_beta.columns:
+        significant = roi_beta['significant'].values
+    else:
+        significant = beta_pvalues < alpha
     
     # Apply smoothing if requested
     if len(beta_times) > 10:  # Only smooth if we have enough points
@@ -343,11 +349,41 @@ def create_combined_erp_beta_plot(erp_data: Dict, beta_results: pd.DataFrame,
     
     # Highlight significant time points
     if np.any(significant):
-        sig_times = beta_times[significant]
-        sig_betas = beta_values_smooth[significant]
-        ax_beta.scatter(sig_times, sig_betas, color=DEFAULT_COLORS['significance'], 
-                       s=40, alpha=plot_params['alpha_sig'], zorder=5,
-                       label=f'Significant (p < {alpha})')
+        if has_clusters:
+            # Plot clusters with different colors
+            cluster_ids = roi_beta['cluster_id'].values
+            cluster_pvals = roi_beta['cluster_p_value'].values
+            
+            unique_clusters = np.unique(cluster_ids[significant])
+            # plt already imported at module level
+            cluster_colors = plt.cm.Set1(np.linspace(0, 1, len(unique_clusters)))
+            
+            for cluster_idx, cluster_color in zip(unique_clusters, cluster_colors):
+                if cluster_idx == -1:
+                    continue
+                
+                cluster_mask = (cluster_ids == cluster_idx) & significant
+                cluster_times = beta_times[cluster_mask]
+                cluster_betas = beta_values_smooth[cluster_mask]
+                cluster_p = cluster_pvals[cluster_mask][0]
+                
+                if len(cluster_times) > 0:
+                    # Highlight cluster region
+                    ax_beta.axvspan(cluster_times[0], cluster_times[-1], 
+                                   alpha=0.2, color=cluster_color, zorder=1)
+                    
+                    # Mark cluster points
+                    ax_beta.scatter(cluster_times, cluster_betas, 
+                                   c=[cluster_color], s=40, alpha=plot_params['alpha_sig'],
+                                   label=f'Cluster {int(cluster_idx)} (p={cluster_p:.4f})',
+                                   zorder=5, edgecolors='black', linewidths=0.5)
+        else:
+            # Standard marking
+            sig_times = beta_times[significant]
+            sig_betas = beta_values_smooth[significant]
+            ax_beta.scatter(sig_times, sig_betas, color=DEFAULT_COLORS['significance'], 
+                           s=40, alpha=plot_params['alpha_sig'], zorder=5,
+                           label=f'Significant (p < {alpha})')
         
         # Add significance bars at the top
         y_max = max(np.max(beta_ci_upper_smooth), np.max(beta_values_smooth)) * 1.1
