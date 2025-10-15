@@ -142,10 +142,10 @@ def read_h5_markers(h5_path: str, element: dict) -> Dict[str, Any]:
     Parameters
     ----------
     h5_path : str
-        Path to the HDF5 file
+        Path to the HDF5 file (per-element file)
     element : dict
         Element information with keys: 'subject', 'task', 'desc'
-        Used to match features for this specific element
+        (Not used for per-element files, kept for compatibility)
     
     Returns
     -------
@@ -162,27 +162,19 @@ def read_h5_markers(h5_path: str, element: dict) -> Dict[str, Any]:
     for feature in features:
         print(f"  Reading feature: {feature}")
         try:
-            # Read feature data directly (no element parameter needed)
-            # The storage handles element internally based on single_output setting
+            # Read feature data directly
+            # Per-element H5 files contain only data for one element
             feature_data = reader.storage.read(feature_name=feature)
             
-            # Check if this feature data matches our element
-            # Features might be stored with element metadata
-            feature_element = feature_data.get('element', {})
-            if feature_element:
-                # If element info exists, check if it matches
-                if (feature_element.get('subject') == element['subject'] and
-                    feature_element.get('task') == element['task'] and
-                    feature_element.get('desc') == element['desc']):
-                    markers_data[feature] = feature_data
-                else:
-                    print(f"    Skipping: element mismatch")
-            else:
-                # No element info in feature data, include it
-                markers_data[feature] = feature_data
+            # Store the feature data as-is
+            # Per-element files don't need element matching
+            markers_data[feature] = feature_data
+            print(f"    ✓ Successfully read {feature}")
                 
         except Exception as e:
             print(f"    Warning: Could not read {feature}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
 
     print(f"Read {len(markers_data)} features from H5 file")
@@ -244,46 +236,39 @@ def create_erp_marker(
     channel_names: List[str],
     epoch_annotations: List[Dict],
 ) -> Dict[str, Any]:
-    """Create ERP marker structure from H5 data."""
+    """Create ERP marker structure from H5 data.
+    
+    This handles TimeLockedTopography, PermutationEntropy, and KolmogorovComplexity markers.
+    """
 
-    # Find the ERP feature in H5 data
-    erp_feature = None
-    for feature_name, feature_data in h5_data.items():
-        if (
-            (
-                "timelockedtopo" in feature_name.lower()
-                and marker_name in feature_name.lower()
-            )
-            or (
-                "permutationentropy" in feature_name.lower()
-                and "permutation_entropy" in marker_name
-            )
-            or (
-                "kolmogorovcomplexity" in feature_name.lower()
-                and "kolmogorov_complexity" in marker_name
-            )
-        ):
-            erp_feature = feature_data
-            break
-
-    if erp_feature is None:
-        print(f"Warning: No ERP feature found for {marker_name}")
+    # Find the feature in H5 data - it should be the only one in h5_data dict
+    if not h5_data:
+        print(f"Warning: No data provided for {marker_name}")
         return None
+    
+    # Get the first (and only) feature from h5_data
+    feature_name = list(h5_data.keys())[0]
+    erp_feature = h5_data[feature_name]
+    
+    print(f"    Creating ERP-like marker from feature: {feature_name}")
 
     data = erp_feature["data"]
     headers = erp_feature["column_headers"]
 
-    # For ERP: headers are channel names, data is organized as epochs × channels
+    # For ERP-like markers: headers are channel names, data is organized as epochs × channels
     marker_data = {}
 
-    # Create channel mapping
+    # Create channel mapping - headers might have suffixes like '_ch0'
     hdf5_channels = []
     for header in headers:
-        channel = header.replace("_ch0", "")
+        # Remove common suffixes
+        channel = header.replace("_ch0", "").replace("_0", "")
         hdf5_channels.append(channel)
 
     n_epochs = len(epoch_annotations)
     n_channels = len(hdf5_channels)
+
+    print(f"    Data shape: {data.shape}, Headers: {len(headers)}, Epochs: {n_epochs}, Channels: {n_channels}")
 
     # HDF5 data is organized as: [epoch0_ch0, epoch0_ch1, ..., epoch1_ch0, ...]
     for epoch_idx in range(n_epochs):
@@ -298,6 +283,8 @@ def create_erp_marker(
                         marker_data[channel] = {}
 
                     marker_data[channel][epoch_key] = float(data[hdf5_idx, 0])
+
+    print(f"    Created marker data for {len(marker_data)} channels")
 
     return {
         "access_pattern": "channel_epoch",

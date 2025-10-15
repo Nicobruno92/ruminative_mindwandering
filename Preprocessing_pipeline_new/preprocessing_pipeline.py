@@ -54,6 +54,7 @@ import mne
 try:
     from bids_compliance import BIDSCompliance
     from data_harmonization import load_config
+    from steps_asr import apply_asr_if_configured
     from steps_bads import run_pyprep_noisychannels
     from steps_ica import fit_ica_deterministic, auto_select_ica_components
     from steps_epochs import make_evoked_epochs, make_state_preprobe_epochs
@@ -75,6 +76,7 @@ except ImportError:
     from bids_compliance import BIDSCompliance
     from data_harmonization import load_config
     from steps_report import compute_psd_figure
+    from steps_asr import apply_asr_if_configured
     from steps_bads import run_pyprep_noisychannels
     from steps_ica import fit_ica_deterministic, auto_select_ica_components
     from steps_epochs import make_evoked_epochs, make_state_preprobe_epochs
@@ -221,6 +223,9 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     filters_evoked = _get_cfg_required(cfg, ["filters", "evoked"])
     filters_state = _get_cfg_required(cfg, ["filters", "state"])
     
+    # ASR parameters (optional)
+    asr_cfg = cfg.get("asr", None)
+    
     # PyPREP bad channel detection parameters
     do_detrend = bool(_get_cfg_required(cfg, ["pyprep", "do_detrend"]))
     use_ransac = bool(_get_cfg_required(cfg, ["pyprep", "ransac"]))
@@ -282,11 +287,17 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     n_components = _get_cfg_required(cfg, ["ica", "n_components"])
     max_iter = _get_cfg_required(cfg, ["ica", "max_iter"])
     random_state = int(_get_cfg_required(cfg, ["ica", "random_state"]))
-    prob_min = float(_get_cfg_required(cfg, ["iclabel_prob_min"]))
-    muscle_threshold = float(_get_cfg_required(cfg, ["muscle_threshold"]))
-    max_excluded_ratio = float(
-        _get_cfg_required(cfg, ["max_ica_excluded_ratio"])
+    
+    # ICA component selection parameters (variance-weighted system)
+    ica_selection = _get_cfg_required(cfg, ["ica_selection"])
+    prob_min = float(ica_selection["iclabel_prob_min"])
+    muscle_threshold = float(ica_selection["muscle_threshold"])
+    variance_penalty_factor = float(ica_selection["variance_penalty_factor"])
+    max_excluded_variance_ratio = float(
+        ica_selection["max_excluded_variance_ratio"]
     )
+    max_threshold_cap = float(ica_selection.get("max_threshold_cap", 0.99))
+    pattern_bonus = float(ica_selection.get("pattern_bonus", 0.10))
 
     # =========================================================================
     # 3. DATA LOADING AND INITIAL PROCESSING
@@ -313,6 +324,35 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     add_psd_figures(report, fig_pre, fig_post)
 
     # =========================================================================
+    # 4a. OPTIONAL ASR (ARTIFACT SUBSPACE RECONSTRUCTION)
+    # =========================================================================
+    # Apply ASR if configured (before bad channel detection)
+    raw_asr, asr_applied = apply_asr_if_configured(
+        raw,
+        asr_cfg,
+        sfreq=float(raw.info["sfreq"]),
+    )
+    if asr_applied:
+        # Add ASR PSD comparison to report
+        fig_pre_asr = fig_post  # Post-notch is pre-ASR
+        fig_post_asr = compute_psd_figure(raw_asr)
+        report.add_figure(
+            fig=fig_pre_asr,
+            title="PSD Pre-ASR",
+            caption="Power spectral density before ASR artifact removal",
+            section="ASR",
+        )
+        report.add_figure(
+            fig=fig_post_asr,
+            title="PSD Post-ASR",
+            caption="Power spectral density after ASR artifact removal",
+            section="ASR",
+        )
+        raw = raw_asr  # Use ASR-cleaned data for downstream processing
+        del raw_asr
+        gc.collect()
+
+    # =========================================================================
     # 5. BAD CHANNEL DETECTION
     # =========================================================================
     print("Detecting bad channels...")
@@ -335,7 +375,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     raw.info["bads"] = sorted(set(all_bads))
 
     # =========================================================================
-    # 6. REFERENCE AND FILTERING
+    # 7. REFERENCE AND FILTERING
     # =========================================================================
     print("Applying reference and filters...")
     # Apply average reference projector if specified
@@ -369,7 +409,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         n_jobs=1,
     )
     # =========================================================================
-    # 7. ICA ARTIFACT REMOVAL
+    # 8. ICA ARTIFACT REMOVAL
     # =========================================================================
     print("Fitting ICA...")
     # Fit ICA using deterministic method
@@ -382,16 +422,25 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         report,
     )
     
-    # Automatically select components to exclude
-    ica_exclude, combination_method = auto_select_ica_components(
-        raw_for_ica,
-        ica,
-        prob_min,
-        muscle_threshold,
-        max_excluded_ratio,
+    # Automatically select components to exclude (variance-weighted)
+    ica_exclude, combination_method, ica_selection_log = (
+        auto_select_ica_components(
+            raw_for_ica,
+            ica,
+            prob_min,
+            muscle_threshold,
+            variance_penalty_factor,
+            max_excluded_variance_ratio,
+            max_threshold_cap,
+            pattern_bonus,
+        )
     )
     ica.exclude = ica_exclude
     print(f"ICA combination method used: {combination_method}")
+    
+    # Log ICA selection details
+    logger.log_detail("ica_selection_method", combination_method)
+    logger.log_detail("ica_selection_details", ica_selection_log)
 
     # Apply ICA to analysis copy
     raw_clean = raw_analysis
@@ -406,7 +455,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     gc.collect()
 
     # =========================================================================
-    # 8. OPTIONAL CSD AND FILE SAVING
+    # 9. OPTIONAL CSD AND FILE SAVING
     # =========================================================================
     print("Saving processed data...")
     # Optional current source density computation
@@ -440,7 +489,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         gc.collect()
 
     # =========================================================================
-    # 9. EVOKED EPOCHS PROCESSING
+    # 10. EVOKED EPOCHS PROCESSING
     # =========================================================================
     print("Creating evoked epochs...")
     # Optionally restrict to go/nogo events based on config
@@ -465,7 +514,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     )
 
     # =========================================================================
-    # 10. AUTOREJECT ARTIFACT REJECTION
+    # 11. AUTOREJECT ARTIFACT REJECTION
     # =========================================================================
     print("Running AutoReject...")
     # Apply AutoReject for automated artifact rejection
@@ -519,7 +568,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     )
 
     # =========================================================================
-    # 11. EVOKED EPOCHS SAVING AND REPORTING
+    # 12. EVOKED EPOCHS SAVING AND REPORTING
     # =========================================================================
     print("Processing evoked epochs for saving...")
     # Build ERP evoked responses for QA
@@ -554,7 +603,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         pass
 
     # =========================================================================
-    # 12. PREPARE FOR QUALITY ASSESSMENT (BEFORE MEMORY CLEANUP)
+    # 13. PREPARE FOR QUALITY ASSESSMENT (BEFORE MEMORY CLEANUP)
     # =========================================================================
     print("Preparing epoch metrics for quality assessment...")
     # Store epoch metrics for later QA computation (after state epochs are
@@ -579,7 +628,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     gc.collect()
 
     # =========================================================================
-    # 13. STATE EPOCHS PROCESSING
+    # 14. STATE EPOCHS PROCESSING
     # =========================================================================
     print("Creating state epochs...")
     # State windows pre-probe using existing THOUGHT_PROBE annotations
@@ -694,7 +743,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         gc.collect()
 
     # =========================================================================
-    # 14. COMPLETE QUALITY ASSESSMENT
+    # 15. COMPLETE QUALITY ASSESSMENT
     # =========================================================================
     print("Running complete quality assessment...")
     # Run complete QA assessment with all epoch metrics (evoked + state)
@@ -719,10 +768,12 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         logger=logger,
         prelim_bads=prelim_bads,
         prep_bads=prep_bads,
+        ica_selection_log=ica_selection_log,  # Pass variance selection log
     )
 
+
     # =========================================================================
-    # 15. FINAL REPORTING AND CLEANUP
+    # 16. FINAL REPORTING AND CLEANUP
     # =========================================================================
     print("Generating final report...")
     # Add figures to report
@@ -776,7 +827,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     print(f"[OK] Saved report: {report_path}")
 
     # =========================================================================
-    # 16. FINAL MEMORY CLEANUP
+    # 17. FINAL MEMORY CLEANUP
     # =========================================================================
     # Clean up remaining large objects
     try:

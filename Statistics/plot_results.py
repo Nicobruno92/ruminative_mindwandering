@@ -2,7 +2,8 @@
 Visualization module for cluster permutation test results.
 
 This module creates topographic plots showing t-statistics with
-significant clusters highlighted.
+significant clusters highlighted. Updated to work with the probe marker
+pipeline and marker-specific results.
 """
 
 import numpy as np
@@ -10,6 +11,52 @@ import matplotlib.pyplot as plt
 import mne
 from typing import List, Optional
 from pathlib import Path
+import warnings
+
+
+def validate_montage_and_channels(info: mne.Info, t_stats: np.ndarray) -> tuple:
+    """
+    Validate that the montage and channels are properly configured for plotting.
+    
+    Parameters
+    ----------
+    info : mne.Info
+        MNE Info object with channel information
+    t_stats : np.ndarray
+        T-statistics array
+        
+    Returns
+    -------
+    tuple
+        (validated_info, validated_t_stats) - Ensures proper montage setup
+    """
+    # Check if montage is set
+    if info.get_montage() is None:
+        raise ValueError("No montage found in info object. Montage must be set for proper plotting.")
+    
+    # Validate channel count matches
+    n_channels_info = len(info['ch_names'])
+    n_channels_stats = len(t_stats)
+    
+    if n_channels_info != n_channels_stats:
+        raise ValueError(f"Channel count mismatch: info has {n_channels_info} channels, "
+                        f"t_stats has {n_channels_stats} channels")
+    
+    # Check for missing channel positions
+    montage = info.get_montage()
+    if montage is None:
+        raise ValueError("Montage is None after validation")
+    
+    # Ensure all channels have positions
+    missing_positions = []
+    for ch_name in info['ch_names']:
+        if ch_name not in montage.ch_names:
+            missing_positions.append(ch_name)
+    
+    if missing_positions:
+        warnings.warn(f"Channels missing from montage: {missing_positions}")
+    
+    return info, t_stats
 
 
 def plot_cluster_topomap(
@@ -58,6 +105,9 @@ def plot_cluster_topomap(
     fig : plt.Figure
         Matplotlib figure object
     """
+    # Validate montage and channel information
+    info, t_stats = validate_montage_and_channels(info, t_stats)
+    
     # Create mask for significant clusters
     mask = np.zeros(len(t_stats), dtype=bool)
     
@@ -74,20 +124,19 @@ def plot_cluster_topomap(
     # Create figure
     fig, ax = plt.subplots(figsize=(8, 6))
     
-    # Plot topographic map
+    # Plot topographic map with proper montage
     im, _ = mne.viz.plot_topomap(
         t_stats,
         info,
         axes=ax,
         show=False,
         cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
         mask=mask,
         mask_params=dict(marker='o', markerfacecolor='white', 
                         markeredgecolor='black', linewidth=0, markersize=8),
         contours=6,
-        ch_type='eeg'
+        ch_type='eeg',
+        sphere=(0, 0, 0, 0.095)  # Standard EEG head radius
     )
     
     # Add colorbar
@@ -97,9 +146,10 @@ def plot_cluster_topomap(
     # Add title
     ax.set_title(title, fontsize=14, fontweight='bold')
     
-    # Add text with number of significant clusters
+    # Add text with cluster information
     n_sig_clusters = np.sum(cluster_p_values < alpha)
-    fig.text(0.5, 0.02, f'Significant clusters: {n_sig_clusters} (α = {alpha})',
+    n_total_clusters = len(clusters)
+    fig.text(0.5, 0.02, f'Clusters: {n_sig_clusters}/{n_total_clusters} significant (α = {alpha})',
              ha='center', fontsize=10)
     
     plt.tight_layout()
@@ -261,11 +311,12 @@ def create_results_report(
     info: mne.Info,
     threshold: float,
     alpha: float,
+    marker_name: str,
     output_dir: str,
-    prefix: str = "cluster_test"
+    prefix: Optional[str] = None
 ) -> None:
     """
-    Create comprehensive visualization report.
+    Create comprehensive visualization report for probe marker analysis.
     
     Parameters
     ----------
@@ -278,18 +329,28 @@ def create_results_report(
     cluster_p_values : np.ndarray
         Cluster p-values
     info : mne.Info
-        MNE Info object
+        MNE Info object with channel positions
     threshold : float
         Cluster formation threshold
     alpha : float
         Significance level
+    marker_name : str
+        Name of the marker being analyzed
     output_dir : str
         Output directory
-    prefix : str
-        Filename prefix
+    prefix : str, optional
+        Filename prefix (defaults to marker_name)
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Create safe filename prefix from marker name
+    if prefix is None:
+        safe_marker_name = marker_name.replace('/', '_').replace(' ', '_')
+        prefix = f"results_{safe_marker_name}"
+    
+    # Create title with marker name
+    plot_title = f"Spatial Cluster Test - {marker_name}"
     
     # Plot 1: Topographic map
     fig1 = plot_cluster_topomap(
@@ -298,6 +359,7 @@ def create_results_report(
         cluster_p_values=cluster_p_values,
         info=info,
         alpha=alpha,
+        title=plot_title,
         save_path=output_path / f"{prefix}_topomap.png"
     )
     plt.close(fig1)
@@ -310,7 +372,7 @@ def create_results_report(
             cluster_p_values=cluster_p_values,
             ch_names=info['ch_names'],
             alpha=alpha,
-            save_path=output_path / f"{prefix}_details.png"
+            save_path=output_path / f"{prefix}_cluster_details.png"
         )
         if fig2:
             plt.close(fig2)
@@ -319,8 +381,12 @@ def create_results_report(
     fig3 = plot_t_statistics_distribution(
         t_stats=t_stats,
         threshold=threshold,
-        save_path=output_path / f"{prefix}_distribution.png"
+        save_path=output_path / f"{prefix}_t_distribution.png"
     )
     plt.close(fig3)
     
-    print(f"Results saved to {output_dir}")
+    print(f"✓ Figures saved to {output_dir}")
+    print(f"  - Topographic map: {prefix}_topomap.png")
+    if len(clusters) > 0:
+        print(f"  - Cluster details: {prefix}_cluster_details.png")
+    print(f"  - T-statistics distribution: {prefix}_t_distribution.png")

@@ -38,7 +38,7 @@ output:
 # Optional: evoked writing options
 evoked:
   # Whether to apply additional baseline before averaging (epochs may already be baselined)
-  apply_baseline: true
+  apply_baseline: false
   baseline: [Null, Null] #[-0.2, 0.0]
 
 # ERP ROI definitions (channel names; extend/modify per montage)
@@ -69,13 +69,23 @@ outlier_detection:
 lmm_analysis:
   enabled: true
   # LMM formula specification
-  # Available variables: amplitude (DV), condition_code (0=onTask, 1=offTask), baseline_centered
-  # Groups variable is always 'subject'
-  formula: "amplitude ~ condition_code + baseline_centered"  # Default formula
+  # Available variables: 
+  #   - amplitude (dependent variable)
+  #   - condition_code (0=onTask, 1=offTask)
+  #   - baseline_centered (baseline-corrected amplitude)
+  #   - task (optional: Sart1, Sart2, Sart3, Sart4 as categorical factor)
+  #   - confidence_centered, valence_centered, selfother_centered, etc. (thought probe ratings, centered)
+  # Random effect: Always uses (1|subject) - subject as random intercept
+
+  formula: "amplitude ~ condition_code * task + baseline_centered"  # Default formula
+
   # Alternative formulas you can try:
   # "amplitude ~ condition_code"                             # No baseline covariate
   # "amplitude ~ condition_code * baseline_centered"         # Include interaction
-  # "amplitude ~ condition_code + baseline_centered + I(baseline_centered**2)"  # Quadratic baseline
+  # "amplitude ~ condition_code + baseline_centered + C(task)"  # Add task as fixed effect
+  # "amplitude ~ condition_code + baseline_centered + confidence_centered + valence_centered"  # Multiple ratings
+  # Note: Task is available as categorical variable if you want to control for task effects
+  # Note: Thought probe ratings (onoff, selfother, valence, time, confidence, average) are centered
   
   time_windows:
     # Time windows for LMM analysis (in seconds)
@@ -100,14 +110,14 @@ multiple_comparison_correction:
   #   'fdr'                 - False Discovery Rate (Benjamini-Hochberg)
   #   'bonferroni'          - Bonferroni correction (very conservative)
   #   'cluster_permutation' - Cluster-based permutation testing (recommended)
-  method: "cluster_permutation"  # Recommended for temporal data
+  method: "cluster_permutation"  # Changed from fdr to use cluster correction
   
   # Cluster permutation testing parameters (used when method='cluster_permutation')
   cluster_permutation:
-    n_permutations: 1000      # Number of permutations (1000-5000 recommended)
-    threshold: "auto"         # Threshold for cluster formation
-                              # 'auto' uses t-distribution critical value
-                              # Or specify numeric value (e.g., 2.0)
+    n_permutations: 1000           # Number of permutations (1000-5000 recommended)
+    cluster_forming_threshold: 0.05 # P-value threshold for forming clusters
+                                    # Time points with p < threshold form clusters
+                                    # Typical: 0.05, 0.01 for stricter clusters
     tail: 0                   # Hypothesis test tail
                               # 0 = two-tailed (tests for any difference)
                               # 1 = right-tailed (tests for positive effects)

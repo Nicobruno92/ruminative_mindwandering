@@ -1,11 +1,12 @@
 # Junifer EEG Feature Extraction Pipelines
 
-This directory contains two complete, production-ready pipelines for extracting EEG features from BIDS-formatted data using Junifer with SLURM cluster support.
+This directory contains three complete, production-ready pipelines for extracting EEG features from BIDS-formatted data using Junifer with SLURM cluster support.
 
 ## Quick Navigation
 
 - **[Pipeline 1: H5 Markers Creation](./1.markers_h5_creation/)** - Extract EEG features to HDF5 format
 - **[Pipeline 2: PKL Creation](./2.h5_to_pkl/)** - Convert H5 + FIF to structured PKL files
+- **[Pipeline 3: Probe Aggregation](./3.aggregate_probes/)** - Aggregate markers by probe for mind-wandering analysis
 
 ## Pipeline Overview
 
@@ -38,6 +39,7 @@ This directory contains two complete, production-ready pipelines for extracting 
 │  • Reads H5 features + FIF metadata                         │
 │  • Combines into structured PKL format                      │
 │  • BIDS-compliant output per subject/task/desc             │
+│  • Per-epoch markers for all trials                         │
 └──────────────────────┬──────────────────────────────────────┘
                        │
                        ▼
@@ -45,9 +47,29 @@ This directory contains two complete, production-ready pipelines for extracting 
 │              features/{subject}/eeg/junifer/                │
 │              {subject}_task-{task}_desc-{desc}_             │
 │                    markers.pkl                              │
-│  • Ready for analysis                                       │
+│  • Per-epoch marker values                                  │
 │  • Structured access patterns                               │
 │  • Complete metadata + annotations                          │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│           PIPELINE 3: Probe Aggregation (NEW!)              │
+│  • Aggregates markers by thought probe                      │
+│  • Evoked markers: -5 to -1 trials (like ERPs)              │
+│  • State markers: all trials before probe                   │
+│  • Outlier detection & robust averaging                     │
+│  • Labels probes as onTask/offTask                          │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│              features/{subject}/eeg/junifer/                │
+│         {subject}_task-{task}_desc-probe-{NNN}_             │
+│                  {LABEL}_markers.pkl                        │
+│  • One file per probe with aggregated markers               │
+│  • Ready for statistical analysis & ML                      │
+│  • Comparable to ERP evoked files                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,24 +110,27 @@ python -c "import junifer, junifer_eeg, mne; print('All imports OK')"
 ### End-to-End Execution
 
 ```bash
-**Usage**:
-```bash
 cd /network/iss/home/nicolas.bruno/Junifer
+
+# Run complete pipeline (H5 creation → PKL creation → Probe aggregation)
 ./junifer_markers/1.markers_h5_creation/submit_slurm_array.sh --queue
-```
 
 # This will:
 #  - Generate elements file
 #  - Submit SLURM array for H5 creation (parallel)
 #  - Submit collection job (after array completes)
 #  - Submit PKL creation job (after collection completes)
+#  - Note: Run probe aggregation separately after PKL creation completes
 
-# 3. Monitor progress
+# Monitor progress
 squeue -u $USER
 watch squeue -u $USER
 
-# 4. Check logs
+# Check logs
 tail -f logs/CYBERSART_features_*.out
+
+# After PKL creation completes, run probe aggregation
+sbatch junifer_markers/3.aggregate_probes/run_aggregate_slurm.sh
 ```
 
 ### Running Pipelines Separately
@@ -120,6 +145,11 @@ CREATE_PKL=no ./junifer_markers/1.markers_h5_creation/submit_slurm_array.sh --qu
 sbatch junifer_markers/2.h5_to_pkl/batch_create_pkl.sh
 ```
 
+**Only probe aggregation** (if PKL files already exist):
+```bash
+sbatch junifer_markers/3.aggregate_probes/run_aggregate_slurm.sh
+```
+
 ## Directory Structure
 
 ```
@@ -130,12 +160,17 @@ junifer_markers/
 │   ├── config.yaml                    # Junifer pipeline configuration
 │   ├── slurm_array_junifer.sh         # SLURM array job script
 │   └── submit_slurm_array.sh          # Job submission helper
-└── 2.h5_to_pkl/
-    ├── README.md                      # Pipeline 2 documentation
-    ├── batch_create_pkl_from_pipeline.py  # Main batch processor
-    ├── create_pkl_from_h5_fif.py      # Conversion logic
-    ├── junifer_hdf5_reader_final.py   # HDF5 reader utility
-    └── batch_create_pkl.sh            # SLURM job script
+├── 2.h5_to_pkl/
+│   ├── README.md                      # Pipeline 2 documentation
+│   ├── batch_create_pkl_from_pipeline.py  # Main batch processor
+│   ├── create_pkl_from_h5_fif.py      # Conversion logic
+│   ├── junifer_hdf5_reader_final.py   # HDF5 reader utility
+│   └── batch_create_pkl.sh            # SLURM job script
+└── 3.aggregate_probes/
+    ├── README.md                      # Pipeline 3 documentation
+    ├── config.yaml                    # Aggregation configuration
+    ├── aggregate_markers_by_probe.py  # Main aggregation script
+    └── run_aggregate_slurm.sh         # SLURM job script
 ```
 
 ## Configuration

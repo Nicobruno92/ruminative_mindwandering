@@ -22,7 +22,7 @@ JOBNAME=${JOBNAME:-CYBERSART_features}
 WORKDIR=${WORKDIR:-/network/iss/home/nicolas.bruno/Junifer}
 CONDA_ENV=${CONDA_ENV:-junifer}
 ELEMENTS_FILE=${ELEMENTS_FILE:-${WORKDIR}/junifer_jobs/${JOBNAME}/elements}
-PIPELINE_DIR=${PIPELINE_DIR:-${WORKDIR}/junifer_markers/2.h5_to_pkl}
+PIPELINE_DIR=${PIPELINE_DIR:-/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/junifer_markers/2.h5_to_pkl}
 
 cd "$WORKDIR"
 
@@ -58,7 +58,8 @@ cd "${PIPELINE_DIR}"
 echo "[INFO] Running batch PKL creation..."
 python batch_create_pkl_from_pipeline.py \
   --elements-file "$ELEMENTS_FILE" \
-  --desc both
+  --desc both \
+  --force
 
 EXIT_CODE=$?
 

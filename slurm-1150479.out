@@ -1,0 +1,12 @@
+[INFO] Counting elements in junifer_markers/1.markers_h5_creation/elements
+[INFO] Submitting array 0-165 (166 elements)
+++ awk '{print $4}'
+++ sbatch --array=0-165 --cpus-per-task=4 --mem=8G --time=08:00:00 junifer_markers/1.markers_h5_creation/slurm_array_junifer.sh
++ JOB_ID=1150646
++ set +x
+[INFO] Submitted array job: 1150646
+[INFO] Submitting PKL creation job to run after array completes...
+++ awk '{print $4}'
+++ sbatch --dependency=afterok:1150646 --job-name=CYBERSART_features_pkl --output=/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/logs/CYBERSART_features_pkl_%j.out --error=/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/logs/CYBERSART_features_pkl_%j.err /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/junifer_markers/2.h5_to_pkl/batch_create_pkl.sh
+sbatch: error: Unable to open file /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/junifer_markers/2.h5_to_pkl/batch_create_pkl.sh
++ PKL_JOB_ID=

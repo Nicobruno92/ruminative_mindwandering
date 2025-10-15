@@ -1,84 +1,52 @@
-# =============================================================================
-# LMM-BASED SPATIAL CLUSTER PERMUTATION TESTING CONFIGURATION
-# =============================================================================
-# Pipeline for testing spectral markers with linear mixed models and
-# spatial cluster-based permutation testing
-# =============================================================================
+# LMM-Based Spatial Cluster Permutation Testing Configuration
+# Pipeline for EEG probe marker analysis using linear mixed models
 
-# =============================================================================
-# 1. PROJECT PATHS
-# =============================================================================
+# Project paths and data filtering
 project:
-  # Input data path - to be provided by user
-  data_path: "/path/to/spectral/data.pkl"
-  # Output directory for results
-  output_path: "results/Statistics"
-  # Montage file for channel positions
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/"
+  output_path: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster"
   montage_path: "Preprocessing_pipeline_new/CACS-64_REF.bvef"
-  # BIDS root (optional, for reference)
-  bids_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS"
+  
+  # Data filtering (optional)
+  subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+  tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+  marker_types: ["evoked", "state"]  # Processed independently
 
-# =============================================================================
-# 2. LINEAR MIXED MODEL PARAMETERS
-# =============================================================================
+# Linear mixed model parameters
 lmm:
-  # R-style formula for the mixed model
-  # Example: "power ~ 1 + onoff + distance + (1|subject)"
-  formula: "power ~ 1 + onoff + (1|subject)"
-  # Predictor of interest for extracting t-statistics
+  formula: "power ~ onoff + (1|subject)"
   predictor_of_interest: "onoff"
-  # Optimization method (use 'lbfgs' for deterministic results)
-  method: "lbfgs"
-  # Maximum iterations
+  method: "REML"
   maxiter: 1000
-  # Random seed for reproducibility
   random_state: 42
 
-# =============================================================================
-# 3. SPATIAL CLUSTER PERMUTATION PARAMETERS
-# =============================================================================
+# Spatial cluster permutation parameters
 clustering:
-  # T-statistic threshold for forming clusters
   threshold: 2.0
-  # Number of permutations for null distribution
   n_permutations: 1000
-  # Alpha level for significance testing
   alpha: 0.05
-  # Tail for testing: 'two-sided', 'less', or 'greater'
-  tail: 0  # 0 = two-sided, -1 = less, 1 = greater
-  # Random seed for permutations
+  tail: 0  # two-sided
   seed: 42
-  # Number of parallel jobs (-1 = all CPUs)
-  n_jobs: -1
+  n_jobs: 1
 
-# =============================================================================
-# 4. FREQUENCY BANDS OF INTEREST
-# =============================================================================
-bands:
-  theta: [4, 8]
-  alpha: [8, 12]
-  beta: [13, 30]
-  gamma: [30, 45]
-
-# =============================================================================
-# 5. SUBJECTS AND TASKS
-# =============================================================================
-subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
-tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
-
-# =============================================================================
-# 6. OUTPUT OPTIONS
-# =============================================================================
+# Output options
 output:
-  # Save results as pickle
   save_pickle: true
-  # Save summary as CSV
   save_csv: true
-  # Save figures
   save_figures: true
-  # Figure format
   fig_format: "png"
-  # Figure DPI
   fig_dpi: 300
-  # Overwrite existing files
   overwrite: true
+
+# Usage:
+# Single marker: python run_pipeline.py
+# All markers: python run_pipeline.py --all-markers  
+# Specific markers: python run_pipeline.py --markers "marker1" "marker2"
+#
+# Available marker types (processed independently):
+# - Spectral power: EEG_psd_bands_spectralpower_*
+# - Connectivity: EEG_connectivity_*_alpha
+# - Information theory: EEG_information_theory_*
+# - Evoked responses: EEG_evoked_*
+#
+# Run example_usage.py to discover available markers in your data

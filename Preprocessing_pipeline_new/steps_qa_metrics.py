@@ -270,7 +270,8 @@ def compute_qa_metrics(
     ica_exclude: List[int],
     ica_n_components: int,
     bads_pre_interp: List[str],
-    cfg: Dict[str, Any]
+    cfg: Dict[str, Any],
+    ica_selection_log: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Compute all QA metrics for preprocessing assessment.
@@ -289,6 +290,8 @@ def compute_qa_metrics(
         List of bad channels before interpolation
     cfg : Dict[str, Any]
         Configuration dictionary
+    ica_selection_log : Dict[str, Any], optional
+        Detailed log from variance-weighted ICA selection
         
     Returns
     -------
@@ -329,6 +332,28 @@ def compute_qa_metrics(
     # ICA exclusion ratio
     ica_excl_ratio = len(ica_exclude) / float(ica_n_components)
     
+    # Variance metrics from ICA selection log (if available)
+    ica_excluded_variance_ratio = None
+    ica_excluded_variance_pct = None
+    variance_budget_exceeded = None
+    component_count_exceeded = None
+    if ica_selection_log:
+        ica_excluded_variance_ratio = ica_selection_log.get(
+            'final_excluded_variance_ratio'
+        )
+        ica_excluded_variance_pct = ica_selection_log.get(
+            'final_excluded_variance_pct'
+        )
+        variance_budget_exceeded = ica_selection_log.get(
+            'variance_budget_exceeded'
+        )
+        component_count_exceeded = ica_selection_log.get(
+            'component_count_exceeded'
+        )
+        excluded_components_summary = ica_selection_log.get(
+            'excluded_components_summary', []
+        )
+    
     # EOG channel analysis
     eog_picks = mne.pick_types(raw_after_ica.info, eog=True)
     eog_db_1_4 = None
@@ -337,7 +362,7 @@ def compute_qa_metrics(
             raw_after_ica, qa_blink_low[0], qa_blink_low[1], picks=eog_picks
         )
     
-    return {
+    metrics = {
         'line_db_pre': float(line_db_pre),
         'line_db_post': float(line_db_post),
         'emg_db_pre': float(emg_db_pre),
@@ -352,8 +377,34 @@ def compute_qa_metrics(
         'n_bad_channels': len(bads_pre_interp),
         'bad_channels_list': bads_pre_interp,
         'n_ica_excluded': len(ica_exclude),
-        'ica_excluded_indices': ica_exclude
+        'ica_excluded_indices': ica_exclude,
+        'excluded_components_summary': excluded_components_summary if ica_selection_log else []
     }
+    
+    # Add variance metrics if available
+    if ica_excluded_variance_ratio is not None:
+        metrics['ica_excluded_variance_ratio'] = float(
+            ica_excluded_variance_ratio
+        )
+    if ica_excluded_variance_pct is not None:
+        metrics['ica_excluded_variance_pct'] = float(
+            ica_excluded_variance_pct
+        )
+    # Ensure variance budget exceeded flag is present and consistent with config
+    if variance_budget_exceeded is not None:
+        metrics['variance_budget_exceeded'] = bool(variance_budget_exceeded)
+    else:
+        try:
+            thr = float(cfg["ica_selection"]["max_excluded_variance_ratio"])  # absolute of total
+            v_pct = metrics.get('ica_excluded_variance_pct')
+            if v_pct is not None:
+                metrics['variance_budget_exceeded'] = (float(v_pct) / 100.0) > thr
+        except Exception:
+            pass
+    if component_count_exceeded is not None:
+        metrics['component_count_exceeded'] = bool(component_count_exceeded)
+    
+    return metrics
 
 
 def assess_qa_flags(
@@ -391,8 +442,9 @@ def assess_qa_flags(
         cfg["qa_thresholds"]["max_bad_channels_ratio"]
     )
     thr_bad_epochs = float(cfg["qa_thresholds"]["max_bad_epochs_ratio"])
-    max_excluded_ratio = float(cfg["max_ica_excluded_ratio"])
-    thr_min_line_db = float(cfg["qa_thresholds"]["min_line_noise_db_improvement"])
+    thr_min_line_db = float(
+        cfg["qa_thresholds"]["min_line_noise_db_improvement"]
+    )
     
     # Check bad channels ratio
     eeg_picks = mne.pick_types(raw_after_ica.info, eeg=True)
@@ -425,9 +477,9 @@ def assess_qa_flags(
     except KeyError:
         pass
     
-    # Check ICA exclusion ratio
-    if qa_metrics['ica_excl_ratio'] > max_excluded_ratio:
-        flags.append("max_ica_excluded_ratio")
+    # Check variance budget exceeded (from ICA selection log)
+    if qa_metrics.get('variance_budget_exceeded', False):
+        flags.append("variance_budget_exceeded")
     
     # Check line noise improvement
     if qa_metrics['delta_50_db'] < thr_min_line_db:
@@ -445,8 +497,8 @@ def assess_qa_flags(
     pass_cfg = cfg.get("pass_criteria", {}) or {}
     fail_on_flags = list(pass_cfg.get("fail_on_flags", [
         "max_bad_channels_ratio",
-        "max_bad_epochs_ratio", 
-        "max_ica_excluded_ratio",
+        "max_bad_epochs_ratio",
+        "variance_budget_exceeded",
         "min_line_noise_db_improvement",
         "ocular_ic_required",
     ]))
@@ -562,11 +614,14 @@ def save_qa_csv(
         "delta_emg_30_80_db": qa_metrics['delta_emg_db'],
         "delta_blink_1_4hz_frontal_db": qa_metrics['delta_blink_db'],
         "ica_excluded_ratio": qa_metrics['ica_excl_ratio'],
+        "ica_excluded_variance_pct": qa_metrics.get('ica_excluded_variance_pct'),
         "n_bad_channels": qa_metrics['n_bad_channels'],
         "bad_channels": ",".join(qa_metrics['bad_channels_list']) if qa_metrics['bad_channels_list'] else "",
         "n_ica_excluded": qa_metrics['n_ica_excluded'],
         "ica_excluded_indices": ",".join(map(str, qa_metrics['ica_excluded_indices'])) if qa_metrics['ica_excluded_indices'] else "",
         "too_many_bad_channels": bool("max_bad_channels_ratio" in flags),
+        "variance_budget_exceeded": bool(qa_metrics.get('variance_budget_exceeded', False)),
+        "excluded_components_summary": ",".join(qa_metrics.get('excluded_components_summary') or []),
         "too_many_ica_excluded": bool("max_ica_excluded_ratio" in flags),
         "low_line_noise_suppression": bool("min_line_noise_db_improvement" in flags),
         "no_ocular_ic_detected_with_eog": bool("ocular_ic_required" in flags),
@@ -632,11 +687,11 @@ def save_qa_csv(
         col_order = [
             'subject', 'task', 'epoch_type', 'passed', 'fail_reasons',
             'delta_50hz_db', 'delta_emg_30_80_db', 'delta_blink_1_4hz_frontal_db',
-            'ica_excluded_ratio', 'n_bad_channels', 'bad_channels', 'n_ica_excluded',
-            'ica_excluded_indices',
+            'ica_excluded_ratio', 'ica_excluded_variance_pct', 'n_bad_channels', 'bad_channels', 'n_ica_excluded',
+            'ica_excluded_indices', 'excluded_components_summary',
             'n_triggers', 'n_epochs_after_construct', 'n_rejected_by_ar', 'n_epochs',
             'n_epochs_dropped_pre_ar', 'n_dropped_post_ar', 'annot_drop_ratio', 'used_for_qa',
-            'too_many_bad_channels', 'too_many_ica_excluded', 'low_line_noise_suppression',
+            'too_many_bad_channels', 'variance_budget_exceeded', 'too_many_ica_excluded', 'low_line_noise_suppression',
             'no_ocular_ic_detected_with_eog', 'too_many_bad_epochs'
         ]
         df_qa = pd.DataFrame(qa_entries)
@@ -708,7 +763,8 @@ def run_complete_qa_assessment(
     cfg: Dict[str, Any],
     logger: Optional[LogPreprocessingDetails] = None,
     prelim_bads: List[str] = None,
-    prep_bads: List[str] = None
+    prep_bads: List[str] = None,
+    ica_selection_log: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Run complete QA assessment pipeline.
@@ -737,15 +793,27 @@ def run_complete_qa_assessment(
         Configuration dictionary
     logger : Optional[LogPreprocessingDetails]
         Logger instance
+    prelim_bads : List[str], optional
+        Preliminary bad channels
+    prep_bads : List[str], optional
+        PyPREP detected bad channels
+    ica_selection_log : Dict[str, Any], optional
+        Detailed log from variance-weighted ICA selection
         
     Returns
     -------
     Dict[str, Any]
-        Complete QA results including metrics, flags, and pass status
+        QA assessment results
     """
-    # Compute QA metrics
+    # Compute QA metrics (include ICA selection log for variance metrics)
     qa_metrics = compute_qa_metrics(
-        raw_before_ica, raw_after_ica, ica_exclude, ica_n_components, bads_pre_interp, cfg
+        raw_before_ica,
+        raw_after_ica,
+        ica_exclude,
+        ica_n_components,
+        bads_pre_interp,
+        cfg,
+        ica_selection_log
     )
     
     # Assess flags and pass/fail

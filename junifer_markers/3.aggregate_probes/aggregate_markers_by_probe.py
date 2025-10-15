@@ -1,0 +1,1464 @@
+#!/usr/bin/env python3
+"""
+Aggregate Junifer markers by probe for mind-wandering analysis.
+
+This script reads per-epoch marker PKL files and aggregates them into per-probe
+marker files, similar to the ERP probe aggregation pipeline. It handles two types
+of markers differently:
+
+1. Evoked markers (time-locked topographies): Aggregate only the 5 trials closest 
+   to the probe (-5 to -1) with outlier detection (like ERPs)
+2. State markers (spectral, connectivity, information theory): Aggregate all trials 
+   before the probe to capture sustained mental state
+
+The script follows the same structure as ERPs_new/make_probe_evokeds.py but adapted
+for marker data stored in PKL format.
+
+Usage:
+    python aggregate_markers_by_probe.py --config config.yaml [--subject XX] [--task TaskName]
+"""
+
+import argparse
+import os
+import pickle
+import sys
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+import scipy.stats
+
+# Import local helpers (independent of ERP pipeline)
+from helpers import (
+    load_yaml_config,
+    read_derivative_epochs,
+    parse_events_tsv,
+    enrich_events_with_parsed_fields,
+    label_probe_onoff,
+    detect_outlier_epochs,
+)
+
+# Define minimal versions of h5_to_pkl converter classes for unpickling
+# These must match the class definitions in h5_to_pkl_converter.py
+# We only need the structure, not the full functionality
+
+class EpochMetadata:
+    """Minimal EpochMetadata class for unpickling."""
+    def __init__(self, epoch_idx, event, annotation=None, behavioral_data=None):
+        self.epoch_idx = epoch_idx
+        self.event = event
+        self.event_id = event[2] if len(event) > 2 else None
+        self.onset_sample = event[0] if len(event) > 0 else None
+        self.annotation = annotation
+        self.behavioral_data = behavioral_data or {}
+
+
+class ChannelData:
+    """Minimal ChannelData class for unpickling."""
+    def __init__(self, channel_name, channel_idx, data, metadata):
+        self.channel_name = channel_name
+        self.channel_idx = channel_idx
+        self.data = data
+        self.metadata = metadata
+
+
+class EpochData:
+    """Minimal EpochData class for unpickling."""
+    def __init__(self, epoch_idx, metadata, channel_names):
+        self.epoch_idx = epoch_idx
+        self.metadata = metadata
+        self.channel_names = channel_names
+        self._channel_data = {}
+        self.annotations = getattr(metadata, 'annotation', None)
+
+
+class MarkerData:
+    """Minimal MarkerData class for unpickling."""
+    def __init__(self, marker_name, marker_type, channel_names, n_epochs):
+        self.marker_name = marker_name
+        self.marker_type = marker_type
+        self.channel_names = channel_names
+        self.n_epochs = n_epochs
+        self._epoch_data = {}
+        self.metadata = {}
+
+
+# Register classes in h5_to_pkl_converter namespace for pickle
+# This allows pickle to find them when unpickling
+import types
+h5_to_pkl_converter = types.ModuleType('h5_to_pkl_converter')
+h5_to_pkl_converter.MarkerData = MarkerData
+h5_to_pkl_converter.EpochData = EpochData
+h5_to_pkl_converter.ChannelData = ChannelData
+h5_to_pkl_converter.EpochMetadata = EpochMetadata
+sys.modules['h5_to_pkl_converter'] = h5_to_pkl_converter
+
+# Also create mock mne module for unpickling annotations
+# PKL files may contain mne.Annotations objects
+if 'mne' not in sys.modules:
+    class MockAnnotations:
+        def __init__(self, onset=None, duration=None, description=None):
+            self.onset = onset or []
+            self.duration = duration or []
+            self.description = description or []
+    
+    mne_module = types.ModuleType('mne')
+    mne_module.Annotations = MockAnnotations
+    sys.modules['mne'] = mne_module
+    
+    # Also create mne.annotations submodule
+    mne_annotations = types.ModuleType('mne.annotations')
+    mne_annotations.Annotations = MockAnnotations
+    mne_annotations._AnnotationsExtrasList = list
+    mne_annotations._AnnotationsExtrasDict = dict
+    sys.modules['mne.annotations'] = mne_annotations
+
+
+def find_marker_by_partial_name(markers: Dict, short_name: str) -> Optional[str]:
+    """
+    Find a marker by partial name match.
+    
+    Markers in PKL files may have full descriptive names like "EEG_psd_bands_spectralpower"
+    while config specifies short names like "psd_bands". This function finds the full name.
+    
+    Parameters
+    ----------
+    markers : Dict
+        Dictionary of markers
+    short_name : str
+        Short name to search for
+        
+    Returns
+    -------
+    Optional[str]
+        Full marker name if found, None otherwise
+    """
+    # Try exact match first
+    if short_name in markers:
+        return short_name
+    
+    # Try case-insensitive exact match
+    for key in markers.keys():
+        if key.lower() == short_name.lower():
+            return key
+    
+    # Try partial match (short_name is substring of full name)
+    short_lower = short_name.lower()
+    for key in markers.keys():
+        key_lower = key.lower()
+        # Check if short name is in the key, accounting for common patterns
+        if short_lower in key_lower:
+            # Verify it's a meaningful match (not just random substring)
+            # E.g., "psd_bands" should match "EEG_psd_bands_spectralpower"
+            parts = key_lower.split('_')
+            short_parts = short_lower.split('_')
+            # Check if all parts of short name are in the key
+            if all(part in parts for part in short_parts):
+                return key
+    
+    return None
+
+
+def load_marker_pkl(pkl_path: str) -> Dict:
+    """
+    Load marker PKL file.
+    
+    Parameters
+    ----------
+    pkl_path : str
+        Path to the PKL file
+        
+    Returns
+    -------
+    Dict
+        Dictionary with markers, metadata, annotations, and info
+    """
+    print(f"Loading markers from: {pkl_path}")
+    with open(pkl_path, "rb") as f:
+        data = pickle.load(f)
+    
+    markers = data.get("markers", {})
+    n_markers = len(markers)
+    
+    # Try to get n_epochs from different possible locations
+    n_epochs = data.get("info", {}).get("n_epochs", 0)
+    if n_epochs == 0:
+        # Try metadata.fif_info.n_epochs (h5_to_pkl converter format)
+        metadata = data.get("metadata", {})
+        fif_info = metadata.get("fif_info", {})
+        n_epochs = fif_info.get("n_epochs", 0)
+    
+    # If still no epochs info, try to get from a marker object
+    if n_epochs == 0 and markers:
+        first_marker = next(iter(markers.values()))
+        if hasattr(first_marker, 'n_epochs'):
+            n_epochs = first_marker.n_epochs
+    
+    print(f"  Loaded {n_markers} markers with {n_epochs} epochs")
+    
+    # Debug: show marker names if any
+    if n_markers > 0:
+        marker_names = list(markers.keys())
+        print(f"  Marker names: {', '.join(marker_names[:5])}")
+        if len(marker_names) > 5:
+            print(f"                ... and {len(marker_names) - 5} more")
+        
+        # Show marker types if they're MarkerData objects
+        first_marker = next(iter(markers.values()))
+        if hasattr(first_marker, 'marker_type'):
+            print(f"  Marker type: {first_marker.marker_type} (MarkerData object)")
+            
+            # Quick data quality check for first marker
+            if hasattr(first_marker, '_epoch_data') and first_marker._epoch_data:
+                first_epoch_idx = list(first_marker._epoch_data.keys())[0]
+                first_epoch = first_marker._epoch_data[first_epoch_idx]
+                if hasattr(first_epoch, '_channel_data') and first_epoch._channel_data:
+                    first_channel = list(first_epoch._channel_data.keys())[0]
+                    ch_data = first_epoch._channel_data[first_channel]
+                    if hasattr(ch_data, 'data') and isinstance(ch_data.data, np.ndarray):
+                        n_nans = np.isnan(ch_data.data).sum()
+                        n_total = len(ch_data.data)
+                        print(f"  Sample data quality: {n_nans}/{n_total} NaNs in first epoch/channel")
+                    else:
+                        print(f"  Sample data type: {type(ch_data.data) if hasattr(ch_data, 'data') else 'no data attr'}")
+                else:
+                    print(f"  No channel data found in first epoch")
+            else:
+                print(f"  No epoch data found in first marker")
+    else:
+        print(f"  WARNING: No markers found in PKL file!")
+        # Debug: show what keys are in the data
+        print(f"  Available top-level keys: {list(data.keys())}")
+    
+    return data
+
+
+def extract_epoch_value_from_marker(
+    marker_data, 
+    channel: str, 
+    epoch_idx: int,
+    marker_name: str,
+    band_idx: Optional[int] = None,
+) -> Optional[float]:
+    """
+    Extract a single epoch value from marker data.
+    
+    Parameters
+    ----------
+    marker_data : MarkerData or Dict
+        Marker data object (MarkerData from h5_to_pkl converter) or dictionary
+    channel : str
+        Channel name
+    epoch_idx : int
+        Epoch index
+    marker_name : str
+        Name of the marker (for debugging)
+    band_idx : Optional[int]
+        For spectral markers with multiple bands, specific band index to extract.
+        If None, returns mean across all bands (for non-spectral markers).
+        Band order is typically: [delta=0, theta=1, alpha=2, beta=3, gamma=4]
+        
+    Returns
+    -------
+    Optional[float]
+        Extracted value or None if not found
+    """
+    try:
+        # Check if this is a MarkerData object from h5_to_pkl converter
+        if hasattr(marker_data, '_epoch_data'):
+            # This is a MarkerData object with hierarchical structure:
+            # marker_data._epoch_data[epoch_idx]._channel_data[channel].data
+            
+            if epoch_idx not in marker_data._epoch_data:
+                return None
+            
+            epoch_data = marker_data._epoch_data[epoch_idx]
+            
+            if not hasattr(epoch_data, '_channel_data'):
+                return None
+            
+            channel_data_dict = epoch_data._channel_data
+            
+            # For spectral markers, channel keys might have band suffixes like "Fp1_alpha"
+            # For connectivity markers, channel keys are pairs like "Fp1-Fp2"
+            values = []
+            
+            # Check for exact channel match
+            if channel in channel_data_dict:
+                ch_data = channel_data_dict[channel]
+                if hasattr(ch_data, 'data'):
+                    data_val = ch_data.data
+                    if isinstance(data_val, np.ndarray):
+                        # Array of band values for spectral markers
+                        if band_idx is not None and band_idx < len(data_val):
+                            # Return specific band value
+                            return float(data_val[band_idx])
+                        else:
+                            # Return mean across all bands (for non-spectral or legacy)
+                            values.append(np.mean(data_val))
+                    else:
+                        values.append(float(data_val))
+            
+            # Check for channel with band suffixes (e.g., "Fp1_alpha", "Fp1_theta", etc.)
+            band_suffixes = ['_alpha', '_theta', '_beta', '_gamma', '_delta']
+            for ch_key in channel_data_dict.keys():
+                if ch_key.startswith(channel + '_') or ch_key.startswith(channel.lower() + '_'):
+                    # This is a band-specific channel
+                    ch_data = channel_data_dict[ch_key]
+                    if hasattr(ch_data, 'data'):
+                        data_val = ch_data.data
+                        if isinstance(data_val, np.ndarray):
+                            values.append(np.mean(data_val))
+                        else:
+                            values.append(float(data_val))
+            
+            # For connectivity markers: aggregate across all pairs involving this channel
+            if hasattr(marker_data, 'marker_type') and marker_data.marker_type in ['connectivity', 'wsmi', 'smi']:
+                for ch_key in channel_data_dict.keys():
+                    if '-' in ch_key and channel in ch_key.split('-'):
+                        ch_data = channel_data_dict[ch_key]
+                        if hasattr(ch_data, 'data'):
+                            data_val = ch_data.data
+                            if isinstance(data_val, np.ndarray):
+                                values.append(np.mean(data_val))
+                            else:
+                                values.append(float(data_val))
+            
+            if values:
+                return float(np.mean(values))
+            return None
+        
+        # Legacy format: dictionary with access_pattern and data keys
+        elif isinstance(marker_data, dict):
+            access_pattern = marker_data.get("access_pattern", "")
+            data = marker_data.get("data", {})
+            
+            if access_pattern == "channel_epoch":
+                if channel not in data:
+                    return None
+                
+                channel_data = data[channel]
+                epoch_key = f"epoch_{epoch_idx:04d}"
+                
+                if epoch_key in channel_data:
+                    return float(channel_data[epoch_key])
+                
+                # Aggregate all bands for this epoch
+                values = []
+                for key, val in channel_data.items():
+                    if epoch_key in key:
+                        values.append(val)
+                
+                if values:
+                    return np.mean(values)
+                return None
+                
+            elif access_pattern == "epoch_channel":
+                epoch_key = f"epoch_{epoch_idx:04d}"
+                if epoch_key in data and channel in data[epoch_key]:
+                    return data[epoch_key][channel]
+                return None
+                
+            elif access_pattern == "channel_pair_epoch":
+                epoch_key = f"epoch_{epoch_idx:04d}"
+                values = []
+                for pair_key, pair_data in data.items():
+                    if channel in pair_key.split("-") and epoch_key in pair_data:
+                        values.append(pair_data[epoch_key])
+                
+                if values:
+                    return np.mean(values)
+                return None
+            else:
+                print(f"[WARN] Unknown access pattern: {access_pattern} for {marker_name}")
+                return None
+        else:
+            print(f"[ERROR] Unknown marker_data type: {type(marker_data)} for {marker_name}")
+            return None
+            
+    except Exception as e:
+        print(f"[WARN] Error extracting epoch {epoch_idx} for {marker_name}, channel {channel}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def debug_pkl_comprehensive(pkl_path: str):
+    """Comprehensive debug of entire PKL file - markers, channels, epochs, stats, events."""
+    print(f"\n{'='*80}")
+    print(f"[COMPREHENSIVE PKL DEBUG] {pkl_path}")
+    print(f"{'='*80}")
+    
+    try:
+        with open(pkl_path, 'rb') as f:
+            data = pickle.load(f)
+        
+        # Top-level structure
+        print(f"\n📁 TOP-LEVEL STRUCTURE:")
+        print(f"  Keys: {list(data.keys())}")
+        print(f"  File size: {os.path.getsize(pkl_path):,} bytes")
+        
+        # Info section
+        if 'info' in data:
+            info = data['info']
+            print(f"\n📊 INFO SECTION:")
+            print(f"  Keys: {list(info.keys())}")
+            print(f"  n_epochs: {info.get('n_epochs', 'N/A')}")
+            print(f"  n_channels: {info.get('n_channels', 'N/A')}")
+            if 'channel_names' in info:
+                ch_names = info['channel_names']
+                print(f"  channel_names: {len(ch_names)} channels")
+                print(f"    First 10: {ch_names[:10]}")
+                print(f"    Last 10: {ch_names[-10:]}")
+        
+        # Metadata section
+        if 'metadata' in data:
+            metadata = data['metadata']
+            print(f"\n📋 METADATA SECTION:")
+            print(f"  Keys: {list(metadata.keys())}")
+            
+            if 'fif_info' in metadata:
+                fif_info = metadata['fif_info']
+                print(f"  FIF Info:")
+                print(f"    Keys: {list(fif_info.keys())}")
+                print(f"    n_epochs: {fif_info.get('n_epochs', 'N/A')}")
+                print(f"    n_channels: {fif_info.get('n_channels', 'N/A')}")
+                if 'channel_names' in fif_info:
+                    fif_ch = fif_info['channel_names']
+                    print(f"    channel_names: {len(fif_ch)} channels")
+        
+        # Markers section - COMPREHENSIVE
+        if 'markers' in data:
+            markers = data['markers']
+            print(f"\n🔬 MARKERS SECTION (COMPREHENSIVE):")
+            print(f"  Total markers: {len(markers)}")
+            
+            for i, (marker_name, marker_data) in enumerate(markers.items()):
+                print(f"\n  📍 Marker {i+1}: {marker_name}")
+                
+                # Basic marker info
+                if hasattr(marker_data, 'marker_type'):
+                    print(f"    Type: {marker_data.marker_type}")
+                if hasattr(marker_data, 'n_epochs'):
+                    print(f"    n_epochs: {marker_data.n_epochs}")
+                if hasattr(marker_data, 'channel_names'):
+                    marker_ch = marker_data.channel_names
+                    print(f"    channel_names: {len(marker_ch)} channels")
+                    print(f"      First 5: {marker_ch[:5]}")
+                    print(f"      Last 5: {marker_ch[-5:]}")
+                
+                # Epoch data analysis
+                if hasattr(marker_data, '_epoch_data') and marker_data._epoch_data:
+                    all_epochs = list(marker_data._epoch_data.keys())
+                    all_epochs.sort()
+                    
+                    print(f"    Epochs: {len(all_epochs)} total")
+                    print(f"      Range: {min(all_epochs)} to {max(all_epochs)}")
+                    print(f"      First 10: {all_epochs[:10]}")
+                    print(f"      Last 10: {all_epochs[-10:]}")
+                    
+                    # Analyze first epoch in detail
+                    if all_epochs:
+                        first_epoch_idx = all_epochs[0]
+                        first_epoch = marker_data._epoch_data[first_epoch_idx]
+                        
+                        print(f"    📊 First Epoch Analysis (epoch {first_epoch_idx}):")
+                        
+                        if hasattr(first_epoch, '_channel_data') and first_epoch._channel_data:
+                            epoch_channels = list(first_epoch._channel_data.keys())
+                            print(f"      Channels: {len(epoch_channels)}")
+                            print(f"      First 5 channels: {epoch_channels[:5]}")
+                            
+                            # Analyze first few channels in detail
+                            for j, ch_name in enumerate(epoch_channels[:3]):
+                                ch_data = first_epoch._channel_data[ch_name]
+                                print(f"      🔍 Channel {ch_name}:")
+                                
+                                if hasattr(ch_data, 'data'):
+                                    if isinstance(ch_data.data, np.ndarray):
+                                        data_array = ch_data.data
+                                        print(f"        Data shape: {data_array.shape}")
+                                        print(f"        Data type: {data_array.dtype}")
+                                        print(f"        NaN count: {np.isnan(data_array).sum()}")
+                                        print(f"        Inf count: {np.isinf(data_array).sum()}")
+                                        if data_array.size > 0:
+                                            valid_data = data_array[~np.isnan(data_array)]
+                                            if len(valid_data) > 0:
+                                                print(f"        Valid values: {len(valid_data)}")
+                                                print(f"        Mean: {np.mean(valid_data):.6f}")
+                                                print(f"        Min: {np.min(valid_data):.6f}")
+                                                print(f"        Max: {np.max(valid_data):.6f}")
+                                                print(f"        Std: {np.std(valid_data):.6f}")
+                                            else:
+                                                print(f"        All values are NaN!")
+                                    else:
+                                        print(f"        Data type: {type(ch_data.data)}")
+                                        print(f"        Data value: {ch_data.data}")
+                                else:
+                                    print(f"        No data attribute")
+                                    
+                                if j >= 2:  # Limit to first 3 channels
+                                    break
+                        else:
+                            print(f"      No channel data in first epoch")
+                    
+                    # Sample a few more epochs for consistency check
+                    if len(all_epochs) > 1:
+                        print(f"    🔍 Epoch Consistency Check:")
+                        sample_epochs = all_epochs[::max(1, len(all_epochs)//5)][:3]  # Sample 3 epochs
+                        for epoch_idx in sample_epochs:
+                            epoch = marker_data._epoch_data[epoch_idx]
+                            if hasattr(epoch, '_channel_data'):
+                                n_ch = len(epoch._channel_data)
+                                print(f"      Epoch {epoch_idx}: {n_ch} channels")
+                            else:
+                                print(f"      Epoch {epoch_idx}: No channel data")
+                else:
+                    print(f"    No epoch data available")
+        
+        # Events section (if available)
+        if 'events' in data:
+            events = data['events']
+            print(f"\n🎯 EVENTS SECTION:")
+            if isinstance(events, np.ndarray):
+                print(f"  Events array shape: {events.shape}")
+                print(f"  Event IDs: {np.unique(events[:, 2])}")
+                print(f"  Sample range: {events[0, 0]} to {events[-1, 0]}")
+            else:
+                print(f"  Events type: {type(events)}")
+                print(f"  Events keys: {list(events.keys()) if isinstance(events, dict) else 'N/A'}")
+        
+        print(f"\n{'='*80}")
+        
+    except Exception as e:
+        print(f"❌ ERROR loading PKL: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def debug_probe_comprehensive(
+    probe_num: int,
+    subject: str,
+    task: str,
+    evoked_data,
+    state_data,
+    epochs_data,
+    events_data,
+    channels: List[str],
+):
+    """Comprehensive debug for a specific probe."""
+    print(f"\n{'='*60}")
+    print(f"[COMPREHENSIVE PROBE DEBUG] Probe {probe_num} (sub-{subject}, {task})")
+    print(f"{'='*60}")
+    
+    # Probe events analysis
+    if events_data is not None:
+        print(f"\n🎯 PROBE EVENTS:")
+        print(f"  Events dataframe columns: {list(events_data.columns)}")
+        
+        # Check if probe_number column exists and get probe events
+        if 'probe_number' in events_data.columns:
+            probe_events = events_data[events_data['probe_number'] == probe_num]
+            print(f"  Total events for probe {probe_num}: {len(probe_events)}")
+            
+            if len(probe_events) > 0:
+                print(f"  Sample events for probe {probe_num}:")
+                for i, (_, event) in enumerate(probe_events.head(3).iterrows()):
+                    print(f"    Event {i+1}: onset={event.get('onset', 'N/A')}, distance={event.get('distance_to_probe', 'N/A')}")
+        else:
+            print(f"  ❌ No 'probe_number' column found in events data")
+    
+    # Epochs data analysis
+    if epochs_data is not None:
+        print(f"\n📊 EPOCHS DATA:")
+        if hasattr(epochs_data, 'events'):
+            events = epochs_data.events
+            print(f"  Total epochs: {len(events)}")
+            print(f"  Event IDs: {np.unique(events[:, 2])}")
+            print(f"  Sample range: {events[0, 0]} to {events[-1, 0]}")
+        
+        if hasattr(epochs_data, 'info'):
+            info = epochs_data.info
+            print(f"  Info:")
+            print(f"    n_epochs: {info.get('n_epochs', 'N/A')}")
+            print(f"    sfreq: {info.get('sfreq', 'N/A')}")
+            print(f"    ch_names: {len(info.get('ch_names', []))}")
+    
+    # Channels analysis
+    print(f"\n🔌 CHANNELS:")
+    print(f"  Total channels: {len(channels)}")
+    print(f"  First 10: {channels[:10]}")
+    print(f"  Last 10: {channels[-10:]}")
+    
+    # Evoked data analysis
+    if evoked_data:
+        print(f"\n⚡ EVOKED DATA:")
+        evoked_markers = evoked_data.get("markers", {})
+        print(f"  Total evoked markers: {len(evoked_markers)}")
+        
+        if evoked_markers:
+            first_marker = next(iter(evoked_markers.values()))
+            if hasattr(first_marker, '_epoch_data'):
+                evoked_epochs = list(first_marker._epoch_data.keys())
+                evoked_epochs.sort()
+                print(f"  Evoked epochs range: {min(evoked_epochs)} to {max(evoked_epochs)} ({len(evoked_epochs)} total)")
+                print(f"    First 10: {evoked_epochs[:10]}")
+                print(f"    Last 10: {evoked_epochs[-10:]}")
+    
+    # State data analysis
+    if state_data:
+        print(f"\n🧠 STATE DATA:")
+        state_markers = state_data.get("markers", {})
+        print(f"  Total state markers: {len(state_markers)}")
+        
+        if state_markers:
+            first_marker = next(iter(state_markers.values()))
+            if hasattr(first_marker, '_epoch_data'):
+                state_epochs = list(first_marker._epoch_data.keys())
+                state_epochs.sort()
+                print(f"  State epochs range: {min(state_epochs)} to {max(state_epochs)} ({len(state_epochs)} total)")
+                print(f"    First 10: {state_epochs[:10]}")
+                print(f"    Last 10: {state_epochs[-10:]}")
+    
+    print(f"\n{'='*60}")
+
+
+def debug_marker_data_before_aggregation(
+    marker_data,
+    marker_name: str,
+    epoch_indices: List[int],
+    channels: List[str],
+    probe_num: int,
+):
+    """Debug function to check marker data state before aggregation."""
+    print(f"    [DEBUG] Pre-aggregation check for {marker_name} (Probe {probe_num}):")
+    
+    if hasattr(marker_data, 'marker_type'):
+        print(f"      Marker type: {marker_data.marker_type}")
+    
+    if hasattr(marker_data, '_epoch_data'):
+        print(f"      Available epochs in marker: {len(marker_data._epoch_data)}")
+        print(f"      Requested epoch indices: {epoch_indices}")
+        
+        # Check how many requested epochs are available
+        available_epochs = [idx for idx in epoch_indices if idx in marker_data._epoch_data]
+        missing_epochs = [idx for idx in epoch_indices if idx not in marker_data._epoch_data]
+        
+        print(f"      Available requested epochs: {len(available_epochs)}")
+        if missing_epochs:
+            print(f"      Missing epochs: {missing_epochs[:5]}{'...' if len(missing_epochs) > 5 else ''}")
+        
+        # Check data quality for first available epoch
+        if available_epochs and channels:
+            first_epoch_idx = available_epochs[0]
+            first_epoch = marker_data._epoch_data[first_epoch_idx]
+            
+            if hasattr(first_epoch, '_channel_data'):
+                print(f"      Channels in epoch {first_epoch_idx}: {len(first_epoch._channel_data)}")
+                
+                # Check first few channels for NaN values
+                nan_counts = {}
+                total_values = 0
+                for i, channel in enumerate(channels[:3]):  # Check first 3 channels
+                    if channel in first_epoch._channel_data:
+                        ch_data = first_epoch._channel_data[channel]
+                        if hasattr(ch_data, 'data'):
+                            if isinstance(ch_data.data, np.ndarray):
+                                n_nans = np.isnan(ch_data.data).sum()
+                                n_total = len(ch_data.data)
+                                nan_counts[channel] = (n_nans, n_total)
+                                total_values += n_total
+                                print(f"        {channel}: {n_nans}/{n_total} NaNs")
+                            else:
+                                print(f"        {channel}: data is not numpy array ({type(ch_data.data)})")
+                        else:
+                            print(f"        {channel}: no data attribute")
+                    else:
+                        print(f"        {channel}: channel not found in epoch")
+                
+                # Summary
+                total_nans = sum(counts[0] for counts in nan_counts.values())
+                print(f"      Sample summary: {total_nans}/{total_values} NaNs in first epoch")
+            else:
+                print(f"      No channel data in epoch {first_epoch_idx}")
+        else:
+            print(f"      No available epochs or channels to check")
+    else:
+        print(f"      No epoch data available")
+
+
+def aggregate_marker_epochs(
+    marker_data: Dict,
+    marker_name: str,
+    epoch_indices: List[int],
+    channels: List[str],
+    use_trimmean: bool = False,
+    trimmean_percent: float = 20.0,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Aggregate marker values across selected epochs.
+    
+    For spectral markers with multiple bands, creates separate aggregations per band.
+    
+    Parameters
+    ----------
+    marker_data : Dict
+        Marker data dictionary or MarkerData object
+    marker_name : str
+        Name of the marker
+    epoch_indices : List[int]
+        List of epoch indices to aggregate
+    channels : List[str]
+        List of channel names
+    use_trimmean : bool
+        Whether to use trimmean instead of regular mean
+    trimmean_percent : float
+        Percentage to trim from both ends (e.g., 20.0 = trim 10% from each side)
+        
+    Returns
+    -------
+    Dict[str, Dict[str, float]]
+        For spectral markers: {"delta": {ch: val, ...}, "theta": {ch: val, ...}, ...}
+        For other markers: {"overall": {ch: val, ...}}
+    """
+    # Check if this is a spectral marker with multiple bands
+    is_spectral = False
+    n_bands = 1
+    band_names = ["overall"]
+    
+    if hasattr(marker_data, 'marker_type') and marker_data.marker_type == 'spectral':
+        # Check if data has multiple bands by looking at any available epoch
+        if hasattr(marker_data, '_epoch_data') and channels:
+            # Try to find any epoch that has data for the first channel
+            # First try epochs from the list
+            for epoch_idx in epoch_indices:
+                if epoch_idx in marker_data._epoch_data:
+                    first_epoch = marker_data._epoch_data[epoch_idx]
+                    if hasattr(first_epoch, '_channel_data'):
+                        first_ch = channels[0]
+                        if first_ch in first_epoch._channel_data:
+                            ch_data = first_epoch._channel_data[first_ch]
+                            if hasattr(ch_data, 'data') and isinstance(ch_data.data, np.ndarray):
+                                n_bands = len(ch_data.data)
+                                if n_bands == 5:
+                                    # Standard EEG frequency bands
+                                    band_names = ["delta", "theta", "alpha", "beta", "gamma"]
+                                    is_spectral = True
+                                elif n_bands > 1:
+                                    # Generic band names
+                                    band_names = [f"band_{i}" for i in range(n_bands)]
+                                    is_spectral = True
+                                break  # Found valid epoch, exit loop
+            
+            # If still not found, try any epoch in the marker data
+            if not is_spectral and marker_data._epoch_data:
+                for epoch_idx, epoch_data in marker_data._epoch_data.items():
+                    if hasattr(epoch_data, '_channel_data') and channels:
+                        first_ch = channels[0]
+                        if first_ch in epoch_data._channel_data:
+                            ch_data = epoch_data._channel_data[first_ch]
+                            if hasattr(ch_data, 'data') and isinstance(ch_data.data, np.ndarray):
+                                n_bands = len(ch_data.data)
+                                if n_bands == 5:
+                                    # Standard EEG frequency bands
+                                    band_names = ["delta", "theta", "alpha", "beta", "gamma"]
+                                    is_spectral = True
+                                elif n_bands > 1:
+                                    # Generic band names
+                                    band_names = [f"band_{i}" for i in range(n_bands)]
+                                    is_spectral = True
+                                break  # Found valid epoch, exit loop
+    
+    # Aggregate for each band
+    aggregated = {}
+    
+    if is_spectral:
+        print(f"      Spectral marker detected: {n_bands} bands ({', '.join(band_names)})")
+        
+        for band_idx, band_name in enumerate(band_names):
+            band_aggregated = {}
+            for channel in channels:
+                values = []
+                for epoch_idx in epoch_indices:
+                    val = extract_epoch_value_from_marker(
+                        marker_data, channel, epoch_idx, marker_name, band_idx=band_idx
+                    )
+                    if val is not None:
+                        values.append(val)
+                
+                if values:
+                    # Use trimmean or regular mean
+                    if use_trimmean and len(values) > 2:
+                        band_aggregated[channel] = float(scipy.stats.trim_mean(values, trimmean_percent/100))
+                    else:
+                        band_aggregated[channel] = float(np.mean(values))
+                else:
+                    band_aggregated[channel] = np.nan
+                    # Debug: why are values empty?
+                    if channel == list(channels)[0]:  # Only debug first channel to avoid spam
+                        print(f"        [DEBUG] No values found for {marker_name} band {band_name} channel {channel}")
+                        print(f"        [DEBUG] Available epochs in marker: {list(marker_data._epoch_data.keys())[:5]}...")
+                        print(f"        [DEBUG] Requested epochs: {epoch_indices[:5]}...")
+            
+            aggregated[band_name] = band_aggregated
+    else:
+        # Non-spectral marker: single aggregation
+        single_aggregated = {}
+        for channel in channels:
+            values = []
+            for epoch_idx in epoch_indices:
+                val = extract_epoch_value_from_marker(
+                    marker_data, channel, epoch_idx, marker_name
+                )
+                if val is not None:
+                    values.append(val)
+            
+            if values:
+                # Use trimmean or regular mean
+                if use_trimmean and len(values) > 2:
+                    single_aggregated[channel] = float(scipy.stats.trim_mean(values, trimmean_percent/100))
+                else:
+                    single_aggregated[channel] = float(np.mean(values))
+            else:
+                single_aggregated[channel] = np.nan
+        
+        aggregated["overall"] = single_aggregated
+    
+    return aggregated
+
+
+def select_trials_for_probe(
+    events_df: pd.DataFrame,
+    probe_number: int,
+    only_go_correct: bool,
+    distance_min: int,
+    distance_max: int,
+) -> pd.DataFrame:
+    """
+    Filter events to keep only the desired trials for a specific probe.
+    
+    Parameters
+    ----------
+    events_df : pd.DataFrame
+        Events dataframe with all trials
+    probe_number : int
+        Probe number to filter for
+    only_go_correct : bool
+        If True, keep only go/correct trials
+    distance_min : int
+        Minimum distance to probe (inclusive)
+    distance_max : int
+        Maximum distance to probe (inclusive)
+        
+    Returns
+    -------
+    pd.DataFrame
+        Filtered events dataframe
+    """
+    df = events_df.copy()
+    
+    # Filter for this probe
+    df = df[df["probe_number"] == probe_number]
+    
+    if only_go_correct:
+        df = df[(df["trial_type"] == "go") & (df["correctness"] == "correct")]
+    
+    # Keep distance in [distance_min, distance_max]
+    df = df[df["distance_to_probe"].notna()]
+    df = df[(df["distance_to_probe"] >= distance_min) & (df["distance_to_probe"] <= distance_max)]
+    
+    return df
+
+
+def save_aggregated_markers(
+    aggregated_markers: Dict[str, Dict[str, float]],
+    features_root: str,
+    subject: str,
+    task: str,
+    probe_number: int,
+    label: str,
+    extra_meta: Dict,
+    overwrite: bool = True,
+    marker_type: str = "mixed",  # "evoked", "state", or "mixed"
+    save_format: str = "csv",  # "csv" or "pkl"
+    probe_metadata: Dict = None,  # Additional probe metadata
+) -> str:
+    """
+    Save aggregated markers to CSV or PKL file.
+    
+    Parameters
+    ----------
+    aggregated_markers : Dict[str, Dict[str, float]]
+        Dictionary mapping marker names to channel-value dictionaries
+    features_root : str
+        Root directory for features
+    subject : str
+        Subject identifier
+    task : str
+        Task identifier
+    probe_number : int
+        Probe number
+    label : str
+        Probe label (onTask/offTask)
+    extra_meta : Dict
+        Additional metadata to save
+    overwrite : bool
+        Whether to overwrite existing files
+    marker_type : str
+        Type of markers ("evoked", "state", or "mixed")
+    save_format : str
+        Output format ("csv" or "pkl")
+        
+    Returns
+    -------
+    str
+        Path to saved file
+    """
+    # Create output directory: features/sub-XX/eeg/junifer/
+    out_dir = Path(features_root) / f"sub-{subject}" / "eeg" / "junifer"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create filename: sub-XX_task-YY_desc-probe-NNN_[evoked|state]_aggMarkers.csv
+    desc = f"probe-{probe_number:03d}"
+    extension = save_format.lower()
+    if marker_type in ["evoked", "state"]:
+        fname = f"sub-{subject}_task-{task}_desc-{desc}_{marker_type}_aggMarkers.{extension}"
+    else:
+        fname = f"sub-{subject}_task-{task}_desc-{desc}_aggMarkers.{extension}"
+    out_path = out_dir / fname
+    
+    if out_path.exists() and not overwrite:
+        print(f"[SKIP] File exists and overwrite=False: {out_path}")
+        return str(out_path)
+    
+    if save_format.lower() == "csv":
+        # Convert to DataFrame for CSV saving with metadata
+        df_data = []
+        for marker_name, channel_values in aggregated_markers.items():
+            for channel, value in channel_values.items():
+                row_data = {
+                    "subject": subject,
+                    "task": task,
+                    "probe_number": probe_number,
+                    "probe_label": label,
+                    "marker_type": marker_type,
+                    "marker": marker_name,
+                    "channel": channel,
+                    "value": value
+                }
+                
+                # Add probe metadata if available
+                if probe_metadata:
+                    row_data.update({
+                        "onoff": probe_metadata.get("onoff", ""),
+                        "valence": probe_metadata.get("valence", ""),
+                        "time": probe_metadata.get("time", ""),
+                        "confidence": probe_metadata.get("confidence", ""),
+                        "average": probe_metadata.get("average", ""),
+                        "selfother": probe_metadata.get("selfother", ""),
+                        "trial_type": probe_metadata.get("trial_type", ""),
+                        "correctness": probe_metadata.get("correctness", ""),
+                    })
+                
+                df_data.append(row_data)
+        
+        df = pd.DataFrame(df_data)
+        
+        # Save to CSV
+        df.to_csv(out_path, index=False)
+        
+    else:
+        # Prepare output structure for PKL
+        pkl_data = {
+            "markers": aggregated_markers,
+            "metadata": {
+                "subject": subject,
+                "task": task,
+                "probe_number": probe_number,
+                "label": label,
+                **extra_meta,
+            },
+            "info": {
+                "created_at": str(pd.Timestamp.now()),
+                "storage_type": "aggregated_probe_markers",
+                "n_markers": len(aggregated_markers),
+                "marker_names": list(aggregated_markers.keys()),
+            },
+        }
+        
+        # Save PKL file
+        with open(out_path, "wb") as f:
+            pickle.dump(pkl_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    # Report file size
+    file_size = out_path.stat().st_size
+    print(f"[SAVE] {out_path} ({file_size:,} bytes, {file_size/1024:.1f} KB)")
+    
+    # Debug: Show marker count breakdown
+    spectral_count = sum(1 for name in aggregated_markers.keys() if any(band in name for band in ['_delta', '_theta', '_alpha', '_beta', '_gamma']))
+    non_spectral_count = len(aggregated_markers) - spectral_count
+    print(f"       {len(aggregated_markers)} total markers ({spectral_count} spectral, {non_spectral_count} non-spectral)")
+    print(f"       Format: {save_format.upper()}")
+    
+    return str(out_path)
+
+
+def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
+    """
+    Process a single subject-task combination to aggregate markers by probe.
+    
+    This function:
+    1. Loads per-epoch marker PKL files (evoked and state)
+    2. Loads preprocessed epochs for metadata and outlier detection
+    3. Parses events to identify probes
+    4. For each probe:
+       - Labels as onTask/offTask
+       - Selects appropriate trials (different for evoked vs state)
+       - Applies outlier detection
+       - Aggregates markers across epochs
+       - Saves aggregated markers
+    
+    Parameters
+    ----------
+    cfg : Dict
+        Configuration dictionary
+    subject : str
+        Subject identifier
+    task : str
+        Task identifier
+        
+    Returns
+    -------
+    pd.DataFrame
+        Summary dataframe with probe information
+    """
+    project = cfg.get("project", {})
+    derivatives_root = project.get("derivatives_root")
+    features_root = project.get("features_root")
+    bids_root = project.get("bids_root")
+    input_evoked_desc = project.get("input_evoked_desc", "evoked")
+    
+    if not derivatives_root or not features_root:
+        raise ValueError("'project.derivatives_root' and 'project.features_root' must be set in config")
+    
+    # Configuration parameters
+    trial_sel = cfg.get("trial_selection", {})
+    only_go_correct = bool(trial_sel.get("only_go_correct", True))
+    evoked_dist_min = int(trial_sel.get("evoked_distance_min", -5))
+    evoked_dist_max = int(trial_sel.get("evoked_distance_max", -1))
+    state_dist_min = int(trial_sel.get("state_distance_min", -999))
+    state_dist_max = int(trial_sel.get("state_distance_max", -1))
+    min_req = int(trial_sel.get("min_required_distances", 3))
+    
+    labeling = cfg.get("labeling", {})
+    onoff_thr = int(labeling.get("onoff_threshold", 50))
+    
+    outlier_cfg = cfg.get("outlier_detection", {})
+    enable_outlier_detection = bool(outlier_cfg.get("enable_outlier_detection", False))
+    epoch_z_threshold = float(outlier_cfg.get("epoch_z_threshold", 3.0))
+    baseline_distance_min = int(outlier_cfg.get("baseline_distance_min", -10))
+    baseline_distance_max = int(outlier_cfg.get("baseline_distance_max", -1))
+    min_baseline_epochs = int(outlier_cfg.get("min_baseline_epochs", 5))
+    trimmean_percent = float(outlier_cfg.get("trimmean_percent", 20.0))
+    
+    out_cfg = cfg.get("output", {})
+    overwrite = bool(out_cfg.get("overwrite", True))
+    
+    marker_types = cfg.get("marker_types", {})
+    evoked_markers = marker_types.get("evoked", [])
+    state_markers = marker_types.get("state", [])
+    
+    print(f"\n{'='*80}")
+    print(f"Processing sub-{subject} task-{task}")
+    print(f"{'='*80}")
+    
+    # Load preprocessed epochs for metadata and outlier detection
+    try:
+        epochs, events_tsv, events_json = read_derivative_epochs(
+            derivatives_root=derivatives_root,
+            subject=subject,
+            task=task,
+            desc=input_evoked_desc,
+            preload=True,
+            bids_root=bids_root,
+        )
+    except FileNotFoundError as exc:
+        print(f"[WARN] Missing input epochs for sub-{subject} task-{task}: {exc}")
+        return pd.DataFrame()
+    
+    # Parse events
+    events_df = parse_events_tsv(events_tsv)
+    events_df = enrich_events_with_parsed_fields(events_df)
+    events_df = events_df.rename(columns={"row_index": "epoch_index"})
+    
+    # Get unique probes
+    probes = events_df["probe_number"].dropna().unique()
+    if len(probes) == 0:
+        print(f"[WARN] No probes found for sub-{subject} task-{task}")
+        return pd.DataFrame()
+    
+    print(f"Found {len(probes)} probes")
+    
+    # Label probes
+    probe_labels = label_probe_onoff(events_df=events_df, onoff_threshold=onoff_thr)
+    
+    # Load marker PKL files
+    junifer_dir = Path(features_root) / f"sub-{subject}" / "eeg" / "junifer"
+    
+    # Try to load evoked markers
+    evoked_pkl_path = junifer_dir / f"sub-{subject}_task-{task}_desc-evoked_markers.pkl"
+    evoked_data = None
+    if evoked_pkl_path.exists():
+        # Comprehensive PKL debug
+        debug_pkl_comprehensive(str(evoked_pkl_path))
+        evoked_data = load_marker_pkl(str(evoked_pkl_path))
+    else:
+        print(f"[WARN] Evoked markers not found: {evoked_pkl_path}")
+    
+    # Try to load state markers
+    state_pkl_path = junifer_dir / f"sub-{subject}_task-{task}_desc-state_markers.pkl"
+    state_data = None
+    if state_pkl_path.exists():
+        # Comprehensive PKL debug
+        debug_pkl_comprehensive(str(state_pkl_path))
+        state_data = load_marker_pkl(str(state_pkl_path))
+    else:
+        print(f"[WARN] State markers not found: {state_pkl_path}")
+    
+    if evoked_data is None and state_data is None:
+        print(f"[ERROR] No marker PKL files found for sub-{subject} task-{task}")
+        return pd.DataFrame()
+    
+    # Get channel names from one of the loaded datasets
+    # Try different possible locations for channel names
+    channels = []
+    if evoked_data is not None:
+        # Try info.channel_names first (legacy format)
+        channels = evoked_data.get("info", {}).get("channel_names", [])
+        # Try metadata.fif_info.channel_names (h5_to_pkl converter format)
+        if not channels:
+            metadata = evoked_data.get("metadata", {})
+            fif_info = metadata.get("fif_info", {})
+            channels = fif_info.get("channel_names", [])
+    
+    if not channels and state_data is not None:
+        # Try info.channel_names first (legacy format)
+        channels = state_data.get("info", {}).get("channel_names", [])
+        # Try metadata.fif_info.channel_names (h5_to_pkl converter format)
+        if not channels:
+            metadata = state_data.get("metadata", {})
+            fif_info = metadata.get("fif_info", {})
+            channels = fif_info.get("channel_names", [])
+    
+    # If still no channels, try to get them from a marker object directly
+    if not channels:
+        for data_source in [evoked_data, state_data]:
+            if data_source is not None:
+                markers = data_source.get("markers", {})
+                if markers:
+                    first_marker = next(iter(markers.values()))
+                    if hasattr(first_marker, 'channel_names'):
+                        channels = first_marker.channel_names
+                        break
+    
+    if not channels:
+        print(f"[ERROR] Could not find channel names in marker PKL files")
+        return pd.DataFrame()
+    
+    # Process each probe
+    outputs: List[Dict] = []
+    
+    for probe_num in sorted(probes):
+        probe_num = int(probe_num)
+        print(f"\n--- Probe {probe_num} ---")
+        
+        # Comprehensive debug for first probe
+        if probe_num == 1:
+            debug_probe_comprehensive(
+                probe_num=probe_num,
+                subject=subject,
+                task=task,
+                evoked_data=evoked_data,
+                state_data=state_data,
+                epochs_data=epochs,
+                events_data=events_df,
+                channels=channels,
+            )
+        
+        # Get probe label
+        label = probe_labels.get(probe_num, "unknown") if hasattr(probe_labels, "get") else (
+            probe_labels.loc[probe_num] if probe_num in probe_labels.index else "unknown"
+        )
+        label_str = str(label)
+        
+        # Get probe metadata from events_df
+        probe_metadata = {}
+        if events_df is not None:
+            probe_events = events_df[events_df['probe_number'] == probe_num]
+            if len(probe_events) > 0:
+                probe_row = probe_events.iloc[0]  # Get first row for this probe
+                probe_metadata = {
+                    "onoff": probe_row.get('onoff', ''),
+                    "valence": probe_row.get('valence', ''),
+                    "time": probe_row.get('time', ''),
+                    "confidence": probe_row.get('confidence', ''),
+                    "average": probe_row.get('average', ''),
+                    "selfother": probe_row.get('selfother', ''),
+                    "trial_type": probe_row.get('trial_type', ''),
+                    "correctness": probe_row.get('correctness', ''),
+                }
+        
+        # ========================================================================
+        # PROCESS EVOKED MARKERS (ALL MARKERS with evoked trials)
+        # ========================================================================
+        if evoked_data is not None:
+            print(f"  Processing EVOKED markers (distance {evoked_dist_min} to {evoked_dist_max})")
+            
+            # Select trials for evoked markers
+            evoked_trials = select_trials_for_probe(
+                events_df=events_df,
+                probe_number=probe_num,
+                only_go_correct=only_go_correct,
+                distance_min=evoked_dist_min,
+                distance_max=evoked_dist_max,
+            )
+            
+            if len(evoked_trials) >= min_req:
+                # Get epoch indices
+                evoked_epoch_indices = evoked_trials["epoch_index"].astype(int).tolist()
+                
+                # Apply outlier detection if enabled
+                if enable_outlier_detection:
+                    valid_indices, outlier_stats = detect_outlier_epochs(
+                        epochs=epochs,
+                        events_df=events_df,
+                        probe_number=probe_num,
+                        baseline_distance_min=baseline_distance_min,
+                        baseline_distance_max=baseline_distance_max,
+                        min_baseline_epochs=min_baseline_epochs,
+                        z_threshold=epoch_z_threshold,
+                    )
+                    final_evoked_indices = [idx for idx in evoked_epoch_indices if idx in valid_indices]
+                    print(f"    {len(final_evoked_indices)} valid epochs after outlier removal")
+                else:
+                    final_evoked_indices = evoked_epoch_indices
+                    print(f"    {len(final_evoked_indices)} epochs (outlier detection disabled)")
+                
+                if len(final_evoked_indices) > 0:
+                    # Aggregate ALL markers from evoked data using evoked trials
+                    evoked_markers_dict = evoked_data.get("markers", {})
+                    aggregated_evoked = {}
+                    
+                    for marker_name, marker_data in evoked_markers_dict.items():
+                        print(f"      Processing evoked marker: {marker_name}")
+                        
+                        aggregated = aggregate_marker_epochs(
+                            marker_data=marker_data,
+                            marker_name=marker_name,
+                            epoch_indices=final_evoked_indices,
+                            channels=channels,
+                            use_trimmean=not enable_outlier_detection,
+                            trimmean_percent=trimmean_percent,
+                        )
+                        
+                        # Handle spectral vs non-spectral markers
+                        if "overall" in aggregated:
+                            # Non-spectral marker
+                            aggregated_evoked[marker_name] = aggregated["overall"]
+                        else:
+                            # Spectral marker with bands
+                            for band_name, band_data in aggregated.items():
+                                band_marker_name = f"{marker_name}_{band_name}"
+                                aggregated_evoked[band_marker_name] = band_data
+                    
+                    # Save evoked markers
+                    if len(aggregated_evoked) > 0:
+                        extra_meta = {
+                            "n_evoked_trials": len(final_evoked_indices),
+                            "aggregation_method": "trimmean" if not enable_outlier_detection else "outlier_detection",
+                            "trimmean_percent": trimmean_percent if not enable_outlier_detection else None,
+                        }
+                        
+                        out_path = save_aggregated_markers(
+                            aggregated_markers=aggregated_evoked,
+                            features_root=features_root,
+                            subject=subject,
+                            task=task,
+                            probe_number=probe_num,
+                            label=label_str,
+                            extra_meta=extra_meta,
+                            overwrite=overwrite,
+                            marker_type="evoked",
+                            save_format="csv",
+                            probe_metadata=probe_metadata,
+                        )
+                        
+                        outputs.append({
+                            "subject": subject,
+                            "task": task,
+                            "probe_number": probe_num,
+                            "label": label_str,
+                            "marker_type": "evoked",
+                            "n_markers": len(aggregated_evoked),
+                            "n_trials": len(final_evoked_indices),
+                            "output_path": out_path,
+                        })
+                else:
+                    print(f"    No valid epochs for evoked markers")
+            else:
+                print(f"    Insufficient evoked trials: {len(evoked_trials)} < {min_req}")
+        
+        # ========================================================================
+        # PROCESS STATE MARKERS (ALL MARKERS with state trials)
+        # ========================================================================
+        if state_data is not None:
+            print(f"  Processing STATE markers (distance {state_dist_min} to {state_dist_max})")
+            
+            # Select trials for state markers
+            state_trials = select_trials_for_probe(
+                events_df=events_df,
+                probe_number=probe_num,
+                only_go_correct=only_go_correct,
+                distance_min=state_dist_min,
+                distance_max=state_dist_max,
+            )
+            
+            if len(state_trials) > 0:
+                # Get epoch indices
+                state_epoch_indices = state_trials["epoch_index"].astype(int).tolist()
+                
+                # Apply outlier detection if enabled
+                if enable_outlier_detection:
+                    valid_indices, outlier_stats = detect_outlier_epochs(
+                        epochs=epochs,
+                        events_df=events_df,
+                        probe_number=probe_num,
+                        baseline_distance_min=baseline_distance_min,
+                        baseline_distance_max=baseline_distance_max,
+                        min_baseline_epochs=min_baseline_epochs,
+                        z_threshold=epoch_z_threshold,
+                    )
+                    final_state_indices = [idx for idx in state_epoch_indices if idx in valid_indices]
+                    print(f"    {len(final_state_indices)} valid epochs after outlier removal")
+                else:
+                    final_state_indices = state_epoch_indices
+                    print(f"    {len(final_state_indices)} epochs (outlier detection disabled)")
+                
+                if len(final_state_indices) > 0:
+                    # Aggregate ALL markers from state data using state trials
+                    state_markers_dict = state_data.get("markers", {})
+                    aggregated_state = {}
+                    
+                    for marker_name, marker_data in state_markers_dict.items():
+                        print(f"      Processing state marker: {marker_name}")
+                        
+                        aggregated = aggregate_marker_epochs(
+                            marker_data=marker_data,
+                            marker_name=marker_name,
+                            epoch_indices=final_state_indices,
+                            channels=channels,
+                            use_trimmean=not enable_outlier_detection,
+                            trimmean_percent=trimmean_percent,
+                        )
+                        
+                        # Handle spectral vs non-spectral markers
+                        if "overall" in aggregated:
+                            # Non-spectral marker
+                            aggregated_state[marker_name] = aggregated["overall"]
+                        else:
+                            # Spectral marker with bands
+                            for band_name, band_data in aggregated.items():
+                                band_marker_name = f"{marker_name}_{band_name}"
+                                aggregated_state[band_marker_name] = band_data
+                    
+                    # Save state markers
+                    if len(aggregated_state) > 0:
+                        extra_meta = {
+                            "n_state_trials": len(final_state_indices),
+                            "aggregation_method": "trimmean" if not enable_outlier_detection else "outlier_detection",
+                            "trimmean_percent": trimmean_percent if not enable_outlier_detection else None,
+                        }
+                        
+                        out_path = save_aggregated_markers(
+                            aggregated_markers=aggregated_state,
+                            features_root=features_root,
+                            subject=subject,
+                            task=task,
+                            probe_number=probe_num,
+                            label=label_str,
+                            extra_meta=extra_meta,
+                            overwrite=overwrite,
+                            marker_type="state",
+                            save_format="csv",
+                            probe_metadata=probe_metadata,
+                        )
+                        
+                        outputs.append({
+                            "subject": subject,
+                            "task": task,
+                            "probe_number": probe_num,
+                            "label": label_str,
+                            "marker_type": "state",
+                            "n_markers": len(aggregated_state),
+                            "n_trials": len(final_state_indices),
+                            "output_path": out_path,
+                        })
+                else:
+                    print(f"    No valid epochs for state markers")
+            else:
+                print(f"    No trials found for state markers")
+    
+    return pd.DataFrame(outputs)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Aggregate Junifer markers by probe for mind-wandering analysis"
+    )
+    parser.add_argument("--config", default="./config.yaml", help="Path to YAML config")
+    parser.add_argument("--subject", help="Process only this subject")
+    parser.add_argument("--task", help="Process only this task")
+    args = parser.parse_args()
+    
+    cfg = load_yaml_config(args.config)
+    
+    subjects_cfg = cfg.get("subjects", [])
+    if args.subject:
+        subjects = [args.subject]
+    else:
+        subjects = subjects_cfg
+    
+    tasks_cfg = cfg.get("tasks", [])
+    if args.task:
+        tasks = [args.task]
+    else:
+        tasks = tasks_cfg
+    
+    all_results = []
+    
+    for sub in subjects:
+        for tsk in tasks:
+            try:
+                df = process_subject_task(cfg, sub, tsk)
+                if not df.empty:
+                    all_results.append(df)
+            except Exception as exc:
+                print(f"[ERROR] Failed to process sub-{sub} task-{tsk}: {exc}")
+                import traceback
+                traceback.print_exc()
+    
+    # Save summary CSV
+    if all_results:
+        summary_df = pd.concat(all_results, ignore_index=True)
+        features_root = cfg.get("project", {}).get("features_root")
+        summary_path = Path(features_root) / "junifer_probe_aggregation_summary.csv"
+        summary_df.to_csv(summary_path, index=False)
+        print(f"\n[SUMMARY] Saved summary to: {summary_path}")
+        print(f"Processed {len(summary_df)} probes across {len(subjects)} subjects and {len(tasks)} tasks")
+    else:
+        print("\n[WARN] No results to save")
+
+
+if __name__ == "__main__":
+    main()

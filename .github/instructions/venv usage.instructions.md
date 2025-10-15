@@ -8,5 +8,6 @@ crating plots specific tasks => plots
 anything related to machine learning => ML
 anything related to natural languange processing => nlp
 for anything related to eeg analysis => eeg
+for junifer specific tasks => junifer
 
 if you need to install any package missing. If running in the interactive ubuntu cluster you might need to do first: module load proxy

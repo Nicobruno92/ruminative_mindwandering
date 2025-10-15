@@ -30,11 +30,11 @@ set -euo pipefail
 
 # Parameters (overridable)
 JOBNAME=${JOBNAME:-CYBERSART_features}
-WORKDIR=${WORKDIR:-/network/iss/home/nicolas.bruno/Junifer}
+WORKDIR=${WORKDIR:-/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering}
 CONDA_ENV=${CONDA_ENV:-junifer}
 SHELL_KIND=${SHELL:-zsh}
-CONFIG=${CONFIG:-${WORKDIR}/junifer_jobs/${JOBNAME}/config.yaml}
-ELEMENTS_FILE=${ELEMENTS_FILE:-${WORKDIR}/junifer_jobs/${JOBNAME}/elements}
+CONFIG=${CONFIG:-${WORKDIR}/junifer_markers/1.markers_h5_creation/config.yaml}
+ELEMENTS_FILE=${ELEMENTS_FILE:-${WORKDIR}/junifer_markers/1.markers_h5_creation/elements}
 LOG_DIR=${LOG_DIR:-${WORKDIR}/logs}
 PYTHONPATH_EXTRA=${PYTHONPATH_EXTRA:-${WORKDIR}}
 

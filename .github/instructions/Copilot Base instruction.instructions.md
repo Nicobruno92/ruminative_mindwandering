@@ -4,10 +4,13 @@ applyTo: '**'
 # Cursor General Rule: Clean & Maintainable Python Code
 
 ## Core Principles
+- **Don't generate .md for everything you do, only when explicitly asked**
+- **Clarity over cleverness**: Write code that is easy to understand
 - **Simplicity over complexity**: Always choose the most straightforward solution
 - **Readability first**: Code should be self-explanatory to any developer
 - **Maintainability**: Write code that's easy to modify and extend
 - **Single responsibility**: Each function/class should have one clear purpose
+- **Configuration over hardcoding**: Use variables for parameters, avoid magic numbers
 
 ## Code Style Guidelines
 

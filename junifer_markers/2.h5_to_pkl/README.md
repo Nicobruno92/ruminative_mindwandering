@@ -1,342 +1,143 @@
-# Pipeline 2: PKL Creation from H5 and FIF Files
+# H5 to PKL Batch Conversion
 
-This pipeline converts HDF5 marker files and FIF metadata files into PKL (pickle) files with a standardized structure for downstream analysis.
+This directory contains scripts for batch converting Junifer HDF5 marker files + MNE FIF metadata into organized PKL files following BIDS structure.
 
-## Overview
+## Files
 
-After Pipeline 1 generates HDF5 feature files, this pipeline:
-1. Reads metadata from original FIF epoch files
-2. Reads computed features from HDF5 files
-3. Combines them into structured PKL files with proper channel/epoch organization
-4. Outputs BIDS-compliant PKL files for each subject/task/desc combination
+### Core Scripts
+- **`h5_to_pkl_converter.py`**: Main converter script (handles single file conversion)
 
-## Pipeline Components
+### Batch Processing (Sequential)
+- **`batch_convert_h5_to_pkl.sh`**: SLURM script - processes elements one by one
+- **`batch_convert_h5_to_pkl_local.sh`**: Local script for testing/small batches
 
-### 1. Batch Processing Script (`batch_create_pkl_from_pipeline.py`)
-Main orchestration script that:
-- Parses elements file to get list of (subject, task) pairs
-- Constructs input/output paths following BIDS conventions
-- Processes each element-desc combination
-- Handles error reporting and dry-run mode
+### Parallel Processing (Recommended)
+- **`batch_convert_h5_to_pkl_parallel.sh`**: SLURM job array - 20 jobs in parallel
+- **`launch_parallel.sh`**: Launch the parallel processing
+- **`monitor_progress.sh`**: Monitor progress in real-time
+- **`summary_report.sh`**: Generate final summary after completion
 
-### 2. Conversion Logic (`create_pkl_from_h5_fif.py`)
-Core conversion module that:
-- Reads FIF metadata (epochs, channels, annotations, behavioral parameters)
-- Reads H5 marker data using Junifer storage interface
-- Creates structured PKL data with proper access patterns:
-  - **Spectral markers**: channel × epoch × band
-  - **ERP markers**: channel × epoch
-  - **Connectivity markers**: channel_pair × epoch
-- Embeds complete metadata and annotations
+## Output Structure
 
-### 3. HDF5 Reader (`junifer_hdf5_reader_final.py`)
-Utility module that:
-- Uses Junifer's HDF5FeatureStorage class
-- Lists and reads features from HDF5 files
-- Handles MD5 hashing and metadata automatically
-- Provides summary statistics
-
-### 4. SLURM Job Script (`batch_create_pkl.sh`)
-Cluster submission script for batch processing:
-- Can be run standalone or chained after Pipeline 1
-- Configurable resources and paths
-- Proper conda environment activation
-
-## Input Requirements
-
-### Directory Structure
+PKL files are saved following BIDS format:
 ```
-/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/
-├── derivatives/
-│   └── {subject}/
-│       └── eeg/
-│           └── {subject}_task-{task}_desc-{desc}_epo.fif
-└── features/
-    └── junifer/
-        └── markers.h5  # From Pipeline 1
-```
-
-### Elements File
-Same format as Pipeline 1:
-```
-sub-31,Sart4,evoked
-sub-31,Sart4,state
-...
+BIDS_ROOT/features/sub-XX/eeg/junifer/sub-XX_task-SartX_desc-[evoked,state]_markers.pkl
 ```
 
 ## Usage
 
-### Basic Usage (Local)
+### ⚡ Option 1: Parallel Processing (RECOMMENDED - Much Faster!)
 
-1. **Process all elements**:
-   ```bash
-   cd /path/to/junifer_markers/pipeline_2_pkl_creation
-   python batch_create_pkl_from_pipeline.py \
-     --elements-file /path/to/elements \
-     --desc both
-   ```
+Process all 167 elements in parallel with up to 20 jobs running simultaneously:
 
-2. **Dry run (test)**:
-   ```bash
-   python batch_create_pkl_from_pipeline.py \
-     --elements-file /path/to/elements \
-     --desc both \
-     --dry-run
-   ```
-
-3. **Process only evoked**:
-   ```bash
-   python batch_create_pkl_from_pipeline.py \
-     --elements-file /path/to/elements \
-     --desc evoked
-   ```
-
-4. **Limit to first N elements (testing)**:
-   ```bash
-   python batch_create_pkl_from_pipeline.py \
-     --elements-file /path/to/elements \
-     --desc both \
-     --limit 5
-   ```
-
-### Usage on Cluster (SLURM)
-
-**Standalone submission**:
 ```bash
-cd /network/iss/home/nicolas.bruno/Junifer
-sbatch junifer_markers/pipeline_2_pkl_creation/batch_create_pkl.sh
+cd junifer_markers/2.h5_to_pkl
+
+# Launch parallel processing
+./launch_parallel.sh
+
+# Monitor progress in real-time
+watch -n 5 ./monitor_progress.sh
+
+# Or check once
+./monitor_progress.sh
+
+# After completion, generate summary
+./summary_report.sh
 ```
 
-**With custom parameters**:
+**Advantages:**
+- ⚡ **20x faster**: Processes 20 elements simultaneously
+- 🎯 **Efficient**: Each job takes ~5-10 minutes, total time ~40-60 minutes
+- 🔄 **Auto-retry**: Easy to identify and re-run failed tasks
+- 📊 **Progress tracking**: Real-time monitoring with progress bars
+
+**Configuration:**
+- Max parallel jobs: 20 (adjustable in script with `--array=1-167%20`)
+- Time per job: 1 hour
+- Memory per job: 8GB
+
+### Option 2: Sequential SLURM (Slower)
+
+Submit a single job to process all elements sequentially. **By default, it overwrites existing PKL files** (force mode).
+
 ```bash
-JOBNAME=CYBERSART_features \
-WORKDIR=/network/iss/home/nicolas.bruno/Junifer \
-ELEMENTS_FILE=/path/to/elements \
-sbatch junifer_markers/pipeline_2_pkl_creation/batch_create_pkl.sh
+cd junifer_markers/2.h5_to_pkl
+sbatch batch_convert_h5_to_pkl.sh
 ```
 
-**Automatic chaining from Pipeline 1**:
+To skip existing files instead, edit the script and set `FORCE_OVERWRITE=false` at the top.
+
+Monitor the job:
 ```bash
-# This is done automatically by Pipeline 1's submit_slurm_array.sh
-# No action needed - PKL creation runs after H5 collection completes
+squeue -u $USER
+tail -f logs/h5_to_pkl_*.out
 ```
 
-### Single File Conversion
+⚠️ **Note**: This processes elements one at a time. Estimated time: ~12-16 hours for all 167 elements.
 
-For debugging or one-off conversions:
+### Option 3: Local Execution (Testing)
+
+For testing or processing a subset locally:
+
 ```bash
-python create_pkl_from_h5_fif.py \
-  /path/to/markers.h5 \
-  /path/to/sub-31_task-Sart4_desc-evoked_epo.fif \
-  /path/to/output.pkl \
-  --subject sub-31 \
-  --task Sart4 \
-  --desc evoked
+cd junifer_markers/2.h5_to_pkl
+
+# Make script executable (run once on cluster)
+chmod +x batch_convert_h5_to_pkl_local.sh
+
+# Dry run to see what would be processed
+./batch_convert_h5_to_pkl_local.sh --dry-run
+
+# Process first 5 elements for testing
+./batch_convert_h5_to_pkl_local.sh --limit 5
+
+# Force overwrite existing files
+./batch_convert_h5_to_pkl_local.sh --force
+
+# Full processing
+./batch_convert_h5_to_pkl_local.sh
 ```
+
+### Option 4: Single File Conversion
+
+To convert a single element manually:
+
+```bash
+python h5_to_pkl_converter.py \
+    /path/to/sub-XX_task-SartX_desc-evoked_epo.fif \
+    /path/to/element_sub-XX_SartX_evoked_markers.h5 \
+    /path/to/output/sub-XX_task-SartX_desc-evoked_markers.pkl
+```
+
+## Configuration
+
+All paths are configured in the scripts:
+
+```bash
+BIDS_ROOT="/network/iss/cenir/analyse/meeg/CYBERSART/BIDS"
+LOCAL_ROOT="/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering"
+DERIVATIVES_DIR="${BIDS_ROOT}/derivatives"
+H5_FEATURES_DIR="${BIDS_ROOT}/features/junifer"
+PKL_FEATURES_DIR="${BIDS_ROOT}/features"
+ELEMENTS_FILE="${LOCAL_ROOT}/junifer_markers/1.markers_h5_creation/elements"
+```
+
+## Input Files
+
+For each element (subject + task + desc combination), the script expects:
+
+1. **FIF file**: `DERIVATIVES_DIR/{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif`
+2. **H5 file**: `H5_FEATURES_DIR/element_{subject}_{task}_{desc}_markers.h5`
 
 ## Output
 
-### PKL File Structure
-```
-/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/
-└── {subject}/
-    └── eeg/
-        └── junifer/
-            ├── {subject}_task-{task}_desc-evoked_markers.pkl
-            └── {subject}_task-{task}_desc-state_markers.pkl
-```
+PKL files contain:
+- **Hierarchical structure**: markers → epochs → channels
+- **Full metadata**: epoch annotations, behavioral data, channel info
+- **All Junifer markers**: spectral, connectivity, time-locked, information theory
 
-### PKL Content Structure
-Each PKL file contains a dictionary:
-
-```python
-{
-    "markers": {
-        "psd_bands": {
-            "access_pattern": "channel_epoch",
-            "channel_names": [...],
-            "epoch_annotations": [...],
-            "data": {
-                "Fp1": {"delta_epoch_0000": value, ...},
-                "Fp2": {...},
-                ...
-            }
-        },
-        "wsmi_theta": {
-            "access_pattern": "channel_pair_epoch",
-            ...
-        },
-        "P1": {
-            "access_pattern": "channel_epoch",
-            ...
-        },
-        ...
-    },
-    "annotations": {
-        "epochs": [
-            {
-                "epoch_index": 0,
-                "epoch_id": "epoch_0000",
-                "event_time": ...,
-                "event_code": ...,
-                "event_description": ...,
-                "response_type": "go",
-                "accuracy": "correct",
-                "reaction_time": 450,
-                ...
-            },
-            ...
-        ]
-    },
-    "info": {
-        "n_epochs": 100,
-        "n_channels": 64,
-        "channel_names": ["Fp1", "Fp2", ...],
-        "created_at": "2025-10-08 12:34:56",
-        "n_markers": 15,
-        "access_patterns": {
-            "psd_bands": "channel_epoch",
-            "wsmi_theta": "channel_pair_epoch",
-            ...
-        }
-    }
-}
-```
-
-## Marker Types and Access Patterns
-
-### 1. Spectral Power (channel_epoch)
-- **Markers**: `psd_bands`, `psd_relative`
-- **Structure**: `data[channel][band_epoch]`
-- **Example**: `data["Fp1"]["delta_epoch_0042"]`
-
-### 2. Event-Related Potentials (channel_epoch)
-- **Markers**: `P1`, `N1`, `P2`, `P3a`, `P3b`, `PE_theta`, etc.
-- **Structure**: `data[channel][epoch]`
-- **Example**: `data["Cz"]["epoch_0042"]`
-
-### 3. Connectivity (channel_pair_epoch)
-- **Markers**: `wsmi_theta`, `wsmi_alpha`, `wsmi_beta`, `wsmi_gamma`
-- **Structure**: `data[channel_pair][epoch]`
-- **Example**: `data["Fp1-Fp2"]["epoch_0042"]`
-
-### 4. Complexity Measures (channel_epoch)
-- **Markers**: `kolmogorov_complexity`
-- **Structure**: `data[channel][epoch]`
-- **Example**: `data["Fp1"]["epoch_0042"]`
-
-## Command Line Arguments
-
-### batch_create_pkl_from_pipeline.py
-
-| Argument | Type | Default | Description |
-|----------|------|---------|-------------|
-| `--elements-file` | Path | `junifer_jobs/CYBERSART_features/elements` | Path to elements file |
-| `--desc` | Choice | `both` | Description type: `evoked`, `state`, or `both` |
-| `--output-dir` | Path | _(computed)_ | Override output directory |
-| `--dry-run` | Flag | False | Test without processing |
-| `--limit` | Int | _(none)_ | Limit number of elements for testing |
-
-### create_pkl_from_h5_fif.py
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `h5_file` | Yes | Path to HDF5 file |
-| `fif_file` | Yes | Path to FIF file |
-| `output_pkl` | Yes | Path for output PKL file |
-| `--subject` | No | Subject ID (e.g., sub-31) |
-| `--task` | No | Task name (e.g., Sart4) |
-| `--desc` | No | Description (e.g., evoked, state) |
-
-## Environment Variables (SLURM)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `JOBNAME` | `CYBERSART_features` | Job name |
-| `WORKDIR` | `/network/iss/home/nicolas.bruno/Junifer` | Working directory |
-| `CONDA_ENV` | `junifer` | Conda environment |
-| `ELEMENTS_FILE` | `${WORKDIR}/junifer_jobs/${JOBNAME}/elements` | Elements file |
-| `PIPELINE_DIR` | `${WORKDIR}/junifer_markers/pipeline_2_pkl_creation` | Pipeline directory |
-
-## Resource Requirements
-
-### Typical Job
-- **CPUs**: 4
-- **Memory**: 16GB
-- **Time**: 4 hours (for ~336 elements)
-- **Walltime per element**: ~1-2 minutes
-
-### Recommendations
-- For large cohorts: increase memory to 32GB
-- For testing: use `--limit` to process subset
-- Use `--dry-run` first to verify paths
-
-## Troubleshooting
-
-### Missing Input Files
-```bash
-# Check FIF files exist
-ls /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives/sub-*/eeg/*.fif
-
-# Check H5 file exists
-ls /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/junifer/markers.h5
-```
-
-### Element Mismatch Errors
-If features from H5 don't match elements:
-1. Verify H5 file was created by Pipeline 1 with same elements
-2. Check element dict keys: subject, task, desc
-3. Re-run Pipeline 1 if necessary
-
-### Import Errors
-```bash
-# Ensure proper PYTHONPATH
-export PYTHONPATH=/path/to/Junifer:/path/to/pipeline_2_pkl_creation:$PYTHONPATH
-
-# Check junifer_eeg is importable
-python -c "import junifer_eeg; print('OK')"
-```
-
-### Memory Issues
-If jobs fail with OOM errors:
-- Increase `--mem` in SLURM script
-- Process fewer elements per job
-- Check for memory leaks in conversion code
-
-### Debugging Specific Element
-```bash
-# Run single element with verbose output
-python create_pkl_from_h5_fif.py \
-  /path/to/markers.h5 \
-  /path/to/sub-31_task-Sart4_desc-evoked_epo.fif \
-  /tmp/test_output.pkl \
-  --subject sub-31 \
-  --task Sart4 \
-  --desc evoked
-
-# Inspect output
-python -c "import pickle; print(pickle.load(open('/tmp/test_output.pkl', 'rb')).keys())"
-```
-
-## Dependencies
-
-### Python Packages
-- junifer (with HDF5FeatureStorage)
-- junifer_eeg (custom markers)
-- mne
-- numpy
-- pandas
-- pickle (stdlib)
-
-### File Dependencies
-- Elements file from Pipeline 1
-- HDF5 markers file from Pipeline 1
-- Original FIF epoch files from preprocessing
-
-## Integration with Analysis Pipeline
-
-The PKL files are designed for downstream analysis:
-
+Access pattern:
 ```python
 import pickle
 
@@ -345,47 +146,70 @@ with open("sub-31_task-Sart4_desc-evoked_markers.pkl", "rb") as f:
     data = pickle.load(f)
 
 # Access markers
-psd_bands = data["markers"]["psd_bands"]
-wsmi_theta = data["markers"]["wsmi_theta"]
-p3b = data["markers"]["P3b"]
+markers = data["markers"]
+metadata = data["metadata"]
 
-# Access annotations
-epochs = data["annotations"]["epochs"]
+# Hierarchical access: marker → epoch → channel
+marker_name = "psd_bands"
+epoch_idx = 0
+channel_name = "Fp1"
 
-# Filter by behavioral parameters
-go_trials = [e for e in epochs if e.get("response_type") == "go"]
-correct_trials = [e for e in epochs if e.get("accuracy") == "correct"]
-
-# Extract specific channel/epoch
-fp1_delta_epoch0 = psd_bands["data"]["Fp1"]["delta_epoch_0000"]
-cz_p3b_epoch0 = p3b["data"]["Cz"]["epoch_0000"]
+value = markers[marker_name][epoch_idx][channel_name].data
 ```
 
-## Performance Notes
+## Processing Statistics
 
-- **Batch processing**: Processes ~168 elements × 2 desc = 336 files in ~4 hours
-- **Per-element time**: 1-2 minutes (mostly I/O)
-- **Output size**: ~1-5 MB per PKL file (depends on number of epochs)
-- **Parallelization**: Currently sequential, could be parallelized by desc type
+The script will report:
+- Total elements processed
+- Successful conversions
+- Failed conversions
+- Skipped (already existing files)
+- **File sizes** for input (FIF, H5) and output (PKL) files
 
-## Future Improvements
+Example log output:
+```
+Processing desc=evoked...
+  Converting: sub-25_task-Sart3_desc-evoked
+    FIF: /path/to/file.fif (45M)
+    H5:  /path/to/file.h5 (2.3M)
+    PKL: /path/to/file.pkl
+  ✓  Success - PKL size: 2.5M
+```
 
-1. **Parallel processing**: Use multiprocessing for desc types
-2. **Incremental updates**: Only process new/modified elements
-3. **Validation**: Add PKL file validation/checksums
-4. **Compression**: Option for compressed PKL storage
-5. **Metadata**: Embed pipeline version and config in PKL
+## Logs
 
-## Notes
+- **SLURM**: Logs saved to `logs/h5_to_pkl_*.out` and `logs/h5_to_pkl_*.err`
+- **Local**: Output printed to terminal
 
-- PKL files preserve all behavioral annotations from FIF events
-- Access patterns are documented in each marker for easy data retrieval
-- Element information is used to select correct features from multi-element H5 files
-- The pipeline handles missing fields gracefully (fills with np.nan)
-- Output directory structure follows BIDS derivatives specification
+## Troubleshooting
 
-## References
+### Missing input files
+```
+⚠️  FIF file not found: ...
+⚠️  H5 file not found: ...
+```
+Check that preprocessing and Junifer marker computation completed successfully for that element.
 
-- Junifer storage documentation: https://juaml.github.io/junifer/main/api_storage.html
-- MNE epochs documentation: https://mne.tools/stable/generated/mne.Epochs.html
-- Python pickle documentation: https://docs.python.org/3/library/pickle.html
+### Permission errors
+Make scripts executable on the cluster:
+```bash
+chmod +x batch_convert_h5_to_pkl.sh
+chmod +x batch_convert_h5_to_pkl_local.sh
+```
+
+### Environment issues
+Ensure the `eeg` conda environment is activated and has required packages:
+```bash
+source activate eeg
+pip install mne junifer h5py
+```
+
+## Next Steps
+
+After conversion, PKL files can be used for:
+1. Aggregating markers across epochs/conditions
+2. Statistical analysis
+3. Machine learning pipelines
+4. Visualization
+
+See `junifer_markers/3.aggregate_probes/` for probe-aligned aggregation scripts.

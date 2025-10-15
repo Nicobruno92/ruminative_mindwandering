@@ -1,7 +1,8 @@
 ---
+trigger: model_decision
 description: EEG mind-wandering pipeline: BIDS data I/O, preprocessing, feature extraction, statistics. Use for loading/saving EEG data, running analyses, filtering trials, classifying mental states, batch jobs, or fixing path/config errors.Retry
-alwaysApply: false
 ---
+
 # EEG Mind-Wandering Analysis - Agent Instructions
 
 ## Critical Rules

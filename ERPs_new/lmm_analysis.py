@@ -123,6 +123,7 @@ def apply_multiple_comparison_correction(
             
     elif method == "cluster_permutation":
         print("Applying cluster-based permutation testing")
+        print("Testing 'condition_code' coefficient (Off-task vs On-task difference)")
         results_corrected = _apply_cluster_permutation_correction(
             results_corrected, cfg, alpha
         )
@@ -143,158 +144,190 @@ def _apply_cluster_permutation_correction(
     alpha: float
 ) -> pd.DataFrame:
     """
-    Apply cluster-based permutation testing for temporal multiple comparison correction.
+    Apply cluster-based correction using cluster mass permutation on p-values.
     
-    This uses MNE's cluster permutation functions adapted for LMM t-statistics.
-    The method identifies temporal clusters of significant effects and tests their
-    significance via permutation testing.
+    This implements a non-parametric cluster-mass approach suitable for
+    aggregate statistics from LMM. Clusters are defined as contiguous time
+    points with p < cluster_forming_threshold, and tested via permutation.
     
     Parameters
     ----------
     temporal_results : pd.DataFrame
-        Temporal LMM results with t-values
+        Temporal LMM results with p-values and t-values
     cfg : Dict
         Configuration dictionary
     alpha : float
-        Significance threshold
+        Significance threshold for cluster-level inference
         
     Returns
     -------
     pd.DataFrame
         Results with cluster information added
     """
-    from mne.stats import permutation_cluster_1samp_test
-    
     # Get cluster permutation parameters
-    cluster_cfg = cfg.get("multiple_comparison_correction", {}).get("cluster_permutation", {})
+    cluster_cfg = cfg.get("multiple_comparison_correction", {}).get(
+        "cluster_permutation", {})
     n_permutations = int(cluster_cfg.get("n_permutations", 1000))
-    threshold_method = cluster_cfg.get("threshold", "auto")  # 'auto' uses t-distribution
-    tail = int(cluster_cfg.get("tail", 0))  # 0=two-tailed, 1=greater, -1=less
-    n_jobs = int(cluster_cfg.get("n_jobs", -1))
+    cluster_p_threshold = float(cluster_cfg.get(
+        "cluster_forming_threshold", 0.05))
+    tail = int(cluster_cfg.get("tail", 0))  # 0=two-tailed
     seed = cluster_cfg.get("seed", 42)
     
     print(f"  Cluster permutation parameters:")
     print(f"    - n_permutations: {n_permutations}")
-    print(f"    - threshold: {threshold_method}")
+    print(f"    - cluster_forming_threshold: {cluster_p_threshold}")
     print(f"    - tail: {tail} ({'two-tailed' if tail == 0 else 'one-tailed'})")
     print(f"    - seed: {seed}")
     
     results_corrected = temporal_results.copy()
     
     # Initialize cluster columns
-    results_corrected["cluster_id"] = -1  # -1 means no cluster
+    results_corrected["cluster_id"] = -1
     results_corrected["cluster_p_value"] = 1.0
     results_corrected["significant"] = False
     results_corrected["p_corrected"] = results_corrected["p_value"]
     
+    np.random.seed(seed)
+    
     # Process each ROI separately
     for roi in results_corrected["roi"].unique():
         roi_mask = results_corrected["roi"] == roi
-        roi_data = results_corrected[roi_mask].sort_values("time_point")
+        roi_data = results_corrected[roi_mask].sort_values("time_point").copy()
         
-        # Extract t-statistics (these represent the effect at each time point)
+        p_values = roi_data["p_value"].values
         t_values = roi_data["t_value"].values
         
         # Check for NaN values
-        if np.any(np.isnan(t_values)):
-            print(f"  Warning: {roi} has NaN t-values, skipping")
+        if np.any(np.isnan(p_values)) or np.any(np.isnan(t_values)):
+            print(f"  Warning: {roi} has NaN values, skipping")
             continue
         
-        # Reshape for MNE cluster test: (n_subjects=1, n_times)
-        # Since we have aggregate t-statistics, we test against 0
-        X = t_values.reshape(1, -1)
+        # Show what coefficient is being tested
+        print(f"  {roi}: Testing condition_code coefficient "
+              f"(t-value range: [{t_values.min():.2f}, {t_values.max():.2f}])")
         
-        try:
-            # Determine threshold
-            if threshold_method == "auto":
-                # Use t-distribution critical value
-                # For LMM, degrees of freedom is approximately n_subjects - n_parameters
-                # We'll use a conservative estimate
-                n_obs = roi_data["n_observations"].iloc[0] if "n_observations" in roi_data.columns else 100
-                df_approx = max(n_obs - 5, 10)  # Conservative estimate
-                
-                if tail == 0:  # two-tailed
-                    threshold = stats.t.ppf(1 - alpha/2, df_approx)
-                else:  # one-tailed
-                    threshold = stats.t.ppf(1 - alpha, df_approx)
-                    
-                print(f"  {roi}: Using threshold = {threshold:.3f} (df~{df_approx})")
+        # Step 1: Identify observed clusters
+        # (contiguous time points with p < cluster_forming_threshold)
+        if tail == 0:  # two-tailed
+            significant_mask = p_values < cluster_p_threshold
+        elif tail == 1:  # greater (positive effects)
+            significant_mask = (p_values < cluster_p_threshold) & (t_values > 0)
+        else:  # tail == -1, less (negative effects)
+            significant_mask = (p_values < cluster_p_threshold) & (t_values < 0)
+        
+        # Find clusters (contiguous True values)
+        observed_clusters = []
+        cluster_start = None
+        
+        for i, is_sig in enumerate(significant_mask):
+            if is_sig and cluster_start is None:
+                cluster_start = i
+            elif not is_sig and cluster_start is not None:
+                # Cluster ended
+                cluster_indices = list(range(cluster_start, i))
+                cluster_mass = np.abs(t_values[cluster_indices]).sum()
+                observed_clusters.append({
+                    'indices': cluster_indices,
+                    'mass': cluster_mass,
+                    'start_idx': cluster_start,
+                    'end_idx': i - 1
+                })
+                cluster_start = None
+        
+        # Handle cluster extending to end
+        if cluster_start is not None:
+            cluster_indices = list(range(cluster_start, len(p_values)))
+            cluster_mass = np.abs(t_values[cluster_indices]).sum()
+            observed_clusters.append({
+                'indices': cluster_indices,
+                'mass': cluster_mass,
+                'start_idx': cluster_start,
+                'end_idx': len(p_values) - 1
+            })
+        
+        if len(observed_clusters) == 0:
+            print(f"  {roi}: No clusters found (p < {cluster_p_threshold})")
+            continue
+        
+        print(f"  {roi}: Found {len(observed_clusters)} observed clusters")
+        
+        # Step 2: Generate null distribution via sign-flipping permutation
+        # For LMM t-statistics, we permute signs to simulate null
+        max_cluster_masses_null = []
+        
+        for perm in range(n_permutations):
+            # Random sign flips
+            sign_flips = np.random.choice([-1, 1], size=len(t_values))
+            t_perm = t_values * sign_flips
+            
+            # Find clusters in permuted data
+            if tail == 0:
+                sig_perm = np.abs(t_perm) > np.abs(stats.t.ppf(
+                    cluster_p_threshold/2, df=len(t_values)-2))
+            elif tail == 1:
+                sig_perm = t_perm > stats.t.ppf(
+                    1-cluster_p_threshold, df=len(t_values)-2)
             else:
-                threshold = float(threshold_method)
-                print(f"  {roi}: Using threshold = {threshold:.3f}")
+                sig_perm = t_perm < stats.t.ppf(
+                    cluster_p_threshold, df=len(t_values)-2)
             
-            # Run cluster permutation test
-            # Note: We're testing if t-values differ from 0
-            # Suppress expected warnings from MNE and NumPy
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    'ignore',
-                    message='Provided stat_fun does not treat variables',
-                    category=RuntimeWarning)
-                warnings.filterwarnings(
-                    'ignore',
-                    message='No clusters found, returning empty',
-                    category=RuntimeWarning)
-                warnings.filterwarnings(
-                    'ignore',
-                    message='Degrees of freedom <= 0 for slice',
-                    category=RuntimeWarning)
-                warnings.filterwarnings(
-                    'ignore',
-                    message='invalid value encountered in divide',
-                    category=RuntimeWarning)
-                
-                T_obs, clusters, cluster_p_values, H0 = \
-                    permutation_cluster_1samp_test(
-                        X,
-                        threshold=threshold,
-                        n_permutations=n_permutations,
-                        tail=tail,
-                        out_type='mask',
-                        seed=seed,
-                        n_jobs=n_jobs,
-                        verbose=False
-                    )
+            # Find max cluster mass in this permutation
+            perm_cluster_start = None
+            max_mass_this_perm = 0
             
-            # Mark significant clusters
-            n_clusters = len(clusters)
-            n_sig_clusters = np.sum(cluster_p_values < alpha)
+            for i, is_sig in enumerate(sig_perm):
+                if is_sig and perm_cluster_start is None:
+                    perm_cluster_start = i
+                elif not is_sig and perm_cluster_start is not None:
+                    perm_cluster_indices = list(range(perm_cluster_start, i))
+                    perm_mass = np.abs(t_perm[perm_cluster_indices]).sum()
+                    max_mass_this_perm = max(max_mass_this_perm, perm_mass)
+                    perm_cluster_start = None
             
-            print(f"  {roi}: Found {n_clusters} clusters, {n_sig_clusters} significant (p < {alpha})")
+            # Handle cluster extending to end
+            if perm_cluster_start is not None:
+                perm_cluster_indices = list(range(perm_cluster_start, 
+                                                  len(t_perm)))
+                perm_mass = np.abs(t_perm[perm_cluster_indices]).sum()
+                max_mass_this_perm = max(max_mass_this_perm, perm_mass)
             
-            if n_clusters > 0:
-                # Assign cluster IDs and p-values
-                for cluster_idx, (cluster_mask, cluster_p) in enumerate(zip(clusters, cluster_p_values)):
-                    # Get time indices in this cluster
-                    time_indices = np.where(cluster_mask[0])[0]
-                    
-                    if len(time_indices) == 0:
-                        continue
-                    
-                    # Get corresponding indices in results_corrected
-                    roi_indices = roi_data.index[time_indices]
-                    
-                    # Mark cluster membership
-                    results_corrected.loc[roi_indices, "cluster_id"] = cluster_idx
-                    results_corrected.loc[roi_indices, "cluster_p_value"] = cluster_p
-                    results_corrected.loc[roi_indices, "significant"] = cluster_p < alpha
-                    
-                    # Report cluster details
-                    if cluster_p < alpha:
-                        time_start = roi_data.iloc[time_indices[0]]["time_point"]
-                        time_end = roi_data.iloc[time_indices[-1]]["time_point"]
-                        duration_ms = (time_end - time_start) * 1000
-                        mean_t = np.mean(t_values[time_indices])
-                        
-                        print(f"    Cluster {cluster_idx}: {time_start:.3f}-{time_end:.3f}s "
-                              f"({duration_ms:.0f}ms, {len(time_indices)} points), "
-                              f"p={cluster_p:.4f}, mean_t={mean_t:.3f}")
-                        
-        except Exception as e:
-            print(f"  Error in cluster permutation for {roi}: {e}")
-            # Fall back to uncorrected
-            results_corrected.loc[roi_mask, "significant"] = roi_data["p_value"] < alpha
-            results_corrected.loc[roi_mask, "p_corrected"] = roi_data["p_value"]
+            max_cluster_masses_null.append(max_mass_this_perm)
+        
+        max_cluster_masses_null = np.array(max_cluster_masses_null)
+        
+        # Step 3: Compute cluster p-values
+        n_sig_clusters = 0
+        
+        for cluster_idx, cluster in enumerate(observed_clusters):
+            # Count how many permutations had max cluster >= this cluster
+            cluster_p = (np.sum(max_cluster_masses_null >= cluster['mass']) + 1
+                        ) / (n_permutations + 1)
+            
+            # Assign to dataframe
+            roi_indices = roi_data.index[cluster['indices']]
+            results_corrected.loc[roi_indices, "cluster_id"] = cluster_idx
+            results_corrected.loc[roi_indices, "cluster_p_value"] = cluster_p
+            results_corrected.loc[roi_indices, "p_corrected"] = cluster_p
+            
+            # Report details for ALL clusters (not just significant)
+            time_start = roi_data.iloc[cluster['start_idx']]["time_point"]
+            time_end = roi_data.iloc[cluster['end_idx']]["time_point"]
+            duration_ms = (time_end - time_start) * 1000
+            mean_t = np.mean(t_values[cluster['indices']])
+            
+            sig_marker = "***" if cluster_p < alpha else ""
+            print(f"    Cluster {cluster_idx}: {time_start:.3f}-"
+                  f"{time_end:.3f}s ({duration_ms:.0f}ms, "
+                  f"{len(cluster['indices'])} pts), "
+                  f"mass={cluster['mass']:.1f}, p={cluster_p:.4f}, "
+                  f"mean_t={mean_t:.2f} {sig_marker}")
+            
+            if cluster_p < alpha:
+                results_corrected.loc[roi_indices, "significant"] = True
+                n_sig_clusters += 1
+        
+        print(f"  {roi}: {n_sig_clusters}/{len(observed_clusters)} "
+              f"clusters significant (p < {alpha})")
     
     return results_corrected
 
@@ -333,8 +366,8 @@ def _roi_picks(info: mne.Info, roi_channels: List[str]) -> np.ndarray:
     return mne.pick_channels(info["ch_names"], include=picks, exclude=[])
 
 
-def _load_and_roi_average(path: str, roi_picks: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Load evoked file and compute ROI average."""
+def _load_and_roi_average(path: str, roi_picks: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
+    """Load evoked file, compute ROI average, and extract probe ratings."""
     evk = mne.read_evokeds(path, condition=0, verbose=False)
     data = evk.data[roi_picks, :]
     roi_avg = data.mean(axis=0)
@@ -343,7 +376,20 @@ def _load_and_roi_average(path: str, roi_picks: np.ndarray) -> Tuple[np.ndarray,
     if np.abs(roi_avg).max() < 1e-3:
         roi_avg = roi_avg * 1e6
     
-    return evk.times, roi_avg
+    # Extract probe ratings from event comment
+    # Event format: go/correct/onoff99/selfother72/valence47/time71/confidence71/average72/-5/probe15
+    ratings = {}
+    if evk.comment:
+        parts = evk.comment.split('/')
+        for part in parts:
+            for rating_name in ['onoff', 'selfother', 'valence', 'time', 'confidence', 'average']:
+                if part.startswith(rating_name):
+                    try:
+                        ratings[rating_name] = float(part.replace(rating_name, ''))
+                    except (ValueError, TypeError):
+                        pass
+    
+    return evk.times, roi_avg, ratings
 
 
 def _extract_probe_info(path: str) -> Tuple[str, int, str]:
@@ -502,15 +548,17 @@ def collect_probe_data_for_lmm(cfg: Dict) -> pd.DataFrame:
                     # Load all probes for this ROI-condition
                     probe_curves = []
                     probe_info = []
+                    probe_ratings = []
                     
                     for path in paths:
                         try:
-                            times, roi_avg = _load_and_roi_average(path, picks)
+                            times, roi_avg, ratings = _load_and_roi_average(path, picks)
                             probe_curves.append((times, roi_avg))
                             
                             # Extract probe information
                             _, probe_num, _ = _extract_probe_info(path)
                             probe_info.append(probe_num)
+                            probe_ratings.append(ratings)
                         except Exception as e:
                             print(f"[WARN] Failed to load {path}: {e}")
                             continue
@@ -529,6 +577,7 @@ def collect_probe_data_for_lmm(cfg: Dict) -> pd.DataFrame:
                         # Get the original probe number (accounting for outlier removal)
                         original_idx = [j for j in range(len(probe_curves)) if j not in outlier_indices][i]
                         probe_num = probe_info[original_idx]
+                        ratings = probe_ratings[original_idx]
                         
                         # Process each time window
                         for window_name, window in time_windows.items():
@@ -545,18 +594,26 @@ def collect_probe_data_for_lmm(cfg: Dict) -> pd.DataFrame:
                                     print(f"[WARN] Skipping probe {probe_num} due to invalid baseline computation")
                                     continue
                                 
-                                all_data.append({
-                                        "subject": subject,
-                                        "task": task,
-                                        "probe": int(probe_num),
-                                        "condition": condition,
-                                        "roi": roi_name,
+                                # Collect data point with ratings
+                                data_point = {
+                                    "subject": subject,
+                                    "task": task,
+                                    "probe": int(probe_num),
+                                    "condition": condition,
+                                    "roi": roi_name,
                                     "window": window_name,
-                                        "amplitude": amplitude,
-                                        "baseline": baseline_value,
+                                    "amplitude": amplitude,
+                                    "baseline": baseline_value,
                                     "window_start": window[0],
                                     "window_end": window[1],
-                                    })
+                                }
+                                
+                                # Add ratings if available
+                                for rating_name in ['onoff', 'selfother', 'valence', 'time', 'confidence', 'average']:
+                                    if rating_name in ratings:
+                                        data_point[rating_name] = ratings[rating_name]
+                                
+                                all_data.append(data_point)
 
         print(f"Subject {subject}: {subject_probes['onTask']} onTask probes, {subject_probes['offTask']} offTask probes")
     
@@ -614,20 +671,49 @@ def run_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
                 raise ValueError(f"Found {missing_baseline} missing baseline values for {roi}-{window}. All baseline values must be computed.")
             
             # Center baseline to improve interpretability and convergence
+            # Note: Both 'baseline' (raw) and 'baseline_centered' are available in formula
             lmm_df["baseline_centered"] = (
                 lmm_df["baseline"] - lmm_df["baseline"].mean()
             )
+            
+            # Center thought probe ratings if present
+            # Note: Both raw (e.g., 'confidence') and centered (e.g., 'confidence_centered') 
+            # are available for use in formula
+            rating_vars = ['onoff', 'selfother', 'valence', 'time', 'confidence', 'average']
+            for rating_var in rating_vars:
+                if rating_var in lmm_df.columns:
+                    # Only center if not all NaN
+                    if not lmm_df[rating_var].isna().all():
+                        lmm_df[f"{rating_var}_centered"] = (
+                            lmm_df[rating_var] - lmm_df[rating_var].mean()
+                        )
             
             # Create dummy coding for condition (onTask = 0, offTask = 1)
             lmm_df["condition_code"] = (
                 lmm_df["condition"] == "offTask"
             ).astype(int)
             
-            # Run LMM with configurable formula and subject as random effect
+            # Create nested grouping variable for task within subject
+            lmm_df["subject_task"] = lmm_df["subject"].astype(str) + "_" + lmm_df["task"].astype(str)
+            
+            # Get random effects configuration
+            use_nested_re = cfg.get("lmm_analysis", {}).get("use_nested_random_effects", False)
+            re_groups_param = None
+            
+            if use_nested_re:
+                # Use nested random effects: task within subject
+                # Note: statsmodels mixedlm doesn't support true nested effects like lme4's (1|subject/task)
+                # Instead, we use subject_task as groups which captures the nesting implicitly
+                re_groups_param = lmm_df["subject_task"]
+            else:
+                # Use only subject-level random effects (ignoring task/probe nesting)
+                re_groups_param = lmm_df["subject"]
+            
+            # Run LMM with configurable formula and random effects
             model = mixedlm(
                 formula,
                 lmm_df,
-                groups=lmm_df["subject"],
+                groups=re_groups_param,
             )
             
             # Fit model with warning suppression for common convergence issues
@@ -686,7 +772,12 @@ def run_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
             on_mean = lmm_df[lmm_df["condition"] == "onTask"]["amplitude"].mean()
             off_mean = lmm_df[lmm_df["condition"] == "offTask"]["amplitude"].mean()
             
-            results.append({
+            # Extract model fit statistics
+            converged = result.converged
+            llf = result.llf  # Log-likelihood
+            
+            # Build result dictionary
+            result_dict = {
                 "roi": roi,
                 "window": window,
                 "window_start": group_df["window_start"].iloc[0],
@@ -696,6 +787,7 @@ def run_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
                 "n_observations": len(lmm_df),
                 "on_task_mean": on_mean,
                 "off_task_mean": off_mean,
+                # Main effect (condition_code)
                 "difference": coef,  # off-task - on-task
                 "std_error": se,
                 "t_value": t_val,
@@ -704,8 +796,11 @@ def run_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
                 "ci_lower": ci_lower,
                 "ci_upper": ci_upper,
                 "cohens_d": cohens_d,
+                # Model fit statistics
                 "aic": result.aic,
                 "bic": result.bic,
+                "llf": llf,
+                "converged": converged,
                 # Baseline stats
                 "baseline_coef": base_coef,
                 "baseline_se": base_se,
@@ -713,7 +808,24 @@ def run_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
                 "baseline_p_value": base_p,
                 "baseline_ci_lower": base_ci_low,
                 "baseline_ci_upper": base_ci_up,
-            })
+            }
+            
+            # Add statistics for any additional predictors (ratings, etc.)
+            # This captures p-values for confidence, valence, etc. if in formula
+            for param_name in result.params.index:
+                if param_name not in ['Intercept', 'condition_code', 'baseline_centered', 
+                                      'baseline', 'Group Var']:
+                    # Store coefficient, SE, t, and p for this predictor
+                    result_dict[f"{param_name}_coef"] = result.params.get(param_name, np.nan)
+                    result_dict[f"{param_name}_se"] = result.bse.get(param_name, np.nan)
+                    result_dict[f"{param_name}_t"] = result.tvalues.get(param_name, np.nan)
+                    result_dict[f"{param_name}_p"] = result.pvalues.get(param_name, np.nan)
+                    if param_name in result.conf_int().index:
+                        ci = result.conf_int().loc[param_name]
+                        result_dict[f"{param_name}_ci_lower"] = ci[0]
+                        result_dict[f"{param_name}_ci_upper"] = ci[1]
+            
+            results.append(result_dict)
             
         except Exception as e:
             print(f"    [ERROR] LMM failed: {e}")
@@ -799,15 +911,17 @@ def collect_temporal_probe_data(cfg: Dict, time_step: float, window_width: float
                     # Load all probes for this ROI-condition
                     probe_curves = []
                     probe_info = []
+                    probe_ratings = []
                     
                     for path in paths:
                         try:
-                            times, roi_avg = _load_and_roi_average(path, picks)
+                            times, roi_avg, ratings = _load_and_roi_average(path, picks)
                             probe_curves.append((times, roi_avg))
                             
                             # Extract probe information
                             _, probe_num, _ = _extract_probe_info(path)
                             probe_info.append(probe_num)
+                            probe_ratings.append(ratings)
                         except Exception as e:
                             print(f"[WARN] Failed to load {path}: {e}")
                             continue
@@ -823,6 +937,7 @@ def collect_temporal_probe_data(cfg: Dict, time_step: float, window_width: float
                         # Get the original probe number (accounting for outlier removal)
                         original_idx = [j for j in range(len(probe_curves)) if j not in outlier_indices][i]
                         probe_num = probe_info[original_idx]
+                        ratings = probe_ratings[original_idx]
                         
                         # Process each time point
                         for time_point in time_points:
@@ -843,7 +958,8 @@ def collect_temporal_probe_data(cfg: Dict, time_step: float, window_width: float
                                     print(f"[WARN] Skipping probe {probe_num} due to invalid baseline computation")
                                     continue
                                 
-                                all_data.append({
+                                # Collect temporal data point with ratings
+                                data_point = {
                                     "subject": subject,
                                     "task": task,
                                     "probe": int(probe_num),
@@ -852,7 +968,14 @@ def collect_temporal_probe_data(cfg: Dict, time_step: float, window_width: float
                                     "time_point": float(time_point),
                                     "amplitude": amplitude,
                                     "baseline": baseline_value,
-                                })
+                                }
+                                
+                                # Add ratings if available
+                                for rating_name in ['onoff', 'selfother', 'valence', 'time', 'confidence', 'average']:
+                                    if rating_name in ratings:
+                                        data_point[rating_name] = ratings[rating_name]
+                                
+                                all_data.append(data_point)
     
     df = pd.DataFrame(all_data)
     if df.empty:
@@ -920,20 +1043,34 @@ def run_temporal_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
                 raise ValueError(f"Found {missing_baseline} missing baseline values for {roi}-t{time_point:.3f}. All baseline values must be computed.")
             
             # Center baseline to improve interpretability and convergence
+            # Note: Both 'baseline' (raw) and 'baseline_centered' are available
             lmm_df["baseline_centered"] = (
                 lmm_df["baseline"] - lmm_df["baseline"].mean()
             )
+            
+            # Center thought probe ratings if present
+            # Note: Both raw and centered versions available for formula
+            rating_vars = ['onoff', 'selfother', 'valence', 'time', 'confidence', 'average']
+            for rating_var in rating_vars:
+                if rating_var in lmm_df.columns:
+                    # Only center if not all NaN
+                    if not lmm_df[rating_var].isna().all():
+                        lmm_df[f"{rating_var}_centered"] = (
+                            lmm_df[rating_var] - lmm_df[rating_var].mean()
+                        )
             
             # Create dummy coding for condition (onTask = 0, offTask = 1)
             lmm_df["condition_code"] = (
                 lmm_df["condition"] == "offTask"
             ).astype(int)
-
-            # Run LMM with configurable formula and subject as random effect
+            
+            # Run LMM with subject as random effect: (1|subject)
+            # Note: Task variable is available in dataframe if you want to
+            # include it as fixed effect in formula (e.g., + C(task))
             model = mixedlm(
                 formula,
                 lmm_df,
-                groups=lmm_df["subject"],
+                groups=lmm_df["subject"],  # Subject random intercept
             )
             
             # Fit model with warning suppression for common convergence issues
@@ -967,20 +1104,83 @@ def run_temporal_lmm_analysis(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
             else:
                 coef = se = t_val = p_val = ci_lower = ci_upper = np.nan
             
-            results.append({
+            # Baseline effect statistics
+            base_coef = result.params.get("baseline_centered", np.nan)
+            base_se = result.bse.get("baseline_centered", np.nan)
+            base_t = result.tvalues.get("baseline_centered", np.nan)
+            base_p = result.pvalues.get("baseline_centered", np.nan)
+            if "baseline_centered" in result.params:
+                base_ci_low, base_ci_up = result.conf_int().loc["baseline_centered"]
+            else:
+                base_ci_low, base_ci_up = (np.nan, np.nan)
+            
+            # Compute effect size (Cohen's d approximation)
+            pooled_std = np.sqrt(
+                (
+                    lmm_df[lmm_df["condition"] == "onTask"]["amplitude"].var()
+                    + lmm_df[lmm_df["condition"] == "offTask"]["amplitude"].var()
+                )
+                / 2
+            )
+            cohens_d = coef / pooled_std if pooled_std > 0 else np.nan
+            
+            # Compute group means for interpretation
+            on_mean = lmm_df[lmm_df["condition"] == "onTask"]["amplitude"].mean()
+            off_mean = lmm_df[lmm_df["condition"] == "offTask"]["amplitude"].mean()
+            
+            # Extract model fit statistics
+            converged = result.converged
+            llf = result.llf
+            
+            # Build result dictionary
+            result_dict = {
                 "roi": roi,
                 "time_point": time_point,
                 "formula": formula,
                 "n_subjects": n_subjects,
                 "n_observations": len(lmm_df),
+                "on_task_mean": on_mean,
+                "off_task_mean": off_mean,
+                # Main effect (condition_code)
                 "beta": coef,  # off-task - on-task effect
+                "difference": coef,  # alias for compatibility
                 "std_error": se,
                 "t_value": t_val,
                 "p_value": p_val,
                 "significant": p_val < alpha,
                 "ci_lower": ci_lower,
                 "ci_upper": ci_upper,
-            })
+                "cohens_d": cohens_d,
+                # Model fit statistics
+                "aic": result.aic,
+                "bic": result.bic,
+                "llf": llf,
+                "converged": converged,
+                # Baseline stats
+                "baseline_coef": base_coef,
+                "baseline_se": base_se,
+                "baseline_t_value": base_t,
+                "baseline_p_value": base_p,
+                "baseline_ci_lower": base_ci_low,
+                "baseline_ci_upper": base_ci_up,
+            }
+            
+            # Add statistics for any additional predictors (ratings, etc.)
+            # This captures all coefficients, p-values, etc. for all predictors in the formula
+            for param_name in result.params.index:
+                if param_name not in ['Intercept', 'condition_code', 'baseline_centered',
+                                      'baseline', 'Group Var']:
+                    # Store coefficient, SE, t, and p for this predictor
+                    result_dict[f"{param_name}_coef"] = result.params.get(param_name, np.nan)
+                    result_dict[f"{param_name}_se"] = result.bse.get(param_name, np.nan)
+                    result_dict[f"{param_name}_t"] = result.tvalues.get(param_name, np.nan)
+                    result_dict[f"{param_name}_p"] = result.pvalues.get(param_name, np.nan)
+                    if param_name in result.conf_int().index:
+                        ci = result.conf_int().loc[param_name]
+                        result_dict[f"{param_name}_ci_lower"] = ci[0]
+                        result_dict[f"{param_name}_ci_upper"] = ci[1]
+            
+            results.append(result_dict)
             
         except Exception as e:
             # Silently continue for convergence issues in temporal analysis

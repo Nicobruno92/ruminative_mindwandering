@@ -3,6 +3,8 @@ Spatial cluster permutation testing module.
 
 This module implements spatial cluster-based permutation testing using MNE's
 standard functions for finding channel adjacency and performing cluster tests.
+Updated to work with aggregated probe marker data from the Junifer pipeline,
+specifically analyzing continuous onoff values (mind-wandering levels).
 """
 
 import numpy as np
@@ -11,9 +13,12 @@ import mne
 from typing import Tuple, List
 
 
-def get_channel_adjacency(montage_path: str, ch_names: List[str]) -> Tuple[np.ndarray, List[str]]:
+def get_channel_adjacency(montage_path: str, ch_names: List[str]) -> Tuple[np.ndarray, List[str], List[int]]:
     """
-    Get spatial adjacency matrix for EEG channels using MNE.
+    Get spatial adjacency matrix for EEG channels using the actual montage file.
+    
+    This function ensures that the adjacency matrix is calculated based on the actual
+    channel positions defined in the CACS-64_REF.bvef montage file.
     
     Parameters
     ----------
@@ -25,29 +30,60 @@ def get_channel_adjacency(montage_path: str, ch_names: List[str]) -> Tuple[np.nd
     Returns
     -------
     adjacency : np.ndarray
-        Sparse adjacency matrix
+        Sparse adjacency matrix based on actual montage positions
     ch_names : List[str]
-        Channel names (may be reordered)
+        Channel names that were used (subset of input that exists in montage)
+    channel_indices : List[int]
+        Indices of the channels in the original ch_names list
         
     Notes
     -----
-    Uses mne.channels.find_ch_adjacency() for standard spatial adjacency.
+    Uses mne.channels.find_ch_adjacency() with the actual montage file.
+    Ensures adjacency is calculated from real channel positions.
     """
-    # Create info object with channel positions
-    info = mne.create_info(ch_names=ch_names, sfreq=250, ch_types='eeg')
-    
-    # Load montage
+    # Load montage first to check available channels
     if montage_path.endswith('.bvef'):
         montage = mne.channels.read_custom_montage(montage_path)
+        print(f"Loaded custom montage: {montage_path}")
     else:
         montage = mne.channels.make_standard_montage(montage_path)
+        print(f"Loaded standard montage: {montage_path}")
     
-    info.set_montage(montage)
+    # Check which channels from our data are available in the montage
+    montage_ch_names = set(montage.ch_names)
+    data_ch_names = set(ch_names)
+    common_ch_names = sorted(list(data_ch_names & montage_ch_names))
     
-    # Find channel adjacency
+    if len(common_ch_names) == 0:
+        raise ValueError(f"No common channels between data ({ch_names}) and montage ({montage.ch_names})")
+    
+    print(f"Found {len(common_ch_names)} common channels: {common_ch_names}")
+    print(f"Data has {len(ch_names)} channels, montage has {len(montage.ch_names)} channels")
+    
+    # Create info object with only the channels that exist in the montage
+    info = mne.create_info(ch_names=common_ch_names, sfreq=250, ch_types='eeg')
+    
+    # Set montage to info object - this should work now since we only use common channels
+    info.set_montage(montage, on_missing='ignore')
+    
+    # Validate montage was set correctly
+    if info.get_montage() is None:
+        raise ValueError(f"Failed to set montage from {montage_path}")
+    
+    # Find channel adjacency based on actual montage positions
     adjacency, ch_names_ordered = mne.channels.find_ch_adjacency(info, ch_type='eeg')
     
-    return adjacency, ch_names_ordered
+    # Validate adjacency matrix
+    if adjacency.shape[0] != len(ch_names_ordered):
+        raise ValueError(f"Adjacency matrix shape {adjacency.shape} doesn't match channel count {len(ch_names_ordered)}")
+    
+    print(f"Adjacency matrix computed: {adjacency.shape[0]}x{adjacency.shape[1]} channels")
+    print(f"Adjacent connections: {adjacency.nnz}")
+    
+    # Create mapping from common channels back to original channel indices
+    channel_indices = [ch_names.index(ch) for ch in common_ch_names]
+    
+    return adjacency, common_ch_names, channel_indices
 
 
 def spatial_cluster_permutation_test(
@@ -108,23 +144,21 @@ def spatial_cluster_permutation_test(
         
     Notes
     -----
-    Uses mne.stats.permutation_cluster_test for standard cluster testing.
+    Implements spatial cluster permutation testing for LMM results.
+    Permutes predictor values within subjects to preserve subject-level structure.
     Cluster statistic is the sum of t-values within each cluster.
+    Works with aggregated probe marker data (onoff, valence, confidence, etc.).
     """
-    from .lmm_model import run_lmm_per_channel
+    from lmm_model import run_lmm_per_channel
     
-    # Prepare data for permutation test
-    # We need to create a function that computes t-stats for permuted labels
-    def stat_fun(X, y):
-        """
-        Statistical function for permutation test.
-        X: data (n_observations, n_channels)
-        y: not used (compatibility with MNE)
-        """
-        # For each permutation, we'll permute the predictor variable
-        # This is handled internally by running LMM with permuted data
-        # For now, return identity since we'll handle permutations manually
-        return X
+    # Validate data for cluster testing
+    if not validate_cluster_data(observed_t_stats, df_behavioral, predictor_of_interest):
+        raise ValueError("Data validation failed for cluster testing")
+    
+    # Validate adjacency matrix
+    n_channels = len(observed_t_stats)
+    if adjacency.shape[0] != n_channels or adjacency.shape[1] != n_channels:
+        raise ValueError(f"Adjacency matrix shape {adjacency.shape} does not match number of channels {n_channels}")
     
     # Manual implementation following MNE's cluster test logic
     np.random.seed(seed)
@@ -135,10 +169,14 @@ def spatial_cluster_permutation_test(
     )
     
     # Generate null distribution through permutations
+    print(f"Running {n_permutations} permutations for cluster testing...")
     max_cluster_stats_null = []
     
     for perm_idx in range(n_permutations):
-        # Permute the predictor of interest within subjects
+        if perm_idx % 100 == 0 and perm_idx > 0:
+            print(f"  Completed {perm_idx}/{n_permutations} permutations")
+        
+        # Permute the predictor of interest within subjects (deterministic)
         df_perm = _permute_within_subjects(df_behavioral, predictor_of_interest, seed + perm_idx)
         
         # Compute t-statistics for permuted data
@@ -157,19 +195,21 @@ def spatial_cluster_permutation_test(
             t_stats_perm, adjacency, threshold, tail
         )
         
-        # Store maximum cluster statistic
+        # Store maximum cluster statistic (deterministic)
         if len(cluster_stats_perm) > 0:
-            max_cluster_stats_null.append(np.max(np.abs(cluster_stats_perm)))
+            max_cluster_stats_null.append(float(np.max(np.abs(cluster_stats_perm))))
         else:
             max_cluster_stats_null.append(0.0)
     
     max_cluster_stats_null = np.array(max_cluster_stats_null)
     
-    # Compute p-values for observed clusters
+    # Compute p-values for observed clusters (deterministic)
     cluster_p_values = np.zeros(len(observed_cluster_stats))
     for i, stat in enumerate(observed_cluster_stats):
         # P-value = proportion of permutations where max_stat >= observed_stat
-        cluster_p_values[i] = np.mean(max_cluster_stats_null >= np.abs(stat))
+        cluster_p_values[i] = float(np.mean(max_cluster_stats_null >= np.abs(stat)))
+    
+    print(f"Cluster testing completed. Found {len(observed_clusters)} clusters.")
     
     return observed_clusters, observed_cluster_stats, cluster_p_values
 
@@ -258,14 +298,19 @@ def _permute_within_subjects(
     """
     Permute predictor values within each subject.
     
+    This function preserves the subject-level structure by permuting the predictor
+    variable within each subject separately. This is important for mixed-effects
+    models where we want to break the association between the predictor and outcome
+    while preserving the within-subject correlation structure.
+    
     Parameters
     ----------
     df : pd.DataFrame
-        Behavioral data
+        Behavioral data with aggregated probe marker information
     predictor : str
-        Name of predictor to permute
+        Name of predictor to permute (e.g., 'onoff', 'valence')
     seed : int
-        Random seed
+        Random seed for reproducibility
         
     Returns
     -------
@@ -275,14 +320,79 @@ def _permute_within_subjects(
     df_perm = df.copy()
     np.random.seed(seed)
     
-    # Permute within each subject
+    # Permute within each subject to preserve subject-level structure
     for subject in df['subject'].unique():
         subject_mask = df['subject'] == subject
+        subject_indices = df.loc[subject_mask].index
+        
+        # Get current values for this subject
         subject_values = df.loc[subject_mask, predictor].values
+        
+        # Permute the values
         permuted_values = np.random.permutation(subject_values)
-        df_perm.loc[subject_mask, predictor] = permuted_values
+        
+        # Assign permuted values back
+        df_perm.loc[subject_indices, predictor] = permuted_values
     
     return df_perm
+
+
+def validate_cluster_data(
+    observed_t_stats: np.ndarray,
+    df_behavioral: pd.DataFrame,
+    predictor_of_interest: str
+) -> bool:
+    """
+    Validate data for cluster permutation testing.
+    
+    Parameters
+    ----------
+    observed_t_stats : np.ndarray
+        Observed t-statistics from LMM
+    df_behavioral : pd.DataFrame
+        Behavioral data from aggregated probe markers
+    predictor_of_interest : str
+        Name of predictor variable
+        
+    Returns
+    -------
+    bool
+        True if data is valid for cluster testing
+    """
+    # Check if predictor exists
+    if predictor_of_interest not in df_behavioral.columns:
+        print(f"Predictor '{predictor_of_interest}' not found in data")
+        return False
+    
+    # Check for sufficient variation in predictor
+    unique_vals = df_behavioral[predictor_of_interest].unique()
+    if len(unique_vals) < 2:
+        print(f"Predictor '{predictor_of_interest}' has insufficient variation")
+        return False
+    
+    # Check for sufficient subjects
+    n_subjects = df_behavioral['subject'].nunique()
+    if n_subjects < 3:
+        print(f"Need at least 3 subjects for cluster testing, found {n_subjects}")
+        return False
+    
+    # Check t-statistics
+    if np.all(np.isnan(observed_t_stats)):
+        print("All t-statistics are NaN")
+        return False
+    
+    # Check for reasonable t-statistics range
+    valid_t_stats = observed_t_stats[~np.isnan(observed_t_stats)]
+    if len(valid_t_stats) == 0:
+        print("No valid t-statistics found")
+        return False
+    
+    t_range = np.max(np.abs(valid_t_stats))
+    if t_range < 0.1:
+        print(f"T-statistics are very small (max |t| = {t_range:.3f})")
+        return False
+    
+    return True
 
 
 def summarize_clusters(

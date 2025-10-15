@@ -35,7 +35,21 @@ notch_freqs: [50, 100, 150]  # line noise removal frequencies
 avg_ref_projector: true  # apply average reference
 
 # =============================================================================
-# 3. BAD CHANNEL DETECTION (PYPREP)
+# 3. ARTIFACT SUBSPACE RECONSTRUCTION (ASR)
+# =============================================================================
+# Optional ASR step applied before PyPREP bad channel detection
+# Helps reduce high-amplitude artifacts in the data
+asr:
+  apply: false              # set true to enable ASR
+  cutoff: 5.0              # SD cutoff for artifact detection (lower=stricter)
+  blocksize: null          # block size in samples (null=auto: 0.5s worth)
+  win_len: 0.5             # calibration window length in seconds
+  win_overlap: 0.66        # calibration window overlap fraction
+  max_dropout_fraction: 0.1  # max fraction of channels to drop per window
+  method: euclid           # ASR method: 'euclid' or 'riemann'
+
+# =============================================================================
+# 4. BAD CHANNEL DETECTION (PYPREP)
 # =============================================================================
 pyprep:
   ransac: true      # use RANSAC for bad channel detection
@@ -62,7 +76,7 @@ pyprep_pre_ica:
   muscle_threshold: 0.7
 
 # =============================================================================
-# 4. FILTERING PARAMETERS
+# 5. FILTERING PARAMETERS
 # =============================================================================
 filters:
   ica: {l_freq: 1.5, h_freq: 40}      # Filter for ICA fitting
@@ -70,7 +84,7 @@ filters:
   state: {l_freq: 0.1, h_freq: 80}    # Filter for state analysis
 
 # =============================================================================
-# 5. ICA PARAMETERS
+# 6. ICA PARAMETERS
 # =============================================================================
 ica:
   method: picard        # Single deterministic method: 'picard', 'infomax', or 'fastica'
@@ -78,13 +92,30 @@ ica:
   max_iter: 1000        # Explicit iteration limit for reproducibility
   random_state: 42      # Random seed for reproducibility
 
-# ICA component classification and exclusion
-iclabel_prob_min: 0.95     # Minimum probability threshold for ICLabel (stricter: require higher confidence)
-muscle_threshold: 0.95        # Threshold for muscle/ICM component detection (stricter to reduce false positives)
-max_ica_excluded_ratio: 0.3  # Maximum ratio of components to exclude
+# ICA component classification and exclusion (variance-based system)
+ica_selection:
+  # Base probability thresholds (adjusted upward by component variance)
+  iclabel_prob_min: 0.80           # Base minimum probability for ICLabel artifacts
+  muscle_threshold: 0.70           # Base threshold for muscle/ICM detection
 
+  # Pattern matching bonus (added to ICLabel score if detected by EOG/muscle)
+  pattern_bonus: 0.10              # +10% score bonus for pattern matching confirmation
+                                   # Makes detection more confident when multiple methods agree
+  
+  # Variance-based penalty system
+  variance_penalty_factor: 0.5     # Threshold increase per unit of variance
+                                   # Example: 10% variance → +0.05 to threshold
+
+  # Maximum threshold cap (prevents impossible thresholds for high-variance ICs)
+  max_threshold_cap: 0.98          # Adjusted threshold cannot exceed this value
+  
+  # Maximum variance budget (absolute excluded variance fraction of total)
+  max_excluded_variance_ratio: 0.50  # Fraction of total variance allowed to be excluded
+                                     # Example: 0.40 means up to 40% of total variance may be excluded
+
+  
 # =============================================================================
-# 6. EPOCHING PARAMETERS
+# 7. EPOCHING PARAMETERS
 # =============================================================================
 # Evoked epochs (event-related)
 epochs_evoked:
@@ -111,7 +142,7 @@ resp_pad:
 use_csd: false        # Compute current source density
 
 # =============================================================================
-# 7. ARTIFACT REJECTION (AUTOREJECT)
+# 8. ARTIFACT REJECTION (AUTOREJECT)
 # =============================================================================
 autoreject:
   cv: 10           # Cross-validation folds
@@ -126,7 +157,7 @@ autoreject:
 reject_threshold_uv: 150  # Manual rejection threshold (microvolts)
 
 # =============================================================================
-# 8. THOUGHT PROBE ANALYSIS PARAMETERS
+# 9. THOUGHT PROBE ANALYSIS PARAMETERS
 # =============================================================================
 # Thresholds for binarizing thought probe dimensions
 thought_thresholds:
@@ -165,7 +196,7 @@ pass_criteria:
     "max_bad_channels_ratio",
     "max_bad_epochs_ratio",
     "max_annot_dropped_epochs_ratio",
-    "max_ica_excluded_ratio",
+    "variance_budget_exceeded",  # New flag: ICA variance budget was exceeded
     "ocular_ic_required"
   ]
   require_all_flags_absent: false
