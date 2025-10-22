@@ -1,15 +1,19 @@
 #!/bin/bash
-#SBATCH --job-name=lmm_cluster_pipeline
+#SBATCH --job-name=lmm_marker_array
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=24:00:00
-#SBATCH --output=logs/lmm_pipeline_%j.out
-#SBATCH --error=logs/lmm_pipeline_%j.err
+#SBATCH --output=logs/lmm_marker_%A_%a.out
+#SBATCH --error=logs/lmm_marker_%A_%a.err
 
-# LMM-Based Spatial Cluster Permutation Pipeline
-# SLURM script for running the pipeline on the cluster (sequential processing)
-# Usage: sbatch Statistics/run_lmm_pipeline.sh
-# Note: For parallel processing, use submit_parallel_markers.sh instead
+# LMM-Based Spatial Cluster Permutation Pipeline - SLURM Array Job
+# This script parallelizes marker processing across SLURM array tasks
+# Each array task processes one marker independently
+#
+# Usage:
+#   1. Configure markers in Statistics/config.yaml (set project.markers)
+#   2. Run: sbatch Statistics/submit_marker_array.sh
+#   3. The script will auto-detect the number of markers and submit array jobs
 
 # Set threading environment variables VERY early to prevent any library conflicts
 export OMP_NUM_THREADS=1
@@ -66,19 +70,14 @@ mkdir -p ${RESULTS_DIR}
 # Get current timestamp
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-# Set log file names
-LOG_FILE="${LOG_DIR}/lmm_pipeline_${TIMESTAMP}.log"
-ERROR_FILE="${LOG_DIR}/lmm_pipeline_${TIMESTAMP}.err"
-
 echo "=========================================="
-echo "LMM-Based Spatial Cluster Permutation Pipeline"
+echo "LMM Marker Array Job"
 echo "=========================================="
-echo "Job ID: ${SLURM_JOB_ID}"
+echo "Job ID: ${SLURM_ARRAY_JOB_ID}"
+echo "Array Task ID: ${SLURM_ARRAY_TASK_ID}"
 echo "Start time: $(date)"
 echo "Working directory: $(pwd)"
 echo "Config file: ${CONFIG_FILE}"
-echo "Mode: Sequential (all markers from config)"
-echo "Log file: ${LOG_FILE}"
 echo "=========================================="
 
 # Check if config file exists
@@ -93,46 +92,27 @@ if [ ! -d "${SCRIPT_DIR}" ]; then
     exit 1
 fi
 
-# Run the pipeline with error handling
-echo "Starting pipeline at $(date)" | tee ${LOG_FILE}
-echo "Processing all markers configured in ${CONFIG_FILE}" | tee -a ${LOG_FILE}
+# The marker index is provided by SLURM_ARRAY_TASK_ID
+MARKER_INDEX=${SLURM_ARRAY_TASK_ID}
 
-if srun --cpu-bind=none --ntasks=1 python ${SCRIPT_DIR}/run_pipeline.py --config ${CONFIG_FILE} 2>&1 | tee -a ${LOG_FILE}; then
-    echo "Pipeline completed successfully at $(date)" | tee -a ${LOG_FILE}
-    
-    # Check if results were created
-    if [ -d "${RESULTS_DIR}" ] && [ "$(ls -A ${RESULTS_DIR})" ]; then
-        echo "Results found in ${RESULTS_DIR}:" | tee -a ${LOG_FILE}
-        ls -la ${RESULTS_DIR} | tee -a ${LOG_FILE}
-        
-        # Count result files
-        PKL_COUNT=$(find ${RESULTS_DIR} -name "*.pkl" | wc -l)
-        CSV_COUNT=$(find ${RESULTS_DIR} -name "*.csv" | wc -l)
-        PNG_COUNT=$(find ${RESULTS_DIR} -name "*.png" | wc -l)
-        
-        echo "Summary of generated files:" | tee -a ${LOG_FILE}
-        echo "  - Pickle files: ${PKL_COUNT}" | tee -a ${LOG_FILE}
-        echo "  - CSV files: ${CSV_COUNT}" | tee -a ${LOG_FILE}
-        echo "  - PNG files: ${PNG_COUNT}" | tee -a ${LOG_FILE}
-        
-        # Show pipeline summary if it exists
-        if [ -f "${RESULTS_DIR}/pipeline_summary.csv" ]; then
-            echo "Pipeline summary:" | tee -a ${LOG_FILE}
-            head -10 ${RESULTS_DIR}/pipeline_summary.csv | tee -a ${LOG_FILE}
-        fi
-        
-    else
-        echo "WARNING: No results found in ${RESULTS_DIR}" | tee -a ${LOG_FILE}
-    fi
-    
+echo "Processing marker index: ${MARKER_INDEX}"
+
+# Run the pipeline for this specific marker
+echo "Starting pipeline execution..."
+srun --cpu-bind=none --ntasks=1 python ${SCRIPT_DIR}/run_pipeline.py \
+    --config ${CONFIG_FILE} \
+    --marker-index ${MARKER_INDEX}
+
+EXIT_CODE=$?
+
+if [ ${EXIT_CODE} -eq 0 ]; then
+    echo "✓ Marker ${MARKER_INDEX} completed successfully at $(date)"
 else
-    echo "Pipeline failed at $(date)" | tee -a ${LOG_FILE}
-    echo "Check the error log for details." | tee -a ${LOG_FILE}
-    exit 1
+    echo "✗ Marker ${MARKER_INDEX} failed with exit code ${EXIT_CODE} at $(date)"
+    exit ${EXIT_CODE}
 fi
 
 echo "=========================================="
-echo "Job completed at $(date)"
-echo "Log file: ${LOG_FILE}"
+echo "Array task completed at $(date)"
 echo "Results directory: ${RESULTS_DIR}"
 echo "=========================================="

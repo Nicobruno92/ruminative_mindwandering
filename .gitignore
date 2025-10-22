@@ -169,4 +169,5 @@ results/nice_markers/
 
 results/
 
-results/
+# Test outputs
+Statistics/test_results/

@@ -1,0 +1,15 @@
+mkdir: cannot create directory 'logs': Permission denied
+Checking for existing h5_to_pkl jobs...
+No existing jobs found.
+
+==========================================
+Launching Parallel H5 to PKL Conversion
+==========================================
+Script: batch_convert_h5_to_pkl_parallel.sh
+Jobs: 167 array tasks (one per element)
+Parallelism: Max 20 simultaneous jobs
+Time per job: 1 hour
+Memory per job: 8GB
+
+sbatch: error: Unable to open file batch_convert_h5_to_pkl_parallel.sh
+❌ Failed to submit job array

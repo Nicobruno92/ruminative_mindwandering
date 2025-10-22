@@ -8,7 +8,6 @@ and functionality.
 import numpy as np
 import pandas as pd
 import pickle
-import tempfile
 import shutil
 from pathlib import Path
 
@@ -115,14 +114,15 @@ def create_synthetic_probe_data(
             for probe_num in range(1, n_probes + 1):
                 # Create realistic behavioral variables for this probe
                 # onoff: continuous mind-wandering scale (0-100) - main predictor
-                # Use uniform distribution for better LMM convergence
-                onoff = np.random.uniform(0, 100)
+                # Use normal distribution centered at 50 for better LMM convergence
+                # This creates more realistic data with natural variation
+                onoff = np.clip(np.random.normal(50, 25), 0, 100)
                 
                 # valence: emotional valence (0-100)
-                valence = np.random.uniform(0, 100)
+                valence = np.clip(np.random.normal(50, 20), 0, 100)
                 
                 # confidence: confidence in rating (0-100)
-                confidence = np.random.uniform(0, 100)
+                confidence = np.clip(np.random.normal(60, 15), 0, 100)
                 
                 # Create probe data for each channel and marker
                 for ch_idx, channel in enumerate(channels):
@@ -130,7 +130,11 @@ def create_synthetic_probe_data(
                     base_power = np.random.normal(0, 1)
                     
                     # Add subject-specific random effect (realistic individual differences)
-                    subject_effect = np.random.normal(0, 0.5)
+                    # Use subject index for consistent subject effects
+                    subject_idx = subjects.index(subject_id)
+                    np.random.seed(seed + subject_idx)  # Consistent per subject
+                    subject_effect = np.random.normal(0, 0.8)  # Stronger subject effects
+                    np.random.seed(seed + subject_idx * 1000 + probe_num)  # Reset for trial variation
                     
                     # Add realistic onoff effects in different brain regions
                     # Frontal channels: mind-wandering effects (stronger)
@@ -184,9 +188,19 @@ def test_pipeline():
     print("="*80)
     print()
     
-    # Create temporary directory for test
-    temp_dir = tempfile.mkdtemp()
-    print(f"Temporary directory: {temp_dir}")
+    # Setup paths relative to script location
+    script_dir = Path(__file__).parent.absolute()
+    from datetime import datetime
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    test_results_base = script_dir / "test_results"
+    
+    # Remove old test results if they exist
+    if test_results_base.exists():
+        shutil.rmtree(test_results_base)
+    
+    temp_dir = test_results_base / f"test_{timestamp}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Test directory: {temp_dir.absolute()}")
     
     try:
         # Step 1: Create synthetic data in Junifer format
@@ -195,10 +209,10 @@ def test_pipeline():
         print("-"*80)
         
         df_all = create_synthetic_probe_data(
-            n_subjects=8,  # Fewer subjects for better convergence
-            n_probes_per_subject=20,  # Fewer probes for faster testing
-            n_channels=20,  # Use standard_1020 compatible channels
-            effect_size=1.5,  # Stronger effect size for better detection
+            n_subjects=20,  # Match real data: 42 subjects
+            n_probes_per_subject=30,  # Match real data: ~15 probes per subject
+            n_channels=64,  # Match real data: 66 channels (full CACS-64)
+            effect_size=0.6,  # Moderate effect size for realistic testing
             seed=42
         )
         
@@ -230,47 +244,17 @@ def test_pipeline():
         
         import yaml
         
+        # Define test marker early so we can use it in config
+        test_marker = 'EEG_psd_bands_spectralpower_alpha'
+        
         # Load existing config
-        config_path = Path("Statistics/config.yaml")
-        if config_path.exists():
-            with open(config_path, 'r') as f:
-                test_config = yaml.safe_load(f)
-            print(f"✓ Loaded existing config from {config_path}")
-        else:
-            print("✗ config.yaml not found, using default test configuration")
-            test_config = {
-                'project': {
-                    'features_root': str(features_dir),
-                    'output_path': str(Path(temp_dir) / 'results'),
-                    'montage_path': 'standard_1020',
-                    'subjects': None,
-                    'tasks': None,
-                    'marker_types': ['state']
-                },
-                'lmm': {
-                    'formula': 'power ~ onoff + (1|subject)',
-                    'predictor_of_interest': 'onoff',
-                    'method': 'lbfgs',  # Robust method for convergence
-                    'maxiter': 1000,  # More iterations for better convergence
-                    'random_state': 42
-                },
-                'clustering': {
-                    'threshold': 2.0,
-                    'n_permutations': 100,
-                    'alpha': 0.05,
-                    'tail': 0,
-                    'seed': 42,
-                    'n_jobs': 1
-                },
-                'output': {
-                    'save_pickle': True,
-                    'save_csv': True,
-                    'save_figures': True,
-                    'fig_format': 'png',
-                    'fig_dpi': 150,
-                    'overwrite': True
-                }
-            }
+        config_path = script_dir / "config.yaml"
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+        
+        with open(config_path, 'r') as f:
+            test_config = yaml.safe_load(f)
+        print(f"✓ Loaded existing config from {config_path}")
         
         # Modify config for testing
         test_config['project']['features_root'] = str(features_dir)
@@ -279,7 +263,12 @@ def test_pipeline():
         test_config['project']['subjects'] = None  # Test all subjects
         test_config['project']['tasks'] = None  # Test all tasks
         test_config['project']['marker_types'] = ['state']  # Only test state markers
-        test_config['lmm']['method'] = 'lbfgs'  # Use more robust method for convergence
+        test_config['project']['markers'] = [test_marker]  # Only test one marker
+        test_config['project']['qa_summary_path'] = None  # Disable QA filtering for test
+        test_config['project']['pca_results_path'] = None  # Disable PCA data for test
+        test_config['lmm']['method'] = 'powell'  # More robust method for convergence
+        test_config['lmm']['maxiter'] = 2000  # More iterations for better convergence
+        test_config['lmm']['predictor_of_interest'] = 'onoff'  # Explicitly set predictor for testing
         test_config['clustering']['n_permutations'] = 100  # Small number for testing
         test_config['clustering']['n_jobs'] = 1  # Single-threaded for testing
         
@@ -294,38 +283,56 @@ def test_pipeline():
         print("Step 3: Testing individual modules")
         print("-"*80)
         
+        # Add Statistics directory to path for imports
+        import sys
+        if str(script_dir) not in sys.path:
+            sys.path.insert(0, str(script_dir))
+        
         # Test reader
         print("\nTesting reader module...")
         from reader import load_all_probe_data, prepare_data_for_lmm, validate_formula_variables
         
         # Load synthetic data
+        print("  Loading synthetic data files...")
         loaded_df = load_all_probe_data(str(features_dir), verbose=False)
         print(f"✓ Loaded {len(loaded_df)} rows of synthetic data")
         
-        # Test data preparation for a specific marker
-        test_marker = 'EEG_psd_bands_spectralpower_alpha'
+        # Test data preparation for the marker (defined earlier)
+        print(f"  Preparing data for marker: {test_marker}...")
+        print(f"    Data shape before preparation: {loaded_df.shape}")
+        print(f"    Unique subjects: {loaded_df['subject'].nunique()}")
+        print(f"    Unique channels: {loaded_df['channel'].nunique()}")
+        
         power_data, df_behavioral, channels = prepare_data_for_lmm(
             df=loaded_df,
             marker_name=test_marker,
             formula=test_config['lmm']['formula']
         )
         
+        print(f"  Validating formula variables...")
         validate_formula_variables(df_behavioral, test_config['lmm']['formula'])
         print(f"✓ Reader module working (power data: {power_data.shape}, channels: {len(channels)})")
         
         # Test LMM
         print("\nTesting LMM module...")
+        print(f"  Running LMM for {len(channels)} channels...")
+        print(f"  Method: {test_config['lmm']['method']}, Max iterations: {test_config['lmm']['maxiter']}")
         from lmm_model import run_lmm_per_channel
         
-        t_stats, p_values = run_lmm_per_channel(
+        t_stats, p_values, diagnostics = run_lmm_per_channel(
             power_data=power_data,
             df_behavioral=df_behavioral,
             formula=test_config['lmm']['formula'],
             predictor_of_interest=test_config['lmm']['predictor_of_interest'],
             method=test_config['lmm']['method'],
             maxiter=test_config['lmm']['maxiter'],
-            random_state=test_config['lmm']['random_state']
+            random_state=test_config['lmm']['random_state'],
+            return_diagnostics=True
         )
+        
+        # Print convergence diagnostics
+        print(f"  LMM Convergence: {diagnostics['n_converged']}/{len(channels)} channels converged")
+        print(f"  Convergence rate: {100*diagnostics['convergence_rate']:.1f}%")
         
         assert t_stats.shape == (len(channels),)
         assert p_values.shape == (len(channels),)
@@ -366,33 +373,62 @@ def test_pipeline():
         print("-"*80)
         
         # Import and run the pipeline
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent))
-        
         from run_pipeline import main
         
-        # Run pipeline with test configuration
-        main(config_path=str(test_config_path), run_all_markers=False, specific_markers=[test_marker])
+        # Run pipeline with test configuration (marker specified in config)
+        print(f"Running pipeline with config: {test_config_path}")
+        main(config_path=str(test_config_path), marker_index=None)
         
         # Step 5: Verify outputs
         print("\n" + "-"*80)
         print("Step 5: Verifying outputs")
         print("-"*80)
         
-        output_dir = Path(temp_dir) / 'results'
+        # Files are saved in: results/predictor_name/marker_type_marker_name/
+        predictor_name = test_config['lmm']['predictor_of_interest']
+        marker_type = 'state'
+        output_dir = Path(temp_dir) / 'results' / predictor_name / f'{marker_type}_{test_marker}'
+        
+        print(f"Looking for files in: {output_dir}")
         
         # Check for expected files (actual output names from pipeline)
         expected_files = [
-            f'results_state_{test_marker}.pkl',  # Actual filename from pipeline
-            f'cluster_summary_state_{test_marker}.csv',  # Actual filename from pipeline
-            f't_statistics_state_{test_marker}.csv',  # Actual filename from pipeline
-            f'results_{test_marker}_topomap.png',  # Actual filename from pipeline
-            'pipeline_summary.csv'
+            'results.pkl',
+            'cluster_summary.csv',
+            't_statistics.csv',
+            f'results_{test_marker}_topomap.png',
+            f'results_{test_marker}_cluster_details.png',
+            f'results_{test_marker}_t_distribution.png',
+        ]
+        
+        # Also check for summary files in parent directory
+        summary_files = [
+            ('pipeline_summary.csv', Path(temp_dir) / 'results' / predictor_name),
+            (f'summary_{marker_type}_markers.csv', Path(temp_dir) / 'results' / predictor_name),
+            (f'analysis_summary_{marker_type}.csv', Path(temp_dir) / 'results' / predictor_name),
         ]
         
         files_found = 0
         for fname in expected_files:
             fpath = output_dir / fname
+            if fpath.exists():
+                # Additional validation for image files
+                if fname.endswith('.png'):
+                    file_size = fpath.stat().st_size
+                    if file_size > 1000:  # At least 1KB for valid image
+                        print(f"✓ {fname} created ({file_size/1024:.1f} KB)")
+                        files_found += 1
+                    else:
+                        print(f"✗ {fname} exists but appears invalid (size: {file_size} bytes)")
+                else:
+                    print(f"✓ {fname} created")
+                    files_found += 1
+            else:
+                print(f"✗ {fname} missing")
+        
+        # Check summary files
+        for fname, fdir in summary_files:
+            fpath = fdir / fname
             if fpath.exists():
                 print(f"✓ {fname} created")
                 files_found += 1
@@ -400,7 +436,7 @@ def test_pipeline():
                 print(f"✗ {fname} missing")
         
         # Load results if available
-        results_file = output_dir / f'results_state_{test_marker}.pkl'
+        results_file = output_dir / 'results.pkl'
         if results_file.exists():
             with open(results_file, 'rb') as f:
                 results = pickle.load(f)
@@ -440,33 +476,37 @@ def test_pipeline():
                 print(f"    - Permutation count too low for testing")
         
         # Load summary if available
-        summary_file = output_dir / 'pipeline_summary.csv'
+        summary_file = Path(temp_dir) / 'results' / predictor_name / 'pipeline_summary.csv'
         if summary_file.exists():
             summary_df = pd.read_csv(summary_file)
-            print(f"\n✓ Pipeline summary loaded:")
+            print("\n✓ Pipeline summary loaded:")
             print(summary_df.to_string(index=False))
         
         print("\n" + "="*80)
-        if files_found >= 3:  # At least 3 out of 5 files
+        total_expected = len(expected_files) + len(summary_files)
+        if files_found >= total_expected - 1:  # Allow 1 missing file
             print("ALL TESTS PASSED!")
+            print(f"Successfully created {files_found}/{total_expected} expected output files")
         else:
-            print("SOME TESTS FAILED - Check output files")
+            print(f"SOME TESTS FAILED - Only {files_found}/{total_expected} files created")
         print("="*80)
-        print(f"\nTest results saved to: {output_dir}")
-        print("You can inspect the outputs to verify the pipeline is working correctly.")
+        
+        # Results are already in Statistics/test_results - no copying needed
+        print(f"\n✓ Test results saved to: {output_dir.absolute()}")
+        print(f"  View plots: open {output_dir}/*.png")
+        print(f"  Delete when done: rm -rf {temp_dir.parent}")
         
     except Exception as e:
         print(f"\n✗ TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
+        raise
         
     finally:
-        # Cleanup - automatically delete for testing
-        try:
-            shutil.rmtree(temp_dir)
-            print("✓ Temporary directory deleted")
-        except:
-            print(f"Could not delete temporary directory: {temp_dir}")
+        # No cleanup needed - results are kept in Statistics/test_results
+        print("\n" + "="*80)
+        print("Test complete. Results saved to:", temp_dir.absolute())
+        print("="*80)
 
 
 if __name__ == "__main__":

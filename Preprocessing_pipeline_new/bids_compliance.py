@@ -82,7 +82,8 @@ class BIDSCompliance:
     def _write_raw_events(self, bids_root: str, subject: str, task: str, raw: mne.io.BaseRaw) -> None:
         """Write events.tsv and events.json for raw data from annotations.
 
-        The TSV will include onset, duration, sample, value, trial_type.
+        The TSV will include onset, duration, sample, value, trial_type, and any
+        additional columns from TriggerCorrector (rt, timestamps, etc.).
         The JSON will include the BIDS field descriptions and an event_id map.
         """
         try:
@@ -95,20 +96,44 @@ class BIDSCompliance:
             _, event_id = mne.events_from_annotations(raw)
             id_map = {str(k): int(v) for k, v in event_id.items()} if event_id else {}
 
+            # Check if TriggerCorrector dataframe is available
+            tc_df = getattr(raw, '_trigger_corrector_df', None)
+            
             rows = []
-            for ann in annotations:
+            for idx, ann in enumerate(annotations):
                 desc = ann["description"]
                 onset = float(ann["onset"])  # seconds
                 duration = float(ann["duration"]) if ann["duration"] is not None else 0.0
                 sample = int(round(onset * sf)) if sf > 0 else 0
                 value = id_map.get(str(desc), None)
-                rows.append({
+                
+                row = {
                     "onset": onset,
                     "duration": duration,
                     "sample": sample,
                     "value": value if value is not None else "n/a",
                     "trial_type": str(desc),
-                })
+                }
+                
+                # Add extra columns from TriggerCorrector dataframe if available
+                if tc_df is not None and idx < len(tc_df):
+                    # Add columns like rt, stim_timestamp, response_timestamp, rt_2nd, etc.
+                    extra_cols = ['rt', 'stim_timestamp', 'response_timestamp', 
+                                  'rt_2nd', 'stim_timestamp_2nd', 'response_timestamp_2nd',
+                                  'correctness']
+                    for col in extra_cols:
+                        if col in tc_df.columns:
+                            val = tc_df.iloc[idx][col]
+                            # Convert timestamps to strings for TSV compatibility
+                            if pd.notna(val):
+                                if hasattr(val, 'isoformat'):  # Timestamp
+                                    row[col] = val.isoformat()
+                                else:
+                                    row[col] = val
+                            else:
+                                row[col] = None
+                
+                rows.append(row)
 
             df = pd.DataFrame(rows)
             events_tsv = os.path.join(

@@ -19,6 +19,9 @@ try:
         detect_outlier_epochs,
         save_evoked,
         write_probe_report_html,
+        load_qa_summary,
+        get_qa_exclusions,
+        should_process_subject_task,
     )
 except Exception:
     _this_dir = os.path.dirname(__file__)
@@ -34,6 +37,9 @@ except Exception:
         detect_outlier_epochs,
         save_evoked,
         write_probe_report_html,
+        load_qa_summary,
+        get_qa_exclusions,
+        should_process_subject_task,
     )
 
 
@@ -296,9 +302,54 @@ def main():
     else:
         tasks = [str(t) for t in tasks_cfg]
 
+    # Load QA summary if configured
+    project = cfg.get("project", {})
+    qa_summary_path = project.get("qa_summary_path", None)
+    exclude_failed_qa = project.get("exclude_failed_qa", False)
+    
+    qa_exclusions = None
+    if qa_summary_path and exclude_failed_qa:
+        try:
+            print("\n" + "="*80)
+            print("Loading QA summary for filtering...")
+            print("="*80)
+            qa_df = load_qa_summary(qa_summary_path, verbose=True)
+            qa_exclusions = get_qa_exclusions(qa_df, epoch_type='evoked')
+            print(f"\nQA Filtering: {len(qa_exclusions)} subject-task combinations will be excluded")
+            if len(qa_exclusions) > 0 and len(qa_exclusions) <= 10:
+                print(f"Excluded: {sorted(list(qa_exclusions))}")
+            print("="*80 + "\n")
+        except Exception as e:
+            print(f"Warning: Failed to load QA summary: {e}")
+            print("Continuing without QA filtering...\n")
+            qa_exclusions = None
+    elif qa_summary_path and not exclude_failed_qa:
+        print("\nQA summary path provided but exclude_failed_qa is False")
+        print("Skipping QA filtering...\n")
+    
+    # Process subjects and tasks
+    n_processed = 0
+    n_skipped = 0
+    
     for sub in subjects:
         for t in tasks:
+            # Check QA exclusions
+            if qa_exclusions is not None and not should_process_subject_task(sub, t, qa_exclusions):
+                print(f"[SKIP] sub-{sub} task-{t}: Failed QA")
+                n_skipped += 1
+                continue
+            
             _ = process_subject_task(cfg, sub, t)
+            n_processed += 1
+    
+    # Print summary
+    print("\n" + "="*80)
+    print("PROCESSING COMPLETE")
+    print("="*80)
+    print(f"Processed: {n_processed} subject-task combinations")
+    if qa_exclusions is not None:
+        print(f"Skipped (QA): {n_skipped} subject-task combinations")
+    print("="*80)
 
 
 if __name__ == "__main__":

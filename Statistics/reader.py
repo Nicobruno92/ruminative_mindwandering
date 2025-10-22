@@ -19,6 +19,7 @@ def load_all_probe_data(features_root: str,
                        subjects: Optional[List[str]] = None,
                        tasks: Optional[List[str]] = None,
                        marker_types: Optional[List[str]] = None,
+                       qa_exclusions: Optional[Dict[str, set]] = None,
                        verbose: bool = True) -> pd.DataFrame:
     """
     Load all aggregated probe marker data from CSV files.
@@ -33,6 +34,9 @@ def load_all_probe_data(features_root: str,
         List of tasks to include (e.g., ["Sart1", "Sart2"]). If None, loads all tasks.
     marker_types : Optional[List[str]]
         List of marker types to include (e.g., ["evoked", "state"]). If None, loads all types.
+    qa_exclusions : Optional[Dict[str, set]]
+        Dictionary mapping marker types to sets of (subject, task) tuples to exclude.
+        Example: {'evoked': {('02', 'Sart1'), ('03', 'Sart2')}, 'state': {('04', 'Sart3')}}
     verbose : bool
         Whether to print progress information
         
@@ -60,6 +64,8 @@ def load_all_probe_data(features_root: str,
     
     # Filter files based on parameters
     filtered_files = []
+    qa_excluded_files = []
+    
     for file_path in csv_files:
         # Extract subject, task, and marker_type from filename
         # Format: sub-XX_task-YY_desc-probe-NNN_[evoked|state]_aggMarkers.csv
@@ -93,6 +99,12 @@ def load_all_probe_data(features_root: str,
                 continue
         else:
             continue
+        
+        # Check QA exclusions
+        if qa_exclusions is not None and marker_type in qa_exclusions:
+            if (subject, task) in qa_exclusions[marker_type]:
+                qa_excluded_files.append((subject, task, marker_type, file_path))
+                continue
             
         filtered_files.append(file_path)
     
@@ -104,6 +116,15 @@ def load_all_probe_data(features_root: str,
             print(f"  Tasks: {tasks}")
         if marker_types:
             print(f"  Marker types: {marker_types}")
+        if qa_exclusions is not None and len(qa_excluded_files) > 0:
+            print(f"  QA excluded: {len(qa_excluded_files)} files")
+            # Group by marker type for summary
+            from collections import defaultdict
+            exclusions_by_type = defaultdict(int)
+            for _, _, mtype, _ in qa_excluded_files:
+                exclusions_by_type[mtype] += 1
+            for mtype, count in sorted(exclusions_by_type.items()):
+                print(f"    {mtype}: {count} files excluded")
     
     # Load all CSV files
     all_data = []
@@ -139,7 +160,9 @@ def prepare_data_for_lmm(df: pd.DataFrame,
                         marker_name: str,
                         formula: str,
                         include_channels: Optional[List[str]] = None,
-                        exclude_channels: Optional[List[str]] = None) -> Tuple[np.ndarray, pd.DataFrame, List[str]]:
+                        exclude_channels: Optional[List[str]] = None,
+                        pca_data: Optional[pd.DataFrame] = None,
+                        onoff_max_value: Optional[float] = None) -> Tuple[np.ndarray, pd.DataFrame, List[str]]:
     """
     Prepare data for LMM analysis for a specific marker.
     
@@ -155,6 +178,13 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         List of channels to include. If None, includes all channels.
     exclude_channels : Optional[List[str]]
         List of channels to exclude. Applied after include_channels.
+    pca_data : Optional[pd.DataFrame]
+        DataFrame with PCA results containing columns: subject, task, probe_number,
+        PC1, PC2, PC3, time_on_task. If provided, these variables will be merged
+        into the behavioral dataframe and available for use in the formula.
+    onoff_max_value : Optional[float]
+        Maximum value for onoff variable. If provided, only observations where
+        onoff <= onoff_max_value will be included in the analysis.
         
     Returns
     -------
@@ -165,6 +195,7 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         - 'subject': subject identifier for random effects
         - 'power': marker values (dependent variable)
         - Additional columns as specified in formula
+        - If pca_data provided: PC1, PC2, PC3, time_on_task
     channels : List[str]
         Sorted list of channel names corresponding to power_data columns
         
@@ -174,7 +205,8 @@ def prepare_data_for_lmm(df: pd.DataFrame,
     1. Filters data for the specific marker
     2. Pivots from long format to wide format (channels as columns)
     3. Creates behavioral dataframe with predictor variables
-    4. Validates formula variables exist in the data
+    4. Merges PCA data if provided
+    5. Validates formula variables exist in the data
     """
     # Filter for specific marker (ensure state and evoked are separate)
     marker_df = df[df['marker'] == marker_name].copy()
@@ -182,6 +214,24 @@ def prepare_data_for_lmm(df: pd.DataFrame,
     if len(marker_df) == 0:
         available_markers = sorted(df['marker'].unique())
         raise ValueError(f"Marker '{marker_name}' not found in data. Available markers: {available_markers}")
+    
+    # Apply onoff filter if specified
+    if onoff_max_value is not None:
+        if 'onoff' not in marker_df.columns:
+            raise ValueError("onoff_max_value specified but 'onoff' column not found in data")
+        
+        n_before = len(marker_df)
+        marker_df = marker_df[marker_df['onoff'] <= onoff_max_value].copy()
+        n_after = len(marker_df)
+        
+        if n_after == 0:
+            raise ValueError(
+                f"No observations remain after filtering onoff <= {onoff_max_value}. "
+                f"Original data had {n_before} observations."
+            )
+        
+        print(f"  Filtered by onoff <= {onoff_max_value}: {n_before} -> {n_after} observations "
+              f"({100 * n_after / n_before:.1f}% retained)")
     
     # Ensure we have only one marker type for this marker
     marker_types_in_data = marker_df['marker_type'].unique()
@@ -238,19 +288,56 @@ def prepare_data_for_lmm(df: pd.DataFrame,
     df_behavioral = df_behavioral.sort_values('obs_order').reset_index(drop=True)
     df_behavioral = df_behavioral.drop('obs_order', axis=1)
     
-    # Fill power data array - pivot from long to wide format
-    for i, obs_id in enumerate(observations):
-        obs_data = marker_df[marker_df['observation_id'] == obs_id]
-        
-        # Fill power values for each channel
-        for j, channel in enumerate(channels):
-            channel_data = obs_data[obs_data['channel'] == channel]
-            if len(channel_data) > 0:
-                power_data[i, j] = float(channel_data['value'].iloc[0])
+    # Fill power data array - pivot from long to wide format (OPTIMIZED)
+    # Use pandas pivot for much faster performance
+    pivot_df = marker_df.pivot(index='observation_id', columns='channel', values='value')
+    
+    # Reindex to ensure correct order and fill missing values
+    pivot_df = pivot_df.reindex(index=observations, columns=channels)
+    
+    # Convert to numpy array
+    power_data = pivot_df.values
     
     # Remove columns that aren't needed for behavioral analysis
     cols_to_drop = ['observation_id', 'marker', 'channel', 'value']
     df_behavioral = df_behavioral.drop(columns=[col for col in cols_to_drop if col in df_behavioral.columns])
+    
+    # Ensure subject column is always string type (required for mixedlm)
+    # This prevents TypeError when statsmodels tries to perform bitwise operations
+    df_behavioral['subject'] = df_behavioral['subject'].astype(str)
+    
+    # Merge PCA data if provided
+    if pca_data is not None:
+        
+        # Merge on subject, task, and probe_number using left join
+        # This preserves all behavioral observations and adds NaN for missing PCA values
+        n_before = len(df_behavioral)
+        df_behavioral = df_behavioral.merge(
+            pca_data,
+            on=['subject', 'task', 'probe_number'],
+            how='left'
+        )
+        
+        # Check if merge was successful
+        if len(df_behavioral) != n_before:
+            warnings.warn(
+                f"PCA merge changed number of rows: {n_before} -> {len(df_behavioral)}. "
+                "This may indicate duplicate keys in PCA data."
+            )
+        
+        # Explicitly ensure PCA columns exist and have NaN for missing values
+        pca_cols = ['PC1', 'PC2', 'PC3', 'time_on_task']
+        for col in pca_cols:
+            if col not in df_behavioral.columns:
+                df_behavioral[col] = np.nan
+        
+        # Check how many observations have complete PCA data
+        n_with_pca = df_behavioral[pca_cols].notna().all(axis=1).sum()
+        n_missing = n_before - n_with_pca
+        
+        if n_missing > 0:
+            print(f"  PCA data: {n_with_pca}/{n_before} observations have complete data. "
+                  f"{n_missing} observations have NaN values (no matching PCA data).")
     
     # Ensure we have required columns
     required_cols = ['subject', 'task', 'probe_number', 'onoff']

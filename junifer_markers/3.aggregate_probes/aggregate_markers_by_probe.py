@@ -37,6 +37,7 @@ from helpers import (
     enrich_events_with_parsed_fields,
     label_probe_onoff,
     detect_outlier_epochs,
+    rename_markers,
 )
 
 # Define minimal versions of h5_to_pkl converter classes for unpickling
@@ -1038,6 +1039,7 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
     features_root = project.get("features_root")
     bids_root = project.get("bids_root")
     input_evoked_desc = project.get("input_evoked_desc", "evoked")
+    input_state_desc = project.get("input_state_desc", "state")
     
     if not derivatives_root or not features_root:
         raise ValueError("'project.derivatives_root' and 'project.features_root' must be set in config")
@@ -1065,17 +1067,20 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
     out_cfg = cfg.get("output", {})
     overwrite = bool(out_cfg.get("overwrite", True))
     
-    marker_types = cfg.get("marker_types", {})
-    evoked_markers = marker_types.get("evoked", [])
-    state_markers = marker_types.get("state", [])
+    # Get marker name mapping for renaming
+    marker_name_mapping = cfg.get("marker_name_mapping", {})
     
     print(f"\n{'='*80}")
     print(f"Processing sub-{subject} task-{task}")
     print(f"{'='*80}")
     
-    # Load preprocessed epochs for metadata and outlier detection
+    # ========================================================================
+    # LOAD EVOKED EPOCHS AND EVENTS (for evoked markers and outlier detection)
+    # ========================================================================
+    evoked_epochs = None
+    evoked_events_df = None
     try:
-        epochs, events_tsv, events_json = read_derivative_epochs(
+        evoked_epochs, evoked_events_tsv, _ = read_derivative_epochs(
             derivatives_root=derivatives_root,
             subject=subject,
             task=task,
@@ -1083,14 +1088,46 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
             preload=True,
             bids_root=bids_root,
         )
+        # Parse evoked events
+        evoked_events_df = parse_events_tsv(evoked_events_tsv)
+        evoked_events_df = enrich_events_with_parsed_fields(evoked_events_df)
+        evoked_events_df['epoch_index'] = np.arange(len(evoked_events_df))
+        evoked_events_df = evoked_events_df.rename(columns={"row_index": "tsv_row_index"})
+        print(f"Loaded evoked epochs: {len(evoked_events_df)} epochs")
     except FileNotFoundError as exc:
-        print(f"[WARN] Missing input epochs for sub-{subject} task-{task}: {exc}")
+        print(f"[WARN] Evoked epochs not found: {exc}")
+    
+    # ========================================================================
+    # LOAD STATE EPOCHS AND EVENTS (for state markers - independent system)
+    # ========================================================================
+    state_epochs = None
+    state_events_df = None
+    try:
+        state_epochs, state_events_tsv, _ = read_derivative_epochs(
+            derivatives_root=derivatives_root,
+            subject=subject,
+            task=task,
+            desc=input_state_desc,
+            preload=True,
+            bids_root=bids_root,
+        )
+        # Parse state events - completely independent from evoked
+        state_events_df = parse_events_tsv(state_events_tsv)
+        state_events_df = enrich_events_with_parsed_fields(state_events_df)
+        state_events_df['epoch_index'] = np.arange(len(state_events_df))
+        state_events_df = state_events_df.rename(columns={"row_index": "tsv_row_index"})
+        print(f"Loaded state epochs: {len(state_events_df)} epochs")
+    except FileNotFoundError as exc:
+        print(f"[WARN] State epochs not found: {exc}")
+    
+    # Check that we have at least one type of epochs
+    if evoked_events_df is None and state_events_df is None:
+        print(f"[ERROR] No epochs found for sub-{subject} task-{task}")
         return pd.DataFrame()
     
-    # Parse events
-    events_df = parse_events_tsv(events_tsv)
-    events_df = enrich_events_with_parsed_fields(events_df)
-    events_df = events_df.rename(columns={"row_index": "epoch_index"})
+    # Use whichever events dataframe is available to get probe information
+    # (both should have the same probes, just different epoch windows)
+    events_df = evoked_events_df if evoked_events_df is not None else state_events_df
     
     # Get unique probes
     probes = events_df["probe_number"].dropna().unique()
@@ -1113,6 +1150,10 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
         # Comprehensive PKL debug
         debug_pkl_comprehensive(str(evoked_pkl_path))
         evoked_data = load_marker_pkl(str(evoked_pkl_path))
+        # Rename markers using mapping from config
+        if evoked_data and "markers" in evoked_data and marker_name_mapping:
+            evoked_data["markers"] = rename_markers(evoked_data["markers"], marker_name_mapping)
+            print(f"  Renamed evoked markers: {list(evoked_data['markers'].keys())}")
     else:
         print(f"[WARN] Evoked markers not found: {evoked_pkl_path}")
     
@@ -1123,6 +1164,10 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
         # Comprehensive PKL debug
         debug_pkl_comprehensive(str(state_pkl_path))
         state_data = load_marker_pkl(str(state_pkl_path))
+        # Rename markers using mapping from config
+        if state_data and "markers" in state_data and marker_name_mapping:
+            state_data["markers"] = rename_markers(state_data["markers"], marker_name_mapping)
+            print(f"  Renamed state markers: {list(state_data['markers'].keys())}")
     else:
         print(f"[WARN] State markers not found: {state_pkl_path}")
     
@@ -1181,7 +1226,7 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
                 task=task,
                 evoked_data=evoked_data,
                 state_data=state_data,
-                epochs_data=epochs,
+                epochs_data=evoked_epochs if evoked_epochs is not None else state_epochs,
                 events_data=events_df,
                 channels=channels,
             )
@@ -1212,12 +1257,12 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
         # ========================================================================
         # PROCESS EVOKED MARKERS (ALL MARKERS with evoked trials)
         # ========================================================================
-        if evoked_data is not None:
+        if evoked_data is not None and evoked_events_df is not None:
             print(f"  Processing EVOKED markers (distance {evoked_dist_min} to {evoked_dist_max})")
             
-            # Select trials for evoked markers
+            # Select trials for evoked markers using EVOKED events
             evoked_trials = select_trials_for_probe(
-                events_df=events_df,
+                events_df=evoked_events_df,
                 probe_number=probe_num,
                 only_go_correct=only_go_correct,
                 distance_min=evoked_dist_min,
@@ -1225,14 +1270,14 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
             )
             
             if len(evoked_trials) >= min_req:
-                # Get epoch indices
+                # Get epoch indices from EVOKED events
                 evoked_epoch_indices = evoked_trials["epoch_index"].astype(int).tolist()
                 
-                # Apply outlier detection if enabled
+                # Apply outlier detection if enabled (using EVOKED epochs)
                 if enable_outlier_detection:
                     valid_indices, outlier_stats = detect_outlier_epochs(
-                        epochs=epochs,
-                        events_df=events_df,
+                        epochs=evoked_epochs,
+                        events_df=evoked_events_df,
                         probe_number=probe_num,
                         baseline_distance_min=baseline_distance_min,
                         baseline_distance_max=baseline_distance_max,
@@ -1310,29 +1355,31 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
                 print(f"    Insufficient evoked trials: {len(evoked_trials)} < {min_req}")
         
         # ========================================================================
-        # PROCESS STATE MARKERS (ALL MARKERS with state trials)
+        # PROCESS STATE MARKERS (ALL MARKERS with state trials - INDEPENDENT)
         # ========================================================================
-        if state_data is not None:
+        if state_data is not None and state_events_df is not None:
             print(f"  Processing STATE markers (distance {state_dist_min} to {state_dist_max})")
             
-            # Select trials for state markers
+            # Select trials for state markers using STATE events (independent system)
+            # NOTE: State markers represent continuous brain states, not trial-locked responses
+            # Therefore, we don't filter by trial_type (only_go_correct=False)
             state_trials = select_trials_for_probe(
-                events_df=events_df,
+                events_df=state_events_df,
                 probe_number=probe_num,
-                only_go_correct=only_go_correct,
+                only_go_correct=False,  # State events have trial_type='unknown'
                 distance_min=state_dist_min,
                 distance_max=state_dist_max,
             )
             
             if len(state_trials) > 0:
-                # Get epoch indices
+                # Get epoch indices from STATE events (0, 1, 2... up to 120)
                 state_epoch_indices = state_trials["epoch_index"].astype(int).tolist()
                 
-                # Apply outlier detection if enabled
+                # Apply outlier detection if enabled (using STATE epochs)
                 if enable_outlier_detection:
                     valid_indices, outlier_stats = detect_outlier_epochs(
-                        epochs=epochs,
-                        events_df=events_df,
+                        epochs=state_epochs,
+                        events_df=state_events_df,
                         probe_number=probe_num,
                         baseline_distance_min=baseline_distance_min,
                         baseline_distance_max=baseline_distance_max,
@@ -1405,7 +1452,7 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
                             "output_path": out_path,
                         })
                 else:
-                    print(f"    No valid epochs for state markers")
+                    print(f"    No valid epochs for state markers after aggregation")
             else:
                 print(f"    No trials found for state markers")
     

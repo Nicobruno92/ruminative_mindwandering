@@ -88,7 +88,7 @@ filters:
 # =============================================================================
 ica:
   method: picard        # Single deterministic method: 'picard', 'infomax', or 'fastica'
-  n_components: 0.99    # Number of components (proportion of variance)
+  n_components: 30    # Number of components (proportion of variance)
   max_iter: 1000        # Explicit iteration limit for reproducibility
   random_state: 42      # Random seed for reproducibility
 

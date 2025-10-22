@@ -117,27 +117,54 @@ def plot_cluster_topomap(
     
     # Set colormap limits if not provided
     if vmin is None or vmax is None:
-        abs_max = np.max(np.abs(t_stats))
+        # Use nanmax to handle NaN values properly
+        abs_max = np.nanmax(np.abs(t_stats))
+        if np.isnan(abs_max) or abs_max == 0:
+            # Fallback to reasonable defaults if all values are NaN or zero
+            abs_max = 1.0
         vmin = -abs_max
         vmax = abs_max
     
     # Create figure
     fig, ax = plt.subplots(figsize=(8, 6))
     
+    # MNE's plot_topomap doesn't handle NaN values well
+    # Replace NaN with 0 for plotting (won't affect significant clusters)
+    t_stats_plot = np.copy(t_stats)
+    nan_mask = np.isnan(t_stats_plot)
+    t_stats_plot[nan_mask] = 0
+    
     # Plot topographic map with proper montage
+    # Show electrode markers only for significant clusters
+    # Use mask to control which electrodes get markers
     im, _ = mne.viz.plot_topomap(
-        t_stats,
+        t_stats_plot,
         info,
         axes=ax,
         show=False,
         cmap=cmap,
-        mask=mask,
-        mask_params=dict(marker='o', markerfacecolor='white', 
-                        markeredgecolor='black', linewidth=0, markersize=8),
+        vlim=(vmin, vmax),
+        sensors=False,  # Don't show all sensors by default
+        mask=mask,  # Only significant electrodes
+        mask_params=dict(marker='o', markerfacecolor='k', 
+                        markeredgecolor='k', linewidth=0, markersize=5),
         contours=6,
         ch_type='eeg',
-        sphere=(0, 0, 0, 0.095)  # Standard EEG head radius
+        sphere='auto',
+        outlines='head',
+        extrapolate='head',  # Extrapolate to head boundary
+        image_interp='cubic',
+        border='mean',
+        res=64
     )
+    
+    # Clip the image to a circular mask (head boundary)
+    # Get the image extent and create circular mask
+    from matplotlib.patches import Circle
+    radius = 0.5  # Normalized radius for head circle
+    circle = Circle((0.5, 0.5), radius, transform=ax.transAxes, 
+                    facecolor='none', edgecolor='none')
+    im.set_clip_path(circle)
     
     # Add colorbar
     cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -271,8 +298,17 @@ def plot_t_statistics_distribution(
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     
+    # Filter out NaN values for plotting
+    t_stats_valid = t_stats[~np.isnan(t_stats)]
+    
+    if len(t_stats_valid) == 0:
+        # No valid data to plot
+        ax.text(0.5, 0.5, 'No valid t-statistics to display', 
+                ha='center', va='center', transform=ax.transAxes, fontsize=14)
+        return fig
+    
     # Plot histogram
-    ax.hist(t_stats, bins=30, color='steelblue', alpha=0.7, edgecolor='black')
+    ax.hist(t_stats_valid, bins=30, color='steelblue', alpha=0.7, edgecolor='black')
     
     # Add threshold lines
     ax.axvline(x=threshold, color='red', linestyle='--', linewidth=2, 
@@ -288,8 +324,11 @@ def plot_t_statistics_distribution(
     ax.legend(fontsize=10)
     ax.grid(axis='y', alpha=0.3)
     
-    # Add statistics text
-    stats_text = f'Mean: {np.mean(t_stats):.3f}\nStd: {np.std(t_stats):.3f}'
+    # Add statistics text using valid values only
+    n_nan = np.sum(np.isnan(t_stats))
+    stats_text = f'Mean: {np.mean(t_stats_valid):.3f}\nStd: {np.std(t_stats_valid):.3f}'
+    if n_nan > 0:
+        stats_text += f'\nNaN channels: {n_nan}'
     ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     

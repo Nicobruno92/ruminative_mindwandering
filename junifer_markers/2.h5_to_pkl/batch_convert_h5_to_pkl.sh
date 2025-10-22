@@ -25,7 +25,7 @@ LOCAL_ROOT="/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindw
 DERIVATIVES_DIR="${BIDS_ROOT}/derivatives"
 H5_FEATURES_DIR="${BIDS_ROOT}/features/junifer"
 PKL_FEATURES_DIR="${BIDS_ROOT}/features"
-ELEMENTS_FILE="${LOCAL_ROOT}/junifer_markers/1.markers_h5_creation/elements"
+ELEMENTS_FILE="${LOCAL_ROOT}/junifer_markers/1.markers_h5_creation/elements.csv"
 CONVERTER_SCRIPT="${LOCAL_ROOT}/junifer_markers/2.h5_to_pkl/h5_to_pkl_converter.py"
 
 # Description types to process
@@ -69,79 +69,81 @@ echo "Elements file: ${ELEMENTS_FILE}"
 echo "Converter script: ${CONVERTER_SCRIPT}"
 echo ""
 
-# Read elements file and process each line
-while IFS=',' read -r subject task; do
+# Read elements CSV file and process each line (skip header)
+while IFS=',' read -r subject task desc; do
     # Skip empty lines
-    if [ -z "${subject}" ] || [ -z "${task}" ]; then
+    if [ -z "${subject}" ] || [ -z "${task}" ] || [ -z "${desc}" ]; then
         continue
     fi
     
     # Remove any whitespace
     subject=$(echo "${subject}" | xargs)
     task=$(echo "${task}" | xargs)
+    desc=$(echo "${desc}" | xargs)
     
-    echo "Processing: ${subject}, ${task}"
+    echo "Processing: ${subject}, ${task}, ${desc}"
     
-    # Process both evoked and state descriptions
-    for desc in "${DESC_TYPES[@]}"; do
-        ((total++))
-        
-        # Construct file paths
-        fif_file="${DERIVATIVES_DIR}/${subject}/eeg/${subject}_task-${task}_desc-${desc}_epo.fif"
-        h5_file="${H5_FEATURES_DIR}/element_${subject}_${task}_${desc}_markers.h5"
-        pkl_file="${PKL_FEATURES_DIR}/${subject}/eeg/junifer/${subject}_task-${task}_desc-${desc}_markers.pkl"
-        
-        # Check if input files exist
-        if [ ! -f "${fif_file}" ]; then
-            echo "  ⚠️  FIF file not found: ${fif_file}"
-            ((failed++))
-            continue
-        fi
-        
-        if [ ! -f "${h5_file}" ]; then
-            echo "  ⚠️  H5 file not found: ${h5_file}"
-            ((failed++))
-            continue
-        fi
-        
-        # Check if output already exists (only skip if force mode is off)
-        if [ -f "${pkl_file}" ] && [ "$FORCE_OVERWRITE" = false ]; then
-            echo "  ℹ️  PKL file already exists, skipping: ${pkl_file}"
-            ((skipped++))
-            continue
-        fi
-        
-        # Notify if overwriting
-        if [ -f "${pkl_file}" ] && [ "$FORCE_OVERWRITE" = true ]; then
-            echo "  🔄  Overwriting existing PKL file"
-        fi
-        
-        # Create output directory
-        mkdir -p "$(dirname "${pkl_file}")"
-        
-        # Get input file sizes
-        fif_size=$(du -h "${fif_file}" | cut -f1)
-        h5_size=$(du -h "${h5_file}" | cut -f1)
-        
-        # Run conversion
-        echo "  Converting: ${subject}_task-${task}_desc-${desc}"
-        echo "    FIF: ${fif_file} (${fif_size})"
-        echo "    H5:  ${h5_file} (${h5_size})"
-        echo "    PKL: ${pkl_file}"
-        
-        if python "${CONVERTER_SCRIPT}" "${fif_file}" "${h5_file}" "${pkl_file}"; then
-            # Get output file size
-            pkl_size=$(du -h "${pkl_file}" | cut -f1)
-            echo "  ✓  Success - PKL size: ${pkl_size}"
-            ((success++))
-        else
-            echo "  ❌  Failed"
-            ((failed++))
-        fi
-        echo ""
-    done
+    # Process the specific description from CSV
+    {
+        # Note: desc is now read from CSV, not looped
+    ((total++))
     
-done < "${ELEMENTS_FILE}"
+    # Construct file paths
+    fif_file="${DERIVATIVES_DIR}/${subject}/eeg/${subject}_task-${task}_desc-${desc}_epo.fif"
+    h5_file="${H5_FEATURES_DIR}/element_${subject}_${task}_${desc}_markers.h5"
+    pkl_file="${PKL_FEATURES_DIR}/${subject}/eeg/junifer/${subject}_task-${task}_desc-${desc}_markers.pkl"
+    
+    # Check if input files exist
+    if [ ! -f "${fif_file}" ]; then
+        echo "  ⚠️  FIF file not found: ${fif_file}"
+        ((failed++))
+        continue
+    fi
+    
+    if [ ! -f "${h5_file}" ]; then
+        echo "  ⚠️  H5 file not found: ${h5_file}"
+        ((failed++))
+        continue
+    fi
+    
+    # Check if output already exists (only skip if force mode is off)
+    if [ -f "${pkl_file}" ] && [ "$FORCE_OVERWRITE" = false ]; then
+        echo "  ℹ️  PKL file already exists, skipping: ${pkl_file}"
+        ((skipped++))
+        continue
+    fi
+    
+    # Notify if overwriting
+    if [ -f "${pkl_file}" ] && [ "$FORCE_OVERWRITE" = true ]; then
+        echo "  🔄  Overwriting existing PKL file"
+    fi
+    
+    # Create output directory
+    mkdir -p "$(dirname "${pkl_file}")"
+    
+    # Get input file sizes
+    fif_size=$(du -h "${fif_file}" | cut -f1)
+    h5_size=$(du -h "${h5_file}" | cut -f1)
+    
+    # Run conversion
+    echo "  Converting: ${subject}_task-${task}_desc-${desc}"
+    echo "    FIF: ${fif_file} (${fif_size})"
+    echo "    H5:  ${h5_file} (${h5_size})"
+    echo "    PKL: ${pkl_file}"
+    
+    if python "${CONVERTER_SCRIPT}" "${fif_file}" "${h5_file}" "${pkl_file}"; then
+        # Get output file size
+        pkl_size=$(du -h "${pkl_file}" | cut -f1)
+        echo "  ✓  Success - PKL size: ${pkl_size}"
+        ((success++))
+    else
+        echo "  ❌  Failed"
+        ((failed++))
+    fi
+    echo ""
+    }
+    
+done < <(tail -n +2 "${ELEMENTS_FILE}")
 
 # Print summary
 echo "=========================================="

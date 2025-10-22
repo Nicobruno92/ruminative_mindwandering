@@ -230,9 +230,15 @@ def enrich_events_with_parsed_fields(df: pd.DataFrame) -> pd.DataFrame:
     result_df["confidence"] = pd.to_numeric(m_confidence, errors="coerce").astype("float64")
     result_df["average"] = pd.to_numeric(m_average, errors="coerce").astype("float64")
 
-    # distance to probe encoded as '/-X/'
-    m_dist = desc.str.extract(r"/-(\d+)/", expand=False)
-    dist_val = pd.to_numeric(m_dist, errors="coerce")
+    # distance to probe encoded as '/-X/' (evoked) or 'dt=-X.00' (state)
+    # Try evoked format first: /-X/
+    m_dist_evoked = desc.str.extract(r"/-(\d+)/", expand=False)
+    # Try state format: dt=-X.00
+    m_dist_state = desc.str.extract(r"dt=-(\d+)\.00", expand=False)
+    # Use whichever matched
+    dist_val = pd.to_numeric(m_dist_evoked, errors="coerce").fillna(
+        pd.to_numeric(m_dist_state, errors="coerce")
+    )
     result_df["distance_to_probe"] = np.where(~dist_val.isna(), -dist_val.astype("Int64"), pd.NA)
 
     # probe number encoded as '/probeX' (end of string)
@@ -274,6 +280,49 @@ def label_probe_onoff(events_df: pd.DataFrame, onoff_threshold: int) -> pd.Serie
         return "offTask"
 
     return probe_onoff.map(to_label)
+
+
+def rename_markers(
+    markers_dict: Dict,
+    name_mapping: Dict[str, str],
+) -> Dict:
+    """
+    Rename markers from verbose PKL names to clean short names.
+    
+    Parameters
+    ----------
+    markers_dict : Dict
+        Dictionary of markers with verbose names as keys
+    name_mapping : Dict[str, str]
+        Mapping from verbose names to clean names
+        
+    Returns
+    -------
+    Dict
+        Dictionary with renamed markers
+    """
+    renamed = {}
+    
+    for verbose_name, marker_data in markers_dict.items():
+        # Try exact match first
+        if verbose_name in name_mapping:
+            clean_name = name_mapping[verbose_name]
+            renamed[clean_name] = marker_data
+        else:
+            # Try partial match (case-insensitive)
+            matched = False
+            verbose_lower = verbose_name.lower()
+            for pattern, clean_name in name_mapping.items():
+                if pattern.lower() in verbose_lower or verbose_lower in pattern.lower():
+                    renamed[clean_name] = marker_data
+                    matched = True
+                    break
+            
+            # If no match, keep original name
+            if not matched:
+                renamed[verbose_name] = marker_data
+    
+    return renamed
 
 
 def detect_outlier_epochs(

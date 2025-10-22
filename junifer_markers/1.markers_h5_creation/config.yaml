@@ -29,11 +29,11 @@ datareader:
 
 storage:
   kind: HDF5FeatureStorage
-  # Output directly to BIDS structure with element-based naming
-  # uri: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS//features/{subject}/junifer/{subject}_{task}_desc-evoked.h5
+  # With single_output: false, creates individual files per element
+  # Pattern: element_{subject}_{task}_{desc}_markers.h5
   uri: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/junifer/markers.h5
   single_output: false
-
+  
 markers:
   # ========================================
   # 1. SPECTRAL ANALYSIS: Absolute Power (dB)
@@ -48,9 +48,9 @@ markers:
       gamma: [30.0, 45.0]
     normalize: false
     dB: true
-    n_fft: 2048
-    n_overlap: 50
+    n_fft: 512
     n_per_seg: 256
+    n_overlap: 128 
     roi_aggregation_method:
     trial_aggregation_method:
     on: EEG
@@ -68,9 +68,9 @@ markers:
       gamma: [30.0, 45.0]
     normalize: true
     dB: false
-    n_fft: 2048
-    n_overlap: 50
+    n_fft: 512
     n_per_seg: 256
+    n_overlap: 128 
     roi_aggregation_method:
     trial_aggregation_method:
     on: EEG

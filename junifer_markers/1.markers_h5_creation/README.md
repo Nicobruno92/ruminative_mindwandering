@@ -102,6 +102,16 @@ PARTITION=high-memory ./submit_slurm_array.sh --queue
 CREATE_PKL=no ./submit_slurm_array.sh --queue
 ```
 
+**Force overwrite existing HDF5 file**:
+```bash
+OVERWRITE=yes ./submit_slurm_array.sh --queue
+```
+
+**Manually delete HDF5 file before rerunning**:
+```bash
+./clean_h5.sh  # or manually: rm /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/junifer/markers.h5
+```
+
 ### Direct SLURM Submission
 
 If you already have an elements file:
@@ -152,6 +162,7 @@ All scripts support these environment variables:
 | `MEM` | `8G` | Memory per task |
 | `TIME` | `08:00:00` | Time limit |
 | `CREATE_PKL` | `yes` | Chain PKL creation after collection |
+| `OVERWRITE` | `no` | Delete existing HDF5 file before submission |
 
 ## Resource Recommendations
 
@@ -168,27 +179,93 @@ If you have 168 elements (168 subject/task pairs):
 
 ## Troubleshooting
 
-### Jobs Failing
+### Common Issues
+
+#### Issue 1: "Duplicate element ... skipping store"
+**Symptom**: Jobs complete but log shows "skipping store" for all markers
+```
+2025-10-15 19:48:26,316 - JUNIFER - INFO - Duplicate element: {'subject': 'sub-22', 'task': 'Sart3', 'desc': 'state'} found for 8745fbb100646dce9a174ab2213c0dbf, skipping store ...
+```
+
+**Cause**: The elements file contains duplicate entries. Junifer computes features but refuses to store them.
+
+**Solution**:
+```bash
+# Use the management script
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh full
+
+# Or manually
+python junifer_markers/1.markers_h5_creation/manage_elements.py fix
+```
+
+#### Issue 2: "The following element selectors are invalid"
+**Symptom**: Job fails immediately with error
+```
+RuntimeError: The following element selectors are invalid:
+{('sub-14', 'Sart1', 'state')}
+```
+
+**Cause**: The element exists in the elements file but the corresponding derivative file doesn't exist.
+
+**Solution**:
+```bash
+# Use the management script
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh full
+
+# Or manually
+python junifer_markers/1.markers_h5_creation/manage_elements.py fix
+```
+
+### Management Tools
+
+**Unified pipeline management script**:
+```bash
+# Show all available commands
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh
+
+# Run full workflow (diagnose -> fix -> clean -> submit)
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh full
+
+# Individual commands
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh diagnose
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh fix
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh check-h5
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh clean-h5
+bash junifer_markers/1.markers_h5_creation/manage_pipeline.sh submit
+```
+
+**Elements management (Python)**:
+```bash
+# Diagnose elements file
+python junifer_markers/1.markers_h5_creation/manage_elements.py diagnose
+
+# Fix elements file
+python junifer_markers/1.markers_h5_creation/manage_elements.py fix
+```
+
+### Other Issues
+
+#### Jobs Failing
 1. Check logs: `logs/CYBERSART_features_*_*.err`
 2. Common issues:
    - Missing input files → verify BIDS structure
    - Memory errors → increase `MEM`
    - Timeout → increase `TIME`
 
-### Missing Elements
+#### Missing Elements
 ```bash
 # Regenerate elements file
-junifer queue junifer_jobs/CYBERSART_features/config.yaml --overwrite --verbose info
+junifer queue config.yaml --overwrite --verbose info
 ```
 
-### Conda Environment Issues
+#### Conda Environment Issues
 ```bash
 # Test activation manually
 conda activate junifer
 python -c "import junifer; print(junifer.__version__)"
 ```
 
-### Re-run Failed Jobs
+#### Re-run Failed Jobs
 ```bash
 # Get list of failed array IDs
 sacct -j <JOB_ID> --format=JobID,State | grep FAILED

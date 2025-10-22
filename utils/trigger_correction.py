@@ -95,14 +95,25 @@ class TriggerCorrector:
         # Step 1: Create new columns for the recoding process
         self.df['recoded'] = self.df['description']
         self.df['correctness'] = None
+        self.df['rt'] = None  # Add RT column
+        self.df['stim_timestamp'] = None  # Add stimulus timestamp column
+        self.df['response_timestamp'] = None  # Add response timestamp column
+        # Columns for second button presses
+        self.df['rt_2nd'] = None
+        self.df['stim_timestamp_2nd'] = None
+        self.df['response_timestamp_2nd'] = None
 
         # Step 2: Identify rows where stimuli occur and apply recoding
         for i in range(len(self.df)):
-            # Recoding 'go' and 'nogo'
+            # Recoding 'go' and 'nogo' stimuli
             if self.df.loc[i, 'description'] in ['Stimulus/S 41', 'Stimulus/S 43']:
                 self.df.loc[i, 'recoded'] = 'go'
+                # Store stimulus timestamp
+                self.df.loc[i, 'stim_timestamp'] = self.df.loc[i, 'onset']
             elif self.df.loc[i, 'description'] == 'Stimulus/S 42':
                 self.df.loc[i, 'recoded'] = 'nogo'
+                # Store stimulus timestamp
+                self.df.loc[i, 'stim_timestamp'] = self.df.loc[i, 'onset']
 
             # Step 3: Determine correctness based on following annotations
             if self.df.loc[i, 'recoded'] == 'go':
@@ -115,6 +126,119 @@ class TriggerCorrector:
                     self.df.loc[i, 'correctness'] = 'incorrect'
                 else:
                     self.df.loc[i, 'correctness'] = 'correct'
+
+        # Step 4: Recode response events (S44 and S45) with correctness and RT
+        for i in range(len(self.df)):
+            desc = self.df.loc[i, 'description']
+            
+            # Handle correct responses (S44)
+            if desc == 'Stimulus/S 44':
+                # Find preceding stimulus (should be go: S41 or S43)
+                stimulus_idx = None
+                for j in range(i - 1, max(-1, i - 10), -1):  # Look back up to 10 events
+                    if self.df.loc[j, 'description'] in ['Stimulus/S 41', 'Stimulus/S 43']:
+                        stimulus_idx = j
+                        break
+                
+                if stimulus_idx is not None:
+                    # Calculate RT in milliseconds
+                    rt_sec = self.df.loc[i, 'onset'] - self.df.loc[stimulus_idx, 'onset']
+                    # Convert to float if it's a Timedelta
+                    if hasattr(rt_sec, 'total_seconds'):
+                        rt_sec = rt_sec.total_seconds()
+                    rt_ms = int(round(float(rt_sec) * 1000))
+                    self.df.loc[i, 'recoded'] = f'response/correct/rt{rt_ms}'
+                    self.df.loc[i, 'rt'] = rt_ms
+                    # Store timestamps for both stimulus and response
+                    self.df.loc[i, 'stim_timestamp'] = self.df.loc[stimulus_idx, 'onset']
+                    self.df.loc[i, 'response_timestamp'] = self.df.loc[i, 'onset']
+                else:
+                    # Fallback if no stimulus found
+                    self.df.loc[i, 'recoded'] = 'response/correct/rtNA'
+                    self.df.loc[i, 'response_timestamp'] = self.df.loc[i, 'onset']
+            
+            # Handle incorrect responses (S45)
+            elif desc == 'Stimulus/S 45':
+                # Find preceding stimulus (should be nogo: S42)
+                stimulus_idx = None
+                for j in range(i - 1, max(-1, i - 10), -1):  # Look back up to 10 events
+                    if self.df.loc[j, 'description'] == 'Stimulus/S 42':
+                        stimulus_idx = j
+                        break
+                
+                if stimulus_idx is not None:
+                    # Calculate RT in milliseconds
+                    rt_sec = self.df.loc[i, 'onset'] - self.df.loc[stimulus_idx, 'onset']
+                    # Convert to float if it's a Timedelta
+                    if hasattr(rt_sec, 'total_seconds'):
+                        rt_sec = rt_sec.total_seconds()
+                    rt_ms = int(round(float(rt_sec) * 1000))
+                    self.df.loc[i, 'recoded'] = f'response/incorrect/rt{rt_ms}'
+                    self.df.loc[i, 'rt'] = rt_ms
+                    # Store timestamps for both stimulus and response
+                    self.df.loc[i, 'stim_timestamp'] = self.df.loc[stimulus_idx, 'onset']
+                    self.df.loc[i, 'response_timestamp'] = self.df.loc[i, 'onset']
+                else:
+                    # Fallback if no stimulus found
+                    self.df.loc[i, 'recoded'] = 'response/incorrect/rtNA'
+                    self.df.loc[i, 'response_timestamp'] = self.df.loc[i, 'onset']
+
+    def detect_second_button_presses(self):
+        """
+        Detect and store second button presses that occur after the first response
+        but before the next stimulus.
+        
+        Adds _2nd columns for: rt_2nd, stim_timestamp_2nd, response_timestamp_2nd
+        """
+        # Iterate through all events
+        for i in range(len(self.df)):
+            desc = self.df.loc[i, 'description']
+            
+            # Only process response events (S44 or S45)
+            if desc not in ['Stimulus/S 44', 'Stimulus/S 45']:
+                continue
+            
+            # Check if this is already marked as a first response
+            # (has rt and response_timestamp but not rt_2nd)
+            if self.df.loc[i, 'rt'] is None:
+                continue
+            
+            # Look forward to find a potential second button press
+            # before the next stimulus
+            for j in range(i + 1, min(len(self.df), i + 10)):
+                next_desc = self.df.loc[j, 'description']
+                
+                # Stop if we hit a stimulus (new trial started)
+                if next_desc in ['Stimulus/S 41', 'Stimulus/S 42', 'Stimulus/S 43']:
+                    break
+                
+                # Check if this is another response of the same type
+                if next_desc == desc:
+                    # This is a second button press!
+                    # Calculate RT from the original stimulus
+                    stim_ts = self.df.loc[i, 'stim_timestamp']
+                    second_resp_ts = self.df.loc[j, 'onset']
+                    
+                    if stim_ts is not None:
+                        rt_diff = second_resp_ts - stim_ts
+                        if hasattr(rt_diff, 'total_seconds'):
+                            rt_diff = rt_diff.total_seconds()
+                        rt_2nd_ms = int(round(float(rt_diff) * 1000))
+                        
+                        # Store second press info in the FIRST response row
+                        self.df.loc[i, 'rt_2nd'] = rt_2nd_ms
+                        self.df.loc[i, 'stim_timestamp_2nd'] = stim_ts
+                        self.df.loc[i, 'response_timestamp_2nd'] = second_resp_ts
+                        
+                        # Mark the second response event itself
+                        correctness = 'correct' if desc == 'Stimulus/S 44' else 'incorrect'
+                        self.df.loc[j, 'recoded'] = f'response_2nd/{correctness}/rt{rt_2nd_ms}'
+                        self.df.loc[j, 'rt'] = rt_2nd_ms
+                        self.df.loc[j, 'stim_timestamp'] = stim_ts
+                        self.df.loc[j, 'response_timestamp'] = second_resp_ts
+                    
+                    # Only process the first second press found
+                    break
 
     def retropropagate_tp_values(self):
         # Iterate through the dataframe to find thought probes and their corresponding answers
@@ -648,6 +772,8 @@ class TriggerCorrector:
         # 0b) Add explicit THOUGHT_PROBE markers at S31
         self.annotate_thought_probe_markers()
         self.recode_annotations()
+        # Detect second button presses after initial response recoding
+        self.detect_second_button_presses()
         self.retropropagate_tp_values()
         self.retropropagate_tp_to_trials()
         self.propagate_trial_info()

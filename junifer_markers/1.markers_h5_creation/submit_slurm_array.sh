@@ -20,7 +20,7 @@ set -euo pipefail
 
 JOBNAME=${JOBNAME:-CYBERSART_features}
 WORKDIR=${WORKDIR:-/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering}
-CONDA_ENV=${CONDA_ENV:-eeg}
+CONDA_ENV=${CONDA_ENV:-junifer}
 YAML=${YAML:-junifer_markers/1.markers_h5_creation/config.yaml}
 PARTITION=${PARTITION:-}
 CPUS=${CPUS:-4}
@@ -32,8 +32,10 @@ cd "$WORKDIR"
 if [[ "${1:-}" == "--queue" ]]; then
   echo "[INFO] (Re)creating job folder via junifer queue"
   # Configure PYTHONPATH so junifer finds junifer_eeg
-  export PYTHONPATH="${WORKDIR}:${PYTHONPATH:-}"
+  export PYTHONPATH="/network/iss/home/nicolas.bruno/Junifer:${PYTHONPATH:-}"
   # Activate conda if available
+  # Temporarily disable unbound variable check for conda sourcing and activation
+  set +u
   if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
     . "$HOME/miniconda3/etc/profile.d/conda.sh"
   elif [ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
@@ -46,24 +48,33 @@ if [[ "${1:-}" == "--queue" ]]; then
   if command -v conda >/dev/null 2>&1; then
     conda activate "$CONDA_ENV" || true
   fi
+  set -u
   junifer queue "$YAML" --overwrite --verbose info
 fi
 
-ELEMENTS_FILE="junifer_markers/1.markers_h5_creation/elements"
+ELEMENTS_FILE="junifer_markers/1.markers_h5_creation/elements.csv"
 if [ ! -f "$ELEMENTS_FILE" ]; then
   echo "[ERROR] Elements file not found: $ELEMENTS_FILE"
   echo "Run with --queue to generate it."
   exit 1
 fi
 
-echo "[INFO] Counting elements in $ELEMENTS_FILE"
-N=$(wc -l < "$ELEMENTS_FILE" | tr -d ' ')
+echo "[INFO] Counting elements in $ELEMENTS_FILE (excluding header)"
+# Count lines excluding header
+N=$(tail -n +2 "$ELEMENTS_FILE" | wc -l | tr -d ' ')
 if [[ "$N" -le 0 ]]; then
   echo "[ERROR] No elements found"
   exit 1
 fi
 END=$((N - 1))
 echo "[INFO] Submitting array 0-$END ($N elements)"
+
+# Optional: Delete existing HDF5 file to force overwrite
+H5_FILE="/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/junifer/markers.h5"
+if [[ "${OVERWRITE:-no}" == "yes" ]] && [[ -f "$H5_FILE" ]]; then
+  echo "[WARN] Deleting existing HDF5 file: $H5_FILE"
+  rm -f "$H5_FILE"
+fi
 
 SBATCH_ARGS=()
 # Inject resources via sbatch overrides
@@ -84,24 +95,3 @@ JOB_ID=$(sbatch "${SBATCH_ARGS[@]}" | awk '{print $4}')
 set +x
 
 echo "[INFO] Submitted array job: $JOB_ID"
-
-# With single_output=false, each element creates its own H5 file
-# No collection step needed!
-
-# Optionally submit PKL creation job after array completes
-if [[ "${CREATE_PKL:-yes}" == "yes" ]]; then
-  echo "[INFO] Submitting PKL creation job to run after array completes..."
-  
-  set -x
-  PKL_JOB_ID=$(sbatch --dependency=afterok:${JOB_ID} \
-         --job-name="${JOBNAME}_pkl" \
-         --output="${WORKDIR}/logs/${JOBNAME}_pkl_%j.out" \
-         --error="${WORKDIR}/logs/${JOBNAME}_pkl_%j.err" \
-         ${WORKDIR}/junifer_markers/2.h5_to_pkl/batch_create_pkl.sh | awk '{print $4}')
-  set +x
-  
-  echo "[INFO] PKL creation job ${PKL_JOB_ID} will run automatically after array job ${JOB_ID} completes"
-  echo "[INFO] Pipeline chain: ${JOB_ID} (H5 creation) → ${PKL_JOB_ID} (PKL creation)"
-else
-  echo "[INFO] PKL creation disabled (set CREATE_PKL=yes to enable)"
-fi

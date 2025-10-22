@@ -442,3 +442,98 @@ def save_evoked(
     return out_path
 
 
+def load_qa_summary(qa_summary_path: str, verbose: bool = True) -> pd.DataFrame:
+    """
+    Load QA summary file from preprocessing pipeline.
+    
+    Parameters
+    ----------
+    qa_summary_path : str
+        Path to the qa_summary.csv file
+    verbose : bool
+        Whether to print loading information
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with QA metrics including subject, task, epoch_type, passed
+    """
+    if not os.path.exists(qa_summary_path):
+        raise FileNotFoundError(f"QA summary file not found: {qa_summary_path}")
+    
+    if verbose:
+        print(f"Loading QA summary from: {qa_summary_path}")
+    
+    qa_df = pd.read_csv(qa_summary_path)
+    
+    required_cols = ['subject', 'task', 'epoch_type', 'passed']
+    missing_cols = [col for col in required_cols if col not in qa_df.columns]
+    
+    if missing_cols:
+        raise ValueError(
+            f"QA summary file is missing required columns: {missing_cols}\n"
+            f"Available columns: {list(qa_df.columns)}"
+        )
+    
+    qa_df['subject'] = qa_df['subject'].astype(str)
+    qa_df['passed'] = qa_df['passed'].astype(bool)
+    
+    if verbose:
+        n_total = len(qa_df)
+        n_passed = qa_df['passed'].sum()
+        print(f"✓ Loaded QA summary: {n_total} entries")
+        print(f"  Passed: {n_passed} ({100 * n_passed / n_total:.1f}%)")
+        print(f"  Failed: {n_total - n_passed} ({100 * (n_total - n_passed) / n_total:.1f}%)")
+    
+    return qa_df
+
+
+def get_qa_exclusions(qa_df: pd.DataFrame, epoch_type: str = 'evoked') -> set:
+    """
+    Get set of (subject, task) tuples to exclude based on QA results.
+    
+    Parameters
+    ----------
+    qa_df : pd.DataFrame
+        QA summary dataframe from load_qa_summary()
+    epoch_type : str
+        Epoch type to filter by ('evoked' or 'state')
+        
+    Returns
+    -------
+    set
+        Set of (subject, task) tuples that failed QA
+    """
+    type_df = qa_df[qa_df['epoch_type'] == epoch_type].copy()
+    failed_df = type_df[~type_df['passed']].copy()
+    
+    exclusion_set = set()
+    for _, row in failed_df.iterrows():
+        exclusion_set.add((str(row['subject']), str(row['task'])))
+    
+    return exclusion_set
+
+
+def should_process_subject_task(subject: str, task: str, qa_exclusions: set) -> bool:
+    """
+    Check if a subject-task combination should be processed based on QA.
+    
+    Parameters
+    ----------
+    subject : str
+        Subject identifier
+    task : str
+        Task identifier
+    qa_exclusions : set
+        Set of (subject, task) tuples to exclude
+        
+    Returns
+    -------
+    bool
+        True if should process, False if should skip
+    """
+    if qa_exclusions is None:
+        return True
+    return (str(subject), str(task)) not in qa_exclusions
+
+

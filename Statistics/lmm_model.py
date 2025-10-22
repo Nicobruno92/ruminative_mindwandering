@@ -9,9 +9,58 @@ Updated to work with aggregated probe marker data from the Junifer pipeline.
 import numpy as np
 import pandas as pd
 import warnings
-from typing import Tuple
+import re
+from typing import Tuple, Optional
+from scipy import stats
 from statsmodels.formula.api import mixedlm
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+
+def parse_random_effects(formula: str) -> Tuple[str, Optional[str]]:
+    """
+    Parse random effects from formula to extract fixed effects and random effects structure.
+    
+    Parameters
+    ----------
+    formula : str
+        Full LMM formula (e.g., "power ~ onoff + (1 + onoff|subject)")
+        
+    Returns
+    -------
+    formula_fixed : str
+        Fixed effects only (e.g., "power ~ onoff")
+    re_formula : str or None
+        Random effects formula for statsmodels (e.g., "1 + onoff")
+        None if only random intercept (1|subject)
+        
+    Examples
+    --------
+    >>> parse_random_effects("power ~ onoff + (1|subject)")
+    ('power ~ onoff', None)
+    >>> parse_random_effects("power ~ onoff + (1 + onoff|subject)")
+    ('power ~ onoff', '1 + onoff')
+    """
+    # Extract random effects (anything in parentheses with |)
+    random_effects_match = re.search(r'\(([^)]*)\|[^)]*\)', formula)
+    
+    if not random_effects_match:
+        # No random effects found
+        return formula.strip(), None
+    
+    # Get the random effects specification (before the |)
+    re_spec = random_effects_match.group(1).strip()
+    
+    # Remove random effects from formula to get fixed effects only
+    formula_fixed = re.sub(r'\s*\+?\s*\([^)]*\|[^)]*\)', '', formula).strip()
+    
+    # Check if it's just random intercept (1|subject) or has slopes
+    if re_spec == '1' or re_spec == '':
+        # Random intercept only - use groups parameter (default behavior)
+        return formula_fixed, None
+    else:
+        # Random slopes - need re_formula parameter
+        # statsmodels expects format like "1 + onoff" for random intercept + slope
+        return formula_fixed, re_spec
 
 
 def run_lmm_per_channel(
@@ -21,8 +70,9 @@ def run_lmm_per_channel(
     predictor_of_interest: str,
     method: str = 'REML',
     maxiter: int = 1000,
-    random_state: int = 42
-) -> Tuple[np.ndarray, np.ndarray]:
+    random_state: int = 42,
+    return_diagnostics: bool = False
+) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Run linear mixed model for each channel independently.
     
@@ -42,6 +92,8 @@ def run_lmm_per_channel(
         Maximum number of iterations
     random_state : int
         Random seed for reproducibility
+    return_diagnostics : bool, default=False
+        If True, return detailed convergence diagnostics
         
     Returns
     -------
@@ -49,10 +101,28 @@ def run_lmm_per_channel(
         T-statistics for predictor_of_interest, shape (n_channels,)
     p_values : np.ndarray
         P-values for predictor_of_interest, shape (n_channels,)
+    diagnostics : dict
+        Convergence and model diagnostics (only if return_diagnostics=True)
+        Contains:
+        - 'n_converged': number of successfully converged models
+        - 'n_failed': number of failed models
+        - 'n_insufficient_data': number of channels with insufficient data
+        - 'convergence_rate': proportion of successful convergences
+        - 'failed_channels': list of channel indices that failed
+        - 'convergence_warnings': list of convergence warning messages
+        - 'aic': list of AIC values per channel
+        - 'bic': list of BIC values per channel
+        - 'log_likelihood': list of log-likelihood values per channel
+        - 'conditional_r2': list of conditional R² values per channel
+        - 'shapiro_p_values': list of Shapiro-Wilk p-values (residual normality)
+        - 'breusch_pagan_p': list of Breusch-Pagan p-values (homoscedasticity)
+        - 'aic_mean', 'bic_mean', 'conditional_r2_mean': summary statistics
+        - 'shapiro_p_mean', 'pct_normality_violations': normality check summary
+        - 'breusch_pagan_p_mean', 'pct_heteroscedasticity': homoscedasticity summary
         
     Notes
     -----
-    - Convergence failures are handled silently (t=0, p=1)
+    - Convergence failures are handled gracefully (t=0, p=1)
     - Groups parameter is automatically set to df_behavioral["subject"]
     - Works with aggregated probe marker data (onoff, valence, confidence, etc.)
     - Handles missing data by dropping NaN values per channel
@@ -62,10 +132,32 @@ def run_lmm_per_channel(
     t_stats = np.zeros(n_channels)
     p_values = np.ones(n_channels)
     
+    # Initialize diagnostics tracking
+    diagnostics = {
+        'n_converged': 0,
+        'n_failed': 0,
+        'n_insufficient_data': 0,
+        'convergence_rate': 0.0,
+        'failed_channels': [],
+        'convergence_warnings': [],
+        # Model quality metrics
+        'aic': [],
+        'bic': [],
+        'log_likelihood': [],
+        'conditional_r2': [],
+        # Assumption checks
+        'shapiro_p_values': [],
+        'residual_variance': [],
+        'breusch_pagan_p': []
+    }
+    
     np.random.seed(random_state)
     
-    # Suppress convergence warnings
-    warnings.filterwarnings('ignore', category=ConvergenceWarning)
+    # Suppress convergence warnings but capture them if needed
+    if return_diagnostics:
+        warnings.filterwarnings('default', category=ConvergenceWarning)
+    else:
+        warnings.filterwarnings('ignore', category=ConvergenceWarning)
     
     # Validate data structure before processing
     if predictor_of_interest not in df_behavioral.columns:
@@ -91,30 +183,50 @@ def run_lmm_per_channel(
             # Remove NaN values (deterministic)
             df_ch = df_ch.dropna(subset=['power', 'subject', predictor_of_interest])
             
+            # Ensure subject remains string type after dropna (prevents mixedlm TypeError)
+            df_ch['subject'] = df_ch['subject'].astype(str)
+            
             # Check minimum observations threshold
             if len(df_ch) < 10:
                 t_stats[ch_idx] = 0.0
                 p_values[ch_idx] = 1.0
+                diagnostics['n_insufficient_data'] += 1
                 continue
             
             # Check if we have multiple subjects for this channel
             if df_ch['subject'].nunique() < 2:
                 t_stats[ch_idx] = 0.0
                 p_values[ch_idx] = 1.0
+                diagnostics['n_insufficient_data'] += 1
                 continue
             
             # Check for sufficient variation in predictor for this channel
             if df_ch[predictor_of_interest].nunique() < 2:
                 t_stats[ch_idx] = 0.0
                 p_values[ch_idx] = 1.0
+                diagnostics['n_insufficient_data'] += 1
                 continue
             
-            # Fit mixed model (deterministic with fixed random state)
-            model = mixedlm(
-                formula=formula,
-                data=df_ch,
-                groups=df_ch["subject"]
-            )
+            # Parse random effects to check for random slopes
+            formula_fixed, re_formula = parse_random_effects(formula)
+            
+            # Fit mixed model with random slopes support
+            if re_formula is None:
+                # Random intercept only: (1|subject)
+                model = mixedlm(
+                    formula=formula_fixed,
+                    data=df_ch,
+                    groups=df_ch["subject"]
+                )
+            else:
+                # Random slopes: (1 + predictor|subject)
+                # Use re_formula parameter for random slopes
+                model = mixedlm(
+                    formula=formula_fixed,
+                    data=df_ch,
+                    groups=df_ch["subject"],
+                    re_formula=re_formula
+                )
             
             # Ensure method is uppercase (statsmodels expects uppercase)
             method_upper = method.upper()
@@ -128,20 +240,134 @@ def run_lmm_per_channel(
             if predictor_of_interest in result.tvalues.index:
                 t_stats[ch_idx] = float(result.tvalues[predictor_of_interest])
                 p_values[ch_idx] = float(result.pvalues[predictor_of_interest])
+                diagnostics['n_converged'] += 1
+                
+                # Collect model quality metrics
+                diagnostics['aic'].append(float(result.aic))
+                diagnostics['bic'].append(float(result.bic))
+                diagnostics['log_likelihood'].append(float(result.llf))
+                
+                # Compute conditional R² (variance explained by fixed + random effects)
+                # R² = 1 - (residual variance / total variance)
+                residuals = result.resid
+                total_var = np.var(df_ch['power'])
+                residual_var = np.var(residuals)
+                cond_r2 = 1 - (residual_var / total_var) if total_var > 0 else 0.0
+                diagnostics['conditional_r2'].append(float(cond_r2))
+                diagnostics['residual_variance'].append(float(residual_var))
+                
+                # Check residual normality (Shapiro-Wilk test)
+                # Only test if we have enough residuals (3 <= n <= 5000)
+                if 3 <= len(residuals) <= 5000:
+                    try:
+                        _, shapiro_p = stats.shapiro(residuals)
+                        diagnostics['shapiro_p_values'].append(float(shapiro_p))
+                    except (ValueError, RuntimeError):
+                        diagnostics['shapiro_p_values'].append(np.nan)
+                else:
+                    diagnostics['shapiro_p_values'].append(np.nan)
+                
+                # Check homoscedasticity (Breusch-Pagan test approximation)
+                # Test if residual variance is related to fitted values
+                fitted = result.fittedvalues
+                if len(fitted) > 10:
+                    try:
+                        # Simple correlation test between |residuals| and fitted values
+                        abs_resid = np.abs(residuals)
+                        corr, bp_p = stats.spearmanr(fitted, abs_resid)
+                        diagnostics['breusch_pagan_p'].append(float(bp_p))
+                    except (ValueError, RuntimeError):
+                        diagnostics['breusch_pagan_p'].append(np.nan)
+                else:
+                    diagnostics['breusch_pagan_p'].append(np.nan)
             else:
                 t_stats[ch_idx] = 0.0
                 p_values[ch_idx] = 1.0
+                diagnostics['n_failed'] += 1
+                diagnostics['failed_channels'].append(ch_idx)
             
+        except ConvergenceWarning as w:
+            # Convergence warning: model may be unreliable
+            t_stats[ch_idx] = 0.0
+            p_values[ch_idx] = 1.0
+            diagnostics['n_failed'] += 1
+            diagnostics['failed_channels'].append(ch_idx)
+            if return_diagnostics:
+                diagnostics['convergence_warnings'].append(f"Channel {ch_idx}: {str(w)}")
         except Exception as e:
             # Convergence failure or other error: set t=0, p=1
             t_stats[ch_idx] = 0.0
             p_values[ch_idx] = 1.0
-            if ch_idx < 5:  # Only print first few errors to avoid spam
-                print(f"Channel {ch_idx} LMM failed: {e}")
+            diagnostics['n_failed'] += 1
+            diagnostics['failed_channels'].append(ch_idx)
+            if ch_idx < 5 or return_diagnostics:  # Print first few errors or all if diagnostics requested
+                error_msg = f"Channel {ch_idx} LMM failed: {e}"
+                if return_diagnostics:
+                    diagnostics['convergence_warnings'].append(error_msg)
+                else:
+                    print(error_msg)
     
     warnings.filterwarnings('default', category=ConvergenceWarning)
     
-    return t_stats, p_values
+    # Calculate convergence rate
+    n_attempted = n_channels - diagnostics['n_insufficient_data']
+    if n_attempted > 0:
+        diagnostics['convergence_rate'] = diagnostics['n_converged'] / n_attempted
+    
+    # Compute summary statistics for model quality and assumptions
+    if diagnostics['n_converged'] > 0:
+        diagnostics['aic_mean'] = float(np.mean(diagnostics['aic']))
+        diagnostics['bic_mean'] = float(np.mean(diagnostics['bic']))
+        diagnostics['log_likelihood_mean'] = float(np.mean(diagnostics['log_likelihood']))
+        diagnostics['conditional_r2_mean'] = float(np.mean(diagnostics['conditional_r2']))
+        diagnostics['conditional_r2_median'] = float(np.median(diagnostics['conditional_r2']))
+        
+        # Assumption checks summary
+        shapiro_valid = [p for p in diagnostics['shapiro_p_values'] if not np.isnan(p)]
+        if shapiro_valid:
+            diagnostics['shapiro_p_mean'] = float(np.mean(shapiro_valid))
+            diagnostics['n_normality_violations'] = sum(1 for p in shapiro_valid if p < 0.05)
+            diagnostics['pct_normality_violations'] = 100 * diagnostics['n_normality_violations'] / len(shapiro_valid)
+        
+        bp_valid = [p for p in diagnostics['breusch_pagan_p'] if not np.isnan(p)]
+        if bp_valid:
+            diagnostics['breusch_pagan_p_mean'] = float(np.mean(bp_valid))
+            diagnostics['n_heteroscedasticity'] = sum(1 for p in bp_valid if p < 0.05)
+            diagnostics['pct_heteroscedasticity'] = 100 * diagnostics['n_heteroscedasticity'] / len(bp_valid)
+    
+    # Print summary if diagnostics requested
+    if return_diagnostics:
+        print("\nLMM Convergence Summary:")
+        print(f"  Total channels: {n_channels}")
+        print(f"  Converged: {diagnostics['n_converged']}")
+        print(f"  Failed: {diagnostics['n_failed']}")
+        print(f"  Insufficient data: {diagnostics['n_insufficient_data']}")
+        print(f"  Convergence rate: {100*diagnostics['convergence_rate']:.1f}%")
+        if len(diagnostics['convergence_warnings']) > 0:
+            print(f"  Warnings: {len(diagnostics['convergence_warnings'])}")
+        
+        # Print model quality metrics
+        if diagnostics['n_converged'] > 0:
+            print(f"\nModel Quality Metrics (averaged across {diagnostics['n_converged']} channels):")
+            print(f"  AIC (mean): {diagnostics['aic_mean']:.2f}")
+            print(f"  BIC (mean): {diagnostics['bic_mean']:.2f}")
+            print(f"  Log-likelihood (mean): {diagnostics['log_likelihood_mean']:.2f}")
+            print(f"  Conditional R² (mean): {diagnostics['conditional_r2_mean']:.3f}")
+            print(f"  Conditional R² (median): {diagnostics['conditional_r2_median']:.3f}")
+            
+            # Print assumption checks
+            print("\nModel Assumptions:")
+            if 'shapiro_p_mean' in diagnostics:
+                print("  Residual normality (Shapiro-Wilk):")
+                print(f"    Mean p-value: {diagnostics['shapiro_p_mean']:.3f}")
+                print(f"    Violations (p < 0.05): {diagnostics['n_normality_violations']}/{len(shapiro_valid)} ({diagnostics['pct_normality_violations']:.1f}%)")
+            
+            if 'breusch_pagan_p_mean' in diagnostics:
+                print("  Homoscedasticity (Breusch-Pagan approximation):")
+                print(f"    Mean p-value: {diagnostics['breusch_pagan_p_mean']:.3f}")
+                print(f"    Violations (p < 0.05): {diagnostics['n_heteroscedasticity']}/{len(bp_valid)} ({diagnostics['pct_heteroscedasticity']:.1f}%)")
+    
+    return t_stats, p_values, diagnostics
 
 
 def validate_probe_data_structure(df_behavioral: pd.DataFrame, formula: str) -> bool:
@@ -282,3 +508,286 @@ def compute_effect_sizes(
                 effect_sizes[ch_idx] = correlation if not np.isnan(correlation) else 0.0
     
     return effect_sizes
+
+
+def fit_reduced_model_per_channel(
+    power_data: np.ndarray,
+    df_behavioral: pd.DataFrame,
+    formula: str,
+    predictor_of_interest: str,
+    method: str = 'REML',
+    maxiter: int = 1000,
+    random_state: int = 42
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Fit reduced LMM (without predictor of interest) and extract residuals and fitted values.
+    
+    This is the first step of the Freedman-Lane permutation procedure.
+    The reduced model includes all covariates EXCEPT the predictor of interest.
+    
+    Parameters
+    ----------
+    power_data : np.ndarray
+        Power values with shape (n_observations, n_channels)
+    df_behavioral : pd.DataFrame
+        Behavioral data with 'subject' column
+    formula : str
+        R-style formula for the full model (e.g., "power ~ X_POI + covariate + (1|subject)")
+    predictor_of_interest : str
+        Name of the predictor to exclude from reduced model (e.g., "X_POI")
+    method : str
+        Optimization method ('REML' recommended)
+    maxiter : int
+        Maximum number of iterations
+    random_state : int
+        Random seed for reproducibility
+        
+    Returns
+    -------
+    residuals : np.ndarray
+        Residuals from reduced model, shape (n_observations, n_channels)
+        R = Y - Ŷ_reduced
+    fitted_values : np.ndarray
+        Fitted values from reduced model, shape (n_observations, n_channels)
+        Ŷ_reduced = predicted values from model without X_POI
+        
+    Notes
+    -----
+    The reduced model formula is created by removing the predictor_of_interest
+    from the full formula. For example:
+    - Full: "power ~ onoff + valence + (1|subject)"
+    - Reduced: "power ~ valence + (1|subject)" (onoff removed)
+    
+    If the reduced model has no fixed effects (only intercept + random effects),
+    it becomes: "power ~ 1 + (1|subject)"
+    """
+    n_observations, n_channels = power_data.shape
+    residuals = np.zeros((n_observations, n_channels))
+    fitted_values = np.zeros((n_observations, n_channels))
+    
+    np.random.seed(random_state)
+    
+    # Create reduced formula by removing predictor of interest
+    reduced_formula = _create_reduced_formula(formula, predictor_of_interest)
+    
+    # Suppress convergence warnings
+    warnings.filterwarnings('ignore', category=ConvergenceWarning)
+    
+    for ch_idx in range(n_channels):
+        try:
+            # Prepare data for this channel
+            df_ch = df_behavioral.copy()
+            df_ch['power'] = power_data[:, ch_idx]
+            
+            # Remove NaN values
+            df_ch = df_ch.dropna(subset=['power', 'subject'])
+            df_ch['subject'] = df_ch['subject'].astype(str)
+            
+            # Check minimum observations
+            if len(df_ch) < 10 or df_ch['subject'].nunique() < 2:
+                # Use raw data as residuals (no model fit)
+                residuals[:, ch_idx] = power_data[:, ch_idx]
+                fitted_values[:, ch_idx] = 0.0
+                continue
+            
+            # Parse random effects to check for random slopes
+            formula_fixed, re_formula = parse_random_effects(reduced_formula)
+            
+            # IMPORTANT: Freedman-Lane with random slopes
+            # The reduced model must have the SAME random effects structure as the full model
+            # to preserve the correlation structure under the null hypothesis
+            if re_formula is not None:
+                warnings.warn(
+                    "Using Freedman-Lane permutation with random slopes. "
+                    "Ensure the reduced model preserves the random effects structure. "
+                    "Consider using 'simple' permutation method if convergence issues occur.",
+                    UserWarning
+                )
+            
+            # Fit reduced model with same random effects structure
+            if re_formula is None:
+                # Random intercept only
+                model = mixedlm(
+                    formula=formula_fixed,
+                    data=df_ch,
+                    groups=df_ch["subject"]
+                )
+            else:
+                # Random slopes - preserve structure
+                model = mixedlm(
+                    formula=formula_fixed,
+                    data=df_ch,
+                    groups=df_ch["subject"],
+                    re_formula=re_formula
+                )
+            
+            result = model.fit(
+                method=method.upper(),
+                maxiter=maxiter,
+                disp=False
+            )
+            
+            # Extract fitted values and residuals
+            # Map back to original indices
+            fitted_ch = np.zeros(n_observations)
+            residuals_ch = np.zeros(n_observations)
+            
+            fitted_ch[df_ch.index] = result.fittedvalues.values
+            residuals_ch[df_ch.index] = result.resid.values
+            
+            fitted_values[:, ch_idx] = fitted_ch
+            residuals[:, ch_idx] = residuals_ch
+            
+        except Exception as e:
+            # If model fails, use raw data as residuals
+            residuals[:, ch_idx] = power_data[:, ch_idx]
+            fitted_values[:, ch_idx] = 0.0
+    
+    warnings.filterwarnings('default', category=ConvergenceWarning)
+    
+    return residuals, fitted_values
+
+
+def _create_reduced_formula(formula: str, predictor_to_remove: str) -> str:
+    """
+    Create reduced formula by removing a specific predictor.
+    
+    Parameters
+    ----------
+    formula : str
+        Full formula (e.g., "power ~ onoff + valence + (1|subject)")
+    predictor_to_remove : str
+        Predictor to remove (e.g., "onoff")
+        
+    Returns
+    -------
+    str
+        Reduced formula (e.g., "power ~ valence + (1|subject)")
+        
+    Examples
+    --------
+    >>> _create_reduced_formula("power ~ onoff + valence + (1|subject)", "onoff")
+    'power ~ valence + (1|subject)'
+    >>> _create_reduced_formula("power ~ onoff + (1|subject)", "onoff")
+    'power ~ 1 + (1|subject)'
+    """
+    # Split formula into left and right sides
+    parts = formula.split('~')
+    if len(parts) != 2:
+        raise ValueError(f"Invalid formula: {formula}")
+    
+    left_side = parts[0].strip()
+    right_side = parts[1].strip()
+    
+    # Extract random effects part (e.g., "(1|subject)")
+    random_effects = re.findall(r'\([^)]*\|[^)]*\)', right_side)
+    
+    # Remove random effects from right side to get fixed effects
+    fixed_effects = re.sub(r'\s*\+?\s*\([^)]*\|[^)]*\)', '', right_side).strip()
+    
+    # Split fixed effects by '+'
+    fixed_terms = [term.strip() for term in fixed_effects.split('+')]
+    
+    # Remove the predictor of interest
+    reduced_terms = [term for term in fixed_terms if term != predictor_to_remove and term != '']
+    
+    # Reconstruct formula
+    if len(reduced_terms) == 0:
+        # No fixed effects left, use intercept only
+        reduced_fixed = '1'
+    else:
+        reduced_fixed = ' + '.join(reduced_terms)
+    
+    # Add back random effects
+    if random_effects:
+        reduced_formula = f"{left_side} ~ {reduced_fixed} + {' + '.join(random_effects)}"
+    else:
+        reduced_formula = f"{left_side} ~ {reduced_fixed}"
+    
+    return reduced_formula
+
+
+def freedman_lane_permutation(
+    residuals: np.ndarray,
+    fitted_values: np.ndarray,
+    df_behavioral: pd.DataFrame,
+    seed: int
+) -> np.ndarray:
+    """
+    Perform Freedman-Lane permutation on residuals.
+    
+    This function implements step 2 of the Freedman-Lane procedure:
+    permute residuals within subjects and reconstruct permuted Y.
+    
+    Parameters
+    ----------
+    residuals : np.ndarray
+        Residuals from reduced model, shape (n_observations, n_channels)
+    fitted_values : np.ndarray
+        Fitted values from reduced model, shape (n_observations, n_channels)
+    df_behavioral : pd.DataFrame
+        Behavioral data with 'subject' column
+    seed : int
+        Random seed for reproducibility
+        
+    Returns
+    -------
+    power_permuted : np.ndarray
+        Permuted power data, shape (n_observations, n_channels)
+        Y* = Ŷ_reduced + R_permuted
+        
+    Notes
+    -----
+    The Freedman-Lane procedure permutes residuals within subjects to:
+    1. Break the association between X_POI and Y
+    2. Preserve the structure of covariates
+    3. Maintain within-subject correlation
+    
+    This is more powerful than simple permutation because it:
+    - Reduces residual variance by accounting for covariates
+    - Preserves important confound structure
+    - Provides better Type I error control with multiple predictors
+    """
+    n_observations, n_channels = residuals.shape
+    
+    # Validate dimensions match
+    if fitted_values.shape != residuals.shape:
+        raise ValueError(
+            f"Shape mismatch: residuals {residuals.shape} != "
+            f"fitted_values {fitted_values.shape}"
+        )
+    
+    if len(df_behavioral) != n_observations:
+        raise ValueError(
+            f"Shape mismatch: df_behavioral has {len(df_behavioral)} rows "
+            f"but residuals has {n_observations} observations"
+        )
+    
+    power_permuted = np.zeros((n_observations, n_channels))
+    
+    np.random.seed(seed)
+    
+    # Permute residuals within each subject
+    # This preserves within-subject correlation structure
+    for subject in df_behavioral['subject'].unique():
+        subject_mask = df_behavioral['subject'] == subject
+        subject_indices = df_behavioral.loc[subject_mask].index.to_numpy()
+        
+        if len(subject_indices) < 2:
+            # Can't permute single observation, keep as is
+            power_permuted[subject_indices, :] = (
+                fitted_values[subject_indices, :] + residuals[subject_indices, :]
+            )
+            continue
+        
+        # Permute indices within subject
+        permuted_indices = np.random.permutation(subject_indices)
+        
+        # Reconstruct Y*: fitted values + permuted residuals
+        for ch_idx in range(n_channels):
+            power_permuted[subject_indices, ch_idx] = (
+                fitted_values[subject_indices, ch_idx] + 
+                residuals[permuted_indices, ch_idx]
+            )
+    
+    return power_permuted

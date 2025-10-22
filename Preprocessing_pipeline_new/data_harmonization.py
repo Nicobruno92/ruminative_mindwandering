@@ -62,8 +62,11 @@ def process_subject_task(cfg: dict, subject: str, task: str) -> None:
         tc = TriggerCorrector(raw)
         _events, _event_id = tc.process_annotations()
         # BAD_rest segments are now present in raw.annotations and will be treated as bad
+        # Store the TriggerCorrector dataframe for later use (contains rt, timestamps, etc.)
+        raw._trigger_corrector_df = tc.df
     except Exception as exc:
         print(f"[WARN] TriggerCorrector failed: {exc}")
+        raw._trigger_corrector_df = None
 
     # Ensure BAD_rest periods are explicitly marked as bad annotations for downstream processing
     try:

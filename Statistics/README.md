@@ -15,15 +15,17 @@ The pipeline performs the following steps:
 
 ```
 Statistics/
-├── config.yaml              # Configuration file (YAML)
-├── reader.py                # Data loading module
-├── lmm_model.py             # Linear mixed model implementation
-├── cluster_test.py          # Spatial cluster permutation testing
-├── plot_results.py          # Visualization functions
-├── run_pipeline.py          # Main pipeline executor
-├── run_lmm_pipeline.sh      # SLURM cluster script
-├── example_usage.py         # Usage examples
-└── test_pipeline.py         # Test script
+├── config.yaml                  # Configuration file (YAML)
+├── reader.py                    # Data loading module
+├── lmm_model.py                 # Linear mixed model implementation
+├── cluster_test.py              # Spatial cluster permutation testing
+├── plot_results.py              # Visualization functions
+├── run_pipeline.py              # Main pipeline executor
+├── run_lmm_pipeline.sh          # SLURM script (sequential)
+├── submit_marker_array.sh       # SLURM array job script
+├── submit_parallel_markers.sh   # Helper to submit parallel jobs
+├── example_usage.py             # Usage examples
+└── test_pipeline.py             # Test script
 ```
 
 ## Configuration
@@ -46,56 +48,166 @@ project:
   features_root: "/path/to/features"
   output_path: "/path/to/results"
   montage_path: "Preprocessing_pipeline_new/CACS-64_REF.bvef"
+  
+  # Markers to analyze
+  markers: "all"  # or list of specific markers
 
 lmm:
   formula: "power ~ onoff + (1|subject)"
   predictor_of_interest: "onoff"
-  method: "REML"
+  method: "powell"
+  maxiter: 2000
   
 clustering:
   threshold: 2.0
   n_permutations: 1000
   alpha: 0.05
+
+# Multiple comparisons correction
+multiple_comparisons:
+  evoked: false  # or "fdr_bh", "bonferroni"
+  state: false   # or "fdr_bh", "bonferroni"
+  alpha: 0.05
 ```
+
+## Multiple Comparisons Correction
+
+When testing multiple markers (features), the probability of false positives increases. The pipeline supports multiple comparisons correction that can be configured **separately for evoked and state markers**.
+
+### Configuration Options
+
+In `config.yaml`, set correction methods for each marker type:
+
+```yaml
+multiple_comparisons:
+  # Correction for evoked markers
+  evoked: false  # Options: false, "fdr_bh", "bonferroni"
+  
+  # Correction for state markers  
+  state: "fdr_bh"  # Options: false, "fdr_bh", "bonferroni"
+  
+  # Alpha level for correction
+  alpha: 0.05
+```
+
+### Correction Methods
+
+- **`false` (no correction)**: Use uncorrected p-values. Appropriate when testing a single marker or when correction is not needed.
+
+- **`"fdr_bh"` (Benjamini-Hochberg FDR)**: Controls False Discovery Rate - the expected proportion of false discoveries among rejected hypotheses. Less conservative than Bonferroni, recommended for exploratory analyses with many markers.
+
+- **`"bonferroni"`: Controls Family-Wise Error Rate (FWER) - guarantees strong control of Type I error. Very conservative, may have low power with many tests.
+
+### How It Works
+
+1. **Separate by marker type**: Correction is applied independently to evoked and state markers
+2. **Collect all cluster p-values**: Gathers p-values from all clusters across all markers of each type
+3. **Apply correction**: Adjusts p-values using the specified method
+4. **Update significance**: Re-evaluates which clusters are significant at the corrected alpha level
+
+### Output Files
+
+The pipeline generates additional files with correction information:
+
+- `multiple_comparisons_summary.csv`: Summary of correction results per marker
+- Updated `pipeline_summary.csv`: Includes both uncorrected and corrected significant cluster counts
+- Updated marker summaries: Show before/after correction statistics
+
+### Example Scenarios
+
+**Scenario 1: Testing many markers, exploratory analysis**
+```yaml
+multiple_comparisons:
+  evoked: "fdr_bh"  # Control FDR for multiple evoked markers
+  state: "fdr_bh"   # Control FDR for multiple state markers
+  alpha: 0.05
+```
+
+**Scenario 2: Confirmatory analysis, few markers**
+```yaml
+multiple_comparisons:
+  evoked: false      # No correction needed
+  state: false       # No correction needed
+  alpha: 0.05
+```
+
+**Scenario 3: Different strategies per type**
+```yaml
+multiple_comparisons:
+  evoked: "bonferroni"  # Conservative for evoked
+  state: "fdr_bh"       # Less conservative for state
+  alpha: 0.05
+```
+
+### Interpreting Results
+
+After correction, check the summary files:
+
+```python
+import pandas as pd
+
+# Load correction summary
+summary = pd.read_csv("results/lmm_cluster/multiple_comparisons_summary.csv")
+
+# Compare before/after correction
+print(summary[['marker_name', 'marker_type', 'n_sig_uncorrected', 'n_sig_corrected']])
+```
+
+The pipeline reports:
+- **n_sig_clusters_uncorrected**: Significant clusters before correction
+- **n_sig_clusters_corrected**: Significant clusters after correction
+- **correction_method**: Method applied (none, fdr_bh, or bonferroni)
 
 ## Usage
 
-### Local Usage
+### 1. Configure Markers
 
-```bash
-# Activate eeg environment
-conda activate eeg
+Edit `Statistics/config.yaml` to specify which markers to analyze:
 
-# Run pipeline with default config
-python Statistics/run_pipeline.py
-
-# Run all markers
-python Statistics/run_pipeline.py --all-markers
-
-# Run specific markers
-python Statistics/run_pipeline.py --markers "EEG_psd_bands_spectralpower_alpha" "EEG_psd_bands_spectralpower_theta"
-
-# Run with custom config
-python Statistics/run_pipeline.py --config path/to/config.yaml
+```yaml
+project:
+  # Process all available markers
+  markers: "all"
+  
+  # OR specify a list of markers
+  markers: 
+    - "EEG_psd_bands_spectralpower_alpha"
+    - "EEG_psd_bands_spectralpower_theta"
+    - "EEG_connectivity_wpli_alpha"
 ```
 
-### SLURM Cluster Usage
+### 2. Run Analysis
 
+**Local execution (sequential):**
 ```bash
-# Submit single marker analysis
+conda activate eeg
+python Statistics/run_pipeline.py
+```
+
+**SLURM cluster (sequential):**
+```bash
 sbatch Statistics/run_lmm_pipeline.sh
+```
 
-# Submit all markers analysis
-sbatch Statistics/run_lmm_pipeline.sh --all-markers
+**SLURM cluster (parallel - RECOMMENDED):**
+```bash
+# Automatically parallelizes across all markers in config
+# AND submits a report generation job that runs after all markers complete
+bash Statistics/submit_parallel_markers.sh
 
-# Submit specific markers analysis
-sbatch Statistics/run_lmm_pipeline.sh --markers "EEG_psd_bands_spectralpower_alpha"
+# This submits:
+#   1. Array job with N tasks (one per marker)
+#   2. Report generation job (depends on array job completion)
 
-# Check job status
+# Monitor jobs
 squeue -u $USER
 
-# View output logs
-tail -f logs/lmm_pipeline_*.log
+# View logs for specific marker
+tail -f logs/lmm_marker_*_0.out  # First marker
+tail -f logs/lmm_marker_*_5.out  # Sixth marker
+
+# View report generation log
+tail -f logs/lmm_report_*.out
 ```
 
 ### Data Format
@@ -157,37 +269,85 @@ The pipeline generates:
 For each marker, files are saved with type-specific naming:
 - `{marker_type}_{marker_name}_results.pkl`: Complete results dictionary
 - `{marker_type}_{marker_name}_cluster_summary.csv`: Cluster details and significance
-- `{marker_type}_{marker_name}_t_statistics.csv`: Per-channel t-statistics and p-values
-- `{marker_type}_{marker_name}_topomap.png`: Topographic map with significant clusters
 
-### 2. Summary Files
-- `pipeline_summary.csv`: Overview of all processed markers
-- `summary_{marker_type}_markers.csv`: Results grouped by marker type (evoked/state)
-- `analysis_summary_{marker_type}.csv`: Statistical summary for each marker type
+Results are organized in **separate folders for each marker-type combination**:
 
-### 3. Example Output Structure
 ```
-results/
-├── pipeline_summary.csv
-├── summary_evoked_markers.csv
-├── summary_state_markers.csv
-├── analysis_summary_evoked.csv
-├── analysis_summary_state.csv
-├── evoked_EEG_psd_bands_spectralpower_alpha_results.pkl
-├── evoked_EEG_psd_bands_spectralpower_alpha_cluster_summary.csv
-├── evoked_EEG_psd_bands_spectralpower_alpha_t_statistics.csv
-├── state_EEG_psd_bands_spectralpower_alpha_results.pkl
-└── state_EEG_psd_bands_spectralpower_alpha_cluster_summary.csv
+results/lmm_cluster/onoff/
+├── pipeline_summary.csv                              # Overall summary
+├── summary_evoked_markers.csv                        # Evoked summary
+├── summary_state_markers.csv                         # State summary
+├── multiple_comparisons_summary.csv                  # Correction summary
+│
+├── SUMMARY_REPORT_*.csv                              # Comprehensive results table
+├── SUMMARY_TOPOPLOTS_*.pdf                           # All topoplots for comparison
+├── SUMMARY_DETAILED_*.xlsx                           # Detailed Excel with sheets
+│
+├── evoked_EEG_psd_bands_spectralpower_alpha/        # Marker folder
+│   ├── results.pkl                                   # Complete results
+│   ├── cluster_summary.csv                           # Cluster details
+│   ├── t_statistics.csv                              # Per-channel stats
+│   └── *.png                                         # Visualizations
+│
+├── state_EEG_psd_bands_spectralpower_alpha/         # Same marker, state type
+│   └── ... (same structure)
+│
+└── ... (52 total marker folders)
 ```
+
+### 2. Comprehensive Summary Report (NEW)
+
+After all markers are processed, the pipeline automatically generates:
+
+**SUMMARY_REPORT_*.csv**: Complete results table with all markers
+- One row per marker with all statistics
+- Includes both uncorrected and corrected significant cluster counts
+- Sorted by marker type and significance
+
+**SUMMARY_TOPOPLOTS_*.pdf**: Visual comparison of all markers
+- All topoplots organized by marker type (evoked/state)
+- Multiple pages with 12 topoplots per page
+- Significant clusters highlighted with black markers
+- Easy visual identification of spatial patterns across markers
+
+**SUMMARY_DETAILED_*.xlsx**: Multi-sheet Excel workbook
+- **Summary**: All markers with complete statistics
+- **Significant Only**: Markers with ≥1 significant cluster
+- **Evoked Markers**: Evoked markers only
+- **State Markers**: State markers only
+- **Cluster Details**: Channel-level details for significant clusters
+
+### 3. Manual Report Generation
+
+You can also generate the summary report manually at any time:
+
+```bash
+# Generate report for a specific model
+bash Statistics/create_report.sh results/lmm_cluster/onoff
+
+# Or use Python directly
+python Statistics/generate_summary_report.py results/lmm_cluster/onoff
+
+# With options
+python Statistics/generate_summary_report.py results/lmm_cluster/onoff \
+    --alpha 0.01 \
+    --use-uncorrected
+```
+
+See `OUTPUT_STRUCTURE.md` for detailed documentation.
 
 ## Key Features
 
+- **Config-Driven**: All markers specified in YAML config, no CLI arguments needed
+- **Parallel Processing**: SLURM array jobs for efficient marker parallelization
+- **Comprehensive Reports**: Automatic generation of summary tables and comparison topoplots
 - **Deterministic**: Fixed random seeds ensure reproducibility across runs
 - **Continuous Analysis**: Uses continuous `onoff` predictor (0-100 mind-wandering scale)
 - **Type-Specific Processing**: State and evoked markers processed independently
 - **Organized Output**: Results saved with marker type prefixes for easy analysis
+- **Visual Comparison**: Side-by-side topoplots for all markers in PDF format
 - **Montage-Aware**: Uses actual `CACS-64_REF.bvef` montage for spatial operations
-- **Cluster-Ready**: Optimized for SLURM cluster execution
+- **Cluster-Ready**: Optimized for SLURM cluster execution with array jobs
 - **Robust**: Handles convergence failures and edge cases gracefully
 - **Modular**: Each component can be imported and used independently
 

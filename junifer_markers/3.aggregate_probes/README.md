@@ -18,11 +18,13 @@ It reads per-epoch marker PKL files and aggregates them by probe, similar to the
 
 1. **Evoked Markers** (time-locked topographies: P1, N1, P2, P3a, P3b)
    - Aggregate only the **5 trials closest to the probe** (-5 to -1)
+   - Filter for **go/correct trials only** (trial-locked responses)
    - Apply outlier detection using RMS-based z-score thresholding
    - Same approach as ERP analysis
 
 2. **State Markers** (spectral, connectivity, information theory)
    - Aggregate **all trials before the probe** (captures sustained mental state)
+   - **No trial-type filtering** (state events have trial_type='unknown')
    - Apply outlier detection using the same robust method
    - Includes: psd_bands, psd_relative, wsmi_*, PE_*, kolmogorov_complexity
 
