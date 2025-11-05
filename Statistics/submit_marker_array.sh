@@ -10,12 +10,22 @@
 # This script parallelizes marker processing across SLURM array tasks
 # Each array task processes one marker independently
 #
+# IMPORTANT: CPU allocation
+# - cpus-per-task should match the n_jobs setting in config.yaml
+# - If n_jobs=-1 (use all cores), set cpus-per-task to desired number
+# - If n_jobs=1 (sequential), set cpus-per-task=1
+# - Current setting: cpus-per-task=4 (matches n_jobs=-1 with 4 cores)
+#
 # Usage:
 #   1. Configure markers in Statistics/config.yaml (set project.markers)
-#   2. Run: sbatch Statistics/submit_marker_array.sh
-#   3. The script will auto-detect the number of markers and submit array jobs
+#   2. Set clustering.n_jobs in config.yaml (-1 for all cores, or specific number)
+#   3. Adjust --cpus-per-task above to match your n_jobs setting
+#   4. Run: sbatch Statistics/submit_marker_array.sh
+#   5. The script will auto-detect the number of markers and submit array jobs
 
-# Set threading environment variables VERY early to prevent any library conflicts
+# Set threading environment variables to prevent nested parallelism
+# We use joblib for parallel processing at the permutation level,
+# so we disable threading in numerical libraries to avoid conflicts
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
@@ -29,6 +39,9 @@ export ONNXRUNTIME_NUM_THREADS=1
 export MKL_THREADING_LAYER=sequential
 export MKL_DYNAMIC=FALSE
 export TORCH_NUM_THREADS=1
+
+# Note: These settings prevent nested parallelism (library-level threading)
+# while allowing joblib to parallelize at the process level (permutations)
 
 # Load required modules
 module load proxy

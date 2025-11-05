@@ -76,7 +76,7 @@ def run_pyprep_noisychannels(
                 l_freq=l_freq,
                 h_freq=h_freq,
                 phase="zero",
-                n_jobs=1,
+                n_jobs=-1,
             )
     # Optional quick ICA cleaning before detection (on a COPY)
 
@@ -95,7 +95,7 @@ def run_pyprep_noisychannels(
                 l_freq=lf,
                 h_freq=hf,
                 phase="zero",
-                n_jobs=1,
+                n_jobs=-1,
             )
 
         # Fit a small/fast ICA

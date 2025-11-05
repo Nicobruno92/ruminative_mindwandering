@@ -5,7 +5,7 @@
 #SBATCH --array=1-332%20
 #SBATCH --time=01:00:00
 #SBATCH --mem=8G
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=1
 
 # =============================================================================
 # Parallel H5 to PKL Conversion using SLURM Job Arrays

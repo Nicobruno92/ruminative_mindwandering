@@ -444,6 +444,11 @@ def auto_select_ica_components(
             bonus_score += pattern_bonus
             bonus_sources.append("Muscle")
         
+        # Always add bonus for channel artifact/noise
+        if label == 'channel noise':
+            bonus_score += pattern_bonus
+            bonus_sources.append("Channel")
+        
         # Final boosted score
         final_score = min(base_score + bonus_score, 1.0)  # Cap at 1.0
         

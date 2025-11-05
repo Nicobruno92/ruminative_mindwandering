@@ -3,7 +3,7 @@
 #SBATCH --job-name=EEGPreprocAuto
 #SBATCH --output=logs/preproc_auto_%A_%a.out
 #SBATCH --error=logs/preproc_auto_%A_%a.err
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --time=48:00:00
 #SBATCH --mem=32G
 #SBATCH --chdir=/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/

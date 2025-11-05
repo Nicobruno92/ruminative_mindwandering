@@ -59,7 +59,7 @@ preprocessing:
   normalization_method: "zscore"
   
   # Channel-wise vs global normalization
-  # - true (default): Each channel normalized independently per subject
+  # - true: Each channel normalized independently per subject
   #   Pros: Controls baseline differences between channels
   #   Cons: Loses information about relative power differences between channels
   # - false: All channels use same normalization parameters per subject
@@ -97,10 +97,10 @@ preprocessing:
 #   Example: "onoff * valence" -> test "onoff" or "valence" or "onoff:valence"
 #
 lmm:
-  formula: "power ~ onoff + (1 + onoff|subject)"
+  formula: "power ~ onoff + (1|subject)"
   predictor_of_interest: "onoff"  # specify predictor name (e.g., "onoff") for clustering analysis
   method: "powell"  # powell is more robust than REML for convergence issues
-  maxiter: 2000     # Increased for better convergence
+  maxiter: 3000     # Increased for better convergence
   random_state: 42
 
 # Spatial cluster permutation parameters
@@ -108,31 +108,79 @@ clustering:
   # Method: "threshold" or "tfce"
   # - "threshold": Traditional cluster-based testing with fixed threshold
   # - "tfce": Threshold-Free Cluster Enhancement (no arbitrary threshold)
-  method: "tfce"  # or "tfce"
+  method: "tfce"  # "threshold" or "tfce"
   
   # Permutation method: "simple" or "freedman_lane"
   # - "simple": Permute predictor values within subjects (default, faster)
   # - "freedman_lane": Freedman-Lane procedure - permute residuals from reduced model
   #   More powerful when controlling for covariates, but computationally intensive
   #   Recommended when formula includes multiple predictors
-  permutation_method: "simple"
+  permutation_method: "freedman_lane"
   
   # Threshold-based parameters (only used if method="threshold")
-  threshold: 2.0
+  threshold: 2.5
   tail: 0  # two-sided: 0, one-sided greater: 1, one-sided less: -1
   stat_fun: "sum"  # "sum" or "max"
+  t_power: 1.0  # Power to raise t-values by (1.0=standard, >1 weights stronger effects more)
   
   # TFCE parameters (only used if method="tfce")
   tfce:
-    E: 0.5  # Extent exponent (typically 0.5)
-    H: 2.0  # Height exponent (typically 2.0)
-    n_steps: 100  # Number of integration steps (higher = more accurate but slower)
+    E: 0.5  # Extent exponent (typically 0.5) based on Pernet et al. (2015) & MNE
+    H: 2.0  # Height exponent (typically 2.0) based on Pernet et al. (2015) & MNE
+    n_steps: 500  # Number of integration steps (higher = more accurate but slower)
   
   # Common parameters
-  n_permutations: 100
+  n_permutations: 2000  # CRITICAL: Use 5000+ for reliable p-values (50 is too low)
   alpha: 0.05
   seed: 42
+  
+  # Parallel processing for permutations
+  # Controls how many CPU cores to use for permutation testing
+  # Options:
+  #   -1: Use all available CPU cores (recommended for cluster)
+  #    1: Sequential execution (no parallelization, useful for debugging)
+  #    n: Use n CPU cores (e.g., 4 to use 4 cores)
+  # Note: When running SLURM array jobs, each marker runs independently,
+  #       so you can parallelize at two levels:
+  #       1. Marker level: Multiple markers in parallel via SLURM array
+  #       2. Permutation level: Permutations in parallel via n_jobs
+  #       For best performance, balance both levels based on available resources
   n_jobs: -1
+  
+  # Channel exclusion (prevents boundary artifacts)
+  # Excluded channels:
+  #   - Are still tested (t-statistics computed)
+  #   - Cannot form clusters
+  #   - Cannot connect clusters
+  # This prevents spurious edge/boundary clusters
+  exclude_channels:
+    enabled: true  # Set to true to enable exclusion
+    method: "manual"  # "manual" or "auto_position"
+    
+    # For manual method: List specific channel names to exclude
+    # Typically edge/boundary channels prone to artifacts
+    channel_names:
+      # Most extreme lateral (|Theta| >= 90°) - worst for muscle artifacts
+      - "FT9"   # Theta=-113°, far anterior-temporal left
+      - "TP9"   # Theta=-113°, far posterior-temporal left
+      - "FT10"  # Theta=113°, far anterior-temporal right
+      - "TP10"  # Theta=113°, far posterior-temporal right
+      - "F7"    # Theta=-90°, lateral frontal left
+      - "F8"    # Theta=90°, lateral frontal right
+      - "T7"    # Theta=-90°, lateral temporal left
+      - "T8"    # Theta=90°, lateral temporal right
+      - "P7"    # Theta=-90°, lateral parietal left
+      - "P8"    # Theta=90°, lateral parietal right
+      # Extreme anterior - eye movement artifacts
+      - "Fp1"   # Phi=-72°, left frontopolar
+      - "Fp2"   # Phi=72°, right frontopolar
+      # Extreme posterior - edge effects
+      - "Iz"    # Theta=112°, Phi=-90°, inferior occipital
+
+    
+    # For auto_position method: Exclude outermost channels by position
+    # percentile: 10 means exclude outermost 10% of channels
+    auto_percentile: 10
 
 # Multiple comparisons correction
 # Adjust p-values when testing multiple features (markers)

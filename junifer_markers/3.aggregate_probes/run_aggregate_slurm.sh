@@ -3,7 +3,7 @@
 #SBATCH --output=logs/aggregate_markers_%A_%a.out
 #SBATCH --error=logs/aggregate_markers_%A_%a.err
 #SBATCH --array=0-167  # 42 subjects * 4 tasks = 168 combinations
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --time=04:00:00
 

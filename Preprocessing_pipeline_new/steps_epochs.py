@@ -21,6 +21,7 @@ def make_evoked_epochs(
     tmax: float,
     baseline: Optional[tuple],
     reject_by_annotation: bool,
+    reject: Optional[Dict[str, float]] = None,
 ) -> mne.Epochs:
     """Create evoked (ERP) epochs.
 
@@ -31,6 +32,8 @@ def make_evoked_epochs(
     - tmin, tmax: epoch window
     - baseline: baseline tuple or None
     - reject_by_annotation: honor BAD_* annotations
+    - reject: dict of rejection thresholds for coarse artifact rejection
+              (e.g., {'eeg': 500e-6}). Applied before AutoReject.
 
     Returns
     - Epochs instance (preloaded for AutoReject compatibility)
@@ -42,6 +45,7 @@ def make_evoked_epochs(
         tmin=tmin,
         tmax=tmax,
         baseline=baseline,
+        reject=reject,
         reject_by_annotation=reject_by_annotation,
         event_repeated="drop",
         preload=True,  # Required for AutoReject
@@ -54,6 +58,7 @@ def make_state_preprobe_epochs(
     pre_probe_s: float,
     mini_epoch_s: float,
     overlap_s: float,
+    reject: Optional[Dict[str, float]] = None,
 ) -> Optional[mne.Epochs]:
     """Create pre-probe state epochs anchored to THOUGHT_PROBE events.
 
@@ -252,6 +257,7 @@ def make_state_preprobe_epochs(
         tmin=0.0,
         tmax=float(mini_epoch_s),
         baseline=None,
+        reject=reject,
         reject_by_annotation=True,
         event_repeated="drop",
         preload=True,  # Required for AutoReject

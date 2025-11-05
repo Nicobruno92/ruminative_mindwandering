@@ -362,11 +362,30 @@ class H5ToPklConverter:
                 else:
                     return self.epochs.ch_names
             else:
-                # Information theory, time-locked markers - use all FIF channels
-                return self.epochs.ch_names
+                # Information theory, time-locked markers - check actual data size
+                if reshaped_data.ndim == 2:
+                    n_channels_in_data = reshaped_data.shape[1]
+                    if n_channels_in_data == 64:
+                        # 64 EEG channels only (no EOG)
+                        eeg_channels = [
+                            ch
+                            for ch in self.epochs.ch_names
+                            if not ch.startswith("EOG") and ch not in ["VEOG", "HEOG"]
+                        ]
+                        return eeg_channels[:64]
+                    else:
+                        # Use channels matching data size
+                        return self.epochs.ch_names[:n_channels_in_data]
+                else:
+                    return self.epochs.ch_names
         else:
-            # Fallback to all channels
-            return self.epochs.ch_names
+            # Fallback: filter EOG channels
+            eeg_channels = [
+                ch
+                for ch in self.epochs.ch_names
+                if not ch.startswith("EOG") and ch not in ["VEOG", "HEOG"]
+            ]
+            return eeg_channels[:64]
 
     def _reshape_marker_data(
         self, marker_name: str, data: np.ndarray, marker_type: str
@@ -423,11 +442,19 @@ class H5ToPklConverter:
 
             elif marker_type == "spectral":
                 # Based on analysis: 418 epochs x 64 channels x 5 bands = 133,760
+                # HDF5 stores as: [band0_all_epochs_all_channels, band1_all_epochs_all_channels, ...]
+                # Layout: [band, epoch, channel] flattened
                 if len(data_flat) == 133760:  # 418x64x5
                     logger.info(
                         f"Spectral data: {n_epochs} epochs x 64 channels x 5 bands"
                     )
-                    return data_flat.reshape(n_epochs, 64, 5)
+                    # Reshape from flat [band, epoch, channel] to (epochs, channels, bands)
+                    reshaped = data_flat.reshape(
+                        5, n_epochs, 64
+                    )  # (bands, epochs, channels)
+                    return reshaped.transpose(
+                        1, 2, 0
+                    )  # (epochs, channels, bands)
                 else:
                     # Try to determine actual dimensions
                     # Check if it matches any reasonable channel/band combination
@@ -437,21 +464,36 @@ class H5ToPklConverter:
                                 logger.info(
                                     f"Spectral data: {n_epochs} epochs x {n_ch} channels x {n_bands} bands"
                                 )
-                                return data_flat.reshape(
-                                    n_epochs, n_ch, n_bands
+                                # Reshape from flat [band, epoch, channel] to (epochs, channels, bands)
+                                reshaped = data_flat.reshape(
+                                    n_bands, n_epochs, n_ch
                                 )
+                                return reshaped.transpose(1, 2, 0)
 
                     logger.warning(
                         f"Spectral size mismatch: got {len(data_flat)} elements"
                     )
 
             elif len(data_flat) == n_epochs * n_channels:
-                # Single value per epoch-channel (perfect match for 418x66)
+                # Single value per epoch-channel (perfect match for expected size)
                 logger.info(
                     f"Single-value data: {n_epochs} epochs x {n_channels} channels"
                 )
                 return data_flat.reshape(n_epochs, n_channels)
             else:
+                # Check if data matches channels x epochs format (common in PE, Kolmogorov, time-locked)
+                # Try to find actual number of channels from data size
+                for n_ch_test in range(60, 70):
+                    if len(data_flat) == n_epochs * n_ch_test:
+                        logger.info(
+                            f"Single-value data (channels-first): {n_ch_test} channels x {n_epochs} epochs"
+                        )
+                        # Data is stored as channels x epochs, need to transpose
+                        reshaped = data_flat.reshape(
+                            n_ch_test, n_epochs
+                        )  # (channels, epochs)
+                        return reshaped.T  # Transpose to (epochs, channels)
+
                 logger.warning(
                     f"Single-value size mismatch: expected {n_epochs * n_channels}, got {len(data_flat)}"
                 )

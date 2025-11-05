@@ -27,9 +27,11 @@ from reader import (
 from lmm_model import run_lmm_per_channel
 from cluster_test import (
     get_channel_adjacency,
-    spatial_cluster_permutation_test
+    spatial_cluster_permutation_test,
+    spatial_cluster_test_tfce
 )
-from plot_results import create_results_report
+from scipy.sparse import issparse
+from plot_results import create_results_report, create_raw_topography_report
 from helpers import (
     parse_formula_components,
     extract_fixed_effects_from_formula,
@@ -105,9 +107,9 @@ def load_config(config_path: str) -> dict:
 
 
 def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict, 
-                         ch_names: list, adjacency: np.ndarray, info: mne.Info,
-                         pca_data: pd.DataFrame = None,
-                         qa_exclusions_dict: dict = None) -> dict:
+                        adjacency: np.ndarray, info: mne.Info,
+                        pca_data: pd.DataFrame = None,
+                        qa_exclusions_dict: dict = None) -> dict:
     """
     Process a single marker through the complete LMM cluster pipeline.
     
@@ -119,12 +121,10 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         Combined dataframe with all probe data
     config : dict
         Configuration dictionary
-    ch_names : list
-        Channel names
     adjacency : np.ndarray
         Channel adjacency matrix
     info : mne.Info
-        MNE Info object for visualization
+        MNE Info object for visualization (contains canonical channel order)
         
     Returns
     -------
@@ -145,6 +145,7 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         maxiter = config['lmm']['maxiter']
         random_state = config['lmm']['random_state']
         
+        clustering_method = config['clustering'].get('method', 'threshold')
         threshold = config['clustering']['threshold']
         n_permutations = config['clustering']['n_permutations']
         alpha = config['clustering']['alpha']
@@ -152,6 +153,12 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         seed = config['clustering']['seed']
         n_jobs = config['clustering']['n_jobs']
         permutation_method = config['clustering'].get('permutation_method')
+        t_power = config['clustering'].get('t_power', 1.0)  # Default to 1.0 if not specified
+        
+        # TFCE parameters (only used if method='tfce')
+        tfce_E = config['clustering'].get('tfce', {}).get('E', 0.5)
+        tfce_H = config['clustering'].get('tfce', {}).get('H', 2.0)
+        tfce_n_steps = config['clustering'].get('tfce', {}).get('n_steps', 100)
         
         save_pickle = config['output']['save_pickle']
         save_csv = config['output']['save_csv']
@@ -175,35 +182,29 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             onoff_max_value=onoff_max_value
         )
         
-        # Ensure deterministic channel ordering - data channels must match montage channels
-        # Find intersection of data channels and montage channels
-        data_channels_set = set(channels)
-        montage_channels_set = set(ch_names)
+        # CRITICAL: Project data to info order (canonical order established in main())
+        # The info object contains the canonical channel order that must be preserved
+        info_order = [ch for ch in info['ch_names'] if ch in channels]
         
-        # Get channels that exist in both data and montage
-        common_channels = sorted(list(data_channels_set & montage_channels_set))
+        if len(info_order) == 0:
+            raise ValueError(f"No common channels between data ({len(channels)} channels) and info ({len(info['ch_names'])} channels)")
         
-        if len(common_channels) == 0:
-            raise ValueError(f"No common channels between data ({len(channels)} channels) and montage ({len(ch_names)} channels)")
+        if len(info_order) < len(channels) * 0.8:  # Less than 80% overlap
+            missing_data = sorted(list(set(channels) - set(info['ch_names'])))
+            missing_info = sorted(list(set(info['ch_names']) - set(channels)))
+            raise ValueError(f"Insufficient channel overlap. Missing from info: {missing_data[:5]}... Missing from data: {missing_info[:5]}...")
         
-        if len(common_channels) < len(channels) * 0.8:  # Less than 80% overlap
-            missing_data = sorted(list(data_channels_set - montage_channels_set))
-            missing_montage = sorted(list(montage_channels_set - data_channels_set))
-            raise ValueError(f"Insufficient channel overlap. Missing from montage: {missing_data[:5]}... Missing from data: {missing_montage[:5]}...")
-        
-        # Create reordering indices
-        data_to_common = [channels.index(ch) for ch in common_channels]
-        common_to_montage = [ch_names.index(ch) for ch in common_channels]
-        
-        # Reorder power data to match common channels
-        power_data_filtered = power_data[:, data_to_common]
-        
-        # Create final channel names in montage order
-        ch_names_final = [ch_names[i] for i in common_to_montage]
-        
-        # Reorder power data to match montage order
-        power_data = power_data_filtered[:, common_to_montage]
+        # Project data to canonical info order
+        idx_in_data = [channels.index(ch) for ch in info_order]
+        power_data = power_data[:, idx_in_data]
+        ch_names_final = info_order  # Use info order as final order
         n_observations, n_channels = power_data.shape
+        
+        # CRITICAL ASSERTION: Ensure data and info are aligned
+        assert list(ch_names_final) == list(info['ch_names']), \
+            f"Channel order mismatch between data and info. Data: {ch_names_final[:5]}..., Info: {info['ch_names'][:5]}..."
+        assert power_data.shape[1] == len(info['ch_names']), \
+            f"Data shape mismatch: power_data has {power_data.shape[1]} channels, info has {len(info['ch_names'])} channels"
         
         print(f"✓ Data prepared: {n_observations} observations × {n_channels} channels")
         
@@ -213,6 +214,33 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             df_behavioral=df_behavioral,
             config=config,
             verbose=True
+        )
+        
+        # Create output directory structure: base / model_folder / marker_folder
+        base_output_dir = Path(output_path)
+        
+        # Extract fixed effects from formula to create model folder
+        model_folder_name = extract_fixed_effects_from_formula(formula)
+        
+        # Create safe marker name for folder
+        safe_marker_name = marker_name.replace('/', '_').replace(' ', '_')
+        marker_folder_name = f"{marker_type}_{safe_marker_name}"
+        
+        # Create full output directory: base / model / marker
+        output_dir = base_output_dir / model_folder_name / marker_folder_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate raw topography report (before statistical analysis)
+        print("\nCreating raw topography report...")
+        create_raw_topography_report(
+            power_data=power_data,
+            df_behavioral=df_behavioral,
+            ch_names=ch_names_final,
+            info=info,
+            marker_name=marker_name,
+            output_dir=str(output_dir),
+            subject_col='subject',
+            predictor_of_interest=predictor_of_interest
         )
         
         # Validate formula variables
@@ -238,26 +266,153 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         
         print(f"✓ LMM completed")
         print(f"  T-statistics range: [{np.min(t_stats):.3f}, {np.max(t_stats):.3f}]")
-        print(f"  Channels with |t| > {threshold}: {np.sum(np.abs(t_stats) > threshold)}")
+        if clustering_method == 'threshold':
+            print(f"  Channels with |t| > {threshold}: {np.sum(np.abs(t_stats) > threshold)}")
         
-        # Spatial cluster permutation test
-        print("Running spatial cluster permutation test...")
-        clusters, cluster_stats, cluster_p_values, cluster_diagnostics = spatial_cluster_permutation_test(
-            observed_t_stats=t_stats,
-            power_data=power_data,
-            df_behavioral=df_behavioral,
-            formula=formula,
-            predictor_of_interest=predictor_of_interest,
-            adjacency=adjacency,
-            threshold=threshold,
-            n_permutations=n_permutations,
-            tail=tail,
-            seed=seed,
-            n_jobs=n_jobs,
-            method=method,
-            maxiter=maxiter,
-            permutation_method=permutation_method
-        )
+        # ========== CREATE EXCLUDE MASK (if configured) ==========
+        # This prevents boundary artifacts from edge channels
+        exclude_mask = None
+        exclude_config = config['clustering'].get('exclude_channels', {})
+        if exclude_config.get('enabled', False):
+            exclude_method = exclude_config.get('method', 'manual')
+            
+            if exclude_method == 'manual':
+                # Exclude specific channel names
+                channel_names_to_exclude = exclude_config.get('channel_names', [])
+                if channel_names_to_exclude:
+                    exclude_mask = np.zeros(n_channels, dtype=bool)
+                    for ch_name in channel_names_to_exclude:
+                        if ch_name in ch_names_final:
+                            ch_idx = ch_names_final.index(ch_name)
+                            exclude_mask[ch_idx] = True
+                    
+                    n_excluded = np.sum(exclude_mask)
+                    print(f"\n✓ Excluding {n_excluded}/{n_channels} channels from clustering (manual method)")
+                    print(f"  Excluded channels: {[ch for ch in channel_names_to_exclude if ch in ch_names_final]}")
+                    
+            elif exclude_method == 'auto_position':
+                # Exclude outermost channels by position
+                percentile = exclude_config.get('auto_percentile', 10)
+                from mne.channels import find_layout
+                try:
+                    layout = find_layout(info)
+                    pos = layout.pos[:, :2]  # x, y positions
+                    
+                    # Calculate distance from center
+                    center = pos.mean(axis=0)
+                    distances = np.linalg.norm(pos - center, axis=1)
+                    
+                    # Channels in outer percentile
+                    threshold_dist = np.percentile(distances, 100 - percentile)
+                    exclude_mask = distances >= threshold_dist
+                    
+                    n_excluded = np.sum(exclude_mask)
+                    excluded_names = [ch_names_final[i] for i in range(n_channels) if exclude_mask[i]]
+                    print(f"\n✓ Excluding {n_excluded}/{n_channels} channels from clustering (auto_position method, {percentile}th percentile)")
+                    print(f"  Excluded channels: {excluded_names}")
+                except Exception as e:
+                    print(f"\n⚠ Could not auto-detect edge channels: {e}")
+                    print("  Proceeding without exclusion")
+                    exclude_mask = None
+        
+        # Spatial cluster permutation test - choose method
+        if clustering_method == 'tfce':
+            print(f"Running TFCE-based spatial permutation test...")
+            print(f"  TFCE parameters: E={tfce_E}, H={tfce_H}, n_steps={tfce_n_steps}")
+            
+            # TFCE returns channel-wise results (not clusters)
+            tfce_map, tfce_p_values, cluster_diagnostics = spatial_cluster_test_tfce(
+                observed_t_stats=t_stats,
+                power_data=power_data,
+                df_behavioral=df_behavioral,
+                formula=formula,
+                predictor_of_interest=predictor_of_interest,
+                adjacency=adjacency,
+                n_permutations=n_permutations,
+                E=tfce_E,
+                H=tfce_H,
+                n_tfce_steps=tfce_n_steps,
+                seed=seed,
+                n_jobs=n_jobs,
+                method=method,
+                maxiter=maxiter,
+                verbose=True,
+                return_diagnostics=True
+            )
+            
+            # For TFCE, create spatially-connected clusters from significant channels
+            sig_channels = np.where(tfce_p_values < alpha)[0]
+            if len(sig_channels) > 0:
+                # Find spatially connected components using adjacency matrix
+                from scipy.sparse import csr_matrix
+                from scipy.sparse.csgraph import connected_components
+                
+                # CRITICAL FIX: Mask the full adjacency matrix instead of creating subgraph
+                # This preserves true spatial adjacency relationships
+                # Convert to dense if sparse
+                if issparse(adjacency):
+                    adj_array = adjacency.toarray()
+                else:
+                    adj_array = adjacency.copy()
+                
+                # Create masked adjacency: zero out rows/cols for non-significant channels
+                masked_adj = np.zeros_like(adj_array)
+                masked_adj[np.ix_(sig_channels, sig_channels)] = \
+                    adj_array[np.ix_(sig_channels, sig_channels)]
+                
+                # Find connected components on the masked adjacency
+                n_components, labels = connected_components(
+                    csgraph=csr_matrix(masked_adj),
+                    directed=False,
+                    return_labels=True
+                )
+                
+                # Create clusters (one per connected component)
+                # Note: labels has length n_channels (full size), not just sig_channels
+                clusters = []
+                cluster_stats = []
+                cluster_p_values = []
+                
+                for comp_idx in range(n_components):
+                    # Get all channels in this component
+                    comp_channels = np.where(labels == comp_idx)[0]
+                    
+                    # Filter to only significant channels
+                    sig_mask = np.isin(comp_channels, sig_channels)
+                    comp_channels = comp_channels[sig_mask]
+                    
+                    if len(comp_channels) > 0:
+                        clusters.append(comp_channels)
+                        cluster_stats.append(np.sum(tfce_map[comp_channels]))
+                        cluster_p_values.append(np.min(tfce_p_values[comp_channels]))
+                
+                cluster_stats = np.array(cluster_stats)
+                cluster_p_values = np.array(cluster_p_values)
+            else:
+                clusters = []
+                cluster_stats = np.array([])
+                cluster_p_values = np.array([])
+                
+        else:  # threshold-based clustering
+            print("Running threshold-based spatial cluster permutation test...")
+            clusters, cluster_stats, cluster_p_values, cluster_diagnostics = spatial_cluster_permutation_test(
+                observed_t_stats=t_stats,
+                power_data=power_data,
+                df_behavioral=df_behavioral,
+                formula=formula,
+                predictor_of_interest=predictor_of_interest,
+                adjacency=adjacency,
+                threshold=threshold,
+                n_permutations=n_permutations,
+                tail=tail,
+                seed=seed,
+                n_jobs=n_jobs,
+                method=method,
+                maxiter=maxiter,
+                t_power=t_power,
+                permutation_method=permutation_method,
+                exclude=exclude_mask
+            )
         
         n_clusters = len(clusters)
         n_sig_clusters = np.sum(cluster_p_values < alpha)
@@ -266,19 +421,7 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         print(f"  Total clusters: {n_clusters}")
         print(f"  Significant clusters (α={alpha}): {n_sig_clusters}")
         
-        # Create output directory structure: base / model_folder / marker_folder
-        base_output_dir = Path(output_path)
-        
-        # Extract fixed effects from formula to create model folder
-        model_folder_name = extract_fixed_effects_from_formula(formula)
-        
-        # Create safe marker name for folder
-        safe_marker_name = marker_name.replace('/', '_').replace(' ', '_')
-        marker_folder_name = f"{marker_type}_{safe_marker_name}"
-        
-        # Create full output directory: base / model / marker
-        output_dir = base_output_dir / model_folder_name / marker_folder_name
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Output directory already created above
         print(f"Model: {model_folder_name}")
         print(f"Output directory: {output_dir}")
         
@@ -309,7 +452,9 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             'n_clusters': n_clusters,
             'n_sig_clusters': n_sig_clusters,
             'analysis_timestamp': datetime.now().isoformat(),
-            'threshold': threshold,
+            'clustering_method': clustering_method,
+            'threshold': threshold if clustering_method == 'threshold' else None,
+            'tfce_params': {'E': tfce_E, 'H': tfce_H, 'n_steps': tfce_n_steps} if clustering_method == 'tfce' else None,
             'alpha': alpha,
             'n_permutations': n_permutations,
             'preprocessing_info': preprocessing_info,
@@ -412,7 +557,8 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
                 threshold=threshold,
                 alpha=alpha,
                 marker_name=marker_name,
-                output_dir=str(output_dir)
+                output_dir=str(output_dir),
+                config=config
             )
             print(f"✓ Figures saved to {output_dir}")
         
@@ -603,9 +749,9 @@ def main(config_path: str = "Statistics/config.yaml",
     montage_channels = montage.ch_names
     print(f"Montage channels: {len(montage_channels)} channels")
     
-    # Find common channels between data and montage
-    common_channels = sorted(list(set(data_channels) & set(montage_channels)))
-    print(f"Common channels: {len(common_channels)} channels")
+    # Find common channels respecting montage order (not sorted)
+    common_channels = [ch for ch in montage_channels if ch in data_channels]
+    print(f"Common channels: {len(common_channels)} channels (montage order preserved)")
     
     if len(common_channels) < len(data_channels) * 0.8:
         raise ValueError(f"Insufficient channel overlap: {len(common_channels)}/{len(data_channels)} channels")
@@ -619,9 +765,31 @@ def main(config_path: str = "Statistics/config.yaml",
         missing = set(common_channels) - set(ch_names_ordered)
         raise ValueError(f"Adjacency matrix missing channels: {missing}")
     
-    # Create MNE Info object for visualization
+    # Create MNE Info object for visualization using the canonical order from adjacency
     info = mne.create_info(ch_names=ch_names_ordered, sfreq=250, ch_types='eeg')
     info.set_montage(montage)
+    
+    # CRITICAL VALIDATION: Ensure adjacency and info are perfectly aligned
+    assert adjacency.shape[0] == adjacency.shape[1] == len(info['ch_names']), \
+        f"Adjacency ({adjacency.shape}) no coincide con #canales de info ({len(info['ch_names'])})"
+    assert list(ch_names_ordered) == list(info['ch_names']), \
+        f"Channel order mismatch: adjacency returned {ch_names_ordered[:5]}..., info has {info['ch_names'][:5]}..."
+    
+    # CRITICAL: ch_names_ordered is now the canonical channel order for the entire pipeline
+    print(f"✓ Canonical channel order established: {len(ch_names_ordered)} channels")
+    print(f"✓ Adjacency matrix validated: {adjacency.shape} matches {len(info['ch_names'])} channels")
+    
+    # Save channel order for audit trail
+    output_dir = Path(output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    channel_order_path = output_dir / "channel_order.txt"
+    with open(channel_order_path, 'w') as f:
+        f.write("# Canonical channel order for this analysis\n")
+        f.write(f"# Total channels: {len(ch_names_ordered)}\n")
+        f.write(f"# Analysis timestamp: {datetime.now().isoformat()}\n\n")
+        for i, ch in enumerate(ch_names_ordered):
+            f.write(f"{i:3d}: {ch}\n")
+    print(f"✓ Channel order saved for audit: {channel_order_path}")
     
     # Step 3: Process each marker
     print("\n" + "-"*80)
@@ -639,7 +807,6 @@ def main(config_path: str = "Statistics/config.yaml",
             marker_spec=marker_spec,
             df_all=df_all,
             config=config,
-            ch_names=ch_names_ordered,
             adjacency=adjacency,
             info=info,
             pca_data=pca_data,

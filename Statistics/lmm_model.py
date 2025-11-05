@@ -4,6 +4,18 @@ Linear Mixed Model (LMM) module for channel-wise statistical testing.
 This module implements LMM-based testing for each EEG channel independently,
 extracting t-statistics for spatial cluster permutation testing.
 Updated to work with aggregated probe marker data from the Junifer pipeline.
+
+Notes
+-----
+Some validation and robustness patterns inspired by MNE-Python's linear_regression
+implementation (mne.stats.regression), particularly:
+- Design matrix validation
+- Degenerate case handling (NaN/Inf in statistics)
+- Robust statistical computation
+
+References
+----------
+MNE-Python: https://mne.tools/stable/generated/mne.stats.regression.linear_regression.html
 """
 
 import numpy as np
@@ -153,11 +165,15 @@ def run_lmm_per_channel(
     
     np.random.seed(random_state)
     
-    # Suppress convergence warnings but capture them if needed
-    if return_diagnostics:
-        warnings.filterwarnings('default', category=ConvergenceWarning)
-    else:
-        warnings.filterwarnings('ignore', category=ConvergenceWarning)
+    # Track convergence warnings separately
+    convergence_warning_count = 0
+    
+    # Validate design matrix structure (MNE-inspired validation)
+    is_valid, validation_msg = validate_design_matrix_structure(
+        df_behavioral, formula, predictor_of_interest
+    )
+    if not is_valid:
+        raise ValueError(f"Design matrix validation failed: {validation_msg}")
     
     # Validate data structure before processing
     if predictor_of_interest not in df_behavioral.columns:
@@ -230,22 +246,69 @@ def run_lmm_per_channel(
             
             # Ensure method is uppercase (statsmodels expects uppercase)
             method_upper = method.upper()
-            result = model.fit(
-                method=method_upper,
-                maxiter=maxiter,
-                disp=False
-            )
+            
+            # Catch convergence warnings during model fitting
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always", ConvergenceWarning)
+                result = model.fit(
+                    method=method_upper,
+                    maxiter=maxiter,
+                    disp=False
+                )
+                
+                # Check if convergence warning was raised
+                convergence_warnings = [warning for warning in w if issubclass(warning.category, ConvergenceWarning)]
+                has_convergence_warning = len(convergence_warnings) > 0
             
             # Extract t-statistic and p-value for predictor of interest
             if predictor_of_interest in result.tvalues.index:
-                t_stats[ch_idx] = float(result.tvalues[predictor_of_interest])
-                p_values[ch_idx] = float(result.pvalues[predictor_of_interest])
-                diagnostics['n_converged'] += 1
+                # Always extract the values that the model returned
+                t_val = float(result.tvalues[predictor_of_interest])
+                p_val = float(result.pvalues[predictor_of_interest])
+                
+                # Handle degenerate cases (inspired by MNE's robust approach)
+                # Check for NaN or Inf values that could propagate
+                if np.isnan(t_val) or np.isinf(t_val):
+                    # Degenerate case: set conservative values
+                    t_stats[ch_idx] = 0.0
+                    p_values[ch_idx] = 1.0
+                    diagnostics['n_failed'] += 1
+                    diagnostics['failed_channels'].append(ch_idx)
+                    if return_diagnostics:
+                        diagnostics['convergence_warnings'].append(
+                            f"Channel {ch_idx}: Degenerate t-statistic (NaN/Inf)"
+                        )
+                    continue
+                
+                t_stats[ch_idx] = t_val
+                p_values[ch_idx] = p_val
+                
+                # Track convergence status
+                if has_convergence_warning:
+                    # Model fit but with convergence warning - log it but keep the values
+                    warning_msgs = [str(warning.message) for warning in convergence_warnings]
+                    convergence_warning_count += 1
+                    diagnostics['n_converged'] += 1  # Still count as converged (model ran)
+                    if return_diagnostics:
+                        diagnostics['convergence_warnings'].append(f"Channel {ch_idx}: {'; '.join(warning_msgs)}")
+                else:
+                    # Model converged successfully without warnings
+                    diagnostics['n_converged'] += 1
                 
                 # Collect model quality metrics
-                diagnostics['aic'].append(float(result.aic))
-                diagnostics['bic'].append(float(result.bic))
-                diagnostics['log_likelihood'].append(float(result.llf))
+                # Note: AIC/BIC may be NaN for REML estimation (only valid for ML)
+                try:
+                    aic_val = float(result.aic) if hasattr(result, 'aic') else np.nan
+                    bic_val = float(result.bic) if hasattr(result, 'bic') else np.nan
+                    llf_val = float(result.llf) if hasattr(result, 'llf') else np.nan
+                except (ValueError, TypeError):
+                    aic_val = np.nan
+                    bic_val = np.nan
+                    llf_val = np.nan
+                
+                diagnostics['aic'].append(aic_val)
+                diagnostics['bic'].append(bic_val)
+                diagnostics['log_likelihood'].append(llf_val)
                 
                 # Compute conditional R² (variance explained by fixed + random effects)
                 # R² = 1 - (residual variance / total variance)
@@ -286,14 +349,6 @@ def run_lmm_per_channel(
                 diagnostics['n_failed'] += 1
                 diagnostics['failed_channels'].append(ch_idx)
             
-        except ConvergenceWarning as w:
-            # Convergence warning: model may be unreliable
-            t_stats[ch_idx] = 0.0
-            p_values[ch_idx] = 1.0
-            diagnostics['n_failed'] += 1
-            diagnostics['failed_channels'].append(ch_idx)
-            if return_diagnostics:
-                diagnostics['convergence_warnings'].append(f"Channel {ch_idx}: {str(w)}")
         except Exception as e:
             # Convergence failure or other error: set t=0, p=1
             t_stats[ch_idx] = 0.0
@@ -307,8 +362,6 @@ def run_lmm_per_channel(
                 else:
                     print(error_msg)
     
-    warnings.filterwarnings('default', category=ConvergenceWarning)
-    
     # Calculate convergence rate
     n_attempted = n_channels - diagnostics['n_insufficient_data']
     if n_attempted > 0:
@@ -316,11 +369,19 @@ def run_lmm_per_channel(
     
     # Compute summary statistics for model quality and assumptions
     if diagnostics['n_converged'] > 0:
-        diagnostics['aic_mean'] = float(np.mean(diagnostics['aic']))
-        diagnostics['bic_mean'] = float(np.mean(diagnostics['bic']))
-        diagnostics['log_likelihood_mean'] = float(np.mean(diagnostics['log_likelihood']))
-        diagnostics['conditional_r2_mean'] = float(np.mean(diagnostics['conditional_r2']))
-        diagnostics['conditional_r2_median'] = float(np.median(diagnostics['conditional_r2']))
+        # Only compute means if we actually collected diagnostic values
+        # Suppress RuntimeWarning for empty slices (happens during permutation testing)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=RuntimeWarning, message='Mean of empty slice')
+            if len(diagnostics['aic']) > 0:
+                diagnostics['aic_mean'] = float(np.nanmean(diagnostics['aic']))
+            if len(diagnostics['bic']) > 0:
+                diagnostics['bic_mean'] = float(np.nanmean(diagnostics['bic']))
+            if len(diagnostics['log_likelihood']) > 0:
+                diagnostics['log_likelihood_mean'] = float(np.nanmean(diagnostics['log_likelihood']))
+            if len(diagnostics['conditional_r2']) > 0:
+                diagnostics['conditional_r2_mean'] = float(np.nanmean(diagnostics['conditional_r2']))
+                diagnostics['conditional_r2_median'] = float(np.nanmedian(diagnostics['conditional_r2']))
         
         # Assumption checks summary
         shapiro_valid = [p for p in diagnostics['shapiro_p_values'] if not np.isnan(p)]
@@ -343,17 +404,38 @@ def run_lmm_per_channel(
         print(f"  Failed: {diagnostics['n_failed']}")
         print(f"  Insufficient data: {diagnostics['n_insufficient_data']}")
         print(f"  Convergence rate: {100*diagnostics['convergence_rate']:.1f}%")
+        if convergence_warning_count > 0:
+            print(f"  Convergence warnings: {convergence_warning_count}")
         if len(diagnostics['convergence_warnings']) > 0:
-            print(f"  Warnings: {len(diagnostics['convergence_warnings'])}")
+            print(f"  Total warnings captured: {len(diagnostics['convergence_warnings'])}")
         
         # Print model quality metrics
         if diagnostics['n_converged'] > 0:
             print(f"\nModel Quality Metrics (averaged across {diagnostics['n_converged']} channels):")
-            print(f"  AIC (mean): {diagnostics['aic_mean']:.2f}")
-            print(f"  BIC (mean): {diagnostics['bic_mean']:.2f}")
-            print(f"  Log-likelihood (mean): {diagnostics['log_likelihood_mean']:.2f}")
-            print(f"  Conditional R² (mean): {diagnostics['conditional_r2_mean']:.3f}")
-            print(f"  Conditional R² (median): {diagnostics['conditional_r2_median']:.3f}")
+            
+            # Check if AIC/BIC are available and valid
+            aic_mean = diagnostics.get('aic_mean', np.nan)
+            if np.isnan(aic_mean):
+                print("  AIC (mean): N/A (not available with REML estimation)")
+            else:
+                print(f"  AIC (mean): {aic_mean:.2f}")
+            
+            bic_mean = diagnostics.get('bic_mean', np.nan)
+            if np.isnan(bic_mean):
+                print("  BIC (mean): N/A (not available with REML estimation)")
+            else:
+                print(f"  BIC (mean): {bic_mean:.2f}")
+            
+            llf_mean = diagnostics.get('log_likelihood_mean', np.nan)
+            if np.isnan(llf_mean):
+                print("  Log-likelihood (mean): N/A")
+            else:
+                print(f"  Log-likelihood (mean): {llf_mean:.2f}")
+            
+            # Conditional R² should always be available if models converged
+            if 'conditional_r2_mean' in diagnostics:
+                print(f"  Conditional R² (mean): {diagnostics['conditional_r2_mean']:.3f}")
+                print(f"  Conditional R² (median): {diagnostics['conditional_r2_median']:.3f}")
             
             # Print assumption checks
             print("\nModel Assumptions:")
@@ -368,6 +450,61 @@ def run_lmm_per_channel(
                 print(f"    Violations (p < 0.05): {diagnostics['n_heteroscedasticity']}/{len(bp_valid)} ({diagnostics['pct_heteroscedasticity']:.1f}%)")
     
     return t_stats, p_values, diagnostics
+
+
+def validate_design_matrix_structure(
+    df_behavioral: pd.DataFrame,
+    formula: str,
+    predictor_of_interest: str
+) -> Tuple[bool, str]:
+    """
+    Validate design matrix structure before fitting LMM (inspired by MNE's validation).
+    
+    Parameters
+    ----------
+    df_behavioral : pd.DataFrame
+        Behavioral data
+    formula : str
+        LMM formula
+    predictor_of_interest : str
+        Main predictor to test
+        
+    Returns
+    -------
+    is_valid : bool
+        True if design matrix is valid
+    message : str
+        Validation message (empty if valid, error description if invalid)
+        
+    Notes
+    -----
+    Checks inspired by MNE's _fit_lm function:
+    - Sufficient observations
+    - No perfect collinearity
+    - Sufficient variance in predictors
+    """
+    n_obs = len(df_behavioral)
+    
+    # Check 1: Sufficient observations (MNE-inspired)
+    if n_obs < 10:
+        return False, f"Insufficient observations: {n_obs} < 10"
+    
+    # Check 2: Predictor exists and has variance
+    if predictor_of_interest not in df_behavioral.columns:
+        return False, f"Predictor '{predictor_of_interest}' not in data"
+    
+    predictor_vals = df_behavioral[predictor_of_interest].dropna()
+    if len(predictor_vals) < 5:
+        return False, f"Too few non-NaN values in predictor: {len(predictor_vals)}"
+    
+    if predictor_vals.nunique() < 2:
+        return False, f"Predictor has no variance: {predictor_vals.nunique()} unique values"
+    
+    # Check 3: Sufficient variance (avoid numerical issues)
+    if np.std(predictor_vals) < 1e-10:
+        return False, f"Predictor variance too small: std={np.std(predictor_vals)}"
+    
+    return True, ""
 
 
 def validate_probe_data_structure(df_behavioral: pd.DataFrame, formula: str) -> bool:

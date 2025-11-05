@@ -16,10 +16,9 @@ import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 import mne
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 import pickle
 from datetime import datetime
-import warnings
 
 
 # ============================================================================
@@ -30,8 +29,6 @@ import warnings
 FIGURE_DPI = 300
 TOPOMAP_SIZE = 3.5  # inches per topomap
 COLORMAP = 'RdBu_r'
-VMIN_PERCENTILE = 5
-VMAX_PERCENTILE = 95
 
 
 # ============================================================================
@@ -260,7 +257,12 @@ def _plot_single_topomap(
     alpha: float,
     use_corrected: bool
 ) -> None:
-    """Plot a single topomap for a marker."""
+    """
+    Plot a single topomap for a marker.
+    
+    This function uses the EXACT same logic as plot_cluster_topomap() from plot_results.py
+    to ensure 100% consistency between individual and summary plots.
+    """
     
     # Extract data
     t_stats = result.get('t_stats', np.array([]))
@@ -279,65 +281,6 @@ def _plot_single_topomap(
         alpha_to_use = alpha
         correction_label = ""
     
-    # Create mask for significant clusters
-    mask = np.zeros(len(t_stats), dtype=bool)
-    for cluster, pval in zip(clusters, cluster_p_values):
-        if pval < alpha_to_use:
-            mask[cluster] = True
-    
-    # Determine color scale limits (symmetric around 0)
-    t_stats_valid = t_stats[~np.isnan(t_stats)]
-    if len(t_stats_valid) > 0:
-        vmin = np.percentile(t_stats_valid, VMIN_PERCENTILE)
-        vmax = np.percentile(t_stats_valid, 100 - VMAX_PERCENTILE)
-        abs_max = max(abs(vmin), abs(vmax))
-        vmin, vmax = -abs_max, abs_max
-    else:
-        vmin, vmax = -1, 1
-    
-    # Replace NaN with 0 for plotting
-    t_stats_plot = np.copy(t_stats)
-    t_stats_plot[np.isnan(t_stats_plot)] = 0
-    
-    # Plot topomap
-    try:
-        im, _ = mne.viz.plot_topomap(
-            t_stats_plot,
-            info,
-            axes=ax,
-            show=False,
-            cmap=COLORMAP,
-            vlim=(vmin, vmax),
-            sensors=False,
-            mask=mask,
-            mask_params=dict(
-                marker='o', 
-                markerfacecolor='k',
-                markeredgecolor='k', 
-                linewidth=0, 
-                markersize=4
-            ),
-            contours=6,
-            ch_type='eeg',
-            sphere='auto',
-            outlines='head',
-            extrapolate='head',
-            image_interp='cubic',
-            border='mean',
-            res=64
-        )
-        
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, shrink=0.8)
-        cbar.set_label('t-stat', rotation=270, labelpad=12, fontsize=8)
-        cbar.ax.tick_params(labelsize=7)
-        
-    except Exception as e:
-        # If plotting fails, show error message
-        ax.text(0.5, 0.5, f'Plot error:\n{str(e)[:50]}', 
-                ha='center', va='center', transform=ax.transAxes,
-                fontsize=8, color='red')
-    
     # Create title with marker name and significance info
     n_sig_clusters = np.sum(cluster_p_values < alpha_to_use)
     n_total_clusters = len(clusters)
@@ -348,7 +291,68 @@ def _plot_single_topomap(
         display_name = display_name[:37] + '...'
     
     title_text = f"{display_name}\n{n_sig_clusters}/{n_total_clusters} sig{correction_label}"
-    ax.set_title(title_text, fontsize=9, fontweight='bold' if n_sig_clusters > 0 else 'normal')
+    
+    try:
+        # ========================================================================
+        # EXACT SAME LOGIC AS plot_cluster_topomap() in plot_results.py
+        # ========================================================================
+        
+        # Create mask for significant clusters (same as plot_cluster_topomap)
+        mask = np.zeros(len(t_stats), dtype=bool)
+        for cluster, pval in zip(clusters, cluster_p_values):
+            if pval < alpha_to_use:
+                mask[cluster] = True
+        
+        # Set colormap limits (EXACT SAME as plot_cluster_topomap)
+        abs_max = np.nanmax(np.abs(t_stats))
+        if np.isnan(abs_max) or abs_max == 0:
+            abs_max = 1.0
+        vmin, vmax = -abs_max, abs_max
+        
+        # Replace NaN with 0 for plotting (same as plot_cluster_topomap)
+        t_stats_plot = np.copy(t_stats)
+        t_stats_plot[np.isnan(t_stats_plot)] = 0
+        
+        # Plot topomap with EXACT SAME parameters as plot_cluster_topomap
+        im, _ = mne.viz.plot_topomap(
+            t_stats_plot,
+            info,
+            axes=ax,
+            show=False,
+            cmap=COLORMAP,
+            vlim=(vmin, vmax),
+            sensors=False,
+            mask=mask,
+            mask_params=dict(
+                marker='o',
+                markerfacecolor='k',
+                markeredgecolor='k',
+                linewidth=0,
+                markersize=4  # Slightly smaller for grid layout
+            ),
+            contours=6,
+            ch_type='eeg',
+            sphere='auto',
+            outlines='head',
+            extrapolate='head',
+            image_interp='cubic',
+            border='mean',
+            res=128  # Same high resolution as individual plots
+        )
+        
+        # Add colorbar (adjusted size for grid layout)
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, shrink=0.8)
+        cbar.set_label('t-stat', rotation=270, labelpad=12, fontsize=8)
+        cbar.ax.tick_params(labelsize=7)
+        
+        # Set title
+        ax.set_title(title_text, fontsize=9, fontweight='bold' if n_sig_clusters > 0 else 'normal')
+        
+    except Exception as e:
+        # If plotting fails, show error message
+        ax.text(0.5, 0.5, f'Plot error:\n{str(e)[:50]}', 
+                ha='center', va='center', transform=ax.transAxes,
+                fontsize=8, color='red')
 
 
 def create_detailed_results_table(

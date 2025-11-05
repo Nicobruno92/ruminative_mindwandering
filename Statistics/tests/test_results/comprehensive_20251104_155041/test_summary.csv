@@ -1,0 +1,11 @@
+test,expected,actual,n_sig_clusters,min_p_value,max_cluster_size,convergence_rate,passed,error
+Test 1: NULL (No Effect),,,0,1.0,0,0.0,False,"unacceptable character #x0000: special characters are not allowed
+  in ""/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/Statistics/config.yaml"", position 0"
+Test 2: SMALL Effect (d=0.3),,,0,1.0,0,0.0,False,"unacceptable character #x0000: special characters are not allowed
+  in ""/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/Statistics/config.yaml"", position 0"
+Test 3: MEDIUM Effect (d=0.5),,,0,1.0,0,0.0,False,"unacceptable character #x0000: special characters are not allowed
+  in ""/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/Statistics/config.yaml"", position 0"
+Test 4: LARGE Effect (d=0.8),,,0,1.0,0,0.0,False,"unacceptable character #x0000: special characters are not allowed
+  in ""/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/Statistics/config.yaml"", position 0"
+Test 5: DISTRIBUTED Effect,,,0,1.0,0,0.0,False,"unacceptable character #x0000: special characters are not allowed
+  in ""/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/Statistics/config.yaml"", position 0"

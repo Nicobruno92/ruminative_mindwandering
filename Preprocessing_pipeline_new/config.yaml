@@ -17,7 +17,7 @@ project:
   # raw_root: "/Volumes/cenir/analyse/meeg/CYBERSART/BIDS/raw" #if running on local machine
   derivatives_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives"  # derivatives output root
   brainvision_pattern: "CYBERSART_*_{task}.vhdr"
-  montage: "CACS-64_withREF.bvef"  # or CACS-64_REF.bvef
+  montage: "CACS-64_REF.bvef"  # Use CACS-64_REF.bvef montage
   line_freq_hz: 50
   overwrite: true
   metadata_csv: "/network/iss/cenir/analyse/meeg/CYBERSART/_RAW_DATA/metadata_experiment.csv"
@@ -40,8 +40,8 @@ avg_ref_projector: true  # apply average reference
 # Optional ASR step applied before PyPREP bad channel detection
 # Helps reduce high-amplitude artifacts in the data
 asr:
-  apply: false              # set true to enable ASR
-  cutoff: 5.0              # SD cutoff for artifact detection (lower=stricter)
+  apply: true              # set true to enable ASR
+  cutoff: 3.0              # SD cutoff for artifact detection (lower=stricter)
   blocksize: null          # block size in samples (null=auto: 0.5s worth)
   win_len: 0.5             # calibration window length in seconds
   win_overlap: 0.66        # calibration window overlap fraction
@@ -60,9 +60,9 @@ pyprep:
 # This helps avoid over-flagging frontal channels dominated by slow drifts
 # and strong blinks. The original Raw remains unfiltered for downstream steps.
 pyprep_prefilter:
-  apply: true     # set true to enable
+  apply: false     # set true to enable
   l_freq: 1      # e.g., 0.5–40 Hz
-  h_freq: 30
+  h_freq: 40
 
 # Optional quick ICA on a copy before bad-channel detection
 # Helps reduce frontal over-flagging by removing ocular/muscle on the fly
@@ -79,9 +79,8 @@ pyprep_pre_ica:
 # 5. FILTERING PARAMETERS
 # =============================================================================
 filters:
-  ica: {l_freq: 1.5, h_freq: 40}      # Filter for ICA fitting
-  evoked: {l_freq: 0.5, h_freq: 45}   # Filter for evoked analysis
-  state: {l_freq: 0.1, h_freq: 80}    # Filter for state analysis
+  ica: {l_freq: 0.1, h_freq: 45}      # Filter for ICA fitting (same as analysis)
+  analysis: {l_freq: 0.1, h_freq: 45}   # Filter for evoked analysis
 
 # =============================================================================
 # 6. ICA PARAMETERS
@@ -95,11 +94,11 @@ ica:
 # ICA component classification and exclusion (variance-based system)
 ica_selection:
   # Base probability thresholds (adjusted upward by component variance)
-  iclabel_prob_min: 0.80           # Base minimum probability for ICLabel artifacts
-  muscle_threshold: 0.70           # Base threshold for muscle/ICM detection
+  iclabel_prob_min: 0.60          # Base minimum probability for ICLabel artifacts
+  muscle_threshold: 0.85          # Base threshold for muscle/ICM detection
 
   # Pattern matching bonus (added to ICLabel score if detected by EOG/muscle)
-  pattern_bonus: 0.10              # +10% score bonus for pattern matching confirmation
+  pattern_bonus: 0.30              # +10% score bonus for pattern matching confirmation
                                    # Makes detection more confident when multiple methods agree
   
   # Variance-based penalty system
@@ -110,7 +109,7 @@ ica_selection:
   max_threshold_cap: 0.98          # Adjusted threshold cannot exceed this value
   
   # Maximum variance budget (absolute excluded variance fraction of total)
-  max_excluded_variance_ratio: 0.50  # Fraction of total variance allowed to be excluded
+  max_excluded_variance_ratio: 0.70  # Fraction of total variance allowed to be excluded
                                      # Example: 0.40 means up to 40% of total variance may be excluded
 
   
@@ -121,9 +120,15 @@ ica_selection:
 epochs_evoked:
   tmin: -0.2           # Start time relative to event (seconds)
   tmax: 1            # End time relative to event (seconds)
-  baseline: [Null, Null] #[-0.2, 0]  # Baseline correction window
+  baseline: [-0.2, 0]  #[-0.2, 0]  # Baseline correction window
 
 evoked_filter_go_nogo_only: true  # Only include go/nogo events for evoked analysis
+
+# Coarse epoch rejection threshold (applied before AutoReject)
+# This catches extremely noisy epochs; fine-tuning is done by AutoReject
+# Set high thresholds to only reject the worst artifacts
+epoch_reject_threshold:
+  eeg: 500e-6  # 500 µV peak-to-peak for EEG channels (very permissive)
 
 # State windows (pre-probe analysis)
 state_windows:
@@ -140,6 +145,9 @@ resp_pad:
 
 # Additional processing
 use_csd: false        # Compute current source density
+                      # CSD is computed after ICA cleaning on artifact-removed data
+                      # and saved as a separate derivative for spatial analysis.
+                      # This follows MNE best practices for CSD on clean data.
 
 # =============================================================================
 # 8. ARTIFACT REJECTION (AUTOREJECT)
@@ -150,9 +158,9 @@ autoreject:
   n_jobs: -1        # Parallel jobs
   # Parámetros menos estrictos para AutoReject
   thresh_method: bayesian_optimization   # opciones: 'bayesian_optimization', 'random_search'
-  n_interpolate: [1, 2, 4, 8, 16]       # opciones de canales a interpolar
-  n_consensus: [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]  # proporción de consenso
-  picks: eeg  # canales a considerar (por defecto EEG)
+  n_interpolate: [1,2,4,8,16]
+  n_consensus: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  picks: null  # picks_eeg will be used from pipeline (excludes REF/EXG/EOG)
 
 reject_threshold_uv: 150  # Manual rejection threshold (microvolts)
 

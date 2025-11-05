@@ -98,6 +98,44 @@ from utils.log_preprocessing import LogPreprocessingDetails
 # =============================================================================
 
 
+def _compute_voltage_stats(raw: mne.io.BaseRaw, label: str = "") -> Dict[str, float]:
+    """
+    Compute voltage statistics for debugging.
+    
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Raw data object
+    label : str
+        Label for this stage
+        
+    Returns
+    -------
+    Dict[str, float]
+        Dictionary with voltage statistics
+    """
+    data = raw.get_data(picks='eeg')
+    mean_abs = np.mean(np.abs(data))
+    p2p = np.ptp(data)
+    std = np.std(data)
+    
+    stats = {
+        'mean_abs_uv': mean_abs * 1e6,
+        'p2p_uv': p2p * 1e6,
+        'std_uv': std * 1e6,
+        'min_uv': np.min(data) * 1e6,
+        'max_uv': np.max(data) * 1e6
+    }
+    
+    if label:
+        print(f"  [VOLTAGE DEBUG] {label}:")
+        print(f"    Mean abs: {stats['mean_abs_uv']:.2f} µV")
+        print(f"    Peak-to-peak: {stats['p2p_uv']:.2f} µV")
+        print(f"    Std dev: {stats['std_uv']:.2f} µV")
+    
+    return stats
+
+
 def _get_cfg_required(cfg: Dict[str, Any], key_path: List[str]):
     """
     Extract required configuration parameter from nested dictionary.
@@ -220,8 +258,8 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     
     # Filter parameters
     filters_ica = _get_cfg_required(cfg, ["filters", "ica"])
-    filters_evoked = _get_cfg_required(cfg, ["filters", "evoked"])
-    filters_state = _get_cfg_required(cfg, ["filters", "state"])
+    filters_analysis= _get_cfg_required(cfg, ["filters", "analysis"])
+    # filters_state = _get_cfg_required(cfg, ["filters", "state"])
     
     # ASR parameters (optional)
     asr_cfg = cfg.get("asr", None)
@@ -282,6 +320,10 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         _get_cfg_required(cfg, ["state_windows", "mini_epoch_s"])
     )
     
+    # Coarse epoch rejection threshold (applied before AutoReject)
+    # Optional: if not specified, no coarse rejection is applied
+    reject_threshold = cfg.get("epoch_reject_threshold", None)
+    
     # ICA parameters
     ica_method = _get_cfg_required(cfg, ["ica", "method"])
     n_components = _get_cfg_required(cfg, ["ica", "n_components"])
@@ -307,6 +349,9 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     raw = bidsio.read_raw(subject=subject, task=task, preload=True)
     # Build events directly from existing annotations
     events, event_id = mne.events_from_annotations(raw)
+    
+    # DEBUG: Voltage after loading
+    _compute_voltage_stats(raw, "1. RAW (after loading)")
 
     # =========================================================================
     # 4. NOTCH FILTERING AND PSD ANALYSIS
@@ -319,6 +364,9 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     raw.load_data()
     raw.notch_filter(freqs=notch_freqs, method="fir", n_jobs=1)
     fig_post = compute_psd_figure(raw)
+    
+    # DEBUG: Voltage after notch
+    _compute_voltage_stats(raw, "2. After NOTCH filter")
     
     # Add PSD comparison to report
     add_psd_figures(report, fig_pre, fig_post)
@@ -373,21 +421,44 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     # Combine bad channels from different sources
     all_bads = (raw.info.get("bads") or []) + (prep_bads or [])
     raw.info["bads"] = sorted(set(all_bads))
+    
+    # DEBUG: Voltage after bad channel detection (before interpolation)
+    _compute_voltage_stats(raw, f"3. After BAD detection ({len(raw.info['bads'])} bads marked)")
 
     # =========================================================================
-    # 7. REFERENCE AND FILTERING
+    # 7. INTERPOLATION, MONTAGE, AND REFERENCE SETUP
     # =========================================================================
-    print("Applying reference and filters...")
-    # Apply average reference projector if specified
-    if avg_ref_projector:
-        raw.set_eeg_reference("average", projection=False)
-
+    print("Interpolating bad channels and setting up montage...")
+    
     # Capture bad channels before interpolation for BIDS output
     bads_pre_interp = list(raw.info.get("bads", []))
     
-    # Interpolate bad channels
-    raw.interpolate_bads(reset_bads=False, mode="accurate")
+    # 1) Interpolate bad channels first
+    raw.interpolate_bads(reset_bads=True, mode="accurate")
+    
+    # DEBUG: Voltage after interpolation
+    _compute_voltage_stats(raw, f"4. After INTERPOLATION ({len(bads_pre_interp)} channels)")
 
+    # 2) Set montage using CACS-64_REF.bvef
+    montage = mne.channels.read_custom_montage("Preprocessing_pipeline_new/CACS-64_REF.bvef")
+    raw.set_montage(montage)
+    
+    # 3) Define EEG picks excluding reference and auxiliary channels
+    ref_like = ["REF", "EXG1", "EXG2", "HEOG", "VEOG", "M1", "M2", "GND"]
+    picks_eeg = mne.pick_types(raw.info, eeg=True, exclude=ref_like)
+    
+    # 4) Apply average reference ONLY to EEG channels
+    if avg_ref_projector:
+        raw.set_eeg_reference("average", projection=False)
+    
+    # DEBUG: Voltage after reference
+    _compute_voltage_stats(raw, f"5. After REFERENCE (using {len(picks_eeg)} EEG channels)")
+
+    # =========================================================================
+    # 8. FILTERING (NO RESAMPLING)
+    # =========================================================================
+    print("Applying filters...")
+    
     # Create two copies for different processing streams
     # ICA copy: dedicated for ICA fitting, can be freed early
     raw_for_ica = raw.copy().load_data()
@@ -397,16 +468,27 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         phase="zero",
         n_jobs=1,
     )
-    if sr_target and int(raw_for_ica.info["sfreq"]) != sr_target:
-        raw_for_ica.resample(sr_target, n_jobs=1)
+    # NO RESAMPLING - removed sr_target resampling
+    
+    # DEBUG: Voltage of ICA copy after filtering
+    _compute_voltage_stats(
+        raw_for_ica, 
+        f"6a. ICA copy after filter ({filters_ica.get('l_freq')}-{filters_ica.get('h_freq')} Hz)"
+    )
 
     # Analysis copy: for final analysis and epoch extraction
     raw_analysis = raw
     raw_analysis.filter(
-        l_freq=filters_evoked.get("l_freq"),
-        h_freq=filters_evoked.get("h_freq"),
+        l_freq=filters_analysis.get("l_freq"),
+        h_freq=filters_analysis.get("h_freq"),
         phase="zero",
         n_jobs=1,
+    )
+    
+    # DEBUG: Voltage of analysis copy after filtering
+    _compute_voltage_stats(
+        raw_analysis, 
+        f"6b. Analysis copy after filter ({filters_analysis.get('l_freq')}-{filters_analysis.get('h_freq')} Hz)"
     )
     # =========================================================================
     # 8. ICA ARTIFACT REMOVAL
@@ -444,28 +526,53 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
 
     # Apply ICA to analysis copy
     raw_clean = raw_analysis
-    if ica.exclude:
-        ica.apply(raw_clean)
     
-    # Clear bad-channel flags after interpolation
-    raw_clean.info["bads"] = []
+    # DEBUG: Voltage BEFORE ICA application
+    _compute_voltage_stats(raw_clean, "7a. BEFORE ICA.apply()")
+    
+    # DEBUG: Print ICA exclude list
+    print(f"\n{'='*70}")
+    print(f"ICA EXCLUSION CHECK:")
+    print(f"  ica.exclude = {ica.exclude}")
+    print(f"  Number of components to exclude: {len(ica.exclude) if ica.exclude else 0}")
+    print(f"  Total ICA components: {ica.n_components_}")
+    print(f"{'='*70}\n")
+    
+    if ica.exclude:
+        print(f"Applying ICA to remove {len(ica.exclude)} components...")
+        ica.apply(raw_clean)
+        print("ICA application completed.")
+        # DEBUG: Voltage AFTER ICA application
+        _compute_voltage_stats(
+            raw_clean, 
+            f"7b. AFTER ICA.apply() (removed {len(ica.exclude)} components: {ica.exclude})"
+        )
+    else:
+        print("  [WARNING] No ICA components excluded, skipping ICA.apply()")
+        print("  This means no artifacts were detected or thresholds are too strict!")
     
     # Memory cleanup: ICA copy no longer needed
     del raw_for_ica
     gc.collect()
 
     # =========================================================================
-    # 9. OPTIONAL CSD AND FILE SAVING
+    # 8a. OPTIONAL CSD COMPUTATION (AFTER ICA - CLEAN DATA)
     # =========================================================================
-    print("Saving processed data...")
-    # Optional current source density computation
+    # Compute CSD after ICA cleaning to get clean spatial-transform data
+    # Following MNE example: CSD on clean, artifact-removed data
     raw_csd = None
     if use_csd:
-        raw_csd = mne.preprocessing.compute_current_source_density(
-            raw_clean.copy()
-        )
-
-    # Save outputs to derivatives
+        print("Computing Current Source Density on cleaned data...")
+        # CSD benefits from being applied to clean data (after ICA)
+        # Bad channels are already cleared, no need to worry about them
+        raw_csd = mne.preprocessing.compute_current_source_density(raw_clean.copy())
+        print(f"  [INFO] CSD computed on ICA-cleaned data")
+    
+    # =========================================================================
+    # 9. FILE SAVING
+    # =========================================================================
+    print("Saving processed data...")
+    # Save ICA-cleaned data to derivatives
     bidsio.write_derivative_raw(
         raw_clean,
         derivatives_root,
@@ -475,7 +582,13 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         overwrite=overwrite,
         bad_channels_pre_interp=bads_pre_interp,
     )
+    
+    # Save CSD data (if computed)
+    # Note: raw_csd is already computed on filtered+ICA-cleaned data
+    # so it doesn't need additional filtering
     if raw_csd is not None:
+        print("Saving CSD-transformed data...")
+        # Save CSD to derivatives
         bidsio.write_derivative_raw(
             raw_csd,
             derivatives_root,
@@ -484,6 +597,8 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
             desc=name_csd,
             overwrite=overwrite,
         )
+        print(f"  [INFO] CSD data saved with desc='{name_csd}'")
+        
         # Memory cleanup: CSD data no longer needed after saving
         del raw_csd
         gc.collect()
@@ -511,7 +626,11 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         tmax=tmax,
         baseline=baseline,
         reject_by_annotation=True,
+        reject=reject_threshold,
     )
+    
+    # Apply picks_eeg to epochs after creation
+    # epochs.pick(picks_eeg)
 
     # =========================================================================
     # 11. AUTOREJECT ARTIFACT REJECTION
@@ -534,7 +653,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         thresh_method=cfg.get("autoreject", {}).get("thresh_method"),
         n_interpolate=cfg.get("autoreject", {}).get("n_interpolate"),
         n_consensus=cfg.get("autoreject", {}).get("n_consensus"),
-        picks=cfg.get("autoreject", {}).get("picks"),
+        # picks=picks_eeg,
     )
     
     # Debug AutoReject output
@@ -555,6 +674,9 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         )
     except Exception:
         pass
+    
+    # Apply picks_eeg to AutoReject results
+    # ar_epochs.pick(picks_eeg)
     
     # Store epochs after AutoReject but before drop_bad for counting
     ar_epochs_before_drop = ar_epochs.copy()
@@ -633,19 +755,25 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     print("Creating state epochs...")
     # State windows pre-probe using existing THOUGHT_PROBE annotations
     raw_state = raw_clean.copy()
-    raw_state.filter(
-        l_freq=filters_state.get("l_freq"),
-        h_freq=filters_state.get("h_freq"),
-        phase="zero",
-        n_jobs=1,
-    )
+    # raw_state.filter(
+    #     l_freq=filters_state.get("l_freq"),
+    #     h_freq=filters_state.get("h_freq"),
+    #     phase="zero",
+    #     n_jobs=1,
+    #     # picks=picks_eeg,
+    # )
     
     epochs_state = make_state_preprobe_epochs(
         raw_state,
         pre_probe_s=pre_probe_s,
         mini_epoch_s=mini_epoch_s,
         overlap_s=state_overlap,
+        reject=reject_threshold,
     )
+    
+    # # Apply picks_eeg to state epochs after creation
+    # if epochs_state is not None:
+    #     epochs_state.pick(picks_eeg)
     
     # Memory cleanup: raw_state no longer needed
     del raw_state
@@ -679,7 +807,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
             thresh_method=cfg.get("autoreject", {}).get("thresh_method"),
             n_interpolate=cfg.get("autoreject", {}).get("n_interpolate"),
             n_consensus=cfg.get("autoreject", {}).get("n_consensus"),
-            picks=cfg.get("autoreject", {}).get("picks"),
+            # picks=picks_eeg,
         )
         
         # Debug AutoReject output for state epochs
@@ -694,6 +822,9 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
             )
         else:
             print("[DEBUG] State AR returned None")
+        
+        # Apply picks_eeg to state AutoReject results
+        # ar_state_epochs.pick(picks_eeg)
         
         # Store epochs after AutoReject but before drop_bad for counting
         ar_state_epochs_before_drop = ar_state_epochs.copy()

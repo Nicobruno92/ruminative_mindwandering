@@ -56,6 +56,10 @@ outlier_detection:
   # Trimmean parameters (alternative to outlier detection)
   trimmean_percent: 30           # Trim 20% from both ends (10% each side)
 
+# Connectivity processing policy
+connectivity:
+  channel_reduction: "mean_pairs"  # Average all pairs involving each channel
+
 # Marker name mapping: rename verbose marker names to clean short names
 # Maps from pattern in PKL file names to desired output name
 marker_name_mapping:

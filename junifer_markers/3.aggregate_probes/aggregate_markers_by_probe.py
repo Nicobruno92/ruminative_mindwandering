@@ -116,49 +116,8 @@ if 'mne' not in sys.modules:
     sys.modules['mne.annotations'] = mne_annotations
 
 
-def find_marker_by_partial_name(markers: Dict, short_name: str) -> Optional[str]:
-    """
-    Find a marker by partial name match.
-    
-    Markers in PKL files may have full descriptive names like "EEG_psd_bands_spectralpower"
-    while config specifies short names like "psd_bands". This function finds the full name.
-    
-    Parameters
-    ----------
-    markers : Dict
-        Dictionary of markers
-    short_name : str
-        Short name to search for
-        
-    Returns
-    -------
-    Optional[str]
-        Full marker name if found, None otherwise
-    """
-    # Try exact match first
-    if short_name in markers:
-        return short_name
-    
-    # Try case-insensitive exact match
-    for key in markers.keys():
-        if key.lower() == short_name.lower():
-            return key
-    
-    # Try partial match (short_name is substring of full name)
-    short_lower = short_name.lower()
-    for key in markers.keys():
-        key_lower = key.lower()
-        # Check if short name is in the key, accounting for common patterns
-        if short_lower in key_lower:
-            # Verify it's a meaningful match (not just random substring)
-            # E.g., "psd_bands" should match "EEG_psd_bands_spectralpower"
-            parts = key_lower.split('_')
-            short_parts = short_lower.split('_')
-            # Check if all parts of short name are in the key
-            if all(part in parts for part in short_parts):
-                return key
-    
-    return None
+# REMOVED: find_marker_by_partial_name() - NO FUZZY MATCHING ALLOWED
+# Only exact name matching via marker_name_mapping from config
 
 
 def load_marker_pkl(pkl_path: str) -> Dict:
@@ -241,9 +200,11 @@ def extract_epoch_value_from_marker(
     epoch_idx: int,
     marker_name: str,
     band_idx: Optional[int] = None,
+    subject_id: str = "unknown",
+    task: str = "unknown",
 ) -> Optional[float]:
     """
-    Extract a single epoch value from marker data.
+    Extract a single epoch value from marker data with deterministic band processing.
     
     Parameters
     ----------
@@ -257,13 +218,22 @@ def extract_epoch_value_from_marker(
         Name of the marker (for debugging)
     band_idx : Optional[int]
         For spectral markers with multiple bands, specific band index to extract.
-        If None, returns mean across all bands (for non-spectral markers).
-        Band order is typically: [delta=0, theta=1, alpha=2, beta=3, gamma=4]
+        REQUIRED for spectral markers - no fallback averaging allowed.
+        Band order is: [delta=0, theta=1, alpha=2, beta=3, gamma=4]
+    subject_id : str
+        Subject identifier for error messages
+    task : str
+        Task identifier for error messages
         
     Returns
     -------
     Optional[float]
         Extracted value or None if not found
+        
+    Raises
+    ------
+    ValueError
+        If band_idx is None for spectral markers or data structure is unexpected
     """
     try:
         # Check if this is a MarkerData object from h5_to_pkl converter
@@ -281,10 +251,6 @@ def extract_epoch_value_from_marker(
             
             channel_data_dict = epoch_data._channel_data
             
-            # For spectral markers, channel keys might have band suffixes like "Fp1_alpha"
-            # For connectivity markers, channel keys are pairs like "Fp1-Fp2"
-            values = []
-            
             # Check for exact channel match
             if channel in channel_data_dict:
                 ch_data = channel_data_dict[channel]
@@ -292,43 +258,69 @@ def extract_epoch_value_from_marker(
                     data_val = ch_data.data
                     if isinstance(data_val, np.ndarray):
                         # Array of band values for spectral markers
-                        if band_idx is not None and band_idx < len(data_val):
-                            # Return specific band value
+                        if band_idx is not None:
+                            if band_idx >= len(data_val):
+                                raise ValueError(
+                                    f"[{subject_id} {task}] Band index {band_idx} out of range for {marker_name} "
+                                    f"channel {channel}: data has {len(data_val)} bands"
+                                )
                             return float(data_val[band_idx])
                         else:
-                            # Return mean across all bands (for non-spectral or legacy)
-                            values.append(np.mean(data_val))
-                    else:
-                        values.append(float(data_val))
-            
-            # Check for channel with band suffixes (e.g., "Fp1_alpha", "Fp1_theta", etc.)
-            band_suffixes = ['_alpha', '_theta', '_beta', '_gamma', '_delta']
-            for ch_key in channel_data_dict.keys():
-                if ch_key.startswith(channel + '_') or ch_key.startswith(channel.lower() + '_'):
-                    # This is a band-specific channel
-                    ch_data = channel_data_dict[ch_key]
-                    if hasattr(ch_data, 'data'):
-                        data_val = ch_data.data
-                        if isinstance(data_val, np.ndarray):
-                            values.append(np.mean(data_val))
-                        else:
-                            values.append(float(data_val))
-            
-            # For connectivity markers: aggregate across all pairs involving this channel
-            if hasattr(marker_data, 'marker_type') and marker_data.marker_type in ['connectivity', 'wsmi', 'smi']:
-                for ch_key in channel_data_dict.keys():
-                    if '-' in ch_key and channel in ch_key.split('-'):
-                        ch_data = channel_data_dict[ch_key]
-                        if hasattr(ch_data, 'data'):
-                            data_val = ch_data.data
-                            if isinstance(data_val, np.ndarray):
-                                values.append(np.mean(data_val))
+                            # For non-spectral markers, data should be scalar
+                            if len(data_val) == 1:
+                                return float(data_val[0])
                             else:
-                                values.append(float(data_val))
-            
-            if values:
-                return float(np.mean(values))
-            return None
+                                raise ValueError(
+                                    f"[{subject_id} {task}] Non-spectral marker {marker_name} has unexpected "
+                                    f"data shape {data_val.shape} for channel {channel}. Expected scalar."
+                                )
+                    else:
+                        # Scalar data
+                        if band_idx is not None:
+                            raise ValueError(
+                                f"[{subject_id} {task}] Band index {band_idx} specified for non-array data "
+                                f"in {marker_name} channel {channel}"
+                            )
+                        return float(data_val)
+                else:
+                    raise ValueError(
+                        f"[{subject_id} {task}] No data attribute in {marker_name} "
+                        f"channel {channel} epoch {epoch_idx}"
+                    )
+            else:
+                # For connectivity markers: look for channel pairs involving this channel
+                if hasattr(marker_data, 'marker_type') and marker_data.marker_type in ['connectivity', 'wsmi', 'smi']:
+                    values = []
+                    for ch_key in channel_data_dict.keys():
+                        if '-' in ch_key and channel in ch_key.split('-'):
+                            ch_data = channel_data_dict[ch_key]
+                            if hasattr(ch_data, 'data'):
+                                data_val = ch_data.data
+                                if isinstance(data_val, np.ndarray):
+                                    if band_idx is not None and band_idx < len(data_val):
+                                        values.append(float(data_val[band_idx]))
+                                    elif band_idx is None:
+                                        values.append(float(np.mean(data_val)))
+                                    else:
+                                        raise ValueError(
+                                            f"[{subject_id} {task}] Band index {band_idx} out of range for connectivity "
+                                            f"marker {marker_name} pair {ch_key}: data has {len(data_val)} elements"
+                                        )
+                                else:
+                                    if band_idx is not None:
+                                        raise ValueError(
+                                            f"[{subject_id} {task}] Band index {band_idx} specified for non-array "
+                                            f"connectivity data in {marker_name} pair {ch_key}"
+                                        )
+                                    values.append(float(data_val))
+                    
+                    if values:
+                        return float(np.mean(values))
+                    else:
+                        return None
+                else:
+                    # Channel not found - this is expected for some markers
+                    return None
         
         # Legacy format: dictionary with access_pattern and data keys
         elif isinstance(marker_data, dict):
@@ -343,22 +335,43 @@ def extract_epoch_value_from_marker(
                 epoch_key = f"epoch_{epoch_idx:04d}"
                 
                 if epoch_key in channel_data:
-                    return float(channel_data[epoch_key])
-                
-                # Aggregate all bands for this epoch
-                values = []
-                for key, val in channel_data.items():
-                    if epoch_key in key:
-                        values.append(val)
-                
-                if values:
-                    return np.mean(values)
+                    val = channel_data[epoch_key]
+                    if band_idx is not None:
+                        if isinstance(val, (list, np.ndarray)) and len(val) > band_idx:
+                            return float(val[band_idx])
+                        else:
+                            raise ValueError(
+                                f"[{subject_id} {task}] Band index {band_idx} out of range for {marker_name} "
+                                f"channel {channel}: data has {len(val) if hasattr(val, '__len__') else 1} elements"
+                            )
+                    else:
+                        if isinstance(val, (list, np.ndarray)) and len(val) > 1:
+                            raise ValueError(
+                                f"[{subject_id} {task}] Non-spectral marker {marker_name} has array data "
+                                f"for channel {channel}: {val}. Expected scalar."
+                            )
+                        return float(val[0] if isinstance(val, (list, np.ndarray)) else val)
                 return None
                 
             elif access_pattern == "epoch_channel":
                 epoch_key = f"epoch_{epoch_idx:04d}"
                 if epoch_key in data and channel in data[epoch_key]:
-                    return data[epoch_key][channel]
+                    val = data[epoch_key][channel]
+                    if band_idx is not None:
+                        if isinstance(val, (list, np.ndarray)) and len(val) > band_idx:
+                            return float(val[band_idx])
+                        else:
+                            raise ValueError(
+                                f"[{subject_id} {task}] Band index {band_idx} out of range for {marker_name} "
+                                f"channel {channel}: data has {len(val) if hasattr(val, '__len__') else 1} elements"
+                            )
+                    else:
+                        if isinstance(val, (list, np.ndarray)) and len(val) > 1:
+                            raise ValueError(
+                                f"[{subject_id} {task}] Non-spectral marker {marker_name} has array data "
+                                f"for channel {channel}: {val}. Expected scalar."
+                            )
+                        return float(val[0] if isinstance(val, (list, np.ndarray)) else val)
                 return None
                 
             elif access_pattern == "channel_pair_epoch":
@@ -366,23 +379,43 @@ def extract_epoch_value_from_marker(
                 values = []
                 for pair_key, pair_data in data.items():
                     if channel in pair_key.split("-") and epoch_key in pair_data:
-                        values.append(pair_data[epoch_key])
+                        val = pair_data[epoch_key]
+                        if band_idx is not None:
+                            if isinstance(val, (list, np.ndarray)) and len(val) > band_idx:
+                                values.append(val[band_idx])
+                            else:
+                                raise ValueError(
+                                    f"[{subject_id} {task}] Band index {band_idx} out of range for {marker_name} "
+                                    f"pair {pair_key}: data has {len(val) if hasattr(val, '__len__') else 1} elements"
+                                )
+                        else:
+                            if isinstance(val, (list, np.ndarray)) and len(val) > 1:
+                                raise ValueError(
+                                    f"[{subject_id} {task}] Non-spectral marker {marker_name} has array data "
+                                    f"for pair {pair_key}: {val}. Expected scalar."
+                                )
+                            values.append(val[0] if isinstance(val, (list, np.ndarray)) else val)
                 
                 if values:
-                    return np.mean(values)
+                    return float(np.mean(values))
                 return None
             else:
-                print(f"[WARN] Unknown access pattern: {access_pattern} for {marker_name}")
-                return None
+                raise ValueError(
+                    f"[{subject_id} {task}] Unknown access pattern: {access_pattern} for {marker_name}"
+                )
         else:
-            print(f"[ERROR] Unknown marker_data type: {type(marker_data)} for {marker_name}")
-            return None
+            raise ValueError(
+                f"[{subject_id} {task}] Unknown marker_data type: {type(marker_data)} for {marker_name}"
+            )
             
     except Exception as e:
-        print(f"[WARN] Error extracting epoch {epoch_idx} for {marker_name}, channel {channel}: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+        if isinstance(e, ValueError):
+            raise  # Re-raise ValueError with context
+        else:
+            raise ValueError(
+                f"[{subject_id} {task}] Error extracting epoch {epoch_idx} for {marker_name}, "
+                f"channel {channel}: {e}"
+            )
 
 
 def debug_pkl_comprehensive(pkl_path: str):
@@ -696,11 +729,14 @@ def aggregate_marker_epochs(
     channels: List[str],
     use_trimmean: bool = False,
     trimmean_percent: float = 20.0,
+    subject_id: str = "unknown",
+    task: str = "unknown",
 ) -> Dict[str, Dict[str, float]]:
     """
-    Aggregate marker values across selected epochs.
+    Aggregate marker values across selected epochs with deterministic band processing.
     
-    For spectral markers with multiple bands, creates separate aggregations per band.
+    This function is 100% deterministic - no fallbacks, no silent averaging.
+    Spectral markers MUST have exactly 5 bands and be processed explicitly.
     
     Parameters
     ----------
@@ -715,67 +751,104 @@ def aggregate_marker_epochs(
     use_trimmean : bool
         Whether to use trimmean instead of regular mean
     trimmean_percent : float
-        Percentage to trim from both ends (e.g., 20.0 = trim 10% from each side)
+        Percentage to trim from each side (e.g., 10.0 = trim 10% from each side, 20% total)
+    subject_id : str
+        Subject identifier for error messages
+    task : str
+        Task identifier for error messages
         
     Returns
     -------
     Dict[str, Dict[str, float]]
         For spectral markers: {"delta": {ch: val, ...}, "theta": {ch: val, ...}, ...}
         For other markers: {"overall": {ch: val, ...}}
+        
+    Raises
+    ------
+    ValueError
+        If marker classification is ambiguous or data structure is unexpected
     """
-    # Check if this is a spectral marker with multiple bands
+    # DETERMINISTIC MARKER TYPE CLASSIFICATION
+    # Only these markers are considered spectral - no automatic detection
+    spectral_whitelist = ["power", "power_normalized"]
+    
     is_spectral = False
-    n_bands = 1
-    band_names = ["overall"]
+    marker_type = "unknown"
     
-    if hasattr(marker_data, 'marker_type') and marker_data.marker_type == 'spectral':
-        # Check if data has multiple bands by looking at any available epoch
-        if hasattr(marker_data, '_epoch_data') and channels:
-            # Try to find any epoch that has data for the first channel
-            # First try epochs from the list
-            for epoch_idx in epoch_indices:
-                if epoch_idx in marker_data._epoch_data:
-                    first_epoch = marker_data._epoch_data[epoch_idx]
-                    if hasattr(first_epoch, '_channel_data'):
-                        first_ch = channels[0]
-                        if first_ch in first_epoch._channel_data:
-                            ch_data = first_epoch._channel_data[first_ch]
-                            if hasattr(ch_data, 'data') and isinstance(ch_data.data, np.ndarray):
-                                n_bands = len(ch_data.data)
-                                if n_bands == 5:
-                                    # Standard EEG frequency bands
-                                    band_names = ["delta", "theta", "alpha", "beta", "gamma"]
-                                    is_spectral = True
-                                elif n_bands > 1:
-                                    # Generic band names
-                                    band_names = [f"band_{i}" for i in range(n_bands)]
-                                    is_spectral = True
-                                break  # Found valid epoch, exit loop
-            
-            # If still not found, try any epoch in the marker data
-            if not is_spectral and marker_data._epoch_data:
-                for epoch_idx, epoch_data in marker_data._epoch_data.items():
-                    if hasattr(epoch_data, '_channel_data') and channels:
-                        first_ch = channels[0]
-                        if first_ch in epoch_data._channel_data:
-                            ch_data = epoch_data._channel_data[first_ch]
-                            if hasattr(ch_data, 'data') and isinstance(ch_data.data, np.ndarray):
-                                n_bands = len(ch_data.data)
-                                if n_bands == 5:
-                                    # Standard EEG frequency bands
-                                    band_names = ["delta", "theta", "alpha", "beta", "gamma"]
-                                    is_spectral = True
-                                elif n_bands > 1:
-                                    # Generic band names
-                                    band_names = [f"band_{i}" for i in range(n_bands)]
-                                    is_spectral = True
-                                break  # Found valid epoch, exit loop
+    # Check marker type from object attribute
+    if hasattr(marker_data, 'marker_type'):
+        marker_type = marker_data.marker_type
+        if marker_type == 'spectral':
+            is_spectral = True
+    else:
+        # Check marker name against whitelist
+        if any(spectral_name in marker_name.lower() for spectral_name in spectral_whitelist):
+            is_spectral = True
+            marker_type = "spectral"
+        else:
+            marker_type = "non-spectral"
     
-    # Aggregate for each band
-    aggregated = {}
-    
+    # VALIDATE SPECTRAL MARKER STRUCTURE
     if is_spectral:
-        print(f"      Spectral marker detected: {n_bands} bands ({', '.join(band_names)})")
+        print(f"→ Aggregating marker: {marker_name} (type={marker_type}, 5 bands)")
+        
+        # Check data structure for spectral markers
+        if not hasattr(marker_data, '_epoch_data') or not marker_data._epoch_data:
+            raise ValueError(
+                f"[{subject_id} {task}] Spectral marker {marker_name} has no epoch data"
+            )
+        
+        # Find first available epoch to validate structure
+        first_epoch = None
+        first_epoch_idx = None
+        for epoch_idx in epoch_indices:
+            if epoch_idx in marker_data._epoch_data:
+                first_epoch = marker_data._epoch_data[epoch_idx]
+                first_epoch_idx = epoch_idx
+                break
+        
+        if first_epoch is None:
+            raise ValueError(
+                f"[{subject_id} {task}] No epochs found for spectral marker {marker_name} "
+                f"in requested indices {epoch_indices}"
+            )
+        
+        # Validate channel data structure
+        if not hasattr(first_epoch, '_channel_data') or not first_epoch._channel_data:
+            raise ValueError(
+                f"[{subject_id} {task}] Spectral marker {marker_name} has no channel data in epoch {first_epoch_idx}"
+            )
+        
+        # Check first channel for band structure
+        first_channel = channels[0] if channels else None
+        if first_channel and first_channel in first_epoch._channel_data:
+            ch_data = first_epoch._channel_data[first_channel]
+            if hasattr(ch_data, 'data') and isinstance(ch_data.data, np.ndarray):
+                data_shape = ch_data.data.shape
+                if len(data_shape) != 1:
+                    raise ValueError(
+                        f"[{subject_id} {task}] Spectral marker {marker_name} has unexpected data shape "
+                        f"{data_shape} for channel {first_channel}. Expected 1D array with 5 bands."
+                    )
+                if data_shape[0] != 5:
+                    raise ValueError(
+                        f"[{subject_id} {task}] Spectral marker {marker_name} has {data_shape[0]} bands "
+                        f"for channel {first_channel}. Expected exactly 5 bands (delta, theta, alpha, beta, gamma)."
+                    )
+            else:
+                raise ValueError(
+                    f"[{subject_id} {task}] Spectral marker {marker_name} has non-array data "
+                    f"for channel {first_channel}. Expected numpy array with 5 bands."
+                )
+        else:
+            raise ValueError(
+                f"[{subject_id} {task}] Spectral marker {marker_name} missing channel {first_channel} "
+                f"in epoch {first_epoch_idx}"
+            )
+        
+        # Process each band explicitly
+        band_names = ["delta", "theta", "alpha", "beta", "gamma"]
+        aggregated = {}
         
         for band_idx, band_name in enumerate(band_names):
             band_aggregated = {}
@@ -783,7 +856,8 @@ def aggregate_marker_epochs(
                 values = []
                 for epoch_idx in epoch_indices:
                     val = extract_epoch_value_from_marker(
-                        marker_data, channel, epoch_idx, marker_name, band_idx=band_idx
+                        marker_data, channel, epoch_idx, marker_name, 
+                        band_idx=band_idx, subject_id=subject_id, task=task
                     )
                     if val is not None:
                         values.append(val)
@@ -791,26 +865,29 @@ def aggregate_marker_epochs(
                 if values:
                     # Use trimmean or regular mean
                     if use_trimmean and len(values) > 2:
-                        band_aggregated[channel] = float(scipy.stats.trim_mean(values, trimmean_percent/100))
+                        # trimmean_percent is per side, so divide by 2 for scipy.stats.trim_mean
+                        band_aggregated[channel] = float(scipy.stats.trim_mean(values, trimmean_percent/200))
                     else:
                         band_aggregated[channel] = float(np.mean(values))
                 else:
                     band_aggregated[channel] = np.nan
-                    # Debug: why are values empty?
-                    if channel == list(channels)[0]:  # Only debug first channel to avoid spam
-                        print(f"        [DEBUG] No values found for {marker_name} band {band_name} channel {channel}")
-                        print(f"        [DEBUG] Available epochs in marker: {list(marker_data._epoch_data.keys())[:5]}...")
-                        print(f"        [DEBUG] Requested epochs: {epoch_indices[:5]}...")
+                    print(f"        [WARN] No values found for {marker_name} band {band_name} channel {channel}")
             
             aggregated[band_name] = band_aggregated
+        
+        print(f"✓ Aggregated {marker_name}_delta … {marker_name}_gamma successfully")
+        
     else:
-        # Non-spectral marker: single aggregation
+        # NON-SPECTRAL MARKER: single aggregation
+        print(f"→ Aggregating marker: {marker_name} (type={marker_type}, scalar)")
+        
         single_aggregated = {}
         for channel in channels:
             values = []
             for epoch_idx in epoch_indices:
                 val = extract_epoch_value_from_marker(
-                    marker_data, channel, epoch_idx, marker_name
+                    marker_data, channel, epoch_idx, marker_name,
+                    band_idx=None, subject_id=subject_id, task=task
                 )
                 if val is not None:
                     values.append(val)
@@ -818,13 +895,33 @@ def aggregate_marker_epochs(
             if values:
                 # Use trimmean or regular mean
                 if use_trimmean and len(values) > 2:
-                    single_aggregated[channel] = float(scipy.stats.trim_mean(values, trimmean_percent/100))
+                    # trimmean_percent is per side, so divide by 2 for scipy.stats.trim_mean
+                    single_aggregated[channel] = float(scipy.stats.trim_mean(values, trimmean_percent/200))
                 else:
                     single_aggregated[channel] = float(np.mean(values))
             else:
                 single_aggregated[channel] = np.nan
+                print(f"        [WARN] No values found for {marker_name} channel {channel}")
         
-        aggregated["overall"] = single_aggregated
+        aggregated = {"overall": single_aggregated}
+        print(f"✓ Aggregated {marker_name} successfully")
+    
+    # FINAL VALIDATION
+    if is_spectral:
+        # Check that all expected bands exist
+        expected_bands = ["delta", "theta", "alpha", "beta", "gamma"]
+        missing_bands = [band for band in expected_bands if band not in aggregated]
+        if missing_bands:
+            raise ValueError(
+                f"[{subject_id} {task}] Spectral marker {marker_name} missing bands: {missing_bands}"
+            )
+        
+        # Check for NaN values or identical values across bands
+        for band_name in expected_bands:
+            band_data = aggregated[band_name]
+            for channel, value in band_data.items():
+                if np.isnan(value):
+                    print(f"        [WARN] NaN value for {marker_name}_{band_name} channel {channel}")
     
     return aggregated
 
@@ -1070,6 +1167,12 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
     # Get marker name mapping for renaming
     marker_name_mapping = cfg.get("marker_name_mapping", {})
     
+    # STRICT CONNECTIVITY POLICY VALIDATION
+    connectivity_cfg = cfg.get("connectivity", {})
+    channel_reduction = connectivity_cfg.get("channel_reduction", "")
+    if channel_reduction != "mean_pairs":
+        raise ValueError("Connectivity reduction policy must be 'mean_pairs'")
+    
     print(f"\n{'='*80}")
     print(f"Processing sub-{subject} task-{task}")
     print(f"{'='*80}")
@@ -1175,41 +1278,26 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
         print(f"[ERROR] No marker PKL files found for sub-{subject} task-{task}")
         return pd.DataFrame()
     
-    # Get channel names from one of the loaded datasets
-    # Try different possible locations for channel names
+    # STRICT CHANNEL EXTRACTION - ONLY FROM metadata.fif_info.channel_names
     channels = []
     if evoked_data is not None:
-        # Try info.channel_names first (legacy format)
-        channels = evoked_data.get("info", {}).get("channel_names", [])
-        # Try metadata.fif_info.channel_names (h5_to_pkl converter format)
-        if not channels:
-            metadata = evoked_data.get("metadata", {})
-            fif_info = metadata.get("fif_info", {})
-            channels = fif_info.get("channel_names", [])
+        metadata = evoked_data.get("metadata", {})
+        fif_info = metadata.get("fif_info", {})
+        channels = fif_info.get("channel_names", [])
     
     if not channels and state_data is not None:
-        # Try info.channel_names first (legacy format)
-        channels = state_data.get("info", {}).get("channel_names", [])
-        # Try metadata.fif_info.channel_names (h5_to_pkl converter format)
-        if not channels:
-            metadata = state_data.get("metadata", {})
-            fif_info = metadata.get("fif_info", {})
-            channels = fif_info.get("channel_names", [])
-    
-    # If still no channels, try to get them from a marker object directly
-    if not channels:
-        for data_source in [evoked_data, state_data]:
-            if data_source is not None:
-                markers = data_source.get("markers", {})
-                if markers:
-                    first_marker = next(iter(markers.values()))
-                    if hasattr(first_marker, 'channel_names'):
-                        channels = first_marker.channel_names
-                        break
+        metadata = state_data.get("metadata", {})
+        fif_info = metadata.get("fif_info", {})
+        channels = fif_info.get("channel_names", [])
     
     if not channels:
-        print(f"[ERROR] Could not find channel names in marker PKL files")
-        return pd.DataFrame()
+        raise ValueError("Missing metadata.fif_info.channel_names in PKL")
+    
+    # FILTER OUT EOG CHANNELS - they should not be processed for any markers
+    eog_channels = ['VEOG', 'HEOG']
+    channels = [ch for ch in channels if ch not in eog_channels]
+    print(f"Filtered out EOG channels: {eog_channels}")
+    print(f"Processing {len(channels)} EEG channels")
     
     # Process each probe
     outputs: List[Dict] = []
@@ -1305,6 +1393,8 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
                             channels=channels,
                             use_trimmean=not enable_outlier_detection,
                             trimmean_percent=trimmean_percent,
+                            subject_id=subject,
+                            task=task,
                         )
                         
                         # Handle spectral vs non-spectral markers
@@ -1407,6 +1497,8 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
                             channels=channels,
                             use_trimmean=not enable_outlier_detection,
                             trimmean_percent=trimmean_percent,
+                            subject_id=subject,
+                            task=task,
                         )
                         
                         # Handle spectral vs non-spectral markers

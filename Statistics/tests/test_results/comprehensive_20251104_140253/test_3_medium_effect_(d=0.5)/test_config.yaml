@@ -1,0 +1,51 @@
+clustering:
+  alpha: 0.05
+  method: tfce
+  n_jobs: 1
+  n_permutations: 100
+  permutation_method: freedman_lane
+  seed: 42
+  stat_fun: sum
+  t_power: 1.0
+  tail: 0
+  tfce:
+    E: 0.5
+    H: 2.0
+    n_steps: 500
+  threshold: 2.5
+lmm:
+  formula: power ~ onoff + (1|subject)
+  maxiter: 2000
+  method: powell
+  predictor_of_interest: onoff
+  random_state: 42
+multiple_comparisons:
+  alpha: 0.05
+  evoked: false
+  state: false
+output:
+  fig_dpi: 300
+  fig_format: png
+  overwrite: true
+  save_csv: true
+  save_figures: true
+  save_pickle: true
+preprocessing:
+  channel_wise: false
+  normalization_method: zscore
+  normalize_by_subject: true
+  subject_column: subject
+project:
+  exclude_failed_qa: true
+  features_root: /Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/Statistics/tests/test_results/comprehensive_20251104_140253/test_3:_medium_effect_(d=0.5)/features
+  marker_types:
+  - state
+  markers:
+  - EEG_psd_bands_spectralpower_alpha
+  montage_path: standard_1020
+  onoff_max_value: null
+  output_path: /Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/Statistics/tests/test_results/comprehensive_20251104_140253/test_3:_medium_effect_(d=0.5)/results
+  pca_results_path: null
+  qa_summary_path: null
+  subjects: null
+  tasks: null

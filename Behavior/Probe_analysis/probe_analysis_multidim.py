@@ -370,6 +370,12 @@ def plot_dimension(
         Output directory for saved plots.
     """
     os.makedirs(out_dir, exist_ok=True)
+    
+    # Determine if we have normalized version for IE plots
+    dep_normalized = f"{dep}_normalized"
+    has_normalized = dep_normalized in df_lmm_ie.columns
+    dep_ie = dep_normalized if has_normalized else dep
+    ylabel_suffix = " (Normalized)" if has_normalized else ""
 
     plt.style.use("default")
     fig = plt.figure(figsize=(24, 14))
@@ -417,14 +423,14 @@ def plot_dimension(
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8)
         )
 
-    # Plot 2 (0,1): Raincloud for inclusion/exclusion
+    # Plot 2 (0,1): Raincloud for inclusion/exclusion (NORMALIZED)
     ax2 = fig.add_subplot(gs[0, 1])
-    df_agg_ie = df_lmm_ie.groupby(["subject_id", "inclusion_exclusion"])[dep].mean().reset_index()
+    df_agg_ie = df_lmm_ie.groupby(["subject_id", "inclusion_exclusion"])[dep_ie].mean().reset_index()
     n_participants_by_ie = df_agg_ie.groupby("inclusion_exclusion")["subject_id"].nunique().to_dict()
     
     pt.RainCloud(
         x="inclusion_exclusion",
-        y=dep,
+        y=dep_ie,
         data=df_agg_ie,
         palette=IE_COLORS,
         order=IE_ORDER,
@@ -436,15 +442,21 @@ def plot_dimension(
         move=-0.1,
         ax=ax2,
     )
+    title_suffix = " (Baseline-Corrected)" if has_normalized else ""
     ax2.set_title(
-        f"{dep.upper()}: Inclusion/Exclusion Effect",
+        f"{dep.upper()}: Inclusion/Exclusion Effect{title_suffix}",
         fontsize=18,
         fontweight="bold",
         pad=15,
     )
     ax2.set_xlabel("Condition", fontsize=14, fontweight="bold")
-    ax2.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+    ax2.set_ylabel(f"{dep.title()} Score{ylabel_suffix}", fontsize=14, fontweight="bold")
     ax2.grid(True, alpha=0.3)
+    
+    # Add baseline reference line for normalized plots
+    if has_normalized:
+        ax2.axhline(y=0, color='black', linestyle='--', linewidth=1.5, alpha=0.7, label='Baseline')
+        ax2.legend(fontsize=10, loc='best')
     
     # Add sample sizes
     for i, condition in enumerate(IE_ORDER):
@@ -455,14 +467,14 @@ def plot_dimension(
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8)
         )
 
-    # Plot 3 (0,2): Interaction plot (Group × I/E)
+    # Plot 3 (0,2): Interaction plot (Group × I/E) (NORMALIZED)
     ax3 = fig.add_subplot(gs[0, 2])
     for group in df_lmm_ie["group"].dropna().unique():
         group_data = df_lmm_ie[df_lmm_ie["group"] == group]
         if len(group_data) == 0:
             continue
         ie_means = (
-            group_data.groupby("inclusion_exclusion")[dep]
+            group_data.groupby("inclusion_exclusion")[dep_ie]
             .agg(["mean", "sem"])
             .reindex(IE_ORDER)
             .reset_index()
@@ -485,13 +497,16 @@ def plot_dimension(
         )
     ax3.set_xticks([0, 1])
     ax3.set_xticklabels(IE_ORDER, fontsize=14, fontweight="bold")
-    ax3.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+    ax3.set_ylabel(f"{dep.title()} Score{ylabel_suffix}", fontsize=14, fontweight="bold")
     ax3.set_title(
-        f"{dep.upper()}: Group × I/E Interaction",
+        f"{dep.upper()}: Group × I/E Interaction{title_suffix}",
         fontsize=18,
         fontweight="bold",
         pad=15,
     )
+    # Add baseline reference line for normalized plots
+    if has_normalized:
+        ax3.axhline(y=0, color='black', linestyle='--', linewidth=1.5, alpha=0.7, label='Baseline')
     ax3.legend(fontsize=12, title_fontsize=12, loc='best')
     ax3.grid(True, alpha=0.3)
 
@@ -533,18 +548,19 @@ def plot_dimension(
         ax4.text(0.5, 0.5, 'Time-on-task data not available', 
                 ha='center', va='center', transform=ax4.transAxes, fontsize=14)
 
-    # Plot 5 (1,1): Time-on-task by inclusion/exclusion (full trajectory 1-60)
+    # Plot 5 (1,1): Intervention distance by inclusion/exclusion (probe 1-15 within block) (NORMALIZED)
     ax5 = fig.add_subplot(gs[1, 1])
-    if 'time_on_task' in df_lmm_ie.columns:
+    if 'probe_number' in df_lmm_ie.columns:
         for i, condition in enumerate(IE_ORDER):
             if condition in df_lmm_ie["inclusion_exclusion"].values:
                 ie_data = df_lmm_ie[df_lmm_ie["inclusion_exclusion"] == condition]
-                time_ie_agg = ie_data.groupby("time_on_task")[dep].agg(["mean", "sem"]).reset_index()
+                # Use probe_number (1-15 within each manipulation block)
+                probe_ie_agg = ie_data.groupby("probe_number")[dep_ie].agg(["mean", "sem"]).reset_index()
                 color = IE_COLORS[i]
                 ax5.errorbar(
-                    time_ie_agg["time_on_task"],
-                    time_ie_agg["mean"],
-                    yerr=time_ie_agg["sem"],
+                    probe_ie_agg["probe_number"],
+                    probe_ie_agg["mean"],
+                    yerr=probe_ie_agg["sem"],
                     marker="s",
                     linewidth=2.5,
                     markersize=6,
@@ -553,18 +569,22 @@ def plot_dimension(
                     color=color,
                     label=condition.capitalize(),
                 )
-        ax5.set_xlabel("Time on Task (Probe Number)", fontsize=14, fontweight="bold")
-        ax5.set_ylabel(f"{dep.title()} Score", fontsize=14, fontweight="bold")
+        ax5.set_xlabel("Intervention Distance (Probe Number)", fontsize=14, fontweight="bold")
+        ax5.set_ylabel(f"{dep.title()} Score{ylabel_suffix}", fontsize=14, fontweight="bold")
         ax5.set_title(
-            f"{dep.upper()}: Time-on-Task by I/E",
+            f"{dep.upper()}: Intervention Distance by I/E{title_suffix}",
             fontsize=18,
             fontweight="bold",
             pad=15,
         )
+        # Add baseline reference line for normalized plots
+        if has_normalized:
+            ax5.axhline(y=0, color='black', linestyle='--', linewidth=1.5, alpha=0.7, label='Baseline')
         ax5.legend(fontsize=12, loc='best')
         ax5.grid(True, alpha=0.3)
+        ax5.set_xlim(0.5, 15.5)  # Set x-axis limits for 1-15 probes
     else:
-        ax5.text(0.5, 0.5, 'Time-on-task data not available', 
+        ax5.text(0.5, 0.5, 'Probe number data not available', 
                 ha='center', va='center', transform=ax5.transAxes, fontsize=14)
 
     # Plot 6 (1,2): SART Mean Trajectories by Group and Order (4 points per line)
@@ -691,6 +711,11 @@ def descriptive_statistics(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: s
         Output directory for CSV export.
     """
     os.makedirs(out_dir, exist_ok=True)
+    
+    # Determine if we have normalized version
+    dep_normalized = f"{dep}_normalized"
+    has_normalized = dep_normalized in df_lmm_ie.columns
+    dep_ie = dep_normalized if has_normalized else dep
 
     overall_stats = df_lmm[dep].describe()
     print(f"Overall: Mean = {overall_stats['mean']:.3f}, SD = {overall_stats['std']:.3f}")
@@ -699,21 +724,37 @@ def descriptive_statistics(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: s
     group_stats = df_lmm.groupby("group")[dep].agg(["count", "mean", "std"]).round(3)
     print(group_stats)
 
-    print("\nBy Inclusion/Exclusion:")
+    print("\nBy Inclusion/Exclusion (Raw):")
     ie_stats = (
         df_lmm_ie.groupby("inclusion_exclusion")[dep].agg(["count", "mean", "std"]).round(3)
     )
     print(ie_stats)
+    
+    if has_normalized:
+        print("\nBy Inclusion/Exclusion (Baseline-Corrected):")
+        ie_stats_norm = (
+            df_lmm_ie.groupby("inclusion_exclusion")[dep_ie].agg(["count", "mean", "std"]).round(3)
+        )
+        print(ie_stats_norm)
 
-    print("\nBy Group × Inclusion/Exclusion:")
+    print("\nBy Group × Inclusion/Exclusion (Raw):")
     interaction_stats = (
         df_lmm_ie.groupby(["group", "inclusion_exclusion"])[dep]
         .agg(["count", "mean", "std"])
         .round(3)
     )
     print(interaction_stats)
+    
+    if has_normalized:
+        print("\nBy Group × Inclusion/Exclusion (Baseline-Corrected):")
+        interaction_stats_norm = (
+            df_lmm_ie.groupby(["group", "inclusion_exclusion"])[dep_ie]
+            .agg(["count", "mean", "std"])
+            .round(3)
+        )
+        print(interaction_stats_norm)
 
-    # Save cell-wise stats (similar to original script)
+    # Save cell-wise stats (both raw and normalized if available)
     stats_list: List[Dict[str, float]] = []
     for group in df_lmm_ie["group"].dropna().unique():
         for ie in df_lmm_ie["inclusion_exclusion"].dropna().unique():
@@ -721,20 +762,26 @@ def descriptive_statistics(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: s
                 (df_lmm_ie["group"] == group) & (df_lmm_ie["inclusion_exclusion"] == ie)
             ]
             if len(subset) > 0:
-                stats_list.append(
-                    {
-                        "Group": group,
-                        "Inclusion_Exclusion": ie,
-                        "N": int(len(subset)),
-                        "Mean": float(subset[dep].mean()),
-                        "SD": float(subset[dep].std()),
-                        "SE": float(subset[dep].sem()),
-                    }
-                )
+                stats_dict = {
+                    "Group": group,
+                    "Inclusion_Exclusion": ie,
+                    "N": int(len(subset)),
+                    "Mean_Raw": float(subset[dep].mean()),
+                    "SD_Raw": float(subset[dep].std()),
+                    "SE_Raw": float(subset[dep].sem()),
+                }
+                if has_normalized:
+                    stats_dict.update({
+                        "Mean_Normalized": float(subset[dep_ie].mean()),
+                        "SD_Normalized": float(subset[dep_ie].std()),
+                        "SE_Normalized": float(subset[dep_ie].sem()),
+                    })
+                stats_list.append(stats_dict)
     stats_df = pd.DataFrame(stats_list)
     stats_file = os.path.join(out_dir, f"{dep}_descriptive_statistics.csv")
     stats_df.to_csv(stats_file, index=False)
-    print(f"Descriptive statistics saved to: {stats_file}")
+    suffix_msg = " (raw and normalized)" if has_normalized else ""
+    print(f"Descriptive statistics{suffix_msg} saved to: {stats_file}")
 
 
 def analyze_dimension(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: str) -> None:
@@ -759,17 +806,106 @@ def analyze_dimension(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: str) -
     os.makedirs(dim_results_dir, exist_ok=True)
     os.makedirs(dim_plots_dir, exist_ok=True)
 
-    # Model 1: Group effect
+    # Determine if we have normalized version
+    dep_normalized = f"{dep}_normalized"
+    has_normalized = dep_normalized in df_lmm_ie.columns
+    
+    # Use normalized version for IE analyses if available
+    dep_ie = dep_normalized if has_normalized else dep
+    
+    # Model 1: Group effect (uses raw values)
     run_lmm_analysis(df_lmm, dep, "group", "group_effect", dim_results_dir)
 
-    # Model 2: Inclusion/Exclusion effect
+    # Model 2: Inclusion/Exclusion effect (NORMALIZED)
     run_lmm_analysis(
-        df_lmm_ie, dep, "inclusion_exclusion", "inclusion_exclusion_effect", dim_results_dir
+        df_lmm_ie, dep_ie, "inclusion_exclusion", "inclusion_exclusion_effect", dim_results_dir
     )
+    
+    # =========================================================================
+    # ONE-SAMPLE TESTS: Are inclusion/exclusion effects different from zero?
+    # =========================================================================
+    if has_normalized:
+        print("\n" + "=" * 60)
+        print(f"ONE-SAMPLE TESTS FOR {dep.upper()} (H0: effect = 0)")
+        print("=" * 60)
+        
+        from scipy import stats as sp_stats
+        
+        # Test 1: Is INCLUSION effect different from zero?
+        inclusion_data = df_lmm_ie[df_lmm_ie['inclusion_exclusion'] == 'inclusion'][dep_ie].dropna()
+        t_incl, p_incl = sp_stats.ttest_1samp(inclusion_data, 0)
+        mean_incl = inclusion_data.mean()
+        se_incl = inclusion_data.sem()
+        n_incl = len(inclusion_data)
+        
+        print(f"\n1. INCLUSION vs Baseline (zero):")
+        print(f"   N = {n_incl}")
+        print(f"   Mean = {mean_incl:.4f} (SE = {se_incl:.4f})")
+        print(f"   t({n_incl-1}) = {t_incl:.4f}, p = {p_incl:.4f}")
+        if p_incl < 0.05:
+            print(f"   *** SIGNIFICANT: Inclusion {'increases' if mean_incl > 0 else 'decreases'} relative to baseline")
+        else:
+            print(f"   Not significant")
+        
+        # Test 2: Is EXCLUSION effect different from zero?
+        exclusion_data = df_lmm_ie[df_lmm_ie['inclusion_exclusion'] == 'exclusion'][dep_ie].dropna()
+        t_excl, p_excl = sp_stats.ttest_1samp(exclusion_data, 0)
+        mean_excl = exclusion_data.mean()
+        se_excl = exclusion_data.sem()
+        n_excl = len(exclusion_data)
+        
+        print(f"\n2. EXCLUSION vs Baseline (zero):")
+        print(f"   N = {n_excl}")
+        print(f"   Mean = {mean_excl:.4f} (SE = {se_excl:.4f})")
+        print(f"   t({n_excl-1}) = {t_excl:.4f}, p = {p_excl:.4f}")
+        if p_excl < 0.05:
+            print(f"   *** SIGNIFICANT: Exclusion {'increases' if mean_excl > 0 else 'decreases'} relative to baseline")
+        else:
+            print(f"   Not significant")
+        
+        # Bonferroni correction
+        p_bonf_incl = min(p_incl * 2, 1.0)
+        p_bonf_excl = min(p_excl * 2, 1.0)
+        
+        print(f"\n3. Bonferroni-corrected p-values (2 tests):")
+        print(f"   Inclusion: p_corrected = {p_bonf_incl:.4f} {'***' if p_bonf_incl < 0.05 else ''}")
+        print(f"   Exclusion: p_corrected = {p_bonf_excl:.4f} {'***' if p_bonf_excl < 0.05 else ''}")
+        
+        # Save results
+        one_sample_results = pd.DataFrame([
+            {
+                'Dimension': dep,
+                'Condition': 'Inclusion',
+                'N': n_incl,
+                'Mean': mean_incl,
+                'SE': se_incl,
+                't_statistic': t_incl,
+                'p_value': p_incl,
+                'p_bonferroni': p_bonf_incl,
+                'Significant_uncorrected': p_incl < 0.05,
+                'Significant_bonferroni': p_bonf_incl < 0.05
+            },
+            {
+                'Dimension': dep,
+                'Condition': 'Exclusion',
+                'N': n_excl,
+                'Mean': mean_excl,
+                'SE': se_excl,
+                't_statistic': t_excl,
+                'p_value': p_excl,
+                'p_bonferroni': p_bonf_excl,
+                'Significant_uncorrected': p_excl < 0.05,
+                'Significant_bonferroni': p_bonf_excl < 0.05
+            }
+        ])
+        
+        one_sample_file = os.path.join(dim_results_dir, f"{dep}_one_sample_tests_vs_baseline.csv")
+        one_sample_results.to_csv(one_sample_file, index=False)
+        print(f"\nOne-sample test results saved to: {one_sample_file}")
 
-    # Model 3: Interaction effect
+    # Model 3: Interaction effect (NORMALIZED)
     run_lmm_analysis(
-        df_lmm_ie, dep, "group * inclusion_exclusion", "group_ie_interaction", dim_results_dir
+        df_lmm_ie, dep_ie, "group * inclusion_exclusion", "group_ie_interaction", dim_results_dir
     )
     
     # Model 4: Time on task effect (if available)
@@ -788,29 +924,34 @@ def analyze_dimension(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: str) -
             df_lmm, dep, "group * time_on_task", "group_time_interaction", dim_results_dir
         )
         
-        # Model 7: Inclusion/Exclusion + Time on task
+        # =====================================================================
+        # INTERVENTION DISTANCE MODELS (probe_number within block: 1-15)
+        # These test how the effect evolves within each manipulation block
+        # =====================================================================
+        
+        # Model 7: Inclusion/Exclusion + Intervention distance (NORMALIZED)
         run_lmm_analysis(
-            df_lmm_ie, dep, "inclusion_exclusion + time_on_task", "ie_time_additive", dim_results_dir
+            df_lmm_ie, dep_ie, "inclusion_exclusion + probe_number", "ie_intervention_distance", dim_results_dir
         )
         
-        # Model 8: Full model with all factors
+        # Model 8: Group * Inclusion/Exclusion + Intervention distance (NORMALIZED)
         run_lmm_analysis(
-            df_lmm_ie, dep, "group * inclusion_exclusion + time_on_task", "full_model_with_time", dim_results_dir
+            df_lmm_ie, dep_ie, "group * inclusion_exclusion + probe_number", "group_ie_plus_distance", dim_results_dir
         )
         
-        # Model 9: Inclusion/Exclusion × Time on task interaction
+        # Model 9: Inclusion/Exclusion × Intervention distance interaction (NORMALIZED)
         run_lmm_analysis(
-            df_lmm_ie, dep, "inclusion_exclusion * time_on_task", "ie_time_interaction", dim_results_dir
+            df_lmm_ie, dep_ie, "inclusion_exclusion * probe_number", "ie_distance_interaction", dim_results_dir
         )
         
-        # Model 10: Group × Inclusion/Exclusion × Time on task (three-way interaction)
+        # Model 10: Group × Inclusion/Exclusion × Intervention distance (three-way) (NORMALIZED)
         run_lmm_analysis(
-            df_lmm_ie, dep, "group * inclusion_exclusion * time_on_task", "three_way_interaction", dim_results_dir
+            df_lmm_ie, dep_ie, "group * inclusion_exclusion * probe_number", "three_way_with_distance", dim_results_dir
         )
         
-        # Model 11: Full model with Group × Time interaction
+        # Model 11: Group × Intervention distance + Inclusion/Exclusion (NORMALIZED)
         run_lmm_analysis(
-            df_lmm_ie, dep, "group * time_on_task + inclusion_exclusion", "group_time_int_plus_ie", dim_results_dir
+            df_lmm_ie, dep_ie, "group * probe_number + inclusion_exclusion", "group_distance_plus_ie", dim_results_dir
         )
     else:
         print("Skipping time-on-task models (time_on_task column not available)")
@@ -909,6 +1050,82 @@ def main() -> None:
         print(f"Added relative_time_on_task (within-SART): range 1 to 15")
     else:
         print("Warning: 'task' column not found, skipping time_on_task creation")
+
+    # =============================================================================
+    # BASELINE NORMALIZATION FOR INCLUSION/EXCLUSION ANALYSIS
+    # =============================================================================
+    # Normalize each manipulation block by its immediately preceding baseline:
+    # - Sart2 (first manipulation) normalized by Sart1 mean (per subject)
+    # - Sart4 (second manipulation) normalized by Sart3 mean (per subject)
+    
+    print("\n" + "="*60)
+    print("APPLYING BASELINE NORMALIZATION FOR ALL DIMENSIONS")
+    print("="*60)
+    
+    # Calculate baseline means per subject for each dimension
+    baseline_means = {}
+    for subject in df_lmm['subject_id'].unique():
+        subject_data = df_lmm[df_lmm['subject_id'] == subject]
+        
+        # Sart1 baseline (for normalizing Sart2)
+        sart1_data = subject_data[subject_data['task'] == 'Sart1']
+        if len(sart1_data) > 0:
+            for dim in DIMENSIONS:
+                if dim in sart1_data.columns:
+                    baseline_means[(subject, 'Sart1', dim)] = sart1_data[dim].mean()
+        
+        # Sart3 baseline (for normalizing Sart4)
+        sart3_data = subject_data[subject_data['task'] == 'Sart3']
+        if len(sart3_data) > 0:
+            for dim in DIMENSIONS:
+                if dim in sart3_data.columns:
+                    baseline_means[(subject, 'Sart3', dim)] = sart3_data[dim].mean()
+    
+    print(f"Calculated baseline means for {len(baseline_means)} subject-SART-dimension combinations")
+    
+    # Apply normalization to IE subset for each dimension
+    def normalize_by_baseline(row, dimension):
+        """
+        Normalize dimension score by subtracting the appropriate baseline mean.
+        - Sart2 → subtract Sart1 mean
+        - Sart4 → subtract Sart3 mean
+        """
+        subject = row['subject_id']
+        task = row['task']
+        
+        if task == 'Sart2':
+            baseline_key = (subject, 'Sart1', dimension)
+        elif task == 'Sart4':
+            baseline_key = (subject, 'Sart3', dimension)
+        else:
+            return np.nan  # Should not happen in IE subset
+        
+        baseline_mean = baseline_means.get(baseline_key, np.nan)
+        if pd.isna(baseline_mean):
+            return np.nan
+        
+        return row[dimension] - baseline_mean
+    
+    # Create normalized columns for each dimension
+    for dim in DIMENSIONS:
+        if dim in df_lmm_ie.columns:
+            df_lmm_ie[f'{dim}_normalized'] = df_lmm_ie.apply(
+                lambda row: normalize_by_baseline(row, dim), axis=1
+            )
+    
+    # Remove rows where normalization failed (missing baseline)
+    before_dropna = len(df_lmm_ie)
+    # Drop rows where ANY normalized column is NaN
+    normalized_cols = [f'{dim}_normalized' for dim in DIMENSIONS if dim in df_lmm_ie.columns]
+    df_lmm_ie = df_lmm_ie.dropna(subset=normalized_cols)
+    after_dropna = len(df_lmm_ie)
+    if before_dropna > after_dropna:
+        print(f"Warning: Removed {before_dropna - after_dropna} rows with missing baseline data")
+    
+    print(f"Normalized IE subset: {len(df_lmm_ie)} observations")
+    for dim in DIMENSIONS:
+        if f'{dim}_normalized' in df_lmm_ie.columns:
+            print(f"  {dim}_normalized range: [{df_lmm_ie[f'{dim}_normalized'].min():.2f}, {df_lmm_ie[f'{dim}_normalized'].max():.2f}]")
 
     for dep in DIMENSIONS:
         analyze_dimension(df_lmm, df_lmm_ie, dep)
