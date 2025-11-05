@@ -16,6 +16,45 @@ import warnings
 import re
 
 
+def extract_all_formula_variables(formula: str) -> list:
+    """
+    Extract all variable names from a formula (excluding 'power' and 'subject').
+    
+    Parameters
+    ----------
+    formula : str
+        R-style formula (e.g., "power ~ onoff + time_on_task + (1|subject)")
+        
+    Returns
+    -------
+    list
+        List of variable names used in the formula
+        
+    Examples
+    --------
+    >>> extract_all_formula_variables("power ~ onoff + (1|subject)")
+    ['onoff']
+    >>> extract_all_formula_variables("power ~ onoff + time_on_task + (1|subject)")
+    ['onoff', 'time_on_task']
+    """
+    # Extract all alphanumeric variable names
+    variables = re.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b', formula)
+    
+    # Filter out reserved words
+    reserved = {'power', 'subject'}
+    variables = [v for v in variables if v not in reserved]
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_vars = []
+    for v in variables:
+        if v not in seen:
+            unique_vars.append(v)
+            seen.add(v)
+    
+    return unique_vars
+
+
 def extract_fixed_effects_from_formula(formula: str) -> str:
     """
     Extract fixed effects from LMM formula to create folder name.

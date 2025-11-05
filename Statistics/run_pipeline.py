@@ -337,7 +337,8 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
                 method=method,
                 maxiter=maxiter,
                 verbose=True,
-                return_diagnostics=True
+                return_diagnostics=True,
+                exclude=exclude_mask
             )
             
             # For TFCE, create spatially-connected clusters from significant channels

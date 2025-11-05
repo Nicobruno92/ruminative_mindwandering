@@ -97,7 +97,7 @@ preprocessing:
 #   Example: "onoff * valence" -> test "onoff" or "valence" or "onoff:valence"
 #
 lmm:
-  formula: "power ~ onoff + (1|subject)"
+  formula: "power ~ onoff + time_on_task + (1|subject)"
   predictor_of_interest: "onoff"  # specify predictor name (e.g., "onoff") for clustering analysis
   method: "powell"  # powell is more robust than REML for convergence issues
   maxiter: 3000     # Increased for better convergence
@@ -130,7 +130,7 @@ clustering:
     n_steps: 500  # Number of integration steps (higher = more accurate but slower)
   
   # Common parameters
-  n_permutations: 2000  # CRITICAL: Use 5000+ for reliable p-values (50 is too low)
+  n_permutations: 100  # CRITICAL: Use 5000+ for reliable p-values (50 is too low)
   alpha: 0.05
   seed: 42
   

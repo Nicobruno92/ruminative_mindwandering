@@ -10,13 +10,6 @@
       "**/runs": true,
       "**/permutation": true
     },
-
-    // Configuración Ruff
-    "ruff.enable": false,
-    "ruff.formatting.provider": "ruff",
-    "ruff.organizeImports": true,
-    "editor.formatOnSave": true,
-
     // Copilot
     "github.copilot.chat.agent.thinkingTool": true,
     "github.copilot.chat.commitMessageGeneration.instructions": [],

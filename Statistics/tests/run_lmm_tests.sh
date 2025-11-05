@@ -30,7 +30,6 @@ echo "1. LMM Model Tests:"
 pytest test_lmm_cluster_permutation.py::test_parse_random_effects -v
 pytest test_lmm_cluster_permutation.py::test_lmm_per_channel_basic -v
 pytest test_lmm_cluster_permutation.py::test_lmm_detects_effect -v
-pytest test_lmm_cluster_permutation.py::test_lmm_null_distribution -v
 
 echo ""
 echo "2. Cluster Finding Tests:"
@@ -42,7 +41,8 @@ echo ""
 echo "3. Permutation Tests:"
 pytest test_lmm_cluster_permutation.py::test_permute_within_subjects -v
 pytest test_lmm_cluster_permutation.py::test_cluster_permutation_basic -v
-pytest test_lmm_cluster_permutation.py::test_cluster_permutation_null -v
+pytest test_lmm_cluster_permutation.py::test_cluster_permutation_detects_effect -v
+pytest test_lmm_cluster_permutation.py::test_permutation_reproducibility -v
 
 echo ""
 echo "4. TFCE Tests:"

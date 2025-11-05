@@ -190,14 +190,21 @@ def run_lmm_per_channel(
     
     print(f"Processing {n_channels} channels with {n_subjects} subjects")
     
+    # Extract all formula variables to ensure we drop NaN for ALL of them
+    # This prevents index mismatches when statsmodels internally drops NaN
+    from helpers import extract_all_formula_variables
+    formula_vars = extract_all_formula_variables(formula)
+    
     for ch_idx in range(n_channels):
         try:
             # Prepare data for this channel
             df_ch = df_behavioral.copy()
             df_ch['power'] = power_data[:, ch_idx]
             
-            # Remove NaN values (deterministic)
-            df_ch = df_ch.dropna(subset=['power', 'subject', predictor_of_interest])
+            # CRITICAL: Remove NaN values for ALL formula variables, not just predictor_of_interest
+            # This prevents index mismatch errors when statsmodels internally drops NaN rows
+            dropna_cols = ['power', 'subject'] + formula_vars
+            df_ch = df_ch.dropna(subset=dropna_cols)
             
             # Ensure subject remains string type after dropna (prevents mixedlm TypeError)
             df_ch['subject'] = df_ch['subject'].astype(str)

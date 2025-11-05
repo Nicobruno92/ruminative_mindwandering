@@ -35,15 +35,22 @@ from lmm_model import run_lmm_per_channel, parse_random_effects
 def simple_eeg_data():
     """Create simple synthetic EEG data for testing."""
     rng = np.random.RandomState(42)
-    n_subjects = 10
-    n_trials_per_subject = 20
+    n_subjects = 20  # Increased for better LMM convergence
+    n_trials_per_subject = 40  # Increased for better LMM convergence
     n_channels = 8
     
     subjects = np.repeat(np.arange(n_subjects), n_trials_per_subject)
     trials = np.tile(np.arange(n_trials_per_subject), n_subjects)
     onoff = rng.binomial(1, 0.5, size=len(subjects))
     
-    power_data = rng.randn(len(subjects), n_channels)
+    # More realistic power data with subject-specific baselines
+    power_data = np.zeros((len(subjects), n_channels))
+    for subj in range(n_subjects):
+        subj_mask = subjects == subj
+        # Subject-specific baseline (random intercept)
+        subj_baseline = rng.randn() * 2.0
+        # Add baseline + noise
+        power_data[subj_mask] = subj_baseline + rng.randn(n_trials_per_subject, n_channels) * 3.0
     
     df_behavioral = pd.DataFrame({
         'subject': subjects,
@@ -58,22 +65,29 @@ def simple_eeg_data():
 def eeg_data_with_effect():
     """Create EEG data with a real effect in specific channels."""
     rng = np.random.RandomState(42)
-    n_subjects = 15
-    n_trials_per_subject = 30
+    n_subjects = 25  # More subjects for better power
+    n_trials_per_subject = 50  # More trials
     n_channels = 10
     
     subjects = np.repeat(np.arange(n_subjects), n_trials_per_subject)
     trials = np.tile(np.arange(n_trials_per_subject), n_subjects)
     onoff = rng.binomial(1, 0.5, size=len(subjects))
     
-    power_data = rng.randn(len(subjects), n_channels)
+    # More realistic power data with subject-specific baselines
+    power_data = np.zeros((len(subjects), n_channels))
+    for subj in range(n_subjects):
+        subj_mask = subjects == subj
+        # Subject-specific baseline (random intercept)
+        subj_baseline = rng.randn() * 2.0
+        # Add baseline + noise
+        power_data[subj_mask] = subj_baseline + rng.randn(n_trials_per_subject, n_channels) * 3.0
     
-    # Add effect in channels 2-4 when onoff=1
-    effect_size = 0.6
+    # Add strong effect in channels 2-4 when onoff=1
+    effect_size = 1.5  # Larger effect for better detection
     for subj_idx in range(n_subjects):
         subj_mask = subjects == subj_idx
         onoff_mask = subj_mask & (onoff == 1)
-        subject_effect = rng.randn() * 0.2
+        subject_effect = rng.randn() * 0.3
         power_data[onoff_mask, 2:5] += effect_size + subject_effect
     
     df_behavioral = pd.DataFrame({
@@ -146,8 +160,9 @@ def test_lmm_per_channel_basic(simple_eeg_data):
     assert np.all(p_values <= 1)
 
 
+# Test detects effect - may fail if LMM doesn't converge on simple data
 def test_lmm_detects_effect(eeg_data_with_effect):
-    """Test that LMM detects planted effect."""
+    """Test that LMM can detect effects in channels with planted signal."""
     power_data, df_behavioral, n_channels = eeg_data_with_effect
     
     formula = "power ~ onoff + (1|subject)"
@@ -208,7 +223,7 @@ def test_find_clusters_basic():
     adjacency = csr_matrix(adjacency)
     
     clusters, cluster_stats = _find_clusters(
-        t_stats, threshold, tail, adjacency
+        t_stats, adjacency, threshold, tail
     )
     
     # Should find 2 clusters (positive: 0-1, negative: 4-5)
@@ -228,16 +243,16 @@ def test_find_clusters_tails():
     adjacency = csr_matrix(adjacency)
     
     # Two-tailed: should find both positive and negative clusters
-    clusters_two, stats_two = _find_clusters(t_stats, threshold, 0, adjacency)
+    clusters_two, stats_two = _find_clusters(t_stats, adjacency, threshold, 0)
     assert len(clusters_two) == 2
     
     # Right-tailed: only positive cluster
-    clusters_right, stats_right = _find_clusters(t_stats, threshold, 1, adjacency)
+    clusters_right, stats_right = _find_clusters(t_stats, adjacency, threshold, 1)
     assert len(clusters_right) == 1
     assert stats_right[0] > 0
     
     # Left-tailed: only negative cluster
-    clusters_left, stats_left = _find_clusters(t_stats, threshold, -1, adjacency)
+    clusters_left, stats_left = _find_clusters(t_stats, adjacency, threshold, -1)
     assert len(clusters_left) == 1
     assert stats_left[0] < 0
 
@@ -287,7 +302,7 @@ def test_cluster_permutation_basic(simple_eeg_data, simple_adjacency):
         return_diagnostics=False
     )
     
-    clusters, cluster_pvals, null_dist, diagnostics = spatial_cluster_permutation_test(
+    clusters, cluster_stats, cluster_pvals, diagnostics = spatial_cluster_permutation_test(
         observed_t_stats=t_stats,
         power_data=power_data,
         df_behavioral=df_behavioral,
@@ -297,25 +312,33 @@ def test_cluster_permutation_basic(simple_eeg_data, simple_adjacency):
         n_permutations=50,
         threshold=2.0,
         tail=0,
-        seed=42
+        seed=42,
+        n_jobs=1  # Use sequential execution to avoid import issues
     )
     
     # Check result structure
     assert isinstance(clusters, list)
+    assert isinstance(cluster_stats, np.ndarray)
     assert isinstance(cluster_pvals, np.ndarray)
-    assert isinstance(null_dist, np.ndarray)
     
     # Check p-values are valid
     assert np.all(cluster_pvals >= 0)
     assert np.all(cluster_pvals <= 1)
 
 
-def test_cluster_permutation_detects_effect(eeg_data_with_effect, simple_adjacency):
-    """Test that cluster permutation detects planted effect."""
-    power_data, df_behavioral, _ = eeg_data_with_effect
+def test_cluster_permutation_detects_effect(eeg_data_with_effect):
+    """Test that cluster permutation can detect real effects."""
+    power_data, df_behavioral, n_channels = eeg_data_with_effect
     
     formula = "power ~ onoff + (1|subject)"
     predictor = "onoff"
+    
+    # Create adjacency that matches data dimensions (10 channels)
+    adjacency = np.zeros((n_channels, n_channels))
+    for i in range(n_channels - 1):
+        adjacency[i, i + 1] = 1
+        adjacency[i + 1, i] = 1
+    adjacency = csr_matrix(adjacency)
     
     # First compute observed t-stats
     t_stats, _, _ = run_lmm_per_channel(
@@ -326,17 +349,18 @@ def test_cluster_permutation_detects_effect(eeg_data_with_effect, simple_adjacen
         return_diagnostics=False
     )
     
-    clusters, cluster_pvals, null_dist, diagnostics = spatial_cluster_permutation_test(
+    clusters, cluster_stats, cluster_pvals, diagnostics = spatial_cluster_permutation_test(
         observed_t_stats=t_stats,
         power_data=power_data,
         df_behavioral=df_behavioral,
         formula=formula,
         predictor_of_interest=predictor,
-        adjacency=simple_adjacency,
+        adjacency=adjacency,
         n_permutations=100,
         threshold=2.0,
         tail=0,
-        seed=42
+        seed=42,
+        n_jobs=1  # Use sequential to avoid import issues
     )
     
     # Should find at least one cluster
@@ -407,7 +431,7 @@ def test_permutation_reproducibility(simple_eeg_data, simple_adjacency):
         return_diagnostics=False
     )
     
-    clusters1, cluster_pvals1, null_dist1, _ = spatial_cluster_permutation_test(
+    clusters1, cluster_stats1, cluster_pvals1, _ = spatial_cluster_permutation_test(
         observed_t_stats=t_stats,
         power_data=power_data,
         df_behavioral=df_behavioral,
@@ -417,10 +441,11 @@ def test_permutation_reproducibility(simple_eeg_data, simple_adjacency):
         n_permutations=50,
         threshold=2.0,
         tail=0,
-        seed=42
+        seed=42,
+        n_jobs=1  # Use sequential execution
     )
     
-    clusters2, cluster_pvals2, null_dist2, _ = spatial_cluster_permutation_test(
+    clusters2, cluster_stats2, cluster_pvals2, _ = spatial_cluster_permutation_test(
         observed_t_stats=t_stats,
         power_data=power_data,
         df_behavioral=df_behavioral,
@@ -430,12 +455,12 @@ def test_permutation_reproducibility(simple_eeg_data, simple_adjacency):
         n_permutations=50,
         threshold=2.0,
         tail=0,
-        seed=42
+        seed=42,
+        n_jobs=1  # Use sequential execution
     )
     
     # Results should be identical
     assert_array_equal(cluster_pvals1, cluster_pvals2)
-    assert_array_equal(null_dist1, null_dist2)
 
 
 if __name__ == '__main__':

@@ -306,38 +306,89 @@ def prepare_data_for_lmm(df: pd.DataFrame,
     # This prevents TypeError when statsmodels tries to perform bitwise operations
     df_behavioral['subject'] = df_behavioral['subject'].astype(str)
     
-    # Merge PCA data if provided
+    # Compute time_on_task directly from probe_number and task
+    # This is independent of PCA and should always be available
+    # Formula: probe_number + (15 * (sart_number - 1))
+    # Sart1: probes 1-15 -> time_on_task 1-15
+    # Sart2: probes 1-15 -> time_on_task 16-30
+    # Sart3: probes 1-15 -> time_on_task 31-45
+    # Sart4: probes 1-15 -> time_on_task 46-60
+    task_to_sart_number = {
+        'Sart1': 1,
+        'Sart2': 2,
+        'Sart3': 3,
+        'Sart4': 4
+    }
+    
+    df_behavioral['sart_number'] = df_behavioral['task'].map(task_to_sart_number)
+    if df_behavioral['sart_number'].isna().any():
+        unknown_tasks = df_behavioral[df_behavioral['sart_number'].isna()]['task'].unique()
+        raise ValueError(f"Unknown task names found: {unknown_tasks}. Expected: Sart1, Sart2, Sart3, Sart4")
+    
+    df_behavioral['time_on_task'] = (
+        df_behavioral['probe_number'] + 
+        (15 * (df_behavioral['sart_number'] - 1))
+    ).astype(int)
+    
+    # Drop temporary column
+    df_behavioral = df_behavioral.drop('sart_number', axis=1)
+    
+    # Merge PCA data if provided (for PC1, PC2, PC3 only - NOT time_on_task)
     if pca_data is not None:
         
-        # Merge on subject, task, and probe_number using left join
-        # This preserves all behavioral observations and adds NaN for missing PCA values
-        n_before = len(df_behavioral)
-        df_behavioral = df_behavioral.merge(
-            pca_data,
-            on=['subject', 'task', 'probe_number'],
-            how='left'
-        )
+        # Standardize subject format in both dataframes to ensure matching
+        # Convert to zero-padded 2-digit string (e.g., "2" -> "02")
+        pca_data = pca_data.copy()  # Don't modify original
+        df_behavioral['subject'] = df_behavioral['subject'].astype(str).str.zfill(2)
+        pca_data['subject'] = pca_data['subject'].astype(str).str.zfill(2)
         
-        # Check if merge was successful
-        if len(df_behavioral) != n_before:
-            warnings.warn(
-                f"PCA merge changed number of rows: {n_before} -> {len(df_behavioral)}. "
-                "This may indicate duplicate keys in PCA data."
+        # Also ensure probe_number is same type (int) in both
+        df_behavioral['probe_number'] = df_behavioral['probe_number'].astype(int)
+        pca_data['probe_number'] = pca_data['probe_number'].astype(int)
+        
+        # Select only PCA columns (PC1, PC2, PC3) - NOT time_on_task
+        # time_on_task is computed directly above and should not be overwritten
+        pca_cols_to_merge = ['subject', 'task', 'probe_number', 'PC1', 'PC2', 'PC3']
+        available_pca_cols = [col for col in pca_cols_to_merge if col in pca_data.columns]
+        
+        if len(available_pca_cols) >= 4:  # Need at least merge keys + one PC
+            pca_data_subset = pca_data[available_pca_cols].copy()
+            
+            # Merge on subject, task, and probe_number using left join
+            n_before = len(df_behavioral)
+            df_behavioral = df_behavioral.merge(
+                pca_data_subset,
+                on=['subject', 'task', 'probe_number'],
+                how='left',
+                suffixes=('', '_pca')
             )
-        
-        # Explicitly ensure PCA columns exist and have NaN for missing values
-        pca_cols = ['PC1', 'PC2', 'PC3', 'time_on_task']
-        for col in pca_cols:
-            if col not in df_behavioral.columns:
-                df_behavioral[col] = np.nan
-        
-        # Check how many observations have complete PCA data
-        n_with_pca = df_behavioral[pca_cols].notna().all(axis=1).sum()
-        n_missing = n_before - n_with_pca
-        
-        if n_missing > 0:
-            print(f"  PCA data: {n_with_pca}/{n_before} observations have complete data. "
-                  f"{n_missing} observations have NaN values (no matching PCA data).")
+            
+            # Check if merge was successful
+            if len(df_behavioral) != n_before:
+                warnings.warn(
+                    f"PCA merge changed number of rows: {n_before} -> {len(df_behavioral)}. "
+                    "This may indicate duplicate keys in PCA data."
+                )
+            
+            # Explicitly ensure PCA columns exist
+            pca_cols = ['PC1', 'PC2', 'PC3']
+            for col in pca_cols:
+                if col not in df_behavioral.columns:
+                    df_behavioral[col] = np.nan
+            
+            # Check how many observations have complete PCA data
+            n_with_pca = df_behavioral[pca_cols].notna().all(axis=1).sum()
+            n_missing = n_before - n_with_pca
+            
+            if n_missing > 0:
+                print(f"  PCA data (PC1-PC3): {n_with_pca}/{n_before} observations have complete data. "
+                      f"{n_missing} observations have NaN values.")
+        else:
+            warnings.warn(f"PCA data missing expected columns. Available: {available_pca_cols}")
+            # Ensure PC columns exist as NaN
+            for col in ['PC1', 'PC2', 'PC3']:
+                if col not in df_behavioral.columns:
+                    df_behavioral[col] = np.nan
     
     # Ensure we have required columns
     required_cols = ['subject', 'task', 'probe_number', 'onoff']

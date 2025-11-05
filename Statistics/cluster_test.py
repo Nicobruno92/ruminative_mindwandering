@@ -1731,7 +1731,8 @@ def spatial_cluster_test_tfce(
     method: str = 'lbfgs',
     maxiter: int = 1000,
     verbose: bool = True,
-    return_diagnostics: bool = False
+    return_diagnostics: bool = False,
+    exclude: np.ndarray = None
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Perform TFCE-based spatial permutation test for Linear Mixed Models.
@@ -1783,9 +1784,14 @@ def spatial_cluster_test_tfce(
     H : float, default=2.0
         TFCE height exponent (typically 2.0)
     n_tfce_steps : int, default=100
-        Number of threshold steps for TFCE integration
-    seed : int, default=42
+        Number of threshold steps for TFCE integration.
+        More steps = more accurate but slower. 100 is usually sufficient.
+    seed : int
         Random seed for reproducibility
+    exclude : np.ndarray, optional
+        Boolean mask of channels to exclude from TFCE computation.
+        Excluded channels will have TFCE=0 and p-value=1.
+        Following MNE's pattern to prevent boundary artifacts.
     n_jobs : int, default=1
         Number of parallel jobs for permutation testing
         -1 uses all available CPU cores
@@ -1874,6 +1880,17 @@ def spatial_cluster_test_tfce(
             f"adjacency must be ({n_channels}, {n_channels}), got {adjacency.shape}"
         )
     
+    # Handle exclude mask (MNE pattern)
+    include = None
+    if exclude is not None:
+        if exclude.size != n_channels:
+            raise ValueError(f"exclude must have same length as observed_t_stats ({n_channels})")
+        include = np.logical_not(exclude)
+        if verbose:
+            n_excluded = np.sum(exclude)
+            print(f"\n✓ Excluding {n_excluded}/{n_channels} channels from TFCE")
+            print(f"  (Excluded channels will have TFCE=0 and p-value=1)")
+    
     # ========== COMPUTE OBSERVED TFCE MAP ==========
     if verbose:
         print("\nComputing observed TFCE map...")
@@ -1881,6 +1898,10 @@ def spatial_cluster_test_tfce(
     observed_tfce = compute_tfce(
         observed_t_stats, adjacency, E=E, H=H, n_steps=n_tfce_steps
     )
+    
+    # Apply exclude mask: set excluded channels to 0
+    if include is not None:
+        observed_tfce[~include] = 0.0
     
     if verbose:
         print(f"  TFCE range: [{np.min(observed_tfce):.3f}, {np.max(observed_tfce):.3f}]")
@@ -1918,6 +1939,10 @@ def spatial_cluster_test_tfce(
             t_stats_perm, adjacency, E=E, H=H, n_steps=n_tfce_steps
         )
         
+        # Apply exclude mask: set excluded channels to 0
+        if include is not None:
+            tfce_perm[~include] = 0.0
+        
         # Return maximum absolute TFCE value
         return float(np.max(np.abs(tfce_perm)))
     
@@ -1952,6 +1977,10 @@ def spatial_cluster_test_tfce(
         n_exceeding = np.sum(max_tfce_null >= np.abs(observed_tfce[ch_idx]))
         # Apply +1 correction (Phipson & Smyth, 2010)
         p_values[ch_idx] = float((n_exceeding + 1) / (n_permutations + 1))
+    
+    # Set excluded channels to p-value = 1 (not significant)
+    if include is not None:
+        p_values[~include] = 1.0
     
     # ========== PRINT RESULTS SUMMARY ==========
     if verbose:
