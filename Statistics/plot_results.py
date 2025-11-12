@@ -72,10 +72,14 @@ def plot_cluster_topomap(
     vmax: Optional[float] = None,
     cmap: str = 'RdBu_r',
     save_path: Optional[str] = None,
-    dpi: int = 300
+    dpi: int = 300,
+    cluster_p_values_uncorrected: Optional[np.ndarray] = None
 ) -> plt.Figure:
     """
     Plot topographic map with t-statistics and significant clusters.
+    
+    Shows both uncorrected (empty circles) and corrected (filled black dots) 
+    significant clusters when both p-values are provided.
     
     Parameters
     ----------
@@ -84,7 +88,7 @@ def plot_cluster_topomap(
     clusters : List[np.ndarray]
         List of channel index arrays for each cluster
     cluster_p_values : np.ndarray
-        P-values for each cluster
+        P-values for each cluster (corrected if available)
     info : mne.Info
         MNE Info object with channel positions
     alpha : float
@@ -101,6 +105,8 @@ def plot_cluster_topomap(
         Path to save figure
     dpi : int
         Figure resolution
+    cluster_p_values_uncorrected : np.ndarray, optional
+        Uncorrected p-values to show as empty circles
         
     Returns
     -------
@@ -110,12 +116,22 @@ def plot_cluster_topomap(
     # Validate montage and channel information
     info, t_stats = validate_montage_and_channels(info, t_stats)
     
-    # Create mask for significant clusters
-    mask = np.zeros(len(t_stats), dtype=bool)
+    # Create masks for significant clusters
+    # mask_corrected: filled black dots (primary display)
+    # mask_uncorrected: empty circles (if provided)
+    mask_corrected = np.zeros(len(t_stats), dtype=bool)
     
     for cluster, pval in zip(clusters, cluster_p_values):
         if pval < alpha:
-            mask[cluster] = True
+            mask_corrected[cluster] = True
+    
+    # If uncorrected p-values provided, create separate mask
+    mask_uncorrected = None
+    if cluster_p_values_uncorrected is not None:
+        mask_uncorrected = np.zeros(len(t_stats), dtype=bool)
+        for cluster, pval in zip(clusters, cluster_p_values_uncorrected):
+            if pval < alpha:
+                mask_uncorrected[cluster] = True
     
     # Set colormap limits if not provided
     if vmin is None or vmax is None:
@@ -137,8 +153,7 @@ def plot_cluster_topomap(
     t_stats_plot[nan_mask] = 0
     
     # Plot topographic map with proper montage
-    # Show electrode markers only for significant clusters
-    # Use mask to control which electrodes get markers
+    # Show corrected significant clusters as filled black dots
     im, _ = mne.viz.plot_topomap(
         t_stats_plot,
         info,
@@ -147,9 +162,9 @@ def plot_cluster_topomap(
         cmap=cmap,
         vlim=(vmin, vmax),
         sensors=False,  # Don't show all sensors by default
-        mask=mask,  # Only significant electrodes
+        mask=mask_corrected,  # Corrected significant clusters
         mask_params=dict(marker='o', markerfacecolor='k', 
-                        markeredgecolor='k', linewidth=0, markersize=5),
+                        markeredgecolor='k', linewidth=0, markersize=6),
         contours=6,  # More contours for smoother appearance
         ch_type='eeg',
         sphere='auto',
@@ -159,6 +174,21 @@ def plot_cluster_topomap(
         border='mean',
         res=128  # Higher resolution for smoother interpolation
     )
+    
+    # If uncorrected p-values provided, overlay empty circles for uncorrected significant clusters
+    if mask_uncorrected is not None:
+        # Get channel positions using MNE's public API
+        from mne.channels import find_layout
+        layout = find_layout(info, ch_type='eeg')
+        pos = layout.pos[:len(t_stats), :2]  # Get x, y positions
+        
+        # Plot empty circles for uncorrected significant clusters
+        # Only plot if not already shown as corrected (to avoid overlap)
+        uncorrected_only = mask_uncorrected & ~mask_corrected
+        if np.any(uncorrected_only):
+            ax.plot(pos[uncorrected_only, 0], pos[uncorrected_only, 1], 
+                   'o', markerfacecolor='none', markeredgecolor='k', 
+                   markeredgewidth=1.5, markersize=6, zorder=10)
     
     # Clip the image to a circular mask (head boundary)
     # Get the image extent and create circular mask
@@ -176,10 +206,19 @@ def plot_cluster_topomap(
     ax.set_title(title, fontsize=14, fontweight='bold')
     
     # Add text with cluster information
-    n_sig_clusters = np.sum(cluster_p_values < alpha)
+    n_sig_corrected = np.sum(cluster_p_values < alpha)
     n_total_clusters = len(clusters)
-    fig.text(0.5, 0.02, f'Clusters: {n_sig_clusters}/{n_total_clusters} significant (α = {alpha})',
-             ha='center', fontsize=10)
+    
+    # Create cluster info text
+    if cluster_p_values_uncorrected is not None:
+        n_sig_uncorrected = np.sum(cluster_p_values_uncorrected < alpha)
+        cluster_text = (f'Clusters: {n_sig_corrected}/{n_total_clusters} significant after MCC '
+                       f'({n_sig_uncorrected} before MCC, α = {alpha})\n'
+                       f'● = significant after MCC, ○ = significant before MCC only')
+    else:
+        cluster_text = f'Clusters: {n_sig_corrected}/{n_total_clusters} significant (α = {alpha})'
+    
+    fig.text(0.5, 0.02, cluster_text, ha='center', fontsize=9)
     
     plt.tight_layout()
     
@@ -187,6 +226,8 @@ def plot_cluster_topomap(
     if save_path:
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
+        plt.close(fig)  # Close to free memory
+        return None
     
     return fig
 

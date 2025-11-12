@@ -106,10 +106,10 @@ ica_selection:
                                    # Example: 10% variance → +0.05 to threshold
 
   # Maximum threshold cap (prevents impossible thresholds for high-variance ICs)
-  max_threshold_cap: 0.98          # Adjusted threshold cannot exceed this value
+  max_threshold_cap: 0.95          # Adjusted threshold cannot exceed this value
   
   # Maximum variance budget (absolute excluded variance fraction of total)
-  max_excluded_variance_ratio: 0.70  # Fraction of total variance allowed to be excluded
+  max_excluded_variance_ratio: 0.90  # Fraction of total variance allowed to be excluded
                                      # Example: 0.40 means up to 40% of total variance may be excluded
 
   
@@ -128,7 +128,7 @@ evoked_filter_go_nogo_only: true  # Only include go/nogo events for evoked analy
 # This catches extremely noisy epochs; fine-tuning is done by AutoReject
 # Set high thresholds to only reject the worst artifacts
 epoch_reject_threshold:
-  eeg: 500e-6  # 500 µV peak-to-peak for EEG channels (very permissive)
+  eeg: 0.0005  # 500 µV (500e-6 V) peak-to-peak for EEG channels (very permissive)
 
 # State windows (pre-probe analysis)
 state_windows:

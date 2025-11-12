@@ -80,7 +80,7 @@ def run_lmm_per_channel(
     df_behavioral: pd.DataFrame,
     formula: str,
     predictor_of_interest: str,
-    method: str = 'REML',
+    method: str = 'powell',
     maxiter: int = 1000,
     random_state: int = 42,
     return_diagnostics: bool = False
@@ -98,8 +98,11 @@ def run_lmm_per_channel(
         R-style formula for the mixed model (e.g., "power ~ onoff + (1|subject)")
     predictor_of_interest : str
         Name of the predictor to extract t-statistic from (e.g., "onoff")
-    method : str
-        Optimization method ('REML' recommended for mixed models)
+    method : str, default='powell'
+        Optimization method ('powell', 'lbfgs', 'bfgs', 'cg', 'ncg', 'nm', etc.)
+        Note: This is the optimization algorithm, not the estimation method.
+        REML estimation is always used (reml=True in model.fit()).
+        'powell' is recommended for LMMs as it's robust and doesn't require gradients.
     maxiter : int
         Maximum number of iterations
     random_state : int
@@ -260,6 +263,7 @@ def run_lmm_per_channel(
                 result = model.fit(
                     method=method_upper,
                     maxiter=maxiter,
+                    reml=True,  # Use REML instead of ML for unbiased variance estimates
                     disp=False
                 )
                 
@@ -659,7 +663,7 @@ def fit_reduced_model_per_channel(
     df_behavioral: pd.DataFrame,
     formula: str,
     predictor_of_interest: str,
-    method: str = 'REML',
+    method: str = 'powell',
     maxiter: int = 1000,
     random_state: int = 42
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -679,8 +683,9 @@ def fit_reduced_model_per_channel(
         R-style formula for the full model (e.g., "power ~ X_POI + covariate + (1|subject)")
     predictor_of_interest : str
         Name of the predictor to exclude from reduced model (e.g., "X_POI")
-    method : str
-        Optimization method ('REML' recommended)
+    method : str, default='powell'
+        Optimization method ('powell', 'lbfgs', 'bfgs', etc.)
+        Note: This is the optimization algorithm. REML estimation is always used.
     maxiter : int
         Maximum number of iterations
     random_state : int

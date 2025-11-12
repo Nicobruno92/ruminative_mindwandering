@@ -20,6 +20,8 @@ from typing import List, Dict
 import pickle
 from datetime import datetime
 
+from plot_results import plot_cluster_topomap
+
 
 # ============================================================================
 # CONFIGURATION
@@ -258,26 +260,27 @@ def _plot_single_topomap(
     use_corrected: bool
 ) -> None:
     """
-    Plot a single topomap for a marker.
+    Plot a single topomap for a marker using plot_cluster_topomap.
     
-    This function uses the EXACT same logic as plot_cluster_topomap() from plot_results.py
-    to ensure 100% consistency between individual and summary plots.
+    Shows both uncorrected (empty circles) and corrected (filled dots) significant clusters.
     """
     
     # Extract data
     t_stats = result.get('t_stats', np.array([]))
     clusters = result.get('clusters', [])
-    cluster_p_values = result.get('cluster_p_values', np.array([]))
+    cluster_p_values_uncorrected = result.get('cluster_p_values', np.array([]))
     info = result.get('info')
     marker_name = result.get('marker_name', 'Unknown')
     
-    # Use corrected p-values if available and requested
+    # Determine which p-values to use as primary
+    cluster_p_values_corrected = None
     if use_corrected and 'cluster_p_values_corrected' in result:
         cluster_p_values = result['cluster_p_values_corrected']
-        correction_alpha = result.get('correction_alpha', alpha)
-        alpha_to_use = correction_alpha
-        correction_label = f" ({result.get('correction_method', 'corrected')})"
+        cluster_p_values_corrected = cluster_p_values_uncorrected  # For showing both
+        alpha_to_use = result.get('correction_alpha', alpha)
+        correction_label = f" (MCC)"
     else:
+        cluster_p_values = cluster_p_values_uncorrected
         alpha_to_use = alpha
         correction_label = ""
     
@@ -293,27 +296,35 @@ def _plot_single_topomap(
     title_text = f"{display_name}\n{n_sig_clusters}/{n_total_clusters} sig{correction_label}"
     
     try:
-        # ========================================================================
-        # EXACT SAME LOGIC AS plot_cluster_topomap() in plot_results.py
-        # ========================================================================
+        # Validate montage and channel information
+        from plot_results import validate_montage_and_channels
+        info, t_stats = validate_montage_and_channels(info, t_stats)
         
-        # Create mask for significant clusters (same as plot_cluster_topomap)
-        mask = np.zeros(len(t_stats), dtype=bool)
+        # Create masks for significant clusters
+        mask_corrected = np.zeros(len(t_stats), dtype=bool)
         for cluster, pval in zip(clusters, cluster_p_values):
             if pval < alpha_to_use:
-                mask[cluster] = True
+                mask_corrected[cluster] = True
         
-        # Set colormap limits (EXACT SAME as plot_cluster_topomap)
+        # If using corrected p-values, also create mask for uncorrected
+        mask_uncorrected = None
+        if cluster_p_values_corrected is not None:
+            mask_uncorrected = np.zeros(len(t_stats), dtype=bool)
+            for cluster, pval in zip(clusters, cluster_p_values_corrected):
+                if pval < alpha_to_use:
+                    mask_uncorrected[cluster] = True
+        
+        # Set colormap limits
         abs_max = np.nanmax(np.abs(t_stats))
         if np.isnan(abs_max) or abs_max == 0:
             abs_max = 1.0
         vmin, vmax = -abs_max, abs_max
         
-        # Replace NaN with 0 for plotting (same as plot_cluster_topomap)
+        # Replace NaN with 0 for plotting
         t_stats_plot = np.copy(t_stats)
         t_stats_plot[np.isnan(t_stats_plot)] = 0
         
-        # Plot topomap with EXACT SAME parameters as plot_cluster_topomap
+        # Plot topomap with corrected significant clusters
         im, _ = mne.viz.plot_topomap(
             t_stats_plot,
             info,
@@ -322,7 +333,7 @@ def _plot_single_topomap(
             cmap=COLORMAP,
             vlim=(vmin, vmax),
             sensors=False,
-            mask=mask,
+            mask=mask_corrected,
             mask_params=dict(
                 marker='o',
                 markerfacecolor='k',
@@ -337,8 +348,19 @@ def _plot_single_topomap(
             extrapolate='head',
             image_interp='cubic',
             border='mean',
-            res=128  # Same high resolution as individual plots
+            res=128
         )
+        
+        # If uncorrected p-values provided, overlay empty circles
+        if mask_uncorrected is not None:
+            from mne.channels import find_layout
+            layout = find_layout(info, ch_type='eeg')
+            pos = layout.pos[:len(t_stats), :2]  # Get x, y positions
+            uncorrected_only = mask_uncorrected & ~mask_corrected
+            if np.any(uncorrected_only):
+                ax.plot(pos[uncorrected_only, 0], pos[uncorrected_only, 1], 
+                       'o', markerfacecolor='none', markeredgecolor='k', 
+                       markeredgewidth=1.0, markersize=4, zorder=10)
         
         # Add colorbar (adjusted size for grid layout)
         cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, shrink=0.8)

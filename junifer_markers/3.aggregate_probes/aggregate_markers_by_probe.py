@@ -828,17 +828,20 @@ def aggregate_marker_epochs(
                 if len(data_shape) != 1:
                     raise ValueError(
                         f"[{subject_id} {task}] Spectral marker {marker_name} has unexpected data shape "
-                        f"{data_shape} for channel {first_channel}. Expected 1D array with 5 bands."
+                        f"{data_shape} for channel {first_channel}. Expected 1D array with 5 or 6 bands."
                     )
-                if data_shape[0] != 5:
+                # Detect number of bands: 5 (standard) or 6 (with iota)
+                n_bands = data_shape[0]
+                if n_bands not in [5, 6]:
                     raise ValueError(
-                        f"[{subject_id} {task}] Spectral marker {marker_name} has {data_shape[0]} bands "
-                        f"for channel {first_channel}. Expected exactly 5 bands (delta, theta, alpha, beta, gamma)."
+                        f"[{subject_id} {task}] Spectral marker {marker_name} has {n_bands} bands "
+                        f"for channel {first_channel}. Expected 5 bands (delta, theta, alpha, beta, gamma) "
+                        f"or 6 bands (delta, theta, alpha, beta, gamma, iota)."
                     )
             else:
                 raise ValueError(
                     f"[{subject_id} {task}] Spectral marker {marker_name} has non-array data "
-                    f"for channel {first_channel}. Expected numpy array with 5 bands."
+                    f"for channel {first_channel}. Expected numpy array with 5 or 6 bands."
                 )
         else:
             raise ValueError(
@@ -847,7 +850,13 @@ def aggregate_marker_epochs(
             )
         
         # Process each band explicitly
-        band_names = ["delta", "theta", "alpha", "beta", "gamma"]
+        # Determine band names based on detected number of bands
+        if n_bands == 5:
+            band_names = ["delta", "theta", "alpha", "beta", "gamma"]
+        else:  # n_bands == 6
+            band_names = ["delta", "theta", "alpha", "beta", "gamma", "iota"]
+        
+        print(f"  Detected {n_bands} spectral bands: {', '.join(band_names)}")
         aggregated = {}
         
         for band_idx, band_name in enumerate(band_names):
@@ -875,7 +884,8 @@ def aggregate_marker_epochs(
             
             aggregated[band_name] = band_aggregated
         
-        print(f"✓ Aggregated {marker_name}_delta … {marker_name}_gamma successfully")
+        last_band = band_names[-1]
+        print(f"✓ Aggregated {marker_name}_delta … {marker_name}_{last_band} successfully")
         
     else:
         # NON-SPECTRAL MARKER: single aggregation

@@ -44,13 +44,14 @@ markers:
       delta: [1.0, 4.0]
       theta: [4.0, 8.0]
       alpha: [8.0, 12.0]
-      beta: [12.0, 30.0]
-      gamma: [30.0, 45.0]
+      beta: [12.0, 25.0]
+      jota: [25.0, 35.0]
+      gamma: [35.0, 45.0]
     normalize: false
     dB: true
-    n_fft: 512
-    n_per_seg: 256
-    n_overlap: 128 
+    n_fft: 1024
+    n_per_seg: 512
+    n_overlap: 256 
     roi_aggregation_method:
     trial_aggregation_method:
     on: EEG
@@ -64,13 +65,14 @@ markers:
       delta: [1.0, 4.0]
       theta: [4.0, 8.0]
       alpha: [8.0, 12.0]
-      beta: [12.0, 30.0]
-      gamma: [30.0, 45.0]
+      beta: [12.0, 25.0]
+      jota: [25.0, 35.0]
+      gamma: [35.0, 45.0]
     normalize: true
     dB: false
-    n_fft: 512
-    n_per_seg: 256
-    n_overlap: 128 
+    n_fft: 1024
+    n_per_seg: 512
+    n_overlap: 256 
     roi_aggregation_method:
     trial_aggregation_method:
     on: EEG

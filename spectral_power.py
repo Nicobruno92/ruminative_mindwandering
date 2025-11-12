@@ -9,9 +9,9 @@ from scipy import stats
 
 # Try relative import first (for package use), fall back to absolute (for standalone use)
 try:
-    from .utils import apply_roi_trial_aggregation, get_data_for_rois
+    from .marker_utils import apply_roi_trial_aggregation, get_data_for_rois
 except ImportError:
-    from utils import apply_roi_trial_aggregation, get_data_for_rois
+    from marker_utils import apply_roi_trial_aggregation, get_data_for_rois
 
 
 def trim_mean80(data, axis=None):

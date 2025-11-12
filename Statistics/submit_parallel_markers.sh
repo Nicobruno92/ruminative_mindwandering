@@ -105,10 +105,7 @@ echo "  Array range: ${ARRAY_RANGE}"
 echo "  Total tasks: ${N_MARKERS}"
 echo ""
 
-# Submit report generation job that depends on array job completion
-echo "Submitting report generation job (will run after all markers complete)..."
-
-# Get model folder name from config
+# Get model folder name and output path from config
 MODEL_FOLDER=$(python -c "
 import yaml
 import sys
@@ -131,6 +128,91 @@ print(config['project']['output_path'])
 ")
 
 MODEL_DIR="${OUTPUT_PATH}/${MODEL_FOLDER}"
+
+# ========================================
+# STEP 1: Submit MCC post-processing job
+# ========================================
+echo "Submitting multiple comparisons correction job (will run after all markers complete)..."
+
+# Create MCC post-processing script
+MCC_SCRIPT="Statistics/run_mcc_postprocessing.sh"
+
+cat > ${MCC_SCRIPT} << 'EOFMCC'
+#!/bin/bash
+#SBATCH --job-name=lmm_mcc
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
+#SBATCH --time=0:30:00
+#SBATCH --output=logs/lmm_mcc_%j.out
+#SBATCH --error=logs/lmm_mcc_%j.err
+
+# Load modules
+module load proxy
+
+# Activate conda environment
+if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+  . "$HOME/miniconda3/etc/profile.d/conda.sh"
+  conda activate eeg
+elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+  . "$HOME/anaconda3/etc/profile.d/conda.sh"
+  conda activate eeg
+elif command -v conda >/dev/null 2>&1; then
+  eval "$(conda shell.bash hook)"
+  conda activate eeg
+fi
+
+cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
+
+echo "=========================================="
+echo "MULTIPLE COMPARISONS CORRECTION"
+echo "=========================================="
+echo "Start time: $(date)"
+echo "Model directory: MODEL_DIR_PLACEHOLDER"
+echo ""
+
+python Statistics/apply_mcc_postprocessing.py MODEL_DIR_PLACEHOLDER --config Statistics/config.yaml
+
+EXIT_CODE=$?
+
+if [ ${EXIT_CODE} -eq 0 ]; then
+    echo ""
+    echo "✓ MCC post-processing completed successfully at $(date)"
+else
+    echo ""
+    echo "✗ MCC post-processing failed with exit code ${EXIT_CODE} at $(date)"
+fi
+
+echo "=========================================="
+EOFMCC
+
+# Replace placeholder with actual model directory
+sed -i "s|MODEL_DIR_PLACEHOLDER|${MODEL_DIR}|g" ${MCC_SCRIPT}
+
+# Make script executable
+chmod +x ${MCC_SCRIPT}
+
+# Submit MCC job with dependency on array job completion
+MCC_JOB_OUTPUT=$(sbatch --dependency=afterok:${ARRAY_JOB_ID} ${MCC_SCRIPT})
+MCC_EXIT_CODE=$?
+
+if [ ${MCC_EXIT_CODE} -eq 0 ]; then
+    MCC_JOB_ID=$(echo ${MCC_JOB_OUTPUT} | awk '{print $NF}')
+    echo "✓ MCC post-processing job submitted successfully"
+    echo "  Job ID: ${MCC_JOB_ID}"
+    echo "  Dependency: Will run after job ${ARRAY_JOB_ID} completes"
+    echo ""
+else
+    echo "⚠ Warning: Failed to submit MCC post-processing job"
+    echo "  You can run MCC manually later with:"
+    echo "  python Statistics/apply_mcc_postprocessing.py ${MODEL_DIR}"
+    echo ""
+    MCC_JOB_ID=""
+fi
+
+# ========================================
+# STEP 2: Submit report generation job
+# ========================================
+echo "Submitting report generation job (will run after MCC completes)..."
 
 # Create report generation script
 REPORT_SCRIPT="Statistics/run_report_generation.sh"
@@ -191,26 +273,37 @@ sed -i "s|MODEL_DIR_PLACEHOLDER|${MODEL_DIR}|g" ${REPORT_SCRIPT}
 # Make script executable
 chmod +x ${REPORT_SCRIPT}
 
-# Submit report job with dependency on array job completion
-REPORT_JOB_OUTPUT=$(sbatch --dependency=afterok:${ARRAY_JOB_ID} ${REPORT_SCRIPT})
+# Submit report job with dependency on MCC job completion (if MCC job was submitted)
+if [ -n "${MCC_JOB_ID}" ]; then
+    REPORT_JOB_OUTPUT=$(sbatch --dependency=afterok:${MCC_JOB_ID} ${REPORT_SCRIPT})
+    DEPENDENCY_MSG="Will run after MCC job ${MCC_JOB_ID} completes"
+else
+    # Fallback: depend on array job if MCC job failed to submit
+    REPORT_JOB_OUTPUT=$(sbatch --dependency=afterok:${ARRAY_JOB_ID} ${REPORT_SCRIPT})
+    DEPENDENCY_MSG="Will run after array job ${ARRAY_JOB_ID} completes (MCC skipped)"
+fi
+
 REPORT_EXIT_CODE=$?
 
 if [ ${REPORT_EXIT_CODE} -eq 0 ]; then
     REPORT_JOB_ID=$(echo ${REPORT_JOB_OUTPUT} | awk '{print $NF}')
     echo "✓ Report generation job submitted successfully"
     echo "  Job ID: ${REPORT_JOB_ID}"
-    echo "  Dependency: Will run after job ${ARRAY_JOB_ID} completes"
+    echo "  Dependency: ${DEPENDENCY_MSG}"
     echo ""
 else
     echo "⚠ Warning: Failed to submit report generation job"
     echo "  You can generate the report manually later with:"
-    echo "  bash Statistics/create_report.sh ${MODEL_DIR}"
+    echo "  python Statistics/generate_summary_report.py ${MODEL_DIR}"
     echo ""
 fi
 
 echo "Monitor jobs with: squeue -u $USER"
 echo "Check logs in:"
 echo "  - Array jobs: logs/lmm_marker_${ARRAY_JOB_ID}_*.out"
+if [ -n "${MCC_JOB_ID}" ]; then
+    echo "  - MCC job: logs/lmm_mcc_${MCC_JOB_ID}.out"
+fi
 echo "  - Report job: logs/lmm_report_*.out"
 
 echo "=========================================="

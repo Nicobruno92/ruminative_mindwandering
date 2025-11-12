@@ -692,41 +692,34 @@ def spatial_cluster_permutation_test(
         
         max_cluster_stats_null = np.array(max_cluster_stats_null)
     else:
-        # Parallel execution following MNE's pattern with array_split
+        # Parallel execution using joblib directly (no MNE parallel_func dependency)
         if verbose:
-            print(f"  Starting parallel execution (MNE pattern)...")
+            print(f"  Starting parallel execution...")
         
-        # Split permutation indices across workers (MNE pattern)
-        from ..parallel import parallel_func
-        parallel, my_run_perm, _ = parallel_func(_run_single_permutation, n_jobs, verbose=False)
-        
-        # Process permutations in batches per worker
-        max_cluster_stats_null = []
-        for perm_batch in np.array_split(perm_indices, n_jobs):
-            batch_results = parallel(
-                delayed(_run_single_permutation)(
-                    perm_idx=perm_idx,
-                    power_data=power_data,
-                    df_behavioral=df_behavioral,
-                    formula=formula,
-                    predictor_of_interest=predictor_of_interest,
-                    adjacency=adjacency,
-                    threshold=threshold,
-                    tail=tail,
-                    stat_fun=stat_fun,
-                    seed=seed,
-                    method=method,
-                    maxiter=maxiter,
-                    permutation_method=permutation_method,
-                    t_power=t_power,
-                    residuals_reduced=residuals_reduced,
-                    fitted_reduced=fitted_reduced,
-                    include=include,
-                    partitions=partitions
-                )
-                for perm_idx in perm_batch
+        # Use joblib Parallel directly
+        max_cluster_stats_null = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(_run_single_permutation)(
+                perm_idx=perm_idx,
+                power_data=power_data,
+                df_behavioral=df_behavioral,
+                formula=formula,
+                predictor_of_interest=predictor_of_interest,
+                adjacency=adjacency,
+                threshold=threshold,
+                tail=tail,
+                stat_fun=stat_fun,
+                seed=seed,
+                method=method,
+                maxiter=maxiter,
+                permutation_method=permutation_method,
+                t_power=t_power,
+                residuals_reduced=residuals_reduced,
+                fitted_reduced=fitted_reduced,
+                include=include,
+                partitions=partitions
             )
-            max_cluster_stats_null.extend(batch_results)
+            for perm_idx in perm_indices
+        )
         
         max_cluster_stats_null = np.array(max_cluster_stats_null)
         

@@ -19,7 +19,8 @@ from datetime import datetime
 # Import pipeline modules
 from reader import (
     load_all_probe_data, 
-    prepare_data_for_lmm, 
+    prepare_data_for_lmm,
+    filter_subjects_by_variability,
     validate_formula_variables,
     get_channel_names,
     get_available_markers
@@ -40,10 +41,6 @@ from helpers import (
     apply_preprocessing,
     load_pca_data,
     summarize_clusters
-)
-from multiple_comparisons import (
-    correct_cluster_p_values,
-    create_correction_summary
 )
 from generate_summary_report import generate_summary_report
 
@@ -169,8 +166,9 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         print(f"Preparing data for marker: {marker_name} ({marker_type})")
         df_marker_type = df_all[df_all['marker_type'] == marker_type]
         
-        # Get onoff filter from config
+        # Get filtering parameters from config
         onoff_max_value = config['project'].get('onoff_max_value', None)
+        min_predictor_variability = config['project'].get('min_predictor_variability', None)
         
         power_data, df_behavioral, channels = prepare_data_for_lmm(
             df=df_marker_type,
@@ -179,7 +177,9 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             include_channels=None,
             exclude_channels=None,
             pca_data=pca_data,
-            onoff_max_value=onoff_max_value
+            onoff_max_value=onoff_max_value,
+            min_predictor_variability=min_predictor_variability,
+            predictor_of_interest=predictor_of_interest
         )
         
         # CRITICAL: Project data to info order (canonical order established in main())
@@ -471,7 +471,7 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
                 pickle.dump(results_dict, f)
             print(f"✓ Results saved to {pickle_path}")
         
-        # Save CSV summary
+        # Save CSV summary (UNCORRECTED p-values)
         if save_csv and n_clusters > 0:
             cluster_summary = summarize_clusters(
                 clusters, cluster_stats, cluster_p_values, ch_names_final, alpha
@@ -481,9 +481,9 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             cluster_summary['marker_type'] = marker_type
             cluster_summary['analysis_timestamp'] = datetime.now().isoformat()
             
-            csv_path = output_dir / "cluster_summary.csv"
+            csv_path = output_dir / "cluster_summary_uncorrected.csv"
             cluster_summary.to_csv(csv_path, index=False)
-            print(f"✓ Cluster summary saved to {csv_path}")
+            print(f"✓ Cluster summary (uncorrected) saved to {csv_path}")
         
         # Save t-statistics per channel
         if save_csv:
@@ -821,69 +821,10 @@ def main(config_path: str = "Statistics/config.yaml",
             failed_markers.append(marker_spec)
             print(f"✗ Failed to process {marker_name} ({marker_type})")
     
-    # Step 3.5: Apply multiple comparisons correction
-    print("\n" + "-"*80)
-    print("STEP 3.5: Multiple comparisons correction")
-    print("-"*80)
-    
-    # Get correction settings from config
-    mcc_config = config.get('multiple_comparisons', {})
-    mcc_alpha = mcc_config.get('alpha', config['clustering']['alpha'])
-    
-    # Apply correction separately for evoked and state markers
-    for marker_type in ['evoked', 'state']:
-        # Get correction method for this marker type
-        correction_method = mcc_config.get(marker_type, False)
-        
-        # Filter results for this marker type
-        type_results = [r for r in successful_results if r.get('marker_type') == marker_type]
-        
-        if len(type_results) == 0:
-            print(f"\nNo {marker_type} markers to correct")
-            continue
-        
-        print(f"\n{marker_type.upper()} markers:")
-        print(f"  Number of markers: {len(type_results)}")
-        
-        # Apply correction
-        corrected_results = correct_cluster_p_values(
-            results_list=type_results,
-            correction_method=correction_method,
-            alpha=mcc_alpha,
-            verbose=True
-        )
-        
-        # Update the results in successful_results
-        for corrected in corrected_results:
-            marker_name = corrected['marker_name']
-            for i, result in enumerate(successful_results):
-                if result['marker_name'] == marker_name and result.get('marker_type') == marker_type:
-                    successful_results[i] = corrected
-                    break
-    
-    # Save correction summary
-    if successful_results:
-        base_output_dir = Path(config['project']['output_path'])
-        formula = config['lmm']['formula']
-        model_folder_name = extract_fixed_effects_from_formula(formula)
-        model_output_dir = base_output_dir / model_folder_name
-        model_output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save config file to model directory for easy reference
-        model_config_path = model_output_dir / "config.yaml"
-        with open(model_config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        print(f"✓ Config saved to model directory: {model_config_path}")
-        
-        correction_summary_path = model_output_dir / "multiple_comparisons_summary.csv"
-        correction_summary = create_correction_summary(
-            successful_results,
-            output_path=str(correction_summary_path)
-        )
-        print(f"\n✓ Multiple comparisons summary:")
-        print(correction_summary.to_string(index=False))
-    
     # Step 4: Create summary report
+    # Note: Multiple comparisons correction is applied separately via:
+    #   - SLURM workflow: apply_mcc_postprocessing.py (automatic)
+    #   - Manual: bash Statistics/apply_mcc_manual.sh <model_dir>
     print("\n" + "-"*80)
     print("STEP 4: Creating summary report")
     print("-"*80)
@@ -892,10 +833,14 @@ def main(config_path: str = "Statistics/config.yaml",
     summary_data = []
     for result in successful_results:
         # Count significant clusters (corrected if available)
-        if 'cluster_p_values_corrected' in result:
-            alpha = result.get('correction_alpha', mcc_alpha)
+        # Note: Corrected values are added by apply_mcc_postprocessing.py
+        if 'cluster_rejected' in result:
+            n_sig_corrected = np.sum(result['cluster_rejected'])
+        elif 'cluster_p_values_corrected' in result:
+            alpha = result.get('correction_alpha', config['clustering']['alpha'])
             n_sig_corrected = np.sum(result['cluster_p_values_corrected'] <= alpha)
         else:
+            # No correction applied yet
             n_sig_corrected = result['n_sig_clusters']
         
         # Extract LMM diagnostics if available

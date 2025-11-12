@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=lmm_report
+#SBATCH --job-name=lmm_mcc
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
-#SBATCH --time=1:00:00
-#SBATCH --output=logs/lmm_report_%j.out
-#SBATCH --error=logs/lmm_report_%j.err
+#SBATCH --time=0:30:00
+#SBATCH --output=logs/lmm_mcc_%j.out
+#SBATCH --error=logs/lmm_mcc_%j.err
 
 # Load modules
 module load proxy
@@ -21,27 +21,25 @@ elif command -v conda >/dev/null 2>&1; then
   conda activate eeg
 fi
 
-export MPLBACKEND=Agg
-
 cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 
 echo "=========================================="
-echo "GENERATING SUMMARY REPORT"
+echo "MULTIPLE COMPARISONS CORRECTION"
 echo "=========================================="
 echo "Start time: $(date)"
 echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_time_on_task_valence_selfother_time"
 echo ""
 
-python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_time_on_task_valence_selfother_time
+python Statistics/apply_mcc_postprocessing.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_time_on_task_valence_selfother_time --config Statistics/config.yaml
 
 EXIT_CODE=$?
 
 if [ ${EXIT_CODE} -eq 0 ]; then
     echo ""
-    echo "✓ Report generation completed successfully at $(date)"
+    echo "✓ MCC post-processing completed successfully at $(date)"
 else
     echo ""
-    echo "✗ Report generation failed with exit code ${EXIT_CODE} at $(date)"
+    echo "✗ MCC post-processing failed with exit code ${EXIT_CODE} at $(date)"
 fi
 
 echo "=========================================="

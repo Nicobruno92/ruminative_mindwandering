@@ -14,15 +14,17 @@ import numpy as np
 import pandas as pd
 from typing import List, Dict, Tuple, Literal, Union
 import warnings
+from mne.stats import fdr_correction as mne_fdr_correction
+from mne.stats import bonferroni_correction as mne_bonferroni_correction
 
 
 def apply_fdr_correction(
     p_values: np.ndarray,
     alpha: float = 0.05,
-    method: str = 'bh'
+    method: str = 'indep'
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Apply False Discovery Rate (FDR) correction to p-values.
+    Apply False Discovery Rate (FDR) correction to p-values using MNE implementation.
     
     FDR controls the expected proportion of false discoveries among rejected
     hypotheses. Less conservative than Bonferroni, more appropriate when
@@ -35,20 +37,21 @@ def apply_fdr_correction(
     alpha : float
         Desired FDR level (typically 0.05)
     method : str
-        FDR method: 'bh' (Benjamini-Hochberg) or 'by' (Benjamini-Yekutieli)
+        FDR method: 'indep' (Benjamini-Hochberg) or 'negcorr' (Benjamini-Yekutieli)
         
     Returns
     -------
-    corrected_p_values : np.ndarray
-        FDR-corrected p-values
     rejected : np.ndarray
         Boolean array indicating which hypotheses are rejected at alpha level
+    corrected_p_values : np.ndarray
+        FDR-corrected p-values
         
     Notes
     -----
-    - Benjamini-Hochberg (BH): Assumes independence or positive dependence
-    - Benjamini-Yekutieli (BY): More conservative, works under any dependence
+    - 'indep': Benjamini-Hochberg for independent or positively correlated tests
+    - 'negcorr': Benjamini-Yekutieli for general or negatively correlated tests
     - NaN values are preserved in output
+    - Uses MNE-Python's implementation for correctness
     
     References
     ----------
@@ -61,7 +64,7 @@ def apply_fdr_correction(
     n_tests = np.sum(valid_mask)
     
     if n_tests == 0:
-        return p_values.copy(), np.zeros(len(p_values), dtype=bool)
+        return np.zeros(len(p_values), dtype=bool), p_values.copy()
     
     # Initialize output arrays
     corrected_p = p_values.copy()
@@ -71,45 +74,14 @@ def apply_fdr_correction(
     valid_p = p_values[valid_mask]
     valid_indices = np.where(valid_mask)[0]
     
-    # Sort p-values and track original indices
-    sort_idx = np.argsort(valid_p)
-    sorted_p = valid_p[sort_idx]
-    
-    # Compute correction factors
-    ranks = np.arange(1, n_tests + 1)
-    
-    if method == 'bh':
-        # Benjamini-Hochberg
-        correction_factors = n_tests / ranks
-    elif method == 'by':
-        # Benjamini-Yekutieli (more conservative)
-        c_n = np.sum(1.0 / np.arange(1, n_tests + 1))
-        correction_factors = (n_tests * c_n) / ranks
-    else:
-        raise ValueError(f"Unknown FDR method: {method}. Use 'bh' or 'by'")
-    
-    # Compute corrected p-values
-    corrected_sorted = sorted_p * correction_factors
-    
-    # Ensure monotonicity (corrected p-values should be non-decreasing)
-    corrected_sorted = np.minimum.accumulate(corrected_sorted[::-1])[::-1]
-    
-    # Cap at 1.0
-    corrected_sorted = np.minimum(corrected_sorted, 1.0)
-    
-    # Determine rejections
-    rejected_sorted = corrected_sorted <= alpha
-    
-    # Map back to original order
-    unsort_idx = np.argsort(sort_idx)
-    corrected_valid = corrected_sorted[unsort_idx]
-    rejected_valid = rejected_sorted[unsort_idx]
+    # Use MNE's FDR correction on valid p-values
+    rejected_valid, corrected_valid = mne_fdr_correction(valid_p, alpha=alpha, method=method)
     
     # Place back into full arrays
     corrected_p[valid_indices] = corrected_valid
     rejected[valid_indices] = rejected_valid
     
-    return corrected_p, rejected
+    return rejected, corrected_p
 
 
 def apply_bonferroni_correction(
@@ -117,7 +89,7 @@ def apply_bonferroni_correction(
     alpha: float = 0.05
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Apply Bonferroni correction to p-values.
+    Apply Bonferroni correction to p-values using MNE implementation.
     
     Bonferroni correction controls the family-wise error rate (FWER) by
     adjusting the significance threshold. Very conservative but guarantees
@@ -132,16 +104,17 @@ def apply_bonferroni_correction(
         
     Returns
     -------
-    corrected_p_values : np.ndarray
-        Bonferroni-corrected p-values (p * n_tests)
     rejected : np.ndarray
         Boolean array indicating which hypotheses are rejected at alpha level
+    corrected_p_values : np.ndarray
+        Bonferroni-corrected p-values (p * n_tests)
         
     Notes
     -----
     - Corrected p-value = original p-value × number of tests
     - Very conservative, may have low power when testing many hypotheses
     - NaN values are preserved in output
+    - Uses MNE-Python's implementation for correctness
     
     References
     ----------
@@ -154,18 +127,24 @@ def apply_bonferroni_correction(
     n_tests = np.sum(valid_mask)
     
     if n_tests == 0:
-        return p_values.copy(), np.zeros(len(p_values), dtype=bool)
+        return np.zeros(len(p_values), dtype=bool), p_values.copy()
     
     # Initialize output arrays
     corrected_p = p_values.copy()
     rejected = np.zeros(len(p_values), dtype=bool)
     
-    # Apply Bonferroni correction to valid p-values
+    # Get valid p-values and their indices
+    valid_p = p_values[valid_mask]
     valid_indices = np.where(valid_mask)[0]
-    corrected_p[valid_indices] = np.minimum(p_values[valid_indices] * n_tests, 1.0)
-    rejected[valid_indices] = corrected_p[valid_indices] <= alpha
     
-    return corrected_p, rejected
+    # Use MNE's Bonferroni correction on valid p-values
+    rejected_valid, corrected_valid = mne_bonferroni_correction(valid_p, alpha=alpha)
+    
+    # Place back into full arrays
+    corrected_p[valid_indices] = corrected_valid
+    rejected[valid_indices] = rejected_valid
+    
+    return rejected, corrected_p
 
 
 def correct_cluster_p_values(
@@ -190,8 +169,8 @@ def correct_cluster_p_values(
     correction_method : str or bool
         Correction method to apply:
         - False or "none": No correction
-        - "fdr_bh": Benjamini-Hochberg FDR correction
-        - "fdr_by": Benjamini-Yekutieli FDR correction
+        - "fdr_indep" or "fdr_bh": Benjamini-Hochberg FDR correction
+        - "fdr_negcorr" or "fdr_by": Benjamini-Yekutieli FDR correction
         - "bonferroni": Bonferroni correction
     alpha : float
         Significance level for correction
@@ -229,8 +208,9 @@ def correct_cluster_p_values(
         # Add uncorrected values as "corrected" for consistency
         for result in results_list:
             if 'cluster_p_values' in result:
-                result['cluster_p_values_corrected'] = result['cluster_p_values'].copy()
-                result['cluster_rejected'] = result['cluster_p_values'] <= alpha
+                p_vals = result['cluster_p_values']
+                result['cluster_p_values_corrected'] = p_vals.copy()
+                result['cluster_rejected'] = p_vals <= alpha
                 result['correction_method'] = 'none'
                 result['correction_alpha'] = alpha
         return results_list
@@ -268,17 +248,22 @@ def correct_cluster_p_values(
         print(f"  Alpha level: {alpha}")
     
     # Apply correction
-    if correction_method in ['fdr_bh', 'fdr_by']:
-        method = 'bh' if correction_method == 'fdr_bh' else 'by'
-        corrected_p, rejected = apply_fdr_correction(all_p_values, alpha, method)
-        correction_name = f"FDR ({method.upper()})"
+    if correction_method in ['fdr_bh', 'fdr_indep', 'fdr_by', 'fdr_negcorr']:
+        # Map to MNE method names
+        if correction_method in ['fdr_bh', 'fdr_indep']:
+            method = 'indep'
+            correction_name = "FDR (Benjamini-Hochberg)"
+        else:  # fdr_by or fdr_negcorr
+            method = 'negcorr'
+            correction_name = "FDR (Benjamini-Yekutieli)"
+        rejected, corrected_p = apply_fdr_correction(all_p_values, alpha, method)
     elif correction_method == 'bonferroni':
-        corrected_p, rejected = apply_bonferroni_correction(all_p_values, alpha)
+        rejected, corrected_p = apply_bonferroni_correction(all_p_values, alpha)
         correction_name = "Bonferroni"
     else:
         raise ValueError(
             f"Unknown correction method: {correction_method}. "
-            f"Use 'fdr_bh', 'fdr_by', 'bonferroni', or False"
+            f"Use 'fdr_bh', 'fdr_indep', 'fdr_by', 'fdr_negcorr', 'bonferroni', or False"
         )
     
     # Split corrected p-values back to individual markers
@@ -372,7 +357,12 @@ def create_correction_summary(
         
         # Count significant clusters
         n_sig_uncorr = np.sum(p_vals <= alpha)
-        n_sig_corr = np.sum(p_vals_corr <= alpha)
+        # Use stored rejection array if available, otherwise recompute
+        rejected_arr = result.get('cluster_rejected')
+        if rejected_arr is not None:
+            n_sig_corr = np.sum(rejected_arr)
+        else:
+            n_sig_corr = np.sum(p_vals_corr <= alpha)
         
         summary_data.append({
             'marker_name': result.get('marker_name', 'unknown'),

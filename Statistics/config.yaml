@@ -37,6 +37,17 @@ project:
   # Set to null or comment out to include all probes
   onoff_max_value: null  # e.g., only probes with onoff <= 50
   
+  # Filter subjects by predictor variability (optional)
+  # Removes subjects with insufficient within-subject variance in the predictor
+  # This prevents subjects with constant/near-constant predictor values from affecting analysis
+  # Options:
+  #   - null or false: No filtering
+  #   - "auto": Automatically detect and remove subjects with zero variance
+  #   - number (e.g., 5): Minimum standard deviation required
+  #   - "quantile_X" (e.g., "quantile_10"): Remove bottom X% of subjects by variance
+  # Note: Uses predictor_of_interest from lmm section
+  min_predictor_variability: null  # "auto", null, number, or "quantile_X"
+  
   # Markers to analyze
   # Options:
   #   - "all": Process all available markers (auto-discovered from data)
@@ -56,7 +67,7 @@ preprocessing:
   #   - "zscore": Z-score normalization (mean=0, std=1)
   #   - "minmax": Min-max scaling (0-1 range)
   #   - "robust": Robust scaling using median and IQR (less sensitive to outliers)
-  normalization_method: "zscore"
+  normalization_method: "zscore"  # Median/IQR more stable than mean/std for permutations
   
   # Channel-wise vs global normalization
   # - true: Each channel normalized independently per subject
@@ -65,7 +76,7 @@ preprocessing:
   # - false: All channels use same normalization parameters per subject
   #   Pros: Preserves relationships and relative power between channels
   #   Cons: Channels with higher power dominate the normalization
-  channel_wise: false
+  channel_wise: false  # Global normalization more stable for complex models
 
 # Linear mixed model parameters
 # ================================
@@ -97,10 +108,10 @@ preprocessing:
 #   Example: "onoff * valence" -> test "onoff" or "valence" or "onoff:valence"
 #
 lmm:
-  formula: "power ~ onoff + time_on_task + (1|subject)"
+  formula: "power ~ onoff + time_on_task + valence + selfother + time +(1|subject)"
   predictor_of_interest: "onoff"  # specify predictor name (e.g., "onoff") for clustering analysis
-  method: "powell"  # powell is more robust than REML for convergence issues
-  maxiter: 3000     # Increased for better convergence
+  method: "powell"  # Powell: gradient-free, more robust for complex models with numerical issues
+  maxiter: 5000     # High value to ensure convergence in difficult cases
   random_state: 42
 
 # Spatial cluster permutation parameters
@@ -108,7 +119,7 @@ clustering:
   # Method: "threshold" or "tfce"
   # - "threshold": Traditional cluster-based testing with fixed threshold
   # - "tfce": Threshold-Free Cluster Enhancement (no arbitrary threshold)
-  method: "tfce"  # "threshold" or "tfce"
+  method: "threshold"  # "threshold" or "tfce"
   
   # Permutation method: "simple" or "freedman_lane"
   # - "simple": Permute predictor values within subjects (default, faster)
@@ -124,13 +135,21 @@ clustering:
   t_power: 1.0  # Power to raise t-values by (1.0=standard, >1 weights stronger effects more)
   
   # TFCE parameters (only used if method="tfce")
+  # CRITICAL FOR SPATIAL COHERENCE:
+  # - Higher E (extent) favors spatially extended effects
+  # - Lower H (height) reduces emphasis on peak magnitude
+  # - Ratio H/E controls balance: lower ratio = more spatial smoothness
+  # 
+  # Standard (E=0.5, H=2.0, ratio=4.0): Favors focal peaks → "bubbly" results
+  # Balanced (E=1.0, H=2.0, ratio=2.0): Better spatial coherence
+  # Smooth   (E=1.5, H=2.0, ratio=1.33): Strongly favors extended clusters
   tfce:
-    E: 0.5  # Extent exponent (typically 0.5) based on Pernet et al. (2015) & MNE
-    H: 2.0  # Height exponent (typically 2.0) based on Pernet et al. (2015) & MNE
+    E: 0.5  # Extent exponent - INCREASED from 0.5 to improve spatial coherence
+    H: 2.0  # Height exponent (standard)
     n_steps: 500  # Number of integration steps (higher = more accurate but slower)
   
   # Common parameters
-  n_permutations: 100  # CRITICAL: Use 5000+ for reliable p-values (50 is too low)
+  n_permutations: 1000  # INCREASED from 100 for stable p-values and reliable clusters
   alpha: 0.05
   seed: 42
   
@@ -187,12 +206,17 @@ clustering:
 # Can be configured separately for evoked and state markers
 multiple_comparisons:
   # Correction for evoked markers
-  # Options: false (no correction), "fdr_bh" (Benjamini-Hochberg), "bonferroni"
-  evoked: false
+  # Options: 
+  #   - false or "none": No correction
+  #   - "fdr_bh" or "fdr_indep": Benjamini-Hochberg FDR (independent/positive correlation)
+  #   - "fdr_by" or "fdr_negcorr": Benjamini-Yekutieli FDR (general/negative correlation)
+  #   - "bonferroni": Bonferroni correction (most conservative)
+  # Note: Both naming conventions supported (fdr_bh = fdr_indep, fdr_by = fdr_negcorr)
+  evoked: "fdr_bh"
   
   # Correction for state markers
-  # Options: false (no correction), "fdr_bh" (Benjamini-Hochberg), "bonferroni"
-  state: false
+  # Options: same as evoked (see above)
+  state: "fdr_bh"
   
   # Alpha level for correction (typically same as clustering.alpha)
   alpha: 0.05

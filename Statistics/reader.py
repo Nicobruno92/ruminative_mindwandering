@@ -156,13 +156,146 @@ def load_all_probe_data(features_root: str,
     return combined_df
 
 
+def filter_subjects_by_variability(df: pd.DataFrame,
+                                   predictor_column: str,
+                                   min_variability: Optional[str] = None,
+                                   subject_column: str = 'subject',
+                                   verbose: bool = True) -> pd.DataFrame:
+    """
+    Filter out subjects with insufficient within-subject variability in a predictor.
+    
+    This is useful to remove subjects who have constant or near-constant predictor values,
+    which can cause issues in mixed-effects models and don't contribute meaningful
+    within-subject variance.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe with subject-level observations
+    predictor_column : str
+        Name of the predictor column to check variability (e.g., 'onoff', 'valence')
+    min_variability : Optional[str]
+        Variability threshold specification:
+        - None or False: No filtering
+        - "auto": Remove subjects with zero variance (std == 0)
+        - float/int: Minimum standard deviation required
+        - "quantile_X": Remove bottom X% of subjects by variance (e.g., "quantile_10")
+    subject_column : str
+        Name of the subject identifier column (default: 'subject')
+    verbose : bool
+        Whether to print filtering information
+        
+    Returns
+    -------
+    pd.DataFrame
+        Filtered dataframe with subjects removed
+        
+    Examples
+    --------
+    # Remove subjects with zero variance
+    df_filtered = filter_subjects_by_variability(df, 'onoff', min_variability='auto')
+    
+    # Remove subjects with std < 5
+    df_filtered = filter_subjects_by_variability(df, 'onoff', min_variability=5)
+    
+    # Remove bottom 10% of subjects by variance
+    df_filtered = filter_subjects_by_variability(df, 'onoff', min_variability='quantile_10')
+    """
+    # No filtering if min_variability is None or False
+    if min_variability is None or min_variability is False:
+        if verbose:
+            print("  No predictor variability filtering applied")
+        return df
+    
+    # Check that predictor column exists
+    if predictor_column not in df.columns:
+        raise ValueError(f"Predictor column '{predictor_column}' not found in dataframe. "
+                        f"Available columns: {list(df.columns)}")
+    
+    # Compute within-subject standard deviation for the predictor
+    subject_stats = df.groupby(subject_column)[predictor_column].agg(['std', 'count', 'mean'])
+    subject_stats = subject_stats.rename(columns={'std': 'predictor_std', 
+                                                   'count': 'n_obs',
+                                                   'mean': 'predictor_mean'})
+    
+    # Handle NaN std (occurs when subject has only 1 observation)
+    subject_stats['predictor_std'] = subject_stats['predictor_std'].fillna(0)
+    
+    n_subjects_before = len(subject_stats)
+    
+    # Determine threshold based on min_variability specification
+    if isinstance(min_variability, str):
+        if min_variability.lower() == 'auto':
+            # Remove subjects with zero variance
+            threshold = 0
+            subjects_to_keep = subject_stats[subject_stats['predictor_std'] > threshold].index
+            threshold_description = "zero variance (auto)"
+        elif min_variability.lower().startswith('quantile_'):
+            # Extract percentile (e.g., "quantile_10" -> 10)
+            try:
+                percentile = float(min_variability.split('_')[1])
+                if not 0 <= percentile <= 100:
+                    raise ValueError(f"Percentile must be between 0 and 100, got {percentile}")
+                
+                # Compute threshold as the Xth percentile of std
+                threshold = np.percentile(subject_stats['predictor_std'], percentile)
+                subjects_to_keep = subject_stats[subject_stats['predictor_std'] > threshold].index
+                threshold_description = f"{percentile}th percentile (threshold={threshold:.3f})"
+            except (IndexError, ValueError) as e:
+                raise ValueError(f"Invalid quantile specification: '{min_variability}'. "
+                               f"Use format 'quantile_X' where X is 0-100. Error: {e}")
+        else:
+            raise ValueError(f"Invalid min_variability string: '{min_variability}'. "
+                           f"Use 'auto', 'quantile_X', or a numeric value.")
+    else:
+        # Numeric threshold
+        try:
+            threshold = float(min_variability)
+            subjects_to_keep = subject_stats[subject_stats['predictor_std'] > threshold].index
+            threshold_description = f"std > {threshold}"
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid min_variability value: {min_variability}. "
+                           f"Must be 'auto', 'quantile_X', or a number.")
+    
+    # Filter dataframe
+    df_filtered = df[df[subject_column].isin(subjects_to_keep)].copy()
+    
+    n_subjects_after = len(subjects_to_keep)
+    n_removed = n_subjects_before - n_subjects_after
+    
+    if verbose:
+        print(f"\n  Predictor variability filter ({predictor_column}):")
+        print(f"    Threshold: {threshold_description}")
+        print(f"    Subjects before: {n_subjects_before}")
+        print(f"    Subjects after: {n_subjects_after}")
+        print(f"    Subjects removed: {n_removed} ({100*n_removed/n_subjects_before:.1f}%)")
+        
+        if n_removed > 0:
+            removed_subjects = sorted(list(set(subject_stats.index) - set(subjects_to_keep)))
+            removed_stats = subject_stats.loc[removed_subjects]
+            print(f"    Removed subjects: {removed_subjects}")
+            print(f"    Removed subjects' std range: [{removed_stats['predictor_std'].min():.3f}, "
+                  f"{removed_stats['predictor_std'].max():.3f}]")
+            print(f"    Kept subjects' std range: [{subject_stats.loc[subjects_to_keep, 'predictor_std'].min():.3f}, "
+                  f"{subject_stats.loc[subjects_to_keep, 'predictor_std'].max():.3f}]")
+    
+    # Warn if too many subjects removed
+    if n_removed / n_subjects_before > 0.3:  # More than 30%
+        warnings.warn(f"Variability filter removed {n_removed}/{n_subjects_before} subjects ({100*n_removed/n_subjects_before:.1f}%). "
+                     f"Consider using a less strict threshold.")
+    
+    return df_filtered
+
+
 def prepare_data_for_lmm(df: pd.DataFrame, 
                         marker_name: str,
                         formula: str,
                         include_channels: Optional[List[str]] = None,
                         exclude_channels: Optional[List[str]] = None,
                         pca_data: Optional[pd.DataFrame] = None,
-                        onoff_max_value: Optional[float] = None) -> Tuple[np.ndarray, pd.DataFrame, List[str]]:
+                        onoff_max_value: Optional[float] = None,
+                        min_predictor_variability: Optional[str] = None,
+                        predictor_of_interest: Optional[str] = None) -> Tuple[np.ndarray, pd.DataFrame, List[str]]:
     """
     Prepare data for LMM analysis for a specific marker.
     
@@ -185,6 +318,12 @@ def prepare_data_for_lmm(df: pd.DataFrame,
     onoff_max_value : Optional[float]
         Maximum value for onoff variable. If provided, only observations where
         onoff <= onoff_max_value will be included in the analysis.
+    min_predictor_variability : Optional[str]
+        Minimum within-subject variability required for the predictor.
+        See filter_subjects_by_variability() for options.
+    predictor_of_interest : Optional[str]
+        Name of the predictor to use for variability filtering.
+        Required if min_predictor_variability is specified.
         
     Returns
     -------
@@ -232,6 +371,26 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         
         print(f"  Filtered by onoff <= {onoff_max_value}: {n_before} -> {n_after} observations "
               f"({100 * n_after / n_before:.1f}% retained)")
+    
+    # Apply predictor variability filter if specified
+    if min_predictor_variability is not None and min_predictor_variability is not False:
+        if predictor_of_interest is None:
+            raise ValueError("predictor_of_interest must be specified when using min_predictor_variability")
+        
+        # Filter subjects by variability in the predictor
+        marker_df = filter_subjects_by_variability(
+            df=marker_df,
+            predictor_column=predictor_of_interest,
+            min_variability=min_predictor_variability,
+            subject_column='subject',
+            verbose=True
+        )
+        
+        if len(marker_df) == 0:
+            raise ValueError(
+                f"No observations remain after filtering by predictor variability. "
+                f"All subjects had insufficient variability in '{predictor_of_interest}'."
+            )
     
     # Ensure we have only one marker type for this marker
     marker_types_in_data = marker_df['marker_type'].unique()
