@@ -300,13 +300,29 @@ def save_results(results: Dict, output_dir: Path, marker_name: str):
 
         cluster_data = []
         for i, cluster in enumerate(results['clusters']):
+            # Support both dict clusters (from Statistics.cluster_test.find_clusters)
+            # and ClusterResult objects (from apply_bonferroni_correction)
+            if isinstance(cluster, dict):
+                channels = cluster.get('channels', [])
+                cluster_stat = cluster.get('stat')
+                p_value = cluster.get('p_value')
+                cluster_type = cluster.get('cluster_type')
+                if cluster_type is None and cluster_stat is not None:
+                    # Infer sign-based type if not explicitly provided
+                    cluster_type = 'positive' if cluster_stat >= 0 else 'negative'
+            else:
+                channels = getattr(cluster, 'electrodes', [])
+                cluster_stat = getattr(cluster, 'cluster_stat', None)
+                p_value = getattr(cluster, 'p_value', None)
+                cluster_type = getattr(cluster, 'cluster_type', None)
+
             cluster_data.append({
                 'cluster_id': i,
-                'cluster_type': cluster.cluster_type,
-                'n_electrodes': len(cluster.electrodes),
-                'electrodes': ','.join(map(str, cluster.electrodes)),
-                'cluster_stat': cluster.cluster_stat,
-                'p_value': cluster.p_value,
+                'cluster_type': cluster_type,
+                'n_electrodes': len(channels),
+                'electrodes': ','.join(map(str, channels)),
+                'cluster_stat': cluster_stat,
+                'p_value': p_value,
             })
 
         df = pd.DataFrame(cluster_data)

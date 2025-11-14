@@ -11,6 +11,9 @@ SCRIPT_DIR="Stats_andrillon"
 # Set working directory to project root on the cluster
 cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 
+# Ensure logs directory exists (required for sbatch output/error files)
+mkdir -p logs
+
 echo "=========================================="
 echo "Andrillon Parallel Marker Submission"
 echo "=========================================="
