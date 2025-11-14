@@ -1,0 +1,9 @@
+dv,analysis_type,n_predictors,predictors,bic,aic,loglik,n_obs,n_subjects,converged
+onoff,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",694.9164153004274,631.0619859778753,-301.53099298893767,707,29,True
+valence,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1486.797435043766,1422.943005721214,-697.471502860607,707,29,True
+time,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1799.0319697322345,1735.1775404096825,-853.5887702048412,707,29,True
+selfother,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1523.6432621807878,1459.7888328582358,-715.8944164291179,707,29,True
+confidence,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",2081.136102234013,2017.281672911461,-994.6408364557306,707,29,True
+PC1,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1548.7547989881548,1484.9003696656027,-728.4501848328014,707,29,True
+PC2,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1754.4422686276464,1690.5878393050943,-831.2939196525472,707,29,True
+PC3,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1909.4024183808413,1845.5479890582892,-908.7739945291446,707,29,True

@@ -164,10 +164,10 @@ DATA/
 
 logs/
 
-results/nice_markers/*_per_electrode.csv
-results/nice_markers/
-
-results/
+results/*
+# Pero NO ignorar la carpeta behavior
+!results/Behavior/
 
 # Test outputs
 Statistics/tests/test_results/
+**tests/**

@@ -1,0 +1,8 @@
+Method,Cluster,Size,Valence_Mean,SelfOther_Mean,Time_Mean,Interpretation
+K-means,0,179,64.80446927374301,29.564245810055866,63.70391061452514,"High valence, More other-focused, Future-oriented"
+K-means,1,233,62.17167381974249,70.35622317596567,62.90987124463519,"High valence, More self-focused, Future-oriented"
+K-means,2,214,40.242990654205606,41.28504672897196,52.967289719626166,"Low valence, More other-focused, Past/present-oriented"
+K-means,3,161,62.701863354037265,50.86335403726708,31.024844720496894,"High valence, More self-focused, Past/present-oriented"
+Hierarchical,0,275,49.30909090909091,30.80727272727273,47.46545454545455,"Low valence, More other-focused, Past/present-oriented"
+Hierarchical,1,250,56.728,70.868,47.544,"Low valence, More self-focused, Past/present-oriented"
+Hierarchical,2,262,65.08015267175573,47.786259541984734,66.61068702290076,"High valence, More other-focused, Future-oriented"

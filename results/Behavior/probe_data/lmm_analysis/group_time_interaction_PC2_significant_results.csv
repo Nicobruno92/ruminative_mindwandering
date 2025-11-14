@@ -1,0 +1,2 @@
+predictor,estimate,std_error,t_value,p_value,conf_lower,conf_upper,significant_05,significant_01,p_value_bonferroni,significant_corrected
+group[T.Risk of Depression]:time_on_task,-0.011919628729297903,0.003734704576955283,-3.1915854343197814,0.0014149425839272607,-0.019239515193027155,-0.004599742265568649,True,True,0.004244827751781782,True

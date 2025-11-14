@@ -1,0 +1,34 @@
+                Mixed Linear Model Regression Results
+======================================================================
+Model:                  MixedLM     Dependent Variable:     PC3       
+No. Observations:       888         Method:                 REML      
+No. Groups:             33          Scale:                  0.5641    
+Min. group size:        1           Log-Likelihood:         -1035.7838
+Max. group size:        58          Converged:              Yes       
+Mean group size:        26.9                                          
+----------------------------------------------------------------------
+                            Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+----------------------------------------------------------------------
+Intercept                    0.150    0.094  1.603 0.109 -0.033  0.333
+group[T.Risk of Depression] -0.351    0.156 -2.252 0.024 -0.657 -0.046
+subject_id Var               0.136    0.060                           
+======================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 2077.567577
+BIC: 2091.934492
+LOG_LIKELIHOOD: -1035.783788
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 888
+N_GROUPS: 33
+N_PARAMETERS: 3
+N_FIXED_EFFECTS: 2
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 0.564054
+DEVIANCE: 2071.567577
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

@@ -1,0 +1,36 @@
+                        Mixed Linear Model Regression Results
+=====================================================================================
+Model:                      MixedLM          Dependent Variable:          onoff      
+No. Observations:           2460             Method:                      REML       
+No. Groups:                 42               Scale:                       367.0971   
+Min. group size:            45               Log-Likelihood:              -10850.0214
+Max. group size:            60               Converged:                   Yes        
+Mean group size:            58.6                                                     
+-------------------------------------------------------------------------------------
+                                          Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+-------------------------------------------------------------------------------------
+Intercept                                 73.692    4.781 15.414 0.000  64.322 83.063
+group[T.Risk of Depression]              -14.048    8.944 -1.571 0.116 -31.578  3.483
+time_on_task                              -0.210    0.026 -7.977 0.000  -0.262 -0.159
+group[T.Risk of Depression]:time_on_task  -0.189    0.050 -3.804 0.000  -0.287 -0.092
+subject_id Var                           660.312    7.844                            
+=====================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 21710.042880
+BIC: 21739.082463
+LOG_LIKELIHOOD: -10850.021440
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 2460
+N_GROUPS: 42
+N_PARAMETERS: 5
+N_FIXED_EFFECTS: 4
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 367.097107
+DEVIANCE: 21700.042880
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

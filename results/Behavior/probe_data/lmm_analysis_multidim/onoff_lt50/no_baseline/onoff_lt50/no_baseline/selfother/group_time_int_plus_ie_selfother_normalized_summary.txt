@@ -1,0 +1,37 @@
+                       Mixed Linear Model Regression Results
+====================================================================================
+Model:                  MixedLM       Dependent Variable:       selfother_normalized
+No. Observations:       425           Method:                   REML                
+No. Groups:             24            Scale:                    527.2487            
+Min. group size:        1             Log-Likelihood:           -1941.5721          
+Max. group size:        30            Converged:                Yes                 
+Mean group size:        17.7                                                        
+------------------------------------------------------------------------------------
+                                         Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+------------------------------------------------------------------------------------
+Intercept                                 7.529    4.905  1.535 0.125  -2.085 17.143
+group[T.Risk of Depression]              -2.066    7.022 -0.294 0.769 -15.830 11.698
+inclusion_exclusion[T.inclusion]         -1.364    2.454 -0.556 0.578  -6.174  3.445
+time_on_task                             -0.100    0.102 -0.976 0.329  -0.300  0.101
+group[T.Risk of Depression]:time_on_task  0.019    0.150  0.128 0.898  -0.276  0.314
+subject_id Var                           58.245    1.183                            
+====================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 3895.144280
+BIC: 3919.456815
+LOG_LIKELIHOOD: -1941.572140
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 425
+N_GROUPS: 24
+N_PARAMETERS: 6
+N_FIXED_EFFECTS: 5
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 527.248736
+DEVIANCE: 3883.144280
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

@@ -1,0 +1,9 @@
+"coefficient","estimate","se","z_value","p_value","effect_type","cluster_comparison","coefficient_clean","significant"
+"beta10",0.08004,0.30578,0.26176,0.7935,"intercept",NA,"Intercept_Self-Centered_vs_Low",FALSE
+"group_binary:1",-0.31845,0.47487,-0.67061,0.50247,"main_group","Self-Centered_vs_Low","Group_effect_Self-Centered_vs_Low",FALSE
+"ie_binary:1",-0.2991,0.46837,-0.63859,0.52309,"main_ie","Self-Centered_vs_Low","InclusionExclusion_effect_Self-Centered_vs_Low",FALSE
+"group_binary:ie_binary:1",1.12956,0.79616,1.41875,0.15597,"interaction","Self-Centered_vs_Low","GroupXInclusionExclusion_interaction_Self-Centered_vs_Low",FALSE
+"beta20",-0.06454,0.25175,-0.25636,0.79768,"intercept",NA,"Intercept_Positive-Future-Oriented_vs_Low",FALSE
+"group_binary:2",0.06454,0.30457,0.2119,0.83219,"main_group","Positive-Future-Oriented_vs_Low","Group_effect_Positive-Future-Oriented_vs_Low",FALSE
+"ie_binary:2",0.06454,0.3106,0.20778,0.8354,"main_ie","Positive-Future-Oriented_vs_Low","InclusionExclusion_effect_Positive-Future-Oriented_vs_Low",FALSE
+"group_binary:ie_binary:2",0.04466,0.54298,0.08225,0.93445,"interaction","Positive-Future-Oriented_vs_Low","GroupXInclusionExclusion_interaction_Positive-Future-Oriented_vs_Low",FALSE

@@ -1,0 +1,37 @@
+                                  Mixed Linear Model Regression Results
+=========================================================================================================
+Model:                           MixedLM               Dependent Variable:               onoff_normalized
+No. Observations:                1212                  Method:                           REML            
+No. Groups:                      42                    Scale:                            323.5875        
+Min. group size:                 15                    Log-Likelihood:                   -5259.6680      
+Max. group size:                 30                    Converged:                        Yes             
+Mean group size:                 28.9                                                                    
+---------------------------------------------------------------------------------------------------------
+                                                              Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+---------------------------------------------------------------------------------------------------------
+Intercept                                                    -12.916    2.199 -5.874 0.000 -17.225 -8.607
+group[T.Risk of Depression]                                   -7.765    3.476 -2.234 0.025 -14.578 -0.953
+inclusion_exclusion[T.inclusion]                               2.414    1.243  1.942 0.052  -0.022  4.851
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]   1.552    2.329  0.666 0.505  -3.012  6.116
+time_on_task                                                   0.127    0.034  3.770 0.000   0.061  0.193
+subject_id Var                                                79.429    1.157                            
+=========================================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 10531.335927
+BIC: 10561.936090
+LOG_LIKELIHOOD: -5259.667963
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 1212
+N_GROUPS: 42
+N_PARAMETERS: 6
+N_FIXED_EFFECTS: 5
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 323.587509
+DEVIANCE: 10519.335927
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

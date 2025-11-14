@@ -1,0 +1,2 @@
+dv,predictor,predictor_type,beta,se,t_value,p_value,n_obs,n_subjects,coef_name,converged,error,p_fdr,significant_uncorrected,significant_fdr
+valence,fne,continuous,-0.3893247303372532,0.10322904745847458,-3.7714649115004653,0.00016229198163743045,707,29,fne_z,True,,0.015580030237193324,True,True

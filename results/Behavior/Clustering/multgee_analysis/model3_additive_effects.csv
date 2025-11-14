@@ -1,0 +1,5 @@
+"coefficient","estimate","se","z_value","p_value","effect_type","cluster_comparison","coefficient_clean","significant","p_bonferroni","sig_corrected"
+"group_binary:1",0.29156,0.36615,0.79627,0.42587,"main_group","Self-Centered_vs_Low","Group_effect_Self-Centered_vs_Low",FALSE,1,FALSE
+"ie_binary:1",0.14091,0.39377,0.35785,0.72045,"main_ie","Self-Centered_vs_Low","InclusionExclusion_effect_Self-Centered_vs_Low",FALSE,1,FALSE
+"group_binary:2",0.07875,0.22891,0.34403,0.73083,"main_group","Positive-Future-Oriented_vs_Low","Group_effect_Positive-Future-Oriented_vs_Low",FALSE,1,FALSE
+"ie_binary:2",0.07289,0.24465,0.29793,0.76576,"main_ie","Positive-Future-Oriented_vs_Low","InclusionExclusion_effect_Positive-Future-Oriented_vs_Low",FALSE,1,FALSE

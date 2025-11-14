@@ -1,0 +1,35 @@
+                   Mixed Linear Model Regression Results
+============================================================================
+Model:                    MixedLM       Dependent Variable:       selfother 
+No. Observations:         469           Method:                   REML      
+No. Groups:               33            Scale:                    514.7404  
+Min. group size:          1             Log-Likelihood:           -2154.2153
+Max. group size:          30            Converged:                Yes       
+Mean group size:          14.2                                              
+----------------------------------------------------------------------------
+                                  Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+----------------------------------------------------------------------------
+Intercept                         46.998    4.061 11.574 0.000 39.039 54.957
+inclusion_exclusion[T.inclusion]  -3.080    2.285 -1.348 0.178 -7.558  1.399
+time_on_task                       0.087    0.073  1.191 0.234 -0.056  0.229
+subject_id Var                   220.722    3.035                           
+============================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 4316.430553
+BIC: 4333.032964
+LOG_LIKELIHOOD: -2154.215276
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 469
+N_GROUPS: 33
+N_PARAMETERS: 4
+N_FIXED_EFFECTS: 3
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 514.740426
+DEVIANCE: 4308.430553
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

@@ -1,0 +1,3 @@
+"coefficient","estimate","se","z_value","p_value","effect_type","cluster_comparison","coefficient_clean","significant","p_bonferroni","sig_corrected"
+"ie_binary:1",0.13618,0.39122,0.34809,0.72777,"main_ie","Self-Centered_vs_Low","InclusionExclusion_effect_Self-Centered_vs_Low",FALSE,1,FALSE
+"ie_binary:2",0.07164,0.24272,0.29517,0.76787,"main_ie","Positive-Future-Oriented_vs_Low","InclusionExclusion_effect_Positive-Future-Oriented_vs_Low",FALSE,1,FALSE

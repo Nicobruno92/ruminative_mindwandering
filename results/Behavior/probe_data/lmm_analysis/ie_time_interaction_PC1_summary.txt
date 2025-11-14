@@ -1,0 +1,36 @@
+                         Mixed Linear Model Regression Results
+========================================================================================
+Model:                       MixedLM            Dependent Variable:            PC1      
+No. Observations:            487                Method:                        REML     
+No. Groups:                  33                 Scale:                         0.7034   
+Min. group size:             1                  Log-Likelihood:                -647.3612
+Max. group size:             30                 Converged:                     Yes      
+Mean group size:             14.8                                                       
+----------------------------------------------------------------------------------------
+                                              Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+----------------------------------------------------------------------------------------
+Intercept                                     -0.643    0.272 -2.365 0.018 -1.176 -0.110
+inclusion_exclusion[T.inclusion]               1.417    0.474  2.990 0.003  0.488  2.346
+time_on_task                                   0.016    0.007  2.387 0.017  0.003  0.029
+inclusion_exclusion[T.inclusion]:time_on_task -0.033    0.012 -2.735 0.006 -0.057 -0.009
+subject_id Var                                 0.402    0.144                           
+========================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 1304.722307
+BIC: 1325.663628
+LOG_LIKELIHOOD: -647.361154
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 487
+N_GROUPS: 33
+N_PARAMETERS: 5
+N_FIXED_EFFECTS: 4
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 0.703389
+DEVIANCE: 1294.722307
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available
