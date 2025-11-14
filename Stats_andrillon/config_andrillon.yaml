@@ -1,0 +1,199 @@
+# Andrillon 2020 Cluster-Permutation Pipeline Configuration
+# Implements the statistical methodology from Andrillon et al. (2020)
+
+# Project paths and data filtering
+project:
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/"
+  # Output structure: output_path / model_folder / marker_folder
+  output_path: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster"
+  montage_path: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/Preprocessing_pipeline_new/CACS-64_REF.bvef"
+  
+  # PCA results path (optional)
+  pca_results_path: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/Behavior/probe_data/pca_results.csv"
+  
+  # QA filtering (optional)
+  qa_summary_path: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives/qa_summary.csv"
+  exclude_failed_qa: true
+  
+  # Data filtering
+  subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+  tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+  marker_types: ["evoked", "state"]  # Processed independently
+  
+  # Filter probes by onoff value (optional)
+  onoff_max_value: null
+  
+  # Filter subjects by predictor variability (optional)
+  min_predictor_variability: null
+  
+  # Markers to analyze
+  markers: "all"  # or specify list of markers
+
+# Preprocessing parameters
+preprocessing:
+  # Subject-level normalization
+  normalize_by_subject: true
+  subject_column: "subject"
+  normalization_method: "zscore"
+  channel_wise: false
+
+# Linear mixed model parameters
+lmm:
+  # Formula for the LMM
+  # Same syntax as current pipeline
+  formula: "power ~ onoff + time_on_task + valence + selfother + time + (1|subject)"
+  
+  # Predictor of interest (will be permuted and tested)
+  predictor_of_interest: "onoff"
+  
+  # LMM fitting parameters
+  method: "powell"  # Optimization method
+  maxiter: 5000     # Maximum iterations
+  random_state: 42  # Random seed
+
+# Andrillon 2020 Cluster-Permutation Parameters
+# ================================================
+# This section implements the specific methodology from Andrillon et al. (2020)
+andrillon_clustering:
+  # Cluster alpha: p-value threshold for candidate clusters
+  # Andrillon uses 0.025 (paper line 103-104)
+  # "Candidate clusters were defined as neighbouring electrodes with a 
+  # p-value below a threshold (called cluster alpha) of 0.025"
+  cluster_alpha: 0.025
+  
+  # Number of permutations
+  # Andrillon uses 1000 (paper line 106-107)
+  # "We then created permuted datasets by permuting the labels of the 
+  # predictor within each subject, each task and each electrode (N=1,000 permutations)"
+  n_permutations: 100
+  
+  # Parallel processing for permutations
+  # -1 = use all available CPUs, 1 = sequential (for debugging)
+  n_jobs: -1
+  
+  # Monte Carlo alpha: threshold for significant clusters
+  # Andrillon uses 0.05 (paper line 111-113)
+  # "A Monte-Carlo p-value was derived from this comparison (p_cluster<0.05...)"
+  montecarlo_alpha: 0.05
+  
+  # Cluster statistic function
+  # Andrillon uses "sum" of t-values (paper line 104-105)
+  # "For each candidate cluster, we computed the sum of the t-values for all 
+  # the electrodes belonging to the cluster"
+  stat_fun: "sum"  # Always "sum" for Andrillon method
+  
+  # Bonferroni correction for multiple comparisons
+  # Andrillon applies this when testing multiple markers (paper line 114-115)
+  # "In cases where several cluster-permutations were performed in the same 
+  # analysis (Fig. 5 and 6), we corrected the Monte-Carlo p-values of the 
+  # real clusters with the Bonferroni method"
+  bonferroni_correction: true
+  
+  # Permutation strategy
+  # Andrillon permutes within subject × task × electrode
+  # Since we fit per electrode, we permute within subject × task
+  permutation_within: ["subject", "task"]
+  
+  # Random seed for reproducibility
+  seed: 42
+
+# Channel exclusion (same as current pipeline)
+# Prevents boundary artifacts by excluding edge channels from clustering
+channel_exclusion:
+  enabled: true
+  method: "manual"
+  
+  # Edge channels to exclude from clustering
+  # These channels are still tested but cannot form/connect clusters
+  channel_names:
+    # Most extreme lateral (|Theta| >= 90°)
+    - "FT9"
+    - "TP9"
+    - "FT10"
+    - "TP10"
+    - "F7"
+    - "F8"
+    - "T7"
+    - "T8"
+    - "P7"
+    - "P8"
+    # Extreme anterior
+    - "Fp1"
+    - "Fp2"
+    # Extreme posterior
+    - "Iz"
+
+# Multiple comparisons correction
+# Applied when testing multiple markers
+multiple_comparisons:
+  # Correction method for evoked markers
+  # Options:
+  #   - "bonferroni": Bonferroni correction (Andrillon method)
+  #   - "fdr_bh" or "fdr_indep": Benjamini-Hochberg FDR
+  #   - "none" or false: No correction
+  evoked: "bonferroni"  # Andrillon uses Bonferroni
+  
+  # Correction for state markers
+  state: "bonferroni"
+  
+  # Alpha level
+  alpha: 0.05
+
+# Output options
+output:
+  save_pickle: true
+  save_csv: true
+  save_figures: true
+  fig_format: "png"
+  fig_dpi: 300
+  overwrite: true
+  
+  # Save permutation results (can be large files)
+  # Useful for debugging and validation
+  save_permutations: false
+
+# ============================================================================
+# COMPARISON WITH CURRENT PIPELINE
+# ============================================================================
+#
+# Key Differences from Statistics/config.yaml:
+#
+# 1. PERMUTATION METHOD:
+#    - Current: Freedman-Lane (permutes residuals from reduced model)
+#    - Andrillon: Simple permutation (permutes predictor labels within groups)
+#
+# 2. CLUSTER THRESHOLD:
+#    - Current: Fixed t-threshold (e.g., t > 3.0)
+#    - Andrillon: P-value threshold (p < 0.025)
+#
+# 3. CLUSTER STATISTIC:
+#    - Current: Sum of F-values (from ANOVA-style test)
+#    - Andrillon: Sum of t-values (from LMM predictor)
+#
+# 4. MULTIPLE COMPARISONS:
+#    - Current: FDR correction
+#    - Andrillon: Bonferroni correction
+#
+# 5. NO TFCE:
+#    - Current: Optional TFCE
+#    - Andrillon: Not used (only threshold-based clustering)
+#
+# ============================================================================
+# QUICK REFERENCE: Formula Patterns
+# ============================================================================
+#
+# Same as current pipeline - see Statistics/config.yaml for examples
+#
+# 1. Single predictor:
+#    formula: "power ~ onoff + (1|subject)"
+#    predictor_of_interest: "onoff"
+#
+# 2. Multiple predictors:
+#    formula: "power ~ onoff + valence + (1|subject)"
+#    predictor_of_interest: "onoff"
+#
+# 3. Interaction:
+#    formula: "power ~ onoff * valence + (1|subject)"
+#    predictor_of_interest: "onoff"  # or "onoff:valence" for interaction
+#
+# ============================================================================

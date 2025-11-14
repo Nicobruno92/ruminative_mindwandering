@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 import mne
 import logging
-from typing import Tuple, List, Literal
+from typing import Tuple, List, Literal, Dict
 from scipy.sparse import issparse, csr_matrix, coo_array
 from scipy.sparse.csgraph import connected_components
 from scipy import ndimage
@@ -1298,6 +1298,113 @@ def _find_clusters(
     
     # For one-sided tests, use the single tail function
     return _find_clusters_single_tail(t_stats, adjacency, threshold_mask, stat_fun, t_power)
+
+
+def find_clusters(
+    t_stats: np.ndarray,
+    perm_t_stats: np.ndarray,
+    adjacency: np.ndarray,
+    threshold: float,
+    tail: int = 0,
+    n_permutations: int = None,
+    stat_fun: str = 'sum',
+    t_power: float = 1.0
+) -> List[Dict]:
+    """
+    Find significant spatial clusters using permutation testing.
+    
+    This is a public wrapper for cluster detection with permutation-based p-values,
+    designed for use with pre-computed permutation distributions (e.g., Andrillon pipeline).
+    
+    Parameters
+    ----------
+    t_stats : np.ndarray
+        Observed t-statistics, shape (n_channels,)
+    perm_t_stats : np.ndarray
+        Permutation t-statistics, shape (n_permutations, n_channels)
+    adjacency : np.ndarray or sparse matrix
+        Spatial adjacency matrix
+    threshold : float
+        Threshold for cluster formation (absolute value)
+    tail : int, default=0
+        - 0: two-sided test
+        - -1: one-sided less
+        - 1: one-sided greater
+    n_permutations : int, optional
+        Number of permutations (inferred from perm_t_stats if not provided)
+    stat_fun : str, default='sum'
+        Cluster statistic: 'sum' or 'max'
+    t_power : float, default=1.0
+        Power to raise t-values before summing
+        
+    Returns
+    -------
+    clusters : List[Dict]
+        List of significant clusters, each containing:
+        - 'channels': np.ndarray of channel indices
+        - 'stat': float, cluster statistic
+        - 'p_value': float, permutation p-value
+        
+    Examples
+    --------
+    >>> # After computing observed and permutation t-stats
+    >>> clusters = find_clusters(
+    ...     t_stats=observed_t,
+    ...     perm_t_stats=perm_t,
+    ...     adjacency=adj_matrix,
+    ...     threshold=2.0,
+    ...     tail=1
+    ... )
+    """
+    if n_permutations is None:
+        n_permutations = perm_t_stats.shape[0]
+    
+    # Find clusters in observed data
+    obs_clusters, obs_cluster_stats = _find_clusters(
+        t_stats=t_stats,
+        adjacency=adjacency,
+        threshold=threshold,
+        tail=tail,
+        stat_fun=stat_fun,
+        t_power=t_power
+    )
+    
+    if len(obs_clusters) == 0:
+        return []
+    
+    # Build null distribution of maximum cluster statistics
+    null_max_stats = []
+    for perm_idx in range(n_permutations):
+        perm_clusters, perm_cluster_stats = _find_clusters(
+            t_stats=perm_t_stats[perm_idx, :],
+            adjacency=adjacency,
+            threshold=threshold,
+            tail=tail,
+            stat_fun=stat_fun,
+            t_power=t_power
+        )
+        
+        if len(perm_clusters) > 0:
+            # Use maximum absolute cluster statistic
+            null_max_stats.append(np.max(np.abs(perm_cluster_stats)))
+        else:
+            null_max_stats.append(0.0)
+    
+    null_max_stats = np.array(null_max_stats)
+    
+    # Compute p-values for each observed cluster
+    significant_clusters = []
+    for cluster_idx, (cluster_channels, cluster_stat) in enumerate(zip(obs_clusters, obs_cluster_stats)):
+        # P-value: proportion of permutations with max stat >= observed stat
+        p_value = np.mean(null_max_stats >= np.abs(cluster_stat))
+        
+        significant_clusters.append({
+            'channels': cluster_channels,
+            'stat': float(cluster_stat),
+            'p_value': float(p_value)
+        })
+    
+    return significant_clusters
 
 
 def _compute_bootstrap_ci(

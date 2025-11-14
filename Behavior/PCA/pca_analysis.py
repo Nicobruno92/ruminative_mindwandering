@@ -590,7 +590,7 @@ pt.RainCloud(x="group", y="probe_number", hue="group", data=distribution_offtask
             pointplot=True, move=0.15)
 plt.show()
 
-# %%
+[# %%
 # Model 1: Group effect (Controls vs Risk of Depression)
 print("\n" + "="*60)
 print("MODEL 1: PC ~ GROUP")
