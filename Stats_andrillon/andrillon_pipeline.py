@@ -272,47 +272,47 @@ def run_marker_analysis(
     return results
 
 
- def save_results(results: Dict, output_dir: Path, marker_name: str):
-     """Save analysis results.
+def save_results(results: Dict, output_dir: Path, marker_name: str):
+    """Save analysis results.
 
-     Uses a filesystem-safe marker name so that path separators in
-     marker identifiers (e.g., "state/wsmi_theta") do not create
-     unintended subdirectories.
-     """
-     output_dir.mkdir(parents=True, exist_ok=True)
+    Uses a filesystem-safe marker name so that path separators in
+    marker identifiers (e.g., "state/wsmi_theta") do not create
+    unintended subdirectories.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-     # Create a safe filename component from the marker name
-     # Examples:
-     #   "state/wsmi_theta" -> "state_wsmi_theta"
-     #   "evoked/wsmi_theta" -> "evoked_wsmi_theta"
-     safe_marker_name = marker_name.replace('/', '_')
+    # Create a safe filename component from the marker name
+    # Examples:
+    #   "state/wsmi_theta" -> "state_wsmi_theta"
+    #   "evoked/wsmi_theta" -> "evoked_wsmi_theta"
+    safe_marker_name = marker_name.replace('/', '_')
 
-     # Save pickle
-     pickle_path = output_dir / f"{safe_marker_name}_results.pkl"
-     logger.info(f"Saving results to {pickle_path}")
-     with open(pickle_path, 'wb') as f:
-         pickle.dump(results, f)
+    # Save pickle
+    pickle_path = output_dir / f"{safe_marker_name}_results.pkl"
+    logger.info(f"Saving results to {pickle_path}")
+    with open(pickle_path, 'wb') as f:
+        pickle.dump(results, f)
 
-     # Save CSV summary
-     if results['clusters']:
-         csv_path = output_dir / f"{safe_marker_name}_clusters.csv"
-         logger.info(f"Saving cluster summary to {csv_path}")
+    # Save CSV summary
+    if results['clusters']:
+        csv_path = output_dir / f"{safe_marker_name}_clusters.csv"
+        logger.info(f"Saving cluster summary to {csv_path}")
 
-         cluster_data = []
-         for i, cluster in enumerate(results['clusters']):
-             cluster_data.append({
-                 'cluster_id': i,
-                 'cluster_type': cluster.cluster_type,
-                 'n_electrodes': len(cluster.electrodes),
-                 'electrodes': ','.join(map(str, cluster.electrodes)),
-                 'cluster_stat': cluster.cluster_stat,
-                 'p_value': cluster.p_value,
-             })
+        cluster_data = []
+        for i, cluster in enumerate(results['clusters']):
+            cluster_data.append({
+                'cluster_id': i,
+                'cluster_type': cluster.cluster_type,
+                'n_electrodes': len(cluster.electrodes),
+                'electrodes': ','.join(map(str, cluster.electrodes)),
+                'cluster_stat': cluster.cluster_stat,
+                'p_value': cluster.p_value,
+            })
 
-         df = pd.DataFrame(cluster_data)
-         df.to_csv(csv_path, index=False)
-     else:
-         logger.info("No significant clusters found - skipping CSV")
+        df = pd.DataFrame(cluster_data)
+        df.to_csv(csv_path, index=False)
+    else:
+        logger.info("No significant clusters found - skipping CSV")
 
 
 def run_andrillon_pipeline(
