@@ -26,18 +26,18 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
- # Add Statistics directory to path to import existing modules
- stats_dir = Path(__file__).parent.parent / "Statistics"
- sys.path.insert(0, str(stats_dir))
+# Add Statistics directory to path to import existing modules
+stats_dir = Path(__file__).parent.parent / "Statistics"
+sys.path.insert(0, str(stats_dir))
 
- # Import ALL functions from the proven Statistics pipeline
- from reader import load_all_probe_data, prepare_data_for_lmm, get_available_markers
- from cluster_test import get_channel_adjacency, find_clusters
- from lmm_model import run_lmm_per_channel
- # from visualization import plot_cluster_results  # For later use - module not yet created
+# Import ALL functions from the proven Statistics pipeline
+from reader import load_all_probe_data, prepare_data_for_lmm, get_available_markers
+from cluster_test import get_channel_adjacency, find_clusters
+from lmm_model import run_lmm_per_channel
+# from visualization import plot_cluster_results  # For later use - module not yet created
 
- # Import from local Stats_andrillon modules
- from cluster_detection import apply_bonferroni_correction
+# Import from local Stats_andrillon modules
+from cluster_detection import apply_bonferroni_correction
 
 logging.basicConfig(
     level=logging.INFO,
