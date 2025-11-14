@@ -26,18 +26,18 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-# Add Statistics directory to path to import existing modules
-stats_dir = Path(__file__).parent.parent / "Statistics"
-sys.path.insert(0, str(stats_dir))
+ # Add Statistics directory to path to import existing modules
+ stats_dir = Path(__file__).parent.parent / "Statistics"
+ sys.path.insert(0, str(stats_dir))
 
-# Import ALL functions from the proven Statistics pipeline
-from reader import load_all_probe_data, prepare_data_for_lmm, get_available_markers
-from cluster_test import get_channel_adjacency, find_clusters
-from lmm_model import run_lmm_per_channel
-# from visualization import plot_cluster_results  # For later use - module not yet created
+ # Import ALL functions from the proven Statistics pipeline
+ from reader import load_all_probe_data, prepare_data_for_lmm, get_available_markers
+ from cluster_test import get_channel_adjacency, find_clusters
+ from lmm_model import run_lmm_per_channel
+ # from visualization import plot_cluster_results  # For later use - module not yet created
 
-# Import from local Stats_andrillon modules
-from cluster_detection import apply_bonferroni_correction
+ # Import from local Stats_andrillon modules
+ from cluster_detection import apply_bonferroni_correction
 
 logging.basicConfig(
     level=logging.INFO,
@@ -272,36 +272,47 @@ def run_marker_analysis(
     return results
 
 
-def save_results(results: Dict, output_dir: Path, marker_name: str):
-    """Save analysis results."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save pickle
-    pickle_path = output_dir / f"{marker_name}_results.pkl"
-    logger.info(f"Saving results to {pickle_path}")
-    with open(pickle_path, 'wb') as f:
-        pickle.dump(results, f)
-    
-    # Save CSV summary
-    if results['clusters']:
-        csv_path = output_dir / f"{marker_name}_clusters.csv"
-        logger.info(f"Saving cluster summary to {csv_path}")
-        
-        cluster_data = []
-        for i, cluster in enumerate(results['clusters']):
-            cluster_data.append({
-                'cluster_id': i,
-                'cluster_type': cluster.cluster_type,
-                'n_electrodes': len(cluster.electrodes),
-                'electrodes': ','.join(map(str, cluster.electrodes)),
-                'cluster_stat': cluster.cluster_stat,
-                'p_value': cluster.p_value,
-            })
-        
-        df = pd.DataFrame(cluster_data)
-        df.to_csv(csv_path, index=False)
-    else:
-        logger.info("No significant clusters found - skipping CSV")
+ def save_results(results: Dict, output_dir: Path, marker_name: str):
+     """Save analysis results.
+
+     Uses a filesystem-safe marker name so that path separators in
+     marker identifiers (e.g., "state/wsmi_theta") do not create
+     unintended subdirectories.
+     """
+     output_dir.mkdir(parents=True, exist_ok=True)
+
+     # Create a safe filename component from the marker name
+     # Examples:
+     #   "state/wsmi_theta" -> "state_wsmi_theta"
+     #   "evoked/wsmi_theta" -> "evoked_wsmi_theta"
+     safe_marker_name = marker_name.replace('/', '_')
+
+     # Save pickle
+     pickle_path = output_dir / f"{safe_marker_name}_results.pkl"
+     logger.info(f"Saving results to {pickle_path}")
+     with open(pickle_path, 'wb') as f:
+         pickle.dump(results, f)
+
+     # Save CSV summary
+     if results['clusters']:
+         csv_path = output_dir / f"{safe_marker_name}_clusters.csv"
+         logger.info(f"Saving cluster summary to {csv_path}")
+
+         cluster_data = []
+         for i, cluster in enumerate(results['clusters']):
+             cluster_data.append({
+                 'cluster_id': i,
+                 'cluster_type': cluster.cluster_type,
+                 'n_electrodes': len(cluster.electrodes),
+                 'electrodes': ','.join(map(str, cluster.electrodes)),
+                 'cluster_stat': cluster.cluster_stat,
+                 'p_value': cluster.p_value,
+             })
+
+         df = pd.DataFrame(cluster_data)
+         df.to_csv(csv_path, index=False)
+     else:
+         logger.info("No significant clusters found - skipping CSV")
 
 
 def run_andrillon_pipeline(
@@ -421,27 +432,27 @@ def run_andrillon_pipeline(
                 # Re-save with correction
                 output_dir = output_root / model_folder / marker
                 save_results(results, output_dir, marker)
-    
+
     # Final summary
     print("\n" + "="*80, flush=True)
     print("PIPELINE COMPLETE", flush=True)
     print("="*80, flush=True)
     print(f"Analyzed {len(all_results)} markers successfully", flush=True)
-    
+
     total_clusters = sum(len(r['clusters']) for r in all_results.values())
     print(f"Total significant clusters found: {total_clusters}", flush=True)
-    
+
     print(f"\nResults saved to: {output_root / model_folder}", flush=True)
-    
+
     logger.info("\n" + "="*80)
     logger.info("PIPELINE COMPLETE")
     logger.info("="*80)
     logger.info(f"Analyzed {len(all_results)} markers successfully")
-    
+
     logger.info(f"Total significant clusters found: {total_clusters}")
-    
+
     logger.info(f"\nResults saved to: {output_root / model_folder}")
-    
+
     return all_results
 
 
