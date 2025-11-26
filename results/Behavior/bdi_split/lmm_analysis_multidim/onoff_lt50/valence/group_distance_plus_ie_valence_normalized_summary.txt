@@ -1,0 +1,39 @@
+                          Mixed Linear Model Regression Results
+==========================================================================================
+Model:                      MixedLM         Dependent Variable:         valence_normalized
+No. Observations:           469             Method:                     REML              
+No. Groups:                 33              Scale:                      201.1028          
+Min. group size:            1               Log-Likelihood:             -1929.2685        
+Max. group size:            30              Converged:                  Yes               
+Mean group size:            14.2                                                          
+------------------------------------------------------------------------------------------
+                                               Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+------------------------------------------------------------------------------------------
+Intercept                                     -10.025    4.750 -2.110 0.035 -19.336 -0.715
+group_bdi3[T.Controls High BDI]                 3.450    6.213  0.555 0.579  -8.727 15.627
+group_bdi3[T.Risk of Depression]                2.777    6.046  0.459 0.646  -9.073 14.627
+inclusion_exclusion[T.inclusion]                7.968    1.391  5.729 0.000   5.242 10.694
+probe_number                                   -0.186    0.336 -0.554 0.580  -0.845  0.473
+group_bdi3[T.Controls High BDI]:probe_number    0.059    0.439  0.135 0.892  -0.801  0.919
+group_bdi3[T.Risk of Depression]:probe_number  -0.144    0.407 -0.355 0.723  -0.941  0.653
+subject_id Var                                101.655    2.698                            
+==========================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 3874.536961
+BIC: 3907.741783
+LOG_LIKELIHOOD: -1929.268480
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 469
+N_GROUPS: 33
+N_PARAMETERS: 8
+N_FIXED_EFFECTS: 7
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 201.102794
+DEVIANCE: 3858.536961
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

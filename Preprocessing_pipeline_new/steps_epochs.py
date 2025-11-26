@@ -161,24 +161,21 @@ def make_state_preprobe_epochs(
         return None
 
     # Remove previously created state/preprobe annotations to avoid duplication
-    try:
-        keep_idx = [
-            i
-            for i, d in enumerate(ann.description)
-            if not (isinstance(d, str) and d.startswith("state/preprobe"))
-        ]
-        if len(keep_idx) != len(ann):
-            raw.set_annotations(
-                mne.Annotations(
-                    onset=[ann.onset[i] for i in keep_idx],
-                    duration=[ann.duration[i] for i in keep_idx],
-                    description=[ann.description[i] for i in keep_idx],
-                    orig_time=ann.orig_time,
-                )
+    keep_idx = [
+        i
+        for i, d in enumerate(ann.description)
+        if not (isinstance(d, str) and d.startswith("state/preprobe"))
+    ]
+    if len(keep_idx) != len(ann):
+        raw.set_annotations(
+            mne.Annotations(
+                onset=[ann.onset[i] for i in keep_idx],
+                duration=[ann.duration[i] for i in keep_idx],
+                description=[ann.description[i] for i in keep_idx],
+                orig_time=ann.orig_time,
             )
-            ann = raw.annotations
-    except Exception:
-        pass
+        )
+        ann = raw.annotations
 
     step = max(0.01, float(mini_epoch_s) - float(overlap_s))
 
@@ -186,6 +183,11 @@ def make_state_preprobe_epochs(
     new_onsets: List[float] = []
     new_durs: List[float] = []
     new_desc: List[str] = []
+    
+    # Track statistics for diagnostics
+    n_probes_total = len(tp_records)
+    n_probes_truncated = 0
+    n_windows_created = 0
 
     for tp_onset, probe_tail in tp_records:
         start = max(0.0, tp_onset - float(pre_probe_s))
@@ -193,6 +195,10 @@ def make_state_preprobe_epochs(
         big_dur = max(0.0, stop - start)
         if big_dur <= 0.0:
             continue
+        
+        # Track if this probe's window is truncated
+        if tp_onset < float(pre_probe_s):
+            n_probes_truncated += 1
 
         # Big preprobe window annotation
         new_onsets.append(start)
@@ -218,25 +224,29 @@ def make_state_preprobe_epochs(
             new_onsets.append(float(t))
             new_durs.append(float(mini_epoch_s))
             new_desc.append(win_label)
+            n_windows_created += 1
 
             t += step
 
     # If we didn't add any mini-window annotations, nothing to epoch
     if not new_onsets:
         return None
+    
+    # Print diagnostics about window creation
+    print(f"  State window creation: {n_probes_total} probes found")
+    if n_probes_truncated > 0:
+        print(f"    WARNING: {n_probes_truncated} probes truncated (occurred <{pre_probe_s}s into recording)")
+    print(f"    Created {n_windows_created} mini-windows (step={step:.2f}s)")
 
     # Append new annotations in a single set_annotations call to keep orig_time
-    try:
-        ann = raw.annotations
-        extra = mne.Annotations(
-            onset=new_onsets,
-            duration=new_durs,
-            description=new_desc,
-            orig_time=ann.orig_time if ann is not None else None,
-        )
-        raw.set_annotations(ann + extra if ann is not None else extra)
-    except Exception:
-        pass
+    ann = raw.annotations
+    extra = mne.Annotations(
+        onset=new_onsets,
+        duration=new_durs,
+        description=new_desc,
+        orig_time=ann.orig_time if ann is not None else None,
+    )
+    raw.set_annotations(ann + extra if ann is not None else extra)
 
     # Build events from annotations so each mini-window keeps full description
     events_all, id_map_all = mne.events_from_annotations(raw, event_id='auto')
@@ -250,7 +260,8 @@ def make_state_preprobe_epochs(
         return None
     events, event_id = mne.events_from_annotations(raw, event_id=filtered_map)
 
-    return mne.Epochs(
+    # Create epochs with verbose output to see rejections
+    epochs = mne.Epochs(
         raw=raw,
         events=events,
         event_id=event_id,
@@ -263,5 +274,156 @@ def make_state_preprobe_epochs(
         preload=True,  # Required for AutoReject
         verbose=False,
     )
+    
+    # Log rejection statistics
+    n_created = len(event_id)
+    n_kept = len(epochs)
+    n_dropped = n_created - n_kept
+    if n_dropped > 0:
+        print(f"  State epochs: {n_kept}/{n_created} kept ({n_dropped} dropped by reject/annotations)")
+    
+    return epochs
 
+
+
+def make_sleep_preprobe_epochs(
+    raw: mne.io.BaseRaw,
+    pre_probe_s: float,
+    reject: Optional[Dict[str, float]] = None,
+    reject_by_annotation: bool = True,
+) -> Optional[mne.Epochs]:
+
+    ann = raw.annotations
+    if ann is None or len(ann) == 0:
+        return None
+
+    tp_records = []
+
+    def _ensure_bins_and_label(tail: str) -> str:
+        if not isinstance(tail, str) or not tail:
+            return tail
+
+        parts = [
+            p for p in tail.split('/') if isinstance(p, str) and len(p) > 0
+        ]
+
+        onoff_val = None
+        dim_vals = {k: None for k in [
+            'onoff', 'selfother', 'valence', 'time', 'confidence', 'average']}
+        for p in parts:
+            for key in dim_vals.keys():
+                if p.startswith(key):
+                    digits = ''.join(ch for ch in p if ch.isdigit())
+                    if digits:
+                        try:
+                            dim_vals[key] = int(digits)
+                        except Exception:
+                            dim_vals[key] = None
+        onoff_val = dim_vals['onoff']
+
+        existing_bin_prefixes = {
+            q.split('Bin')[0] + 'Bin' for q in parts if 'Bin' in q
+        }
+        for key, val in dim_vals.items():
+            if val is None:
+                continue
+            prefix = f"{key}Bin"
+            if prefix in existing_bin_prefixes:
+                continue
+            bin_val = 1 if val >= 50 else 0
+            parts.append(f"{prefix}{bin_val}")
+
+        has_label = any(q in ['ontask', 'offtask'] for q in parts)
+        if (not has_label) and (onoff_val is not None):
+            parts.append('ontask' if onoff_val >= 50 else 'offtask')
+
+        return '/'.join(parts)
+
+    for onset, desc in zip(ann.onset, ann.description):
+        if isinstance(desc, str) and desc.startswith("THOUGHT_PROBE"):
+            if "/" in desc:
+                probe_tail = _ensure_bins_and_label(desc.split("/", 1)[1])
+            else:
+                probe_tail = ""
+            tp_records.append((float(onset), probe_tail))
+
+    if not tp_records:
+        return None
+
+    keep_idx = [
+        i
+        for i, d in enumerate(ann.description)
+        if not (isinstance(d, str) and d.startswith("sleep/preprobe"))
+    ]
+    if len(keep_idx) != len(ann):
+        raw.set_annotations(
+            mne.Annotations(
+                onset=[ann.onset[i] for i in keep_idx],
+                duration=[ann.duration[i] for i in keep_idx],
+                description=[ann.description[i] for i in keep_idx],
+                orig_time=ann.orig_time,
+            )
+        )
+        ann = raw.annotations
+
+    new_onsets: List[float] = []
+    new_durs: List[float] = []
+    new_desc: List[str] = []
+
+    for tp_onset, probe_tail in tp_records:
+        if float(tp_onset) < float(pre_probe_s):
+            continue
+        start = float(tp_onset) - float(pre_probe_s)
+        dur = float(pre_probe_s)
+        new_onsets.append(start)
+        new_durs.append(dur)
+        label = "sleep/preprobe_win/" + (
+            f"THOUGHT_PROBE/{probe_tail}" if probe_tail else "THOUGHT_PROBE"
+        )
+        new_desc.append(label)
+
+    if not new_onsets:
+        return None
+
+    ann = raw.annotations
+    extra = mne.Annotations(
+        onset=new_onsets,
+        duration=new_durs,
+        description=new_desc,
+        orig_time=ann.orig_time if ann is not None else None,
+    )
+    raw.set_annotations(ann + extra if ann is not None else extra)
+
+    events_all, id_map_all = mne.events_from_annotations(raw, event_id='auto')
+    filtered_map = {
+        k: v
+        for k, v in id_map_all.items()
+        if isinstance(k, str) and k.startswith('sleep/preprobe_win/')
+    }
+    if not filtered_map:
+        return None
+    events, event_id = mne.events_from_annotations(raw, event_id=filtered_map)
+
+    epochs = mne.Epochs(
+        raw=raw,
+        events=events,
+        event_id=event_id,
+        tmin=0.0,
+        tmax=float(pre_probe_s),
+        baseline=None,
+        reject=reject,
+        reject_by_annotation=reject_by_annotation,
+        event_repeated="drop",
+        preload=True,
+        verbose=False,
+    )
+
+    # Log rejection statistics
+    n_created = len(event_id)
+    n_kept = len(epochs)
+    n_dropped = n_created - n_kept
+    if n_dropped > 0:
+        print(f"  Sleep epochs: {n_kept}/{n_created} kept ({n_dropped} dropped by reject/annotations)")
+
+    return epochs
 

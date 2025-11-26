@@ -29,10 +29,10 @@ echo "=========================================="
 echo "GENERATING ANDRILLON SUMMARY REPORT"
 echo "=========================================="
 echo "Start time: $(date)"
-echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_time_on_task_valence_selfother_time"
+echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff"
 echo ""
 
-python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_time_on_task_valence_selfother_time
+python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff
 
 EXIT_CODE=$?
 

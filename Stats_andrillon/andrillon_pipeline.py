@@ -21,10 +21,13 @@ import yaml
 import pickle
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
 import numpy as np
 import pandas as pd
+import mne
 from scipy import sparse
+from scipy import stats as sp_stats
 
 # Add Statistics directory to path to import existing modules
 stats_dir = Path(__file__).parent.parent / "Statistics"
@@ -32,12 +35,13 @@ sys.path.insert(0, str(stats_dir))
 
 # Import ALL functions from the proven Statistics pipeline
 from reader import load_all_probe_data, prepare_data_for_lmm, get_available_markers
-from cluster_test import get_channel_adjacency, find_clusters
+from cluster_test import get_channel_adjacency, find_clusters_from_pvalues
 from lmm_model import run_lmm_per_channel
-# from visualization import plot_cluster_results  # For later use - module not yet created
+from helpers import extract_fixed_effects_from_formula
 
 # Import from local Stats_andrillon modules
-from cluster_detection import apply_bonferroni_correction
+from plot_results import create_results_report, create_raw_topography_report
+from generate_summary_report import generate_summary_report
 
 logging.basicConfig(
     level=logging.INFO,
@@ -145,14 +149,19 @@ def run_marker_analysis(
             df_filtered = df_all
         
         # Prepare data for this specific marker (using base name without type prefix)
+        preprocessing_cfg = config.get('preprocessing', {})
+        project_cfg = config.get('project', {})
+        onoff_max_value = preprocessing_cfg.get('onoff_max_value', project_cfg.get('onoff_max_value'))
+        min_predictor_variability = preprocessing_cfg.get('min_predictor_variability', project_cfg.get('min_predictor_variability'))
+
         power_data, df_behavioral, channels = prepare_data_for_lmm(
             df=df_filtered,
             marker_name=marker_base_name,
             formula=config['lmm']['formula'],
-            include_channels=config['preprocessing'].get('include_channels'),
-            exclude_channels=config['preprocessing'].get('exclude_channels'),
-            onoff_max_value=config['preprocessing'].get('onoff_max_value'),
-            min_predictor_variability=config['preprocessing'].get('min_predictor_variability'),
+            include_channels=preprocessing_cfg.get('include_channels'),
+            exclude_channels=preprocessing_cfg.get('exclude_channels'),
+            onoff_max_value=onoff_max_value,
+            min_predictor_variability=min_predictor_variability,
             predictor_of_interest=config['lmm']['predictor_of_interest'],
         )
         
@@ -160,6 +169,37 @@ def run_marker_analysis(
         df_behavioral['subject'] = df_behavioral['subject'].astype(str)
         
         logger.info(f"  Loaded {power_data.shape[0]} observations × {power_data.shape[1]} channels")
+        
+        # Create output directory consistent with main Statistics pipeline
+        output_root = Path(config['project']['output_path'])
+        model_folder = extract_fixed_effects_from_formula(config['lmm']['formula'])
+        if marker_type:
+            safe_marker_name = marker_base_name.replace('/', '_').replace(' ', '_')
+            marker_folder = f"{marker_type}_{safe_marker_name}"
+        else:
+            marker_folder = marker_base_name.replace('/', '_').replace(' ', '_')
+        output_dir = output_root / model_folder / marker_folder
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create Info object aligned to the original channel order for raw topographies
+        if montage_path.endswith('.bvef'):
+            montage = mne.channels.read_custom_montage(montage_path)
+        else:
+            montage = mne.channels.make_standard_montage(montage_path)
+        info_raw = mne.create_info(ch_names=list(channels), sfreq=250, ch_types='eeg')
+        info_raw.set_montage(montage, on_missing='ignore')
+        
+        # Generate raw topography report before statistical analysis
+        create_raw_topography_report(
+            power_data=power_data,
+            df_behavioral=df_behavioral,
+            ch_names=channels,
+            info=info_raw,
+            marker_name=marker_name,
+            output_dir=str(output_dir),
+            subject_col='subject',
+            predictor_of_interest=config['lmm']['predictor_of_interest'],
+        )
     except Exception as e:
         logger.error(f"Failed to load marker data: {e}")
         import traceback
@@ -201,8 +241,9 @@ def run_marker_analysis(
     print(f"  Running {n_permutations} permutations", flush=True)
     logger.info(f"  Running {n_permutations} permutations")
     
-    # Store permutation t-stats
+    # Store permutation t- and p-stats
     perm_t_stats = np.zeros((n_permutations, len(channels)))
+    perm_p_values = np.ones((n_permutations, len(channels)))
     permutation_within = config['andrillon_clustering']['permutation_within']
     
     for perm_idx in range(n_permutations):
@@ -218,7 +259,7 @@ def run_marker_analysis(
             df_perm.loc[indices, predictor] = permuted_values
         
         # Fit LMM with permuted data
-        perm_t, _, _ = run_lmm_per_channel(
+        perm_t, perm_p, _ = run_lmm_per_channel(
             power_data=power_data,
             df_behavioral=df_perm,
             formula=formula,
@@ -230,6 +271,7 @@ def run_marker_analysis(
         )
         
         perm_t_stats[perm_idx, :] = perm_t
+        perm_p_values[perm_idx, :] = perm_p
     
     print(f"  Permutations complete", flush=True)
     logger.info(f"  Permutations complete")
@@ -237,35 +279,142 @@ def run_marker_analysis(
     # 4. Build adjacency matrix for these channels
     print("Step 4: Building adjacency matrix...", flush=True)
     logger.info("Step 4: Building adjacency matrix...")
-    adjacency, _, _ = get_channel_adjacency(montage_path, channels)
+    adjacency, ch_names_ordered, channel_indices = get_channel_adjacency(montage_path, channels)
     logger.info(f"  Adjacency matrix shape: {adjacency.shape}")
+
+    # Reorder statistics and channel list to match adjacency / montage order.
+    # This mirrors the main Statistics pipeline to ensure spatial alignment.
+    t_stats = t_stats[channel_indices]
+    p_values = p_values[channel_indices]
+    perm_t_stats = perm_t_stats[:, channel_indices]
+    perm_p_values = perm_p_values[:, channel_indices]
+    channels = [channels[idx] for idx in channel_indices]
+
+    # Build exclusion mask for clustering based on configuration.
+    # Excluded channels are still tested but cannot form or connect clusters.
+    channel_excl_cfg = config.get('channel_exclusion', {})
+    exclude_mask = None
+    if channel_excl_cfg.get('enabled', False):
+        excluded_names = set(channel_excl_cfg.get('channel_names', []))
+        exclude_mask = np.array([ch in excluded_names for ch in channels], dtype=bool)
+
+    # Create MNE Info object for visualization using the canonical channel order
+    # from the adjacency/montage, but restricted to the channels present here.
+    if montage_path.endswith('.bvef'):
+        montage = mne.channels.read_custom_montage(montage_path)
+    else:
+        montage = mne.channels.make_standard_montage(montage_path)
+
+    info = mne.create_info(ch_names=list(channels), sfreq=250, ch_types='eeg')
+    # Ignore missing positions but keep available ones for plotting
+    info.set_montage(montage, on_missing='ignore')
     
     # 5. Detect clusters (using proven find_clusters from Statistics/)
     print("Step 5: Detecting clusters...", flush=True)
     logger.info("Step 5: Detecting clusters...")
-    clusters = find_clusters(
+
+    cluster_alpha = float(config['andrillon_clustering']['cluster_alpha'])
+
+    clusters_raw = find_clusters_from_pvalues(
         t_stats=t_stats,
+        p_values=p_values,
         perm_t_stats=perm_t_stats,
+        perm_p_values=perm_p_values,
         adjacency=adjacency,
-        threshold=config['andrillon_clustering']['cluster_alpha'],
-        tail=1,  # One-tailed test (positive effects)
+        cluster_alpha=cluster_alpha,
+        tail=0,
         n_permutations=n_permutations,
+        stat_fun='sum',
+        t_power=1.0,
+        separate_signs=True,
+        exclude=exclude_mask,
     )
     
-    print(f"  Found {len(clusters)} significant clusters", flush=True)
-    logger.info(f"  Found {len(clusters)} significant clusters")
-    
-    # 6. Package results
+    print(f"  Found {len(clusters_raw)} significant clusters", flush=True)
+    logger.info(f"  Found {len(clusters_raw)} significant clusters")
+
+    # Convert cluster dictionaries to arrays and summary statistics to match
+    # the main Statistics pipeline expectations
+    cluster_channels: List[np.ndarray] = []
+    cluster_stats: List[float] = []
+    cluster_p_values: List[float] = []
+    for cluster in clusters_raw:
+        if isinstance(cluster, dict):
+            ch_idx = np.array(cluster.get('channels', []), dtype=int)
+            stat_val = float(cluster.get('stat')) if cluster.get('stat') is not None else np.nan
+            p_val = float(cluster.get('p_value')) if cluster.get('p_value') is not None else np.nan
+        else:
+            # Fallback for ClusterResult-like objects
+            ch_idx = np.array(getattr(cluster, 'electrodes', []), dtype=int)
+            stat_val = float(getattr(cluster, 'cluster_stat', np.nan))
+            p_val = float(getattr(cluster, 'p_value', np.nan))
+
+        cluster_channels.append(ch_idx)
+        cluster_stats.append(stat_val)
+        cluster_p_values.append(p_val)
+
+    cluster_stats_arr = np.array(cluster_stats, dtype=float) if cluster_stats else np.array([], dtype=float)
+    cluster_p_values_arr = np.array(cluster_p_values, dtype=float) if cluster_p_values else np.array([], dtype=float)
+
+    # Compute number of significant clusters using Andrillon Monte Carlo alpha
+    montecarlo_alpha = config['andrillon_clustering']['montecarlo_alpha']
+    n_clusters = int(cluster_stats_arr.size)
+    n_sig_clusters = int(np.sum(cluster_p_values_arr < montecarlo_alpha)) if n_clusters > 0 else 0
+
+    # Derive an approximate t-threshold for visualization only.
+    # We match the cluster_alpha proportion of the observed |t|-distribution.
+    threshold_t = None
+    if np.any(~np.isnan(t_stats)):
+        t_abs = np.abs(t_stats[~np.isnan(t_stats)])
+        try:
+            q = max(0.0, min(1.0, 1.0 - float(config['andrillon_clustering']['cluster_alpha'])))
+            threshold_t = float(np.quantile(t_abs, q))
+        except Exception:
+            threshold_t = float(np.nanmax(t_abs)) if t_abs.size > 0 else None
+
+    # 6. Package results in a structure compatible with the Statistics pipeline
     results = {
+        # Core identifiers
         'marker_name': marker_name,
-        'clusters': clusters,
-        'real_t_stats': t_stats,
-        'perm_t_stats': perm_t_stats,
-        'real_p_values': p_values,
-        'config': config,
+        'marker_type': marker_type,
+        'marker_base_name': marker_base_name,
+
+        # Channel-wise statistics
+        't_stats': t_stats,
+        'p_values': p_values,
+        'real_t_stats': t_stats,        # Backwards compatibility
+        'real_p_values': p_values,      # Backwards compatibility
+
+        # Cluster information
+        'clusters': cluster_channels,   # List[np.ndarray] for plotting/reporting
+        'cluster_stats': cluster_stats_arr,
+        'cluster_p_values': cluster_p_values_arr,
+        'clusters_raw': clusters_raw,   # Original objects from find_clusters
+        'n_clusters': n_clusters,
+        'n_sig_clusters': n_sig_clusters,
+
+        # Channel / montage info
+        'ch_names': channels,
+        'channels': channels,           # Backwards compatibility
+        'info': info,
+
+        # Data shape and counts
+        'power_data_shape': power_data.shape,
+        'n_subjects': df_behavioral['subject'].nunique(),
         'n_observations': power_data.shape[0],
         'n_electrodes': len(channels),
-        'channels': channels,
+
+        # Model and clustering metadata
+        'config': config,
+        'formula': formula,
+        'predictor_of_interest': predictor,
+        'analysis_timestamp': datetime.now().isoformat(),
+        'clustering_method': 'andrillon_permutation',
+        'threshold': threshold_t,
+        'alpha': montecarlo_alpha,
+        'n_permutations': n_permutations,
+
+        # Diagnostics from LMM fitting
         'diagnostics': diagnostics,
     }
     
@@ -287,48 +436,84 @@ def save_results(results: Dict, output_dir: Path, marker_name: str):
     #   "evoked/wsmi_theta" -> "evoked_wsmi_theta"
     safe_marker_name = marker_name.replace('/', '_')
 
-    # Save pickle
+    # Save pickle (Andrillon-specific filename)
     pickle_path = output_dir / f"{safe_marker_name}_results.pkl"
     logger.info(f"Saving results to {pickle_path}")
     with open(pickle_path, 'wb') as f:
         pickle.dump(results, f)
 
-    # Save CSV summary
-    if results['clusters']:
+    # Save generic results.pkl compatible with Statistics/generate_summary_report.py
+    generic_pickle_path = output_dir / "results.pkl"
+    logger.info(f"Saving generic results to {generic_pickle_path}")
+    with open(generic_pickle_path, 'wb') as f:
+        pickle.dump(results, f)
+
+    # Save CSV summary using the numeric cluster representation
+    clusters = results.get('clusters', [])
+    cluster_stats = np.asarray(results.get('cluster_stats', []), dtype=float)
+    cluster_p_values = np.asarray(results.get('cluster_p_values', []), dtype=float)
+
+    if clusters and cluster_stats.size == len(clusters) and cluster_p_values.size == len(clusters):
         csv_path = output_dir / f"{safe_marker_name}_clusters.csv"
         logger.info(f"Saving cluster summary to {csv_path}")
 
         cluster_data = []
-        for i, cluster in enumerate(results['clusters']):
-            # Support both dict clusters (from Statistics.cluster_test.find_clusters)
-            # and ClusterResult objects (from apply_bonferroni_correction)
-            if isinstance(cluster, dict):
-                channels = cluster.get('channels', [])
-                cluster_stat = cluster.get('stat')
-                p_value = cluster.get('p_value')
-                cluster_type = cluster.get('cluster_type')
-                if cluster_type is None and cluster_stat is not None:
-                    # Infer sign-based type if not explicitly provided
-                    cluster_type = 'positive' if cluster_stat >= 0 else 'negative'
+        for i, ch_idx in enumerate(clusters):
+            # ch_idx is an array of channel indices into results['ch_names'] / 'channels'
+            ch_idx = np.asarray(ch_idx, dtype=int)
+            # Map indices to channel names when available
+            ch_names = results.get('ch_names', results.get('channels', []))
+            if ch_names:
+                cluster_channels = [ch_names[j] for j in ch_idx]
             else:
-                channels = getattr(cluster, 'electrodes', [])
-                cluster_stat = getattr(cluster, 'cluster_stat', None)
-                p_value = getattr(cluster, 'p_value', None)
-                cluster_type = getattr(cluster, 'cluster_type', None)
+                cluster_channels = ch_idx.tolist()
+
+            stat_val = float(cluster_stats[i]) if i < cluster_stats.size else np.nan
+            p_val = float(cluster_p_values[i]) if i < cluster_p_values.size else np.nan
+            cluster_type = 'positive' if np.isfinite(stat_val) and stat_val >= 0 else 'negative'
 
             cluster_data.append({
                 'cluster_id': i,
                 'cluster_type': cluster_type,
-                'n_electrodes': len(channels),
-                'electrodes': ','.join(map(str, channels)),
-                'cluster_stat': cluster_stat,
-                'p_value': p_value,
+                'n_electrodes': len(cluster_channels),
+                'electrodes': ','.join(map(str, cluster_channels)),
+                'cluster_stat': stat_val,
+                'p_value': p_val,
             })
 
         df = pd.DataFrame(cluster_data)
         df.to_csv(csv_path, index=False)
     else:
         logger.info("No significant clusters found - skipping CSV")
+
+    # Optionally generate figures using the shared plotting utilities
+    config = results.get('config', {})
+    output_cfg = config.get('output', {}) if isinstance(config, dict) else {}
+    if output_cfg.get('save_figures', True):
+        t_stats = results.get('t_stats')
+        clusters = results.get('clusters', [])
+        cluster_stats = results.get('cluster_stats')
+        cluster_p_values = results.get('cluster_p_values')
+        info = results.get('info')
+        threshold = results.get('threshold')
+        alpha = results.get('alpha', 0.05)
+
+        if threshold is None or (isinstance(threshold, float) and np.isnan(threshold)):
+            threshold = 0.0
+
+        if t_stats is not None and info is not None and cluster_stats is not None and cluster_p_values is not None:
+            create_results_report(
+                t_stats=t_stats,
+                clusters=clusters,
+                cluster_stats=cluster_stats,
+                cluster_p_values=cluster_p_values,
+                info=info,
+                threshold=threshold,
+                alpha=alpha,
+                marker_name=marker_name,
+                output_dir=str(output_dir),
+                config=config if isinstance(config, dict) else None,
+            )
 
 
 def run_andrillon_pipeline(
@@ -378,12 +563,10 @@ def run_andrillon_pipeline(
     # Create output directory
     output_root = Path(config['project']['output_path'])
     
-    # Determine model folder name from formula
+    # Determine model folder name from formula using the same helper
+    # as the main Statistics pipeline to ensure identical directory names
     formula = config['lmm']['formula']
-    # Extract fixed effects from formula (simple heuristic)
-    fixed_effects = formula.split('~')[1].split('(')[0].strip()
-    predictors = [p.strip() for p in fixed_effects.split('+')]
-    model_folder = '_'.join(predictors)
+    model_folder = extract_fixed_effects_from_formula(formula)
     
     # Run analysis for each marker
     all_results = {}
@@ -401,9 +584,22 @@ def run_andrillon_pipeline(
             
             if results is not None:
                 all_results[marker] = results
-                
-                # Save results
-                output_dir = output_root / model_folder / marker
+
+                # Derive marker-specific output directory consistent with
+                # the main Statistics pipeline: <marker_type>_<marker_name>
+                if '/' in marker:
+                    marker_type, marker_base_name = marker.split('/', 1)
+                else:
+                    marker_type = None
+                    marker_base_name = marker
+
+                safe_marker_name = marker_base_name.replace('/', '_').replace(' ', '_')
+                if marker_type:
+                    marker_folder = f"{marker_type}_{safe_marker_name}"
+                else:
+                    marker_folder = safe_marker_name
+
+                output_dir = output_root / model_folder / marker_folder
                 print(f"Saving results to: {output_dir}", flush=True)
                 logger.info(f"Saving results to: {output_dir}")
                 save_results(results, output_dir, marker)
@@ -416,58 +612,43 @@ def run_andrillon_pipeline(
             logger.error(f"Error analyzing marker {marker}: {e}", exc_info=True)
             continue
     
-    # Apply multiple comparisons correction if needed
-    if len(all_results) > 1 and config['andrillon_clustering']['bonferroni_correction']:
-        print("\n" + "="*80, flush=True)
-        print("Applying Bonferroni correction across markers...", flush=True)
-        print("="*80, flush=True)
-        logger.info("\n" + "="*80)
-        logger.info("Applying Bonferroni correction across markers...")
-        logger.info("="*80)
-        
-        n_comparisons = len(all_results)
-        logger.info(f"Number of comparisons: {n_comparisons}")
-        
-        for marker, results in all_results.items():
-            if results['clusters']:
-                logger.info(f"\nMarker: {marker}")
-                logger.info(f"  Before correction: {len(results['clusters'])} clusters")
-                
-                corrected_clusters = apply_bonferroni_correction(
-                    results['clusters'],
-                    n_comparisons=n_comparisons,
-                )
-                
-                logger.info(f"  After correction: {len(corrected_clusters)} clusters")
-                
-                # Update results
-                results['clusters'] = corrected_clusters
-                results['bonferroni_corrected'] = True
-                results['n_comparisons'] = n_comparisons
-                
-                # Re-save with correction
-                output_dir = output_root / model_folder / marker
-                save_results(results, output_dir, marker)
-
     # Final summary
     print("\n" + "="*80, flush=True)
     print("PIPELINE COMPLETE", flush=True)
     print("="*80, flush=True)
     print(f"Analyzed {len(all_results)} markers successfully", flush=True)
 
-    total_clusters = sum(len(r['clusters']) for r in all_results.values())
-    print(f"Total significant clusters found: {total_clusters}", flush=True)
+    total_clusters = 0
+    for res in all_results.values():
+        cpv = np.asarray(res.get('cluster_p_values', []), dtype=float)
+        total_clusters += int(cpv.size)
+    print(f"Total clusters detected (before MCC): {total_clusters}", flush=True)
 
-    print(f"\nResults saved to: {output_root / model_folder}", flush=True)
+    model_dir = output_root / model_folder
+    print(f"\nResults saved to: {model_dir}", flush=True)
 
     logger.info("\n" + "="*80)
     logger.info("PIPELINE COMPLETE")
     logger.info("="*80)
     logger.info(f"Analyzed {len(all_results)} markers successfully")
+    logger.info(f"Total clusters detected (before MCC): {total_clusters}")
+    logger.info(f"\nResults saved to: {model_dir}")
 
-    logger.info(f"Total significant clusters found: {total_clusters}")
-
-    logger.info(f"\nResults saved to: {output_root / model_folder}")
+    # Generate summary report only when running the full set of markers
+    if marker_name is None and len(all_results) > 0:
+        print("\n" + "-"*80, flush=True)
+        print("Generating Andrillon summary report (topoplots + tables)...", flush=True)
+        print("-"*80, flush=True)
+        try:
+            generate_summary_report(
+                model_dir=model_dir,
+                alpha=config['andrillon_clustering']['montecarlo_alpha'],
+                use_corrected=True,
+                verbose=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to generate Andrillon summary report: {e}", exc_info=True)
+            print(f"Warning: summary report generation failed: {e}", flush=True)
 
     return all_results
 

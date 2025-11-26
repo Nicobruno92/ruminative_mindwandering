@@ -1,0 +1,36 @@
+                    Mixed Linear Model Regression Results
+=============================================================================
+Model:                   MixedLM        Dependent Variable:        confidence
+No. Observations:        2407           Method:                    REML      
+No. Groups:              41             Scale:                     185.3660  
+Min. group size:         45             Log-Likelihood:            -9776.8481
+Max. group size:         60             Converged:                 Yes       
+Mean group size:         58.7                                                
+-----------------------------------------------------------------------------
+                                  Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+-----------------------------------------------------------------------------
+Intercept                         90.325    3.407 26.510 0.000  83.647 97.003
+group_bdi3[T.Controls High BDI]  -10.443    4.853 -2.152 0.031 -19.955 -0.932
+group_bdi3[T.Risk of Depression] -14.235    5.057 -2.815 0.005 -24.148 -4.323
+time_on_task                      -0.066    0.016 -4.119 0.000  -0.098 -0.035
+subject_id Var                   167.361    2.899                            
+=============================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 19563.696107
+BIC: 19592.626789
+LOG_LIKELIHOOD: -9776.848054
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 2407
+N_GROUPS: 41
+N_PARAMETERS: 5
+N_FIXED_EFFECTS: 4
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 185.366038
+DEVIANCE: 19553.696107
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

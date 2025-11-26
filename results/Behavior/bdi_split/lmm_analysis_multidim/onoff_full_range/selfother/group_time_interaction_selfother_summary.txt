@@ -1,0 +1,38 @@
+                          Mixed Linear Model Regression Results
+==========================================================================================
+Model:                       MixedLM            Dependent Variable:            selfother  
+No. Observations:            2407               Method:                        REML       
+No. Groups:                  41                 Scale:                         429.2760   
+Min. group size:             45                 Log-Likelihood:                -10792.9173
+Max. group size:             60                 Converged:                     Yes        
+Mean group size:             58.7                                                         
+------------------------------------------------------------------------------------------
+                                               Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+------------------------------------------------------------------------------------------
+Intercept                                      59.510    5.854 10.166 0.000  48.037 70.984
+group_bdi3[T.Controls High BDI]                -5.872    8.425 -0.697 0.486 -22.385 10.642
+group_bdi3[T.Risk of Depression]                4.063    8.781  0.463 0.644 -13.148 21.273
+time_on_task                                   -0.054    0.040 -1.359 0.174  -0.133  0.024
+group_bdi3[T.Controls High BDI]:time_on_task   -0.106    0.058 -1.822 0.069  -0.220  0.008
+group_bdi3[T.Risk of Depression]:time_on_task  -0.062    0.061 -1.017 0.309  -0.181  0.057
+subject_id Var                                484.368    5.486                            
+==========================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 21599.834627
+BIC: 21640.337582
+LOG_LIKELIHOOD: -10792.917314
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 2407
+N_GROUPS: 41
+N_PARAMETERS: 7
+N_FIXED_EFFECTS: 6
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 429.275983
+DEVIANCE: 21585.834627
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

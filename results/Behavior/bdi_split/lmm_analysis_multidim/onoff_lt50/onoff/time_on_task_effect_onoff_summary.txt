@@ -1,0 +1,34 @@
+          Mixed Linear Model Regression Results
+==========================================================
+Model:              MixedLM Dependent Variable: onoff     
+No. Observations:   857     Method:             REML      
+No. Groups:         33      Scale:              130.4307  
+Min. group size:    1       Log-Likelihood:     -3351.5780
+Max. group size:    58      Converged:          Yes       
+Mean group size:    26.0                                  
+----------------------------------------------------------
+                Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+----------------------------------------------------------
+Intercept       32.156    2.411 13.339 0.000 27.431 36.881
+time_on_task    -0.107    0.025 -4.305 0.000 -0.155 -0.058
+subject_id Var 146.661    3.591                           
+==========================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 6709.156093
+BIC: 6723.416407
+LOG_LIKELIHOOD: -3351.578047
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 857
+N_GROUPS: 33
+N_PARAMETERS: 3
+N_FIXED_EFFECTS: 2
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 130.430708
+DEVIANCE: 6703.156093
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

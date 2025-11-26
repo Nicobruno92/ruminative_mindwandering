@@ -3,6 +3,19 @@
 import mne
 import matplotlib.pyplot as plt
 
+CENTRO_POSTERIOR_CHANNELS = [
+    "Cz",
+    "CPz",
+    "Pz",
+    "CP1",
+    "CP2",
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "POz",
+]
+
 
 def compute_psd_figure(
     raw: mne.io.BaseRaw,
@@ -85,6 +98,119 @@ def add_excluded_ics(
                     pass
     except Exception:
         pass
+
+
+def add_ica_selection_table(report: mne.Report, ica_log: dict | None) -> None:
+    """Add a detailed HTML table summarizing ICA selection to the report.
+
+    Parameters
+    ----------
+    report : mne.Report
+        Target report to which the table will be added.
+    ica_log : dict | None
+        Log dictionary returned by ``auto_select_ica_components``.
+    """
+    if not ica_log:
+        return
+
+    component_decisions = ica_log.get("component_decisions", [])
+    if not component_decisions:
+        return
+
+    # Build HTML table with proper structure
+    html_parts = []
+    html_parts.append('<div style="font-family: monospace; font-size: 12px; margin: 20px;">')
+    
+    # Title and parameters
+    html_parts.append('<h3>ICA Component Selection Details</h3>')
+    html_parts.append('<p><strong>Variance-aware unified scoring</strong></p>')
+    html_parts.append('<p>')
+    html_parts.append(f"Base prob threshold: {ica_log.get('base_prob_threshold', 'NA')}<br>")
+    html_parts.append(f"Muscle threshold: {ica_log.get('base_muscle_threshold', 'NA')}<br>")
+    html_parts.append(f"Variance penalty factor: {ica_log.get('variance_penalty_factor', 'NA')}<br>")
+    html_parts.append(f"Max excluded variance ratio: {ica_log.get('max_excluded_variance_ratio', 'NA')}")
+    html_parts.append('</p>')
+    
+    if 'final_excluded_variance_pct' in ica_log:
+        html_parts.append(f'<p>Final excluded variance: {ica_log.get("final_excluded_variance_pct", "NA")}%</p>')
+    
+    if ica_log.get('variance_budget_exceeded'):
+        html_parts.append('<p style="color: red; font-weight: bold;">WARNING: variance budget exceeded (flagged for QA)</p>')
+    
+    # Component table
+    html_parts.append('<table style="border-collapse: collapse; width: 100%; margin-top: 20px;">')
+    html_parts.append('<thead>')
+    html_parts.append('<tr style="background-color: #f0f0f0; border-bottom: 2px solid #333;">')
+    html_parts.append('<th style="padding: 8px; text-align: right;">IC</th>')
+    html_parts.append('<th style="padding: 8px; text-align: left;">Label</th>')
+    html_parts.append('<th style="padding: 8px; text-align: right;">Var%</th>')
+    html_parts.append('<th style="padding: 8px; text-align: right;">Base</th>')
+    html_parts.append('<th style="padding: 8px; text-align: right;">Bonus</th>')
+    html_parts.append('<th style="padding: 8px; text-align: right;">Final</th>')
+    html_parts.append('<th style="padding: 8px; text-align: right;">Thr</th>')
+    html_parts.append('<th style="padding: 8px; text-align: center;">Decision</th>')
+    html_parts.append('<th style="padding: 8px; text-align: left;">Sources</th>')
+    html_parts.append('<th style="padding: 8px; text-align: left;">Best</th>')
+    html_parts.append('<th style="padding: 8px; text-align: left;">Top3</th>')
+    html_parts.append('</tr>')
+    html_parts.append('</thead>')
+    html_parts.append('<tbody>')
+    
+    for idx, info in enumerate(component_decisions):
+        var_pct = float(info.get("variance", 0.0) or 0.0) * 100.0
+        label = str(info.get("label", ""))
+        base = float(info.get("base_score", 0.0) or 0.0)
+        bonus = float(info.get("bonus", 0.0) or 0.0)
+        final = float(info.get("final_score", 0.0) or 0.0)
+        thr = float(info.get("adjusted_threshold", 0.0) or 0.0)
+        excluded = bool(info.get("excluded", False))
+        decision = "EXCLUDE" if excluded else "keep"
+        sources = info.get("bonus_sources", []) or []
+        sources_str = ", ".join(str(s) for s in sources)
+        
+        best_cls = str(info.get("iclabel_best_class", "") or "")
+        best_prob = info.get("iclabel_best_prob", None)
+        if best_prob is None:
+            best_str = ""
+        else:
+            best_str = f"{best_cls}: {float(best_prob):.2f}"
+        
+        top3_list = info.get("iclabel_top3", []) or []
+        top3_str = "; ".join(str(t) for t in top3_list)
+        
+        # Row styling: highlight excluded components
+        row_style = 'background-color: #ffe6e6;' if excluded else ''
+        if idx % 2 == 0 and not excluded:
+            row_style = 'background-color: #f9f9f9;'
+        
+        html_parts.append(f'<tr style="{row_style}">')
+        html_parts.append(f'<td style="padding: 6px; text-align: right;">{idx}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: left;">{label}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: right;">{var_pct:.1f}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: right;">{base:.3f}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: right;">{bonus:.3f}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: right;">{final:.3f}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: right;">{thr:.3f}</td>')
+        
+        decision_style = 'font-weight: bold; color: red;' if excluded else 'color: green;'
+        html_parts.append(f'<td style="padding: 6px; text-align: center; {decision_style}">{decision}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: left; font-size: 11px;">{sources_str}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: left; font-size: 11px;">{best_str}</td>')
+        html_parts.append(f'<td style="padding: 6px; text-align: left; font-size: 10px;">{top3_str}</td>')
+        html_parts.append('</tr>')
+    
+    html_parts.append('</tbody>')
+    html_parts.append('</table>')
+    html_parts.append('</div>')
+    
+    html_content = ''.join(html_parts)
+    
+    # Add to report using the standard MNE method
+    report.add_html(
+        html=html_content,
+        title="ICA Component Selection",
+        tags=("ica",)
+    )
 
 
 def add_drop_log(
@@ -284,48 +410,57 @@ def add_evoked_comparison(report: mne.Report, epochs_clean) -> None:
     to any label that starts with 'go' or 'nogo'.
     """
     try:
-        # Find go/nogo conditions with preference for '/correct' suffix
-        go_labels = [k for k in epochs_clean.event_id.keys() 
-                    if isinstance(k, str) and k.lower().startswith('go')]
-        nogo_labels = [k for k in epochs_clean.event_id.keys() 
-                      if isinstance(k, str) and k.lower().startswith('nogo')]
-        
-        # Prefer '/correct' variants
-        go_correct = [k for k in go_labels if '/correct' in k.lower()]
-        nogo_correct = [k for k in nogo_labels if '/correct' in k.lower()]
-        
-        go_key = go_correct[0] if go_correct else (go_labels[0] if go_labels else None)
-        nogo_key = nogo_correct[0] if nogo_correct else (nogo_labels[0] if nogo_labels else None)
-        
+        go_labels = [
+            k for k in epochs_clean.event_id.keys()
+            if isinstance(k, str) and k.lower().startswith("go")
+        ]
+        nogo_labels = [
+            k for k in epochs_clean.event_id.keys()
+            if isinstance(k, str) and k.lower().startswith("nogo")
+        ]
+
         evokeds = []
         titles = []
-        
-        if go_key and len(epochs_clean[go_key]) > 0:
-            evk_go = epochs_clean[go_key].average()
+
+        evk_go = None
+        evk_nogo = None
+
+        if go_labels:
+            evk_go = epochs_clean[go_labels].average()
+        if nogo_labels:
+            evk_nogo = epochs_clean[nogo_labels].average()
+
+        cp_picks = None
+        if evk_go is not None:
+            cp_picks = [
+                ch for ch in evk_go.ch_names
+                if ch in CENTRO_POSTERIOR_CHANNELS
+            ]
+        if cp_picks:
+            if evk_go is not None:
+                evk_go = evk_go.copy().pick(cp_picks)
+                evk_go.comment = "Go (all go events, centro-posterior)"
+            if evk_nogo is not None:
+                evk_nogo = evk_nogo.copy().pick(cp_picks)
+                evk_nogo.comment = "NoGo (all nogo events, centro-posterior)"
+
+        if evk_go is not None:
             evokeds.append(evk_go)
-            titles.append(f"Go ({go_key})")
-        else:
-            evk_go = None
-            
-        if nogo_key and len(epochs_clean[nogo_key]) > 0:
-            evk_nogo = epochs_clean[nogo_key].average()
+            titles.append("Go (all, CP)")
+        if evk_nogo is not None:
             evokeds.append(evk_nogo)
-            titles.append(f"NoGo ({nogo_key})")
-        else:
-            evk_nogo = None
-        
-        # Add individual evokeds
+            titles.append("NoGo (all, CP)")
+
         if evokeds:
             report.add_evokeds(evokeds, titles=titles)
-        
-        # Add difference wave if both available
+
         if evk_go is not None and evk_nogo is not None:
             try:
                 diff = mne.combine_evoked([evk_go, evk_nogo], weights=[1, -1])
-                diff.comment = f"Difference: {go_key} - {nogo_key}"
-                report.add_evokeds([diff], titles=["Go - NoGo Difference"])
+                diff.comment = "Difference: Go (all, CP) - NoGo (all, CP)"
+                report.add_evokeds([diff], titles=["Go - NoGo Difference (CP)"])
             except Exception:
                 pass
-                
+
     except Exception:
         pass

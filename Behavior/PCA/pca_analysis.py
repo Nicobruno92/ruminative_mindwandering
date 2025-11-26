@@ -16,10 +16,10 @@ else:
     BASE_OUTPUT_DIR = 'results/Behavior/probe_data'
 
 # Derived paths
-LMM_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis'
-PLOTS_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_plots'
-TRAJECTORY_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/trajectory_analysis'
-BASELINE_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/baseline_corrected_analysis'
+LMM_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca'
+PLOTS_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca'
+TRAJECTORY_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca/trajectory_analysis'
+BASELINE_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca/baseline_corrected_analysis'
 # =============================================================================
 
 import pandas as pd
@@ -45,11 +45,66 @@ warnings.filterwarnings('ignore')
 
 
 #%%
-df = pd.read_csv(DATA_PATH)
-df = df[df['onoff'] <=50]
+# =============================================================================
+# DATA LOADING AND PREPROCESSING
+# =============================================================================
+# Load full data first (before any filtering)
+df_full = pd.read_csv(DATA_PATH)
+print(f"Loaded full dataset: {len(df_full)} rows, {df_full['subject_id'].nunique()} subjects")
 
 # Select the variables for PCA
 pca_variables = ['valence', 'selfother', 'time']
+PC_COMPONENTS = ['PC1', 'PC2', 'PC3']
+
+# =============================================================================
+# STEP 1: Compute baseline means from FULL data (BEFORE filtering)
+# =============================================================================
+# This ensures we don't lose participants due to missing baseline data after filtering
+print("\n" + "="*60)
+print("STEP 1: Computing baseline means from FULL data (before filtering)")
+print("="*60)
+
+baseline_means_original = {}
+for subject in df_full['subject_id'].unique():
+    subject_data = df_full[df_full['subject_id'] == subject]
+    
+    # Sart1 baseline (for normalizing Sart2)
+    sart1_data = subject_data[subject_data['task'] == 'Sart1']
+    if len(sart1_data) > 0:
+        for var in pca_variables:
+            if var in sart1_data.columns:
+                baseline_means_original[(subject, 'Sart1', var)] = sart1_data[var].mean()
+    
+    # Sart3 baseline (for normalizing Sart4)
+    sart3_data = subject_data[subject_data['task'] == 'Sart3']
+    if len(sart3_data) > 0:
+        for var in pca_variables:
+            if var in sart3_data.columns:
+                baseline_means_original[(subject, 'Sart3', var)] = sart3_data[var].mean()
+
+print(f"Calculated {len(baseline_means_original)} baseline means for original variables")
+
+# =============================================================================
+# STEP 2: Apply onoff filtering (AFTER computing baselines)
+# =============================================================================
+print("\n" + "="*60)
+print("STEP 2: Applying onoff filter (onoff <= 50)")
+print("="*60)
+
+before_n = len(df_full)
+before_s = df_full['subject_id'].nunique()
+df = df_full[df_full['onoff'] <= 50].copy()
+after_n = len(df)
+after_s = df['subject_id'].nunique()
+print(f"Filtered: {before_n} rows/{before_s} subjects -> {after_n} rows/{after_s} subjects")
+
+# =============================================================================
+# STEP 3: Compute PCA on filtered data
+# =============================================================================
+print("\n" + "="*60)
+print("STEP 3: Computing PCA on filtered data")
+print("="*60)
+
 pca_data = df[pca_variables].dropna()
 
 # Standardize the data
@@ -579,9 +634,83 @@ for group in group_counts.index:
     print(f"- {group}: {group_counts[group]} participants, {group_obs[group]} total observations")
 print(f"- Inclusion/Exclusion distribution: {df_lmm['inclusion_exclusion'].value_counts().to_dict()}")
 
+# =============================================================================
+# STEP 4: Compute PC baseline means from FULL data (before filtering)
+# =============================================================================
+# Note: We use the baseline_means_original computed earlier (from full data)
+# to normalize the original variables, then project to PC space.
+# This ensures we don't lose participants due to missing baseline data after filtering.
+
+print("\n" + "="*60)
+print("STEP 4: Computing PC baseline means from FULL data")
+print("="*60)
+print("Note: Using baseline means computed from full data (before onoff filtering)")
+
+# For PC normalization, we need to compute PC scores for baseline blocks from full data
+# First, compute PCA scores for ALL data (including filtered-out rows) using the same PCA model
+df_full_valid = df_full[pca_variables].dropna()
+df_full_valid_scaled = scaler.transform(df_full_valid)  # Use same scaler
+df_full_pca_scores = pca.transform(df_full_valid_scaled)  # Use same PCA model
+
+# Create full PCA dataframe with subject/task info
+valid_indices = df_full[pca_variables].dropna().index
+df_full_with_pca = df_full.loc[valid_indices].copy().reset_index(drop=True)
+for i, pc in enumerate(PC_COMPONENTS):
+    df_full_with_pca[pc] = df_full_pca_scores[:, i]
+
+# Compute PC baseline means from FULL data
+baseline_means_pca = {}
+for subject in df_full_with_pca['subject_id'].unique():
+    subject_data = df_full_with_pca[df_full_with_pca['subject_id'] == subject]
+    
+    # Sart1 baseline (for normalizing Sart2)
+    sart1_data = subject_data[subject_data['task'] == 'Sart1']
+    if len(sart1_data) > 0:
+        for pc in PC_COMPONENTS:
+            if pc in sart1_data.columns:
+                baseline_means_pca[(subject, 'Sart1', pc)] = sart1_data[pc].mean()
+    
+    # Sart3 baseline (for normalizing Sart4)
+    sart3_data = subject_data[subject_data['task'] == 'Sart3']
+    if len(sart3_data) > 0:
+        for pc in PC_COMPONENTS:
+            if pc in sart3_data.columns:
+                baseline_means_pca[(subject, 'Sart3', pc)] = sart3_data[pc].mean()
+
+print(f"Calculated {len(baseline_means_pca)} PC baseline means from full data")
+
+def normalize_pc_by_baseline(row, pc_name):
+    """Normalize PC score by subtracting baseline mean computed from FULL data."""
+    subject = row['subject_id']
+    task = row['task']
+    if task == 'Sart2':
+        baseline_key = (subject, 'Sart1', pc_name)
+    elif task == 'Sart4':
+        baseline_key = (subject, 'Sart3', pc_name)
+    else:
+        return np.nan
+    baseline_mean = baseline_means_pca.get(baseline_key, np.nan)
+    if pd.isna(baseline_mean):
+        return np.nan
+    return row[pc_name] - baseline_mean
+
+for pc in PC_COMPONENTS:
+    if pc in df_lmm.columns:
+        df_lmm[f'{pc}_normalized'] = df_lmm.apply(lambda r: normalize_pc_by_baseline(r, pc), axis=1)
+
 # Create IE-only subset for IE-specific analyses (Sart2/Sart4 only)
 df_lmm_ie = df_lmm[df_lmm['inclusion_exclusion'].isin(['inclusion', 'exclusion'])].copy()
 print(f"\nIE-only subset: {len(df_lmm_ie)} observations from {df_lmm_ie['subject_id'].nunique()} subjects")
+
+normalized_pc_cols = [f'{pc}_normalized' for pc in PC_COMPONENTS if f'{pc}_normalized' in df_lmm_ie.columns]
+if normalized_pc_cols:
+    before_drop = len(df_lmm_ie)
+    df_lmm_ie = df_lmm_ie.dropna(subset=normalized_pc_cols)
+    after_drop = len(df_lmm_ie)
+    if before_drop != after_drop:
+        print(f"Removed {before_drop - after_drop} IE rows with missing baseline PCA data")
+    os.makedirs(BASELINE_OUTPUT_DIR, exist_ok=True)
+    df_lmm_ie.to_csv(os.path.join(BASELINE_OUTPUT_DIR, 'pca_ie_baseline_normalized.csv'), index=False)
 
 distribution_offtask = df_lmm.groupby(['subject_id', 'group']).count().reset_index()
 # sns.violinplot(x='group', y='probe_number', data=distribution_offtask)
@@ -590,14 +719,14 @@ pt.RainCloud(x="group", y="probe_number", hue="group", data=distribution_offtask
             pointplot=True, move=0.15)
 plt.show()
 
-[# %%
+# %%
 # Model 1: Group effect (Controls vs Risk of Depression)
 print("\n" + "="*60)
 print("MODEL 1: PC ~ GROUP")
 print("="*60)
 
 # Run for each principal component
-for pc in ['PC1', 'PC2', 'PC3']:
+for pc in PC_COMPONENTS:
     print(f"\n--- Analyzing {pc} ---")
     results_group, model_group = run_lmm_analysis(
         df_lmm, pc, 'group', f'group_effect', lmm_output_dir
@@ -613,14 +742,15 @@ print("MODEL 2: PC ~ INCLUSION/EXCLUSION")
 print("="*60)
 
 # Run for each principal component
-for pc in ['PC1', 'PC2', 'PC3']:
-    print(f"\n--- Analyzing {pc} ---")
+for pc in PC_COMPONENTS:
+    dep_var_ie = f'{pc}_normalized' if f'{pc}_normalized' in df_lmm_ie.columns else pc
+    print(f"\n--- Analyzing {dep_var_ie} ---")
     results_ie, model_ie = run_lmm_analysis(
-        df_lmm_ie, pc, 'inclusion_exclusion', f'inclusion_exclusion_effect', lmm_output_dir
+        df_lmm_ie, dep_var_ie, 'inclusion_exclusion', f'inclusion_exclusion_effect', lmm_output_dir
     )
     
     if results_ie is not None:
-        analyze_lmm_results(results_ie, 'inclusion_exclusion_effect', pc, lmm_output_dir)
+        analyze_lmm_results(results_ie, 'inclusion_exclusion_effect', dep_var_ie, lmm_output_dir)
 
 # %%
 # Model 3: Interaction effect (Group × Inclusion/Exclusion)
@@ -629,7 +759,7 @@ print("MODEL 3: PC ~ GROUP * INCLUSION/EXCLUSION")
 print("="*60)
 
 # Run for each principal component
-for pc in ['PC1', 'PC2', 'PC3']:
+for pc in PC_COMPONENTS:
     print(f"\n--- Analyzing {pc} ---")
     results_interaction, model_interaction = run_lmm_analysis(
         df_lmm_ie, pc, 'group * inclusion_exclusion', f'group_ie_interaction', lmm_output_dir
@@ -1361,6 +1491,12 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
     - Row 1: Raincloud (Group) | Raincloud (I/E) | Interaction
     - Row 2: Time by Group | Time by I/E | SART Trajectories
     """
+    dep_normalized = f"{pc_var}_normalized"
+    has_normalized = dep_normalized in df_lmm_ie.columns
+    dep_ie = dep_normalized if has_normalized else pc_var
+    ylabel_suffix = " (Normalized)" if has_normalized else ""
+    title_suffix = " (Baseline-Corrected)" if has_normalized else ""
+
     plt.style.use("default")
     fig = plt.figure(figsize=(24, 14))
     gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.25)
@@ -1407,14 +1543,14 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8)
         )
 
-    # Plot 2 (0,1): Raincloud for inclusion/exclusion
+    # Plot 2 (0,1): Raincloud for inclusion/exclusion (NORMALIZED if available)
     ax2 = fig.add_subplot(gs[0, 1])
-    df_agg_ie = df_lmm_ie.groupby(["subject_id", "inclusion_exclusion"])[pc_var].mean().reset_index()
+    df_agg_ie = df_lmm_ie.groupby(["subject_id", "inclusion_exclusion"])[dep_ie].mean().reset_index()
     n_participants_by_ie = df_agg_ie.groupby("inclusion_exclusion")["subject_id"].nunique().to_dict()
     
     pt.RainCloud(
         x="inclusion_exclusion",
-        y=pc_var,
+        y=dep_ie,
         data=df_agg_ie,
         palette=IE_COLORS,
         order=IE_ORDER,
@@ -1427,14 +1563,18 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
         ax=ax2,
     )
     ax2.set_title(
-        f"{pc_var}: Inclusion/Exclusion Effect",
+        f"{pc_var}: Inclusion/Exclusion Effect{title_suffix}",
         fontsize=18,
         fontweight="bold",
         pad=15,
     )
     ax2.set_xlabel("Condition", fontsize=14, fontweight="bold")
-    ax2.set_ylabel(f"{pc_var} Score", fontsize=14, fontweight="bold")
+    ax2.set_ylabel(f"{pc_var} Score{ylabel_suffix}", fontsize=14, fontweight="bold")
     ax2.grid(True, alpha=0.3)
+    
+    if has_normalized:
+        ax2.axhline(y=0, color='black', linestyle='--', linewidth=1.5, alpha=0.7, label='Baseline')
+        ax2.legend(fontsize=10, loc='best')
     
     # Add sample sizes
     for i, condition in enumerate(IE_ORDER):
@@ -1445,14 +1585,14 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8)
         )
 
-    # Plot 3 (0,2): Interaction plot (Group × I/E)
+    # Plot 3 (0,2): Interaction plot (Group × I/E) (NORMALIZED if available)
     ax3 = fig.add_subplot(gs[0, 2])
     for group in df_lmm_ie["group"].dropna().unique():
         group_data = df_lmm_ie[df_lmm_ie["group"] == group]
         if len(group_data) == 0:
             continue
         ie_means = (
-            group_data.groupby("inclusion_exclusion")[pc_var]
+            group_data.groupby("inclusion_exclusion")[dep_ie]
             .agg(["mean", "sem"])
             .reindex(IE_ORDER)
             .reset_index()
@@ -1475,13 +1615,15 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
         )
     ax3.set_xticks([0, 1])
     ax3.set_xticklabels(IE_ORDER, fontsize=14, fontweight="bold")
-    ax3.set_ylabel(f"{pc_var} Score", fontsize=14, fontweight="bold")
+    ax3.set_ylabel(f"{pc_var} Score{ylabel_suffix}", fontsize=14, fontweight="bold")
     ax3.set_title(
-        f"{pc_var}: Group × I/E Interaction",
+        f"{pc_var}: Group × I/E Interaction{title_suffix}",
         fontsize=18,
         fontweight="bold",
         pad=15,
     )
+    if has_normalized:
+        ax3.axhline(y=0, color='black', linestyle='--', linewidth=1.5, alpha=0.7, label='Baseline')
     ax3.legend(fontsize=12, title_fontsize=12, loc='best')
     ax3.grid(True, alpha=0.3)
 
@@ -1523,18 +1665,18 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
         ax4.text(0.5, 0.5, 'Time-on-task data not available', 
                 ha='center', va='center', transform=ax4.transAxes, fontsize=14)
 
-    # Plot 5 (1,1): Time-on-task by inclusion/exclusion (full trajectory)
+    # Plot 5 (1,1): Intervention distance by inclusion/exclusion (probe 1-15 within block)
     ax5 = fig.add_subplot(gs[1, 1])
-    if 'time_on_task' in df_lmm_ie.columns:
+    if 'probe_number' in df_lmm_ie.columns:
         for i, condition in enumerate(IE_ORDER):
             if condition in df_lmm_ie["inclusion_exclusion"].values:
                 ie_data = df_lmm_ie[df_lmm_ie["inclusion_exclusion"] == condition]
-                time_ie_agg = ie_data.groupby("time_on_task")[pc_var].agg(["mean", "sem"]).reset_index()
+                probe_ie_agg = ie_data.groupby("probe_number")[dep_ie].agg(["mean", "sem"]).reset_index()
                 color = IE_COLORS[i]
                 ax5.errorbar(
-                    time_ie_agg["time_on_task"],
-                    time_ie_agg["mean"],
-                    yerr=time_ie_agg["sem"],
+                    probe_ie_agg["probe_number"],
+                    probe_ie_agg["mean"],
+                    yerr=probe_ie_agg["sem"],
                     marker="s",
                     linewidth=2.5,
                     markersize=6,
@@ -1543,18 +1685,21 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
                     color=color,
                     label=condition.capitalize(),
                 )
-        ax5.set_xlabel("Time on Task (Probe Number)", fontsize=14, fontweight="bold")
-        ax5.set_ylabel(f"{pc_var} Score", fontsize=14, fontweight="bold")
+        ax5.set_xlabel("Intervention Distance (Probe Number)", fontsize=14, fontweight="bold")
+        ax5.set_ylabel(f"{pc_var} Score{ylabel_suffix}", fontsize=14, fontweight="bold")
         ax5.set_title(
-            f"{pc_var}: Time-on-Task by I/E",
+            f"{pc_var}: Intervention Distance by I/E{title_suffix}",
             fontsize=18,
             fontweight="bold",
             pad=15,
         )
+        if has_normalized:
+            ax5.axhline(y=0, color='black', linestyle='--', linewidth=1.5, alpha=0.7, label='Baseline')
         ax5.legend(fontsize=12, loc='best')
         ax5.grid(True, alpha=0.3)
+        ax5.set_xlim(0.5, 15.5)
     else:
-        ax5.text(0.5, 0.5, 'Time-on-task data not available', 
+        ax5.text(0.5, 0.5, 'Probe number data not available', 
                 ha='center', va='center', transform=ax5.transAxes, fontsize=14)
 
     # Plot 6 (1,2): SART Mean Trajectories by Group and Order
@@ -1636,10 +1781,17 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
         ax6.text(0.5, 0.5, 'Order data not available', 
                 ha='center', va='center', transform=ax6.transAxes, fontsize=14)
 
-    # Save figure
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, f'{pc_var}_comprehensive_analysis.png'), dpi=300, bbox_inches='tight')
-    plt.savefig(os.path.join(output_dir, f'{pc_var}_comprehensive_analysis.svg'), dpi=300, bbox_inches='tight')
+    plt.suptitle(
+        f"Comprehensive Analysis: {pc_var}",
+        fontsize=22,
+        fontweight="bold",
+        y=0.995,
+    )
+
+    out_png = os.path.join(output_dir, f"{pc_var}_comprehensive_analysis.png")
+    out_svg = os.path.join(output_dir, f"{pc_var}_comprehensive_analysis.svg")
+    plt.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.savefig(out_svg, dpi=300, bbox_inches="tight")
     plt.show()
 
 # Generate comprehensive plots for each PC

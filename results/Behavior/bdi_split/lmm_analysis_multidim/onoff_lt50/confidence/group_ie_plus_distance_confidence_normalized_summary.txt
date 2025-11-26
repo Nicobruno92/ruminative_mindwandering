@@ -1,0 +1,39 @@
+                                    Mixed Linear Model Regression Results
+==============================================================================================================
+Model:                           MixedLM               Dependent Variable:               confidence_normalized
+No. Observations:                469                   Method:                           REML                 
+No. Groups:                      33                    Scale:                            293.9328             
+Min. group size:                 1                     Log-Likelihood:                   -2008.9470           
+Max. group size:                 30                    Converged:                        Yes                  
+Mean group size:                 14.2                                                                         
+--------------------------------------------------------------------------------------------------------------
+                                                                   Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+--------------------------------------------------------------------------------------------------------------
+Intercept                                                          -4.043    4.656 -0.868 0.385 -13.168  5.082
+group_bdi3[T.Controls High BDI]                                     1.775    5.685  0.312 0.755  -9.368 12.919
+group_bdi3[T.Risk of Depression]                                    7.670    5.744  1.335 0.182  -3.588 18.928
+inclusion_exclusion[T.inclusion]                                   -0.309    3.542 -0.087 0.931  -7.251  6.634
+group_bdi3[T.Controls High BDI]:inclusion_exclusion[T.inclusion]    4.623    4.624  1.000 0.317  -4.440 13.685
+group_bdi3[T.Risk of Depression]:inclusion_exclusion[T.inclusion] -12.311    4.325 -2.847 0.004 -20.788 -3.835
+probe_number                                                       -0.370    0.190 -1.951 0.051  -0.742  0.002
+subject_id Var                                                    107.262    2.416                            
+==============================================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 4033.893995
+BIC: 4067.098817
+LOG_LIKELIHOOD: -2008.946997
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 469
+N_GROUPS: 33
+N_PARAMETERS: 8
+N_FIXED_EFFECTS: 7
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 293.932844
+DEVIANCE: 4017.893995
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

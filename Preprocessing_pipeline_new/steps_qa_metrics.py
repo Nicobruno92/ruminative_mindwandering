@@ -87,7 +87,10 @@ def compute_evoked_epoch_metrics(
     state_rejected_by_ar: Optional[int] = None,
     state_input_total: Optional[int] = None,
     state_after_construct: Optional[int] = None,
-    state_dropped_post_ar: Optional[int] = None
+    state_dropped_post_ar: Optional[int] = None,
+    epochs_sleep: Optional["mne.Epochs"] = None,
+    sleep_input_total: Optional[int] = None,
+    sleep_after_construct: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Compute comprehensive epoch metrics for QA assessment.
@@ -110,6 +113,12 @@ def compute_evoked_epoch_metrics(
         State epochs after construction
     state_dropped_post_ar : int, optional
         State epochs dropped after AutoReject
+    epochs_sleep : mne.Epochs, optional
+        Sleep epochs if available
+    sleep_input_total : int, optional
+        Total sleep epochs input
+    sleep_after_construct : int, optional
+        Sleep epochs after construction
         
     Returns
     -------
@@ -171,6 +180,15 @@ def compute_evoked_epoch_metrics(
             'state_rejected_by_ar': state_rejected_by_ar or 0,
             'n_state_epochs': len(epochs_state),
             'state_dropped_post_ar': state_dropped_post_ar or 0,
+        })
+    
+    # Add sleep epoch metrics if available
+    if epochs_sleep is not None:
+        epoch_metrics.update({
+            'has_sleep_epochs': True,
+            'sleep_input_total': sleep_input_total,
+            'sleep_after_construct': sleep_after_construct,
+            'n_sleep_epochs': len(epochs_sleep),
         })
     
     return epoch_metrics
@@ -677,6 +695,24 @@ def save_qa_csv(
             "used_for_qa": False,
         }
         qa_entries.append(state_qa)
+
+    # SLEEP EPOCHS ENTRY (if available)
+    if epoch_metrics.get('has_sleep_epochs', False):
+        # Sleep epochs don't go through AutoReject, so no rejection metrics
+        sleep_qa = {
+            **common_metrics,
+            "epoch_type": "sleep",
+            "too_many_bad_epochs": False,  # No AutoReject for sleep
+            "n_triggers": _safe_int(epoch_metrics.get('sleep_input_total', 0)),
+            "n_epochs_after_construct": _safe_int(epoch_metrics.get('sleep_after_construct', 0)),
+            "n_rejected_by_ar": 0,  # No AutoReject for sleep
+            "n_epochs": _safe_int(epoch_metrics.get('n_sleep_epochs', 0)),
+            "n_epochs_dropped_pre_ar": 0,
+            "n_dropped_post_ar": 0,
+            "annot_drop_ratio": 0.0,
+            "used_for_qa": False,
+        }
+        qa_entries.append(sleep_qa)
 
     # Save per-subject CSV
     try:

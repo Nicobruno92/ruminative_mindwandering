@@ -249,7 +249,8 @@ def auto_select_ica_components(
         'variance_penalty_factor': variance_penalty_factor,
         'max_excluded_variance_ratio': max_excluded_variance_ratio,
         'max_threshold_cap': max_threshold_cap,
-        'component_decisions': []
+        'component_decisions': [],
+        'iclabel_classes': None,
     }
     
     # =======================================================================
@@ -316,6 +317,7 @@ def auto_select_ica_components(
     classes = ['brain', 'muscle artifact', 'eye blink', 
                'heart beat', 'line noise', 'channel noise', 'other']
     print(f"  DEBUG: classes = {classes}")
+    selection_log['iclabel_classes'] = classes
     
     # Print ICLabel classification for each component
     print("\n  Component classifications (top 3 classes per IC):")
@@ -446,7 +448,7 @@ def auto_select_ica_components(
         
         # Always add bonus for channel artifact/noise
         if label == 'channel noise':
-            bonus_score += pattern_bonus
+            bonus_score += pattern_bonus *2
             bonus_sources.append("Channel")
         
         # Final boosted score
@@ -472,6 +474,32 @@ def auto_select_ica_components(
               f"{adjusted_threshold:<6.3f} {decision_str:<10} "
               f"{var_comp*100:<5.1f}% {sources_str}")
         
+        # Derive richer ICLabel information for logging
+        iclabel_probs = None
+        iclabel_top3 = None
+        iclabel_best_class = None
+        iclabel_best_prob = None
+        if (y_pred_proba is not None and y_pred_proba.ndim == 2
+                and idx < len(y_pred_proba) and classes):
+            probs_all = y_pred_proba[idx]
+            try:
+                iclabel_probs = [float(p) for p in probs_all]
+                # Top-3 classes by probability (any type)
+                top_idx = np.argsort(probs_all)[-3:][::-1]
+                iclabel_top3 = [
+                    f"{classes[i]}:{probs_all[i]:.2f}"
+                    for i in top_idx if i < len(classes)
+                ]
+                best_idx_all = int(np.argmax(probs_all))
+                if best_idx_all < len(classes):
+                    iclabel_best_class = classes[best_idx_all]
+                    iclabel_best_prob = float(probs_all[best_idx_all])
+            except Exception:
+                iclabel_probs = None
+                iclabel_top3 = None
+                iclabel_best_class = None
+                iclabel_best_prob = None
+
         # Store component info
         component_scores[idx] = {
             'variance': float(var_comp),
@@ -481,7 +509,11 @@ def auto_select_ica_components(
             'bonus_sources': bonus_sources,
             'final_score': float(final_score),
             'adjusted_threshold': float(adjusted_threshold),
-            'excluded': excluded
+            'excluded': excluded,
+            'iclabel_probs': iclabel_probs,
+            'iclabel_top3': iclabel_top3,
+            'iclabel_best_class': iclabel_best_class,
+            'iclabel_best_prob': iclabel_best_prob,
         }
         
         if excluded:

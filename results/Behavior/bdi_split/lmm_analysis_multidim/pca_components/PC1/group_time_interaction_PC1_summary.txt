@@ -1,0 +1,38 @@
+                         Mixed Linear Model Regression Results
+========================================================================================
+Model:                        MixedLM           Dependent Variable:           PC1       
+No. Observations:             888               Method:                       REML      
+No. Groups:                   33                Scale:                        0.7049    
+Min. group size:              1                 Log-Likelihood:               -1158.6517
+Max. group size:              58                Converged:                    Yes       
+Mean group size:              26.9                                                      
+----------------------------------------------------------------------------------------
+                                              Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+----------------------------------------------------------------------------------------
+Intercept                                      0.397    0.259  1.536 0.125 -0.110  0.904
+group_bdi3[T.Controls High BDI]               -0.585    0.352 -1.662 0.097 -1.274  0.105
+group_bdi3[T.Risk of Depression]              -0.647    0.346 -1.869 0.062 -1.326  0.032
+time_on_task                                  -0.001    0.004 -0.343 0.731 -0.008  0.006
+group_bdi3[T.Controls High BDI]:time_on_task   0.004    0.005  0.798 0.425 -0.006  0.013
+group_bdi3[T.Risk of Depression]:time_on_task  0.001    0.004  0.172 0.864 -0.008  0.009
+subject_id Var                                 0.430    0.151                           
+========================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 2331.303367
+BIC: 2364.826170
+LOG_LIKELIHOOD: -1158.651684
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 888
+N_GROUPS: 33
+N_PARAMETERS: 7
+N_FIXED_EFFECTS: 6
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 0.704881
+DEVIANCE: 2317.303367
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

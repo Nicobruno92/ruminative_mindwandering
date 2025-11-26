@@ -1,0 +1,438 @@
+================================================================================
+COMPARATIVE MULTILEVEL MEDIATION ANALYSIS - DETAILED RESULTS
+================================================================================
+
+Analysis: Group (Depression Risk) → Mood → Thought Content
+Controlling for: Time-on-Task (block_z)
+Monte Carlo Simulations: 10,000
+Confidence Level: 95%
+
+--------------------------------------------------------------------------------
+DATASET SUMMARY
+--------------------------------------------------------------------------------
+Total Blocks: 101
+Total Subjects: 33
+Controls: 65 blocks
+Risk Group: 36 blocks
+
+================================================================================
+MEDIATOR: EVAaverage
+================================================================================
+
+PATH A: Group → Mood
+  Model: EVAaverage ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -2.039445
+  Standard Error: 0.641063
+  t-value: -3.181
+
+PATH B: Mood → Thought (controlling for Group and Time)
+--------------------------------------------------------------------------------
+
+  Outcome: onoff
+    Model: onoff ~ EVAaverage + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.080299
+    Standard Error: 0.043610
+    t-value: 1.841
+
+    INDIRECT EFFECT (a × b): -0.165319
+    95% CI: [-0.407218, 0.009387]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: valence
+    Model: valence ~ EVAaverage + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.172064
+    Standard Error: 0.051151
+    t-value: 3.364
+
+    INDIRECT EFFECT (a × b): -0.352844
+    95% CI: [-0.702587, -0.093251]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: time
+    Model: time ~ EVAaverage + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.001700
+    Standard Error: 0.054517
+    t-value: 0.031
+
+    INDIRECT EFFECT (a × b): -0.005275
+    95% CI: [-0.242069, 0.228891]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: selfother
+    Model: selfother ~ EVAaverage + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.187685
+    Standard Error: 0.054401
+    t-value: 3.450
+
+    INDIRECT EFFECT (a × b): -0.384832
+    95% CI: [-0.761075, -0.103354]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: confidence
+    Model: confidence ~ EVAaverage + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.114750
+    Standard Error: 0.049934
+    t-value: 2.298
+
+    INDIRECT EFFECT (a × b): -0.235837
+    95% CI: [-0.530152, -0.025348]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: pca1
+    Model: pca1 ~ EVAaverage + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.196584
+    Standard Error: 0.053649
+    t-value: 3.664
+
+    INDIRECT EFFECT (a × b): -0.402969
+    95% CI: [-0.783768, -0.114601]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: EVAmood
+================================================================================
+
+PATH A: Group → Mood
+  Model: EVAmood ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -2.061796
+  Standard Error: 0.599919
+  t-value: -3.437
+
+PATH B: Mood → Thought (controlling for Group and Time)
+--------------------------------------------------------------------------------
+
+  Outcome: onoff
+    Model: onoff ~ EVAmood + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.148707
+    Standard Error: 0.044038
+    t-value: 3.377
+
+    INDIRECT EFFECT (a × b): -0.308251
+    95% CI: [-0.600241, -0.090529]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: valence
+    Model: valence ~ EVAmood + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.211695
+    Standard Error: 0.051875
+    t-value: 4.081
+
+    INDIRECT EFFECT (a × b): -0.438460
+    95% CI: [-0.812900, -0.146562]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: time
+    Model: time ~ EVAmood + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.017151
+    Standard Error: 0.063674
+    t-value: 0.269
+
+    INDIRECT EFFECT (a × b): -0.037489
+    95% CI: [-0.319886, 0.231397]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: selfother
+    Model: selfother ~ EVAmood + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.179929
+    Standard Error: 0.057259
+    t-value: 3.142
+
+    INDIRECT EFFECT (a × b): -0.373100
+    95% CI: [-0.740603, -0.099929]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: confidence
+    Model: confidence ~ EVAmood + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.125257
+    Standard Error: 0.052102
+    t-value: 2.404
+
+    INDIRECT EFFECT (a × b): -0.260138
+    95% CI: [-0.563784, -0.037148]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: pca1
+    Model: pca1 ~ EVAmood + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.230241
+    Standard Error: 0.054951
+    t-value: 4.190
+
+    INDIRECT EFFECT (a × b): -0.476821
+    95% CI: [-0.879065, -0.161567]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: EVAfeel
+================================================================================
+
+PATH A: Group → Mood
+  Model: EVAfeel ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -2.288861
+  Standard Error: 0.704907
+  t-value: -3.247
+
+PATH B: Mood → Thought (controlling for Group and Time)
+--------------------------------------------------------------------------------
+
+  Outcome: onoff
+    Model: onoff ~ EVAfeel + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.027280
+    Standard Error: 0.038254
+    t-value: 0.713
+
+    INDIRECT EFFECT (a × b): -0.063899
+    95% CI: [-0.266494, 0.111395]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: valence
+    Model: valence ~ EVAfeel + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.107215
+    Standard Error: 0.045862
+    t-value: 2.338
+
+    INDIRECT EFFECT (a × b): -0.247261
+    95% CI: [-0.549232, -0.029543]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: time
+    Model: time ~ EVAfeel + group_bin + block_z + (1|subject_id)
+    Coefficient (b): -0.051069
+    Standard Error: 0.052193
+    t-value: -0.978
+
+    INDIRECT EFFECT (a × b): 0.115032
+    95% CI: [-0.118666, 0.397722]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: selfother
+    Model: selfother ~ EVAfeel + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.098051
+    Standard Error: 0.049278
+    t-value: 1.990
+
+    INDIRECT EFFECT (a × b): -0.226398
+    95% CI: [-0.536840, -0.002025]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: confidence
+    Model: confidence ~ EVAfeel + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.077086
+    Standard Error: 0.043130
+    t-value: 1.787
+
+    INDIRECT EFFECT (a × b): -0.178154
+    95% CI: [-0.440263, 0.015279]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: pca1
+    Model: pca1 ~ EVAfeel + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.097737
+    Standard Error: 0.049896
+    t-value: 1.959
+
+    INDIRECT EFFECT (a × b): -0.225702
+    95% CI: [-0.538629, 0.000416]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: EVAtense
+================================================================================
+
+PATH A: Group → Mood
+  Model: EVAtense ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -2.236122
+  Standard Error: 0.797189
+  t-value: -2.805
+
+PATH B: Mood → Thought (controlling for Group and Time)
+--------------------------------------------------------------------------------
+
+  Outcome: onoff
+    Model: onoff ~ EVAtense + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.049974
+    Standard Error: 0.035644
+    t-value: 1.402
+
+    INDIRECT EFFECT (a × b): -0.113157
+    95% CI: [-0.325774, 0.042195]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: valence
+    Model: valence ~ EVAtense + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.110843
+    Standard Error: 0.041774
+    t-value: 2.653
+
+    INDIRECT EFFECT (a × b): -0.249598
+    95% CI: [-0.554018, -0.035070]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: time
+    Model: time ~ EVAtense + group_bin + block_z + (1|subject_id)
+    Coefficient (b): -0.003944
+    Standard Error: 0.047678
+    t-value: -0.083
+
+    INDIRECT EFFECT (a × b): 0.007056
+    95% CI: [-0.221223, 0.238041]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: selfother
+    Model: selfother ~ EVAtense + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.170829
+    Standard Error: 0.043644
+    t-value: 3.914
+
+    INDIRECT EFFECT (a × b): -0.383906
+    95% CI: [-0.764909, -0.092099]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+  Outcome: confidence
+    Model: confidence ~ EVAtense + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.062034
+    Standard Error: 0.041269
+    t-value: 1.503
+
+    INDIRECT EFFECT (a × b): -0.140354
+    95% CI: [-0.390938, 0.041125]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: pca1
+    Model: pca1 ~ EVAtense + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.146420
+    Standard Error: 0.043353
+    t-value: 3.377
+
+    INDIRECT EFFECT (a × b): -0.329272
+    95% CI: [-0.680989, -0.070024]
+    Significant: YES
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: EVAhurt
+================================================================================
+
+PATH A: Group → Mood
+  Model: EVAhurt ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -1.590105
+  Standard Error: 0.866889
+  t-value: -1.834
+
+PATH B: Mood → Thought (controlling for Group and Time)
+--------------------------------------------------------------------------------
+
+  Outcome: onoff
+    Model: onoff ~ EVAhurt + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.041230
+    Standard Error: 0.033956
+    t-value: 1.214
+
+    INDIRECT EFFECT (a × b): -0.066621
+    95% CI: [-0.238788, 0.042248]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: valence
+    Model: valence ~ EVAhurt + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.104112
+    Standard Error: 0.040284
+    t-value: 2.584
+
+    INDIRECT EFFECT (a × b): -0.166909
+    95% CI: [-0.438179, 0.015050]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: time
+    Model: time ~ EVAhurt + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.007120
+    Standard Error: 0.045272
+    t-value: 0.157
+
+    INDIRECT EFFECT (a × b): -0.012647
+    95% CI: [-0.192656, 0.152026]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: selfother
+    Model: selfother ~ EVAhurt + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.114817
+    Standard Error: 0.042351
+    t-value: 2.711
+
+    INDIRECT EFFECT (a × b): -0.184011
+    95% CI: [-0.475208, 0.015201]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: confidence
+    Model: confidence ~ EVAhurt + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.086227
+    Standard Error: 0.038445
+    t-value: 2.243
+
+    INDIRECT EFFECT (a × b): -0.138384
+    95% CI: [-0.380198, 0.016159]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: pca1
+    Model: pca1 ~ EVAhurt + group_bin + block_z + (1|subject_id)
+    Coefficient (b): 0.123907
+    Standard Error: 0.042233
+    t-value: 2.934
+
+    INDIRECT EFFECT (a × b): -0.198479
+    95% CI: [-0.501087, 0.013509]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+================================================================================
+SUMMARY: SIGNIFICANT INDIRECT EFFECTS
+================================================================================
+
+Found 14 significant indirect effects:
+
+Mood Scale      Thought Dim     Effect (a×b)    95% CI                        
+--------------------------------------------------------------------------------
+EVAfeel         selfother          -0.226398   [-0.5368, -0.0020]            
+EVAaverage      confidence         -0.235837   [-0.5302, -0.0253]            
+EVAfeel         valence            -0.247261   [-0.5492, -0.0295]            
+EVAtense        valence            -0.249598   [-0.5540, -0.0351]            
+EVAmood         confidence         -0.260138   [-0.5638, -0.0371]            
+EVAmood         onoff              -0.308251   [-0.6002, -0.0905]            
+EVAtense        pca1               -0.329272   [-0.6810, -0.0700]            
+EVAaverage      valence            -0.352844   [-0.7026, -0.0933]            
+EVAmood         selfother          -0.373100   [-0.7406, -0.0999]            
+EVAtense        selfother          -0.383906   [-0.7649, -0.0921]            
+EVAaverage      selfother          -0.384832   [-0.7611, -0.1034]            
+EVAaverage      pca1               -0.402969   [-0.7838, -0.1146]            
+EVAmood         valence            -0.438460   [-0.8129, -0.1466]            
+EVAmood         pca1               -0.476821   [-0.8791, -0.1616]            
+
+================================================================================
+END OF REPORT
+================================================================================

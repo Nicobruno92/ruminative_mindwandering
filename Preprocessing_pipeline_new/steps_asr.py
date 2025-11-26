@@ -115,10 +115,13 @@ def apply_asr_if_configured(
 
     # Fit on clean data (first part of recording assumed cleaner)
     # ASR expects shape (n_channels, n_samples), data is (n_channels, n_times)
-    # Use first 60 seconds or 30% of data, whichever is smaller
-    # Increased from 30s/20% to provide more training data for better calibration
+    # Use the first portion of data for calibration: up to a configurable
+    # maximum duration (default 120s) or fraction of the recording
+    # (default 30%), whichever is smaller.
     n_samples = data.shape[1]  # data is (n_channels, n_times), so samples are on axis 1
-    train_samples = min(int(60 * sfreq), int(0.3 * n_samples))
+    train_max_s = float(asr_config.get("train_max_s", 120.0))
+    train_fraction = float(asr_config.get("train_fraction", 0.3))
+    train_samples = min(int(train_max_s * sfreq), int(train_fraction * n_samples))
     
     # Ensure we have enough training samples (ASR needs at least 1 sample)
     if train_samples == 0:

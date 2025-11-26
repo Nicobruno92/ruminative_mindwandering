@@ -94,6 +94,8 @@ echo "Processing desc=${desc}..."
 # Construct file paths
 fif_file="${DERIVATIVES_DIR}/${subject}/eeg/${subject}_task-${task}_desc-${desc}_epo.fif"
 h5_file="${H5_FEATURES_DIR}/element_${subject}_${task}_${desc}_markers.h5"
+# New Junifer naming duplicates the desc at the end (e.g., _markers_state.h5, _markers_sleep.h5)
+alt_h5_file="${H5_FEATURES_DIR}/element_${subject}_${task}_${desc}_markers_${desc}.h5"
 pkl_file="${PKL_FEATURES_DIR}/${subject}/eeg/junifer/${subject}_task-${task}_desc-${desc}_markers.pkl"
 
 # Check if input files exist
@@ -101,10 +103,22 @@ if [ ! -f "${fif_file}" ]; then
     echo "  ⚠️  FIF file not found: ${fif_file}"
     ((failed++))
 else
+    # Try primary H5 pattern first; if missing, fall back to alternative pattern
     if [ ! -f "${h5_file}" ]; then
-        echo "  ⚠️  H5 file not found: ${h5_file}"
-        ((failed++))
-    else
+        if [ -f "${alt_h5_file}" ]; then
+            echo "  ℹ️  Primary H5 not found, using alternative: ${alt_h5_file}"
+            h5_file="${alt_h5_file}"
+        else
+            echo "  ⚠️  H5 file not found (tried):"
+            echo "      - ${h5_file}"
+            echo "      - ${alt_h5_file}"
+            ((failed++))
+            # Skip conversion for this element
+            fif_file=""  # mark as unusable
+        fi
+    fi
+
+    if [ -n "${fif_file}" ] && [ -f "${h5_file}" ]; then
         # Notify if overwriting
         if [ -f "${pkl_file}" ] && [ "$FORCE_OVERWRITE" = true ]; then
             echo "  🔄  Overwriting existing PKL file"

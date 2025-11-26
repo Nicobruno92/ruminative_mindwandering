@@ -70,9 +70,7 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_adjacency_matrix(adjacency: np.ndarray, n_channels: int) -> None:
-    """
-    Validate adjacency matrix properties.
-    
+    """Validate adjacency matrix properties.
     Parameters
     ----------
     adjacency : np.ndarray
@@ -1308,7 +1306,8 @@ def find_clusters(
     tail: int = 0,
     n_permutations: int = None,
     stat_fun: str = 'sum',
-    t_power: float = 1.0
+    t_power: float = 1.0,
+    separate_signs: bool = False
 ) -> List[Dict]:
     """
     Find significant spatial clusters using permutation testing.
@@ -1336,6 +1335,10 @@ def find_clusters(
         Cluster statistic: 'sum' or 'max'
     t_power : float, default=1.0
         Power to raise t-values before summing
+    separate_signs : bool, default=False
+        If True, build separate null distributions for positive and negative
+        clusters and compute Monte Carlo p-values per sign (Andrillon-style).
+        If False, use a single null based on max |cluster_stat| (default).
         
     Returns
     -------
@@ -1372,8 +1375,43 @@ def find_clusters(
     if len(obs_clusters) == 0:
         return []
     
-    # Build null distribution of maximum cluster statistics
-    null_max_stats = []
+    # Build null distribution(s) of cluster statistics
+    if not separate_signs:
+        # Original behaviour: single null based on max |cluster_stat|
+        null_max_stats = []
+        for perm_idx in range(n_permutations):
+            perm_clusters, perm_cluster_stats = _find_clusters(
+                t_stats=perm_t_stats[perm_idx, :],
+                adjacency=adjacency,
+                threshold=threshold,
+                tail=tail,
+                stat_fun=stat_fun,
+                t_power=t_power
+            )
+            
+            if len(perm_clusters) > 0:
+                null_max_stats.append(np.max(np.abs(perm_cluster_stats)))
+            else:
+                null_max_stats.append(0.0)
+        
+        null_max_stats = np.array(null_max_stats)
+        
+        # Compute p-values for each observed cluster (two-sided on |stat|)
+        significant_clusters = []
+        for cluster_channels, cluster_stat in zip(obs_clusters, obs_cluster_stats):
+            p_value = np.mean(null_max_stats >= np.abs(cluster_stat))
+            significant_clusters.append({
+                'channels': cluster_channels,
+                'stat': float(cluster_stat),
+                'p_value': float(p_value)
+            })
+        
+        return significant_clusters
+    
+    # Andrillon-style: separate nulls for positive and negative clusters
+    null_pos_max = []  # maximum positive cluster_stat per permutation
+    null_neg_min = []  # minimum (most negative) cluster_stat per permutation
+    
     for perm_idx in range(n_permutations):
         perm_clusters, perm_cluster_stats = _find_clusters(
             t_stats=perm_t_stats[perm_idx, :],
@@ -1384,19 +1422,32 @@ def find_clusters(
             t_power=t_power
         )
         
-        if len(perm_clusters) > 0:
-            # Use maximum absolute cluster statistic
-            null_max_stats.append(np.max(np.abs(perm_cluster_stats)))
+        if len(perm_cluster_stats) > 0:
+            pos_stats = [s for s in perm_cluster_stats if s > 0]
+            neg_stats = [s for s in perm_cluster_stats if s < 0]
         else:
-            null_max_stats.append(0.0)
+            pos_stats, neg_stats = [], []
+        
+        # For positive clusters, use maximum positive stat (0 if none)
+        null_pos_max.append(max(pos_stats) if len(pos_stats) > 0 else 0.0)
+        # For negative clusters, use minimum (most negative) stat (0 if none)
+        null_neg_min.append(min(neg_stats) if len(neg_stats) > 0 else 0.0)
     
-    null_max_stats = np.array(null_max_stats)
+    null_pos_max = np.array(null_pos_max)
+    null_neg_min = np.array(null_neg_min)
     
-    # Compute p-values for each observed cluster
-    significant_clusters = []
-    for cluster_idx, (cluster_channels, cluster_stat) in enumerate(zip(obs_clusters, obs_cluster_stats)):
-        # P-value: proportion of permutations with max stat >= observed stat
-        p_value = np.mean(null_max_stats >= np.abs(cluster_stat))
+    # Compute sign-specific Monte Carlo p-values
+    significant_clusters: List[Dict] = []
+    for cluster_channels, cluster_stat in zip(obs_clusters, obs_cluster_stats):
+        if cluster_stat > 0:
+            # Positive clusters: upper-tail p-value against null_pos_max
+            p_value = np.mean(null_pos_max >= cluster_stat)
+        elif cluster_stat < 0:
+            # Negative clusters: lower-tail p-value against null_neg_min
+            p_value = np.mean(null_neg_min <= cluster_stat)
+        else:
+            # Degenerate cluster_stat == 0 -> non-significant
+            p_value = 1.0
         
         significant_clusters.append({
             'channels': cluster_channels,
@@ -1406,6 +1457,191 @@ def find_clusters(
     
     return significant_clusters
 
+
+def find_clusters_from_pvalues(
+    t_stats: np.ndarray,
+    p_values: np.ndarray,
+    perm_t_stats: np.ndarray,
+    perm_p_values: np.ndarray,
+    adjacency: np.ndarray,
+    cluster_alpha: float,
+    tail: int = 0,
+    n_permutations: int = None,
+    stat_fun: str = 'sum',
+    t_power: float = 1.0,
+    separate_signs: bool = True,
+    exclude: np.ndarray = None,
+) -> List[Dict]:
+    """Find clusters using p-value thresholding (Andrillon-style).
+
+    This helper forms candidate clusters based on p-values (p < cluster_alpha)
+    for both observed and permuted data, while using t-values as cluster
+    statistics (sum or max). It mirrors the Andrillon 2020 definition:
+
+    - Candidate clusters: neighbouring electrodes with p < cluster_alpha
+    - Cluster statistic: sum of t-values in the cluster
+    - Null distribution: cluster statistics from permuted data
+    - Positive and negative clusters can be treated separately via
+      ``separate_signs=True``.
+    """
+    if n_permutations is None:
+        n_permutations = perm_t_stats.shape[0]
+
+    if p_values.shape != t_stats.shape:
+        raise ValueError("p_values and t_stats must have the same shape")
+    if perm_p_values.shape != perm_t_stats.shape:
+        raise ValueError("perm_p_values and perm_t_stats must have the same shape")
+
+    # Handle optional exclusion mask
+    if exclude is not None:
+        if exclude.shape[0] != t_stats.shape[0]:
+            raise ValueError("exclude mask must have same length as t_stats")
+        exclude = exclude.astype(bool)
+
+    # ---------- Observed clusters ----------
+    sig_mask = p_values < cluster_alpha
+    if exclude is not None:
+        sig_mask = sig_mask & (~exclude)
+
+    if tail == 0:
+        # Two-sided: positive and negative clusters based on sign of t
+        pos_mask = sig_mask & (t_stats > 0)
+        neg_mask = sig_mask & (t_stats < 0)
+
+        pos_clusters, pos_stats = _find_clusters_single_tail(
+            t_stats, adjacency, pos_mask, stat_fun, t_power
+        )
+        neg_clusters, neg_stats = _find_clusters_single_tail(
+            t_stats, adjacency, neg_mask, stat_fun, t_power
+        )
+
+        obs_clusters = pos_clusters + neg_clusters
+        obs_cluster_stats = np.concatenate([pos_stats, neg_stats]) if len(pos_stats) > 0 or len(neg_stats) > 0 else np.array([])
+    else:
+        # One-sided tail: use sign of tail for mask
+        if tail == 1:
+            mask = sig_mask & (t_stats > 0)
+        else:  # tail == -1
+            mask = sig_mask & (t_stats < 0)
+        obs_clusters, obs_cluster_stats = _find_clusters_single_tail(
+            t_stats, adjacency, mask, stat_fun, t_power
+        )
+
+    if len(obs_clusters) == 0:
+        return []
+
+    # ---------- Permutation null distribution ----------
+    if not separate_signs:
+        # Single null based on max |cluster_stat|
+        null_max_stats: List[float] = []
+        for perm_idx in range(n_permutations):
+            t_perm = perm_t_stats[perm_idx, :]
+            p_perm = perm_p_values[perm_idx, :]
+            sig_perm = p_perm < cluster_alpha
+            if exclude is not None:
+                sig_perm = sig_perm & (~exclude)
+
+            if tail == 0:
+                pos_mask_perm = sig_perm & (t_perm > 0)
+                neg_mask_perm = sig_perm & (t_perm < 0)
+                pos_c, pos_s = _find_clusters_single_tail(
+                    t_perm, adjacency, pos_mask_perm, stat_fun, t_power
+                )
+                neg_c, neg_s = _find_clusters_single_tail(
+                    t_perm, adjacency, neg_mask_perm, stat_fun, t_power
+                )
+                perm_stats = np.concatenate([pos_s, neg_s]) if len(pos_s) > 0 or len(neg_s) > 0 else np.array([])
+            else:
+                if tail == 1:
+                    mask_perm = sig_perm & (t_perm > 0)
+                else:
+                    mask_perm = sig_perm & (t_perm < 0)
+                _, perm_stats = _find_clusters_single_tail(
+                    t_perm, adjacency, mask_perm, stat_fun, t_power
+                )
+
+            if len(perm_stats) > 0:
+                null_max_stats.append(float(np.max(np.abs(perm_stats))))
+            else:
+                null_max_stats.append(0.0)
+
+        null_max_stats = np.array(null_max_stats)
+
+        significant_clusters: List[Dict] = []
+        for cluster_channels, cluster_stat in zip(obs_clusters, obs_cluster_stats):
+            p_val = float(np.mean(null_max_stats >= np.abs(cluster_stat)))
+            significant_clusters.append({
+                'channels': cluster_channels,
+                'stat': float(cluster_stat),
+                'p_value': p_val,
+            })
+
+        return significant_clusters
+
+    # Separate nulls for positive and negative clusters (Andrillon-style)
+    null_pos_max: List[float] = []
+    null_neg_min: List[float] = []
+
+    for perm_idx in range(n_permutations):
+        t_perm = perm_t_stats[perm_idx, :]
+        p_perm = perm_p_values[perm_idx, :]
+        sig_perm = p_perm < cluster_alpha
+        if exclude is not None:
+            sig_perm = sig_perm & (~exclude)
+
+        if tail == 0:
+            pos_mask_perm = sig_perm & (t_perm > 0)
+            neg_mask_perm = sig_perm & (t_perm < 0)
+            _, pos_stats_perm = _find_clusters_single_tail(
+                t_perm, adjacency, pos_mask_perm, stat_fun, t_power
+            )
+            _, neg_stats_perm = _find_clusters_single_tail(
+                t_perm, adjacency, neg_mask_perm, stat_fun, t_power
+            )
+        else:
+            if tail == 1:
+                mask_perm = sig_perm & (t_perm > 0)
+            else:
+                mask_perm = sig_perm & (t_perm < 0)
+            _, stats_perm = _find_clusters_single_tail(
+                t_perm, adjacency, mask_perm, stat_fun, t_power
+            )
+            if tail == 1:
+                pos_stats_perm = stats_perm
+                neg_stats_perm = np.array([])
+            else:
+                pos_stats_perm = np.array([])
+                neg_stats_perm = stats_perm
+
+        if len(pos_stats_perm) > 0:
+            null_pos_max.append(float(np.max(pos_stats_perm)))
+        else:
+            null_pos_max.append(0.0)
+
+        if len(neg_stats_perm) > 0:
+            null_neg_min.append(float(np.min(neg_stats_perm)))
+        else:
+            null_neg_min.append(0.0)
+
+    null_pos_max_arr = np.array(null_pos_max)
+    null_neg_min_arr = np.array(null_neg_min)
+
+    significant_clusters: List[Dict] = []
+    for cluster_channels, cluster_stat in zip(obs_clusters, obs_cluster_stats):
+        if cluster_stat > 0:
+            p_val = float(np.mean(null_pos_max_arr >= cluster_stat))
+        elif cluster_stat < 0:
+            p_val = float(np.mean(null_neg_min_arr <= cluster_stat))
+        else:
+            p_val = 1.0
+
+        significant_clusters.append({
+            'channels': cluster_channels,
+            'stat': float(cluster_stat),
+            'p_value': p_val,
+        })
+
+    return significant_clusters
 
 def _compute_bootstrap_ci(
     clusters: List[np.ndarray],

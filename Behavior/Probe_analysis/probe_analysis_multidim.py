@@ -62,8 +62,8 @@ DATA_FILE: str = "../../results/Behavior/probe_data/probe_level_aggregated_data.
 DIMENSIONS: List[str] = ["valence", "time", "selfother", "confidence"]
 
 # Output base directories for results and plots (will be created if missing)
-RESULTS_DIR: str = "../../results/Behavior/probe_data/lmm_analysis_multidim"
-PLOTS_DIR: str = "../../results/Behavior/probe_data/lmm_plots_multidim"
+RESULTS_DIR: str = "../../results/Behavior/probe_data/lmm_analysis_multidim/onoff_lt50/no_baseline"
+PLOTS_DIR: str = "../../results/Behavior/probe_data/lmm_analysis_multidim/onoff_lt50/no_baseline"
 
 # Plot aesthetics
 GROUP_ORDER: List[str] = ["Controls", "Risk of Depression"]
@@ -971,67 +971,53 @@ def analyze_dimension(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: str) -
     print(f"Plots saved to:   {dim_plots_dir}")
 
 
-def main() -> None:
-    """Entry point to run the multi-dimension analysis loop."""
-    ensure_directories()
-    df_lmm, df_lmm_ie = load_dataframes()
+def preprocess_data(
+    df_lmm: pd.DataFrame,
+    df_lmm_ie: pd.DataFrame,
+    dimensions: List[str],
+    apply_onoff_filter: bool = False,
+    onoff_threshold: float = 50.0,
+    exclude_baseline: bool = True,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Preprocess data with the following steps (in order):
+    1. Create time-on-task variables
+    2. Apply baseline normalization for IE analysis (BEFORE filtering)
+    3. Apply onoff filtering (if requested)
+    4. Exclude baseline condition from IE analysis (if requested)
     
-    # Optional filtering by onoff < threshold
-    if APPLY_ONOFF_FILTER:
-        if "onoff" not in df_lmm.columns or "onoff" not in df_lmm_ie.columns:
-            raise ValueError(
-                "APPLY_ONOFF_FILTER is True but 'onoff' column is missing in the data."
-            )
-        def _filter(df: pd.DataFrame) -> pd.DataFrame:
-            return df[df["onoff"] < ONOFF_MAX_EXCLUSIVE].copy()
-        before_n_lmm = len(df_lmm)
-        before_s_lmm = df_lmm["subject_id"].nunique()
-        before_n_ie = len(df_lmm_ie)
-        before_s_ie = df_lmm_ie["subject_id"].nunique()
-        df_lmm = _filter(df_lmm)
-        df_lmm_ie = _filter(df_lmm_ie)
-        after_n_lmm = len(df_lmm)
-        after_s_lmm = df_lmm["subject_id"].nunique()
-        after_n_ie = len(df_lmm_ie)
-        after_s_ie = df_lmm_ie["subject_id"].nunique()
-        print("\nApplying onoff filter: onoff <", ONOFF_MAX_EXCLUSIVE)
-        print(
-            f"Probe-level: {before_n_lmm} rows/{before_s_lmm} subjects -> {after_n_lmm} rows/{after_s_lmm} subjects"
-        )
-        print(
-            f"IE-level:    {before_n_ie} rows/{before_s_ie} subjects -> {after_n_ie} rows/{after_s_ie} subjects"
-        )
-        # Use subfolders to mark the filtered analysis
-        global RESULTS_DIR, PLOTS_DIR
-        RESULTS_DIR = os.path.join(RESULTS_DIR, "onoff_lt50")
-        PLOTS_DIR = os.path.join(PLOTS_DIR, "onoff_lt50")
-        ensure_directories()
+    This order ensures that baseline normalization uses all available data,
+    preventing participant loss due to filtering baseline blocks.
     
-    # Optional filtering to exclude baseline condition
-    if EXCLUDE_BASELINE:
-        if "inclusion_exclusion" not in df_lmm_ie.columns:
-            raise ValueError(
-                "EXCLUDE_BASELINE is True but 'inclusion_exclusion' column is missing."
-            )
-        before_n_ie = len(df_lmm_ie)
-        before_s_ie = df_lmm_ie["subject_id"].nunique()
-        df_lmm_ie = df_lmm_ie[df_lmm_ie["inclusion_exclusion"] != "baseline"].copy()
-        after_n_ie = len(df_lmm_ie)
-        after_s_ie = df_lmm_ie["subject_id"].nunique()
-        print("\nExcluding baseline condition from IE analysis")
-        print(
-            f"IE-level: {before_n_ie} rows/{before_s_ie} subjects -> {after_n_ie} rows/{after_s_ie} subjects"
-        )
-        # Mark in folder names
-        RESULTS_DIR = os.path.join(RESULTS_DIR, "no_baseline")
-        PLOTS_DIR = os.path.join(PLOTS_DIR, "no_baseline")
-        ensure_directories()
+    Parameters
+    ----------
+    df_lmm : pd.DataFrame
+        Probe-level data for global analysis.
+    df_lmm_ie : pd.DataFrame
+        Data for inclusion/exclusion analysis.
+    dimensions : List[str]
+        List of dependent variables to normalize.
+    apply_onoff_filter : bool
+        Whether to filter rows where onoff < threshold.
+    onoff_threshold : float
+        Threshold for onoff filtering.
+    exclude_baseline : bool
+        Whether to exclude baseline condition from IE analysis.
     
-    validate_columns(df_lmm, df_lmm_ie, DIMENSIONS)
-
-    # Create time_on_task variable (probe_number + 15 * (sart_number - 1))
-    # Extract SART number from task name
+    Returns
+    -------
+    Tuple[pd.DataFrame, pd.DataFrame]
+        Preprocessed df_lmm, df_lmm_ie
+    """
+    print("\n" + "="*60)
+    print("PREPROCESSING DATA")
+    print("="*60)
+    
+    # =========================================================================
+    # STEP 1: Create time-on-task variables
+    # =========================================================================
     if 'task' in df_lmm.columns and 'probe_number' in df_lmm.columns:
+        print("\nStep 1: Creating time-on-task variables...")
         df_lmm['sart_number'] = df_lmm['task'].str.extract(r'(\d+)').astype(int)
         
         # Calculate time_on_task: probe_number + (15 * (sart_number - 1))
@@ -1046,23 +1032,19 @@ def main() -> None:
         df_lmm_ie['time_on_task'] = df_lmm_ie['probe_number'] + (15 * (df_lmm_ie['sart_number'] - 1))
         df_lmm_ie['relative_time_on_task'] = df_lmm_ie['probe_number']
         
-        print(f"Added time_on_task variable: range {df_lmm['time_on_task'].min()} to {df_lmm['time_on_task'].max()}")
-        print(f"Added relative_time_on_task (within-SART): range 1 to 15")
+        print(f"  - time_on_task range: {df_lmm['time_on_task'].min()} to {df_lmm['time_on_task'].max()}")
+        print(f"  - relative_time_on_task range: 1 to 15")
     else:
-        print("Warning: 'task' column not found, skipping time_on_task creation")
-
-    # =============================================================================
-    # BASELINE NORMALIZATION FOR INCLUSION/EXCLUSION ANALYSIS
-    # =============================================================================
-    # Normalize each manipulation block by its immediately preceding baseline:
-    # - Sart2 (first manipulation) normalized by Sart1 mean (per subject)
-    # - Sart4 (second manipulation) normalized by Sart3 mean (per subject)
+        print("\nStep 1: Skipping time-on-task creation ('task' column not found)")
     
-    print("\n" + "="*60)
-    print("APPLYING BASELINE NORMALIZATION FOR ALL DIMENSIONS")
-    print("="*60)
+    # =========================================================================
+    # STEP 2: Apply baseline normalization (BEFORE filtering)
+    # =========================================================================
+    print("\nStep 2: Applying baseline normalization for IE analysis...")
+    print("  Note: Using ALL available data (before filtering) to compute baselines")
     
     # Calculate baseline means per subject for each dimension
+    # Use df_lmm (full dataset) to ensure we have all baseline data
     baseline_means = {}
     for subject in df_lmm['subject_id'].unique():
         subject_data = df_lmm[df_lmm['subject_id'] == subject]
@@ -1070,18 +1052,18 @@ def main() -> None:
         # Sart1 baseline (for normalizing Sart2)
         sart1_data = subject_data[subject_data['task'] == 'Sart1']
         if len(sart1_data) > 0:
-            for dim in DIMENSIONS:
+            for dim in dimensions:
                 if dim in sart1_data.columns:
                     baseline_means[(subject, 'Sart1', dim)] = sart1_data[dim].mean()
         
         # Sart3 baseline (for normalizing Sart4)
         sart3_data = subject_data[subject_data['task'] == 'Sart3']
         if len(sart3_data) > 0:
-            for dim in DIMENSIONS:
+            for dim in dimensions:
                 if dim in sart3_data.columns:
                     baseline_means[(subject, 'Sart3', dim)] = sart3_data[dim].mean()
     
-    print(f"Calculated baseline means for {len(baseline_means)} subject-SART-dimension combinations")
+    print(f"  - Calculated baseline means for {len(baseline_means)} subject-SART-dimension combinations")
     
     # Apply normalization to IE subset for each dimension
     def normalize_by_baseline(row, dimension):
@@ -1098,7 +1080,9 @@ def main() -> None:
         elif task == 'Sart4':
             baseline_key = (subject, 'Sart3', dimension)
         else:
-            return np.nan  # Should not happen in IE subset
+            # For baseline tasks or other tasks, return NaN
+            # These will be filtered out later if exclude_baseline=True
+            return np.nan
         
         baseline_mean = baseline_means.get(baseline_key, np.nan)
         if pd.isna(baseline_mean):
@@ -1107,26 +1091,147 @@ def main() -> None:
         return row[dimension] - baseline_mean
     
     # Create normalized columns for each dimension
-    for dim in DIMENSIONS:
+    for dim in dimensions:
         if dim in df_lmm_ie.columns:
             df_lmm_ie[f'{dim}_normalized'] = df_lmm_ie.apply(
                 lambda row: normalize_by_baseline(row, dim), axis=1
             )
     
-    # Remove rows where normalization failed (missing baseline)
-    before_dropna = len(df_lmm_ie)
-    # Drop rows where ANY normalized column is NaN
-    normalized_cols = [f'{dim}_normalized' for dim in DIMENSIONS if dim in df_lmm_ie.columns]
-    df_lmm_ie = df_lmm_ie.dropna(subset=normalized_cols)
-    after_dropna = len(df_lmm_ie)
-    if before_dropna > after_dropna:
-        print(f"Warning: Removed {before_dropna - after_dropna} rows with missing baseline data")
+    # Report normalization statistics
+    normalized_cols = [f'{dim}_normalized' for dim in dimensions if f'{dim}_normalized' in df_lmm_ie.columns]
+    if normalized_cols:
+        print(f"  - Created {len(normalized_cols)} normalized columns")
+        for col in normalized_cols:
+            non_nan_count = df_lmm_ie[col].notna().sum()
+            print(f"    {col}: {non_nan_count} non-NaN values")
     
-    print(f"Normalized IE subset: {len(df_lmm_ie)} observations")
-    for dim in DIMENSIONS:
-        if f'{dim}_normalized' in df_lmm_ie.columns:
-            print(f"  {dim}_normalized range: [{df_lmm_ie[f'{dim}_normalized'].min():.2f}, {df_lmm_ie[f'{dim}_normalized'].max():.2f}]")
+    # =========================================================================
+    # STEP 3: Apply onoff filtering (AFTER baseline normalization)
+    # =========================================================================
+    if apply_onoff_filter:
+        print(f"\nStep 3: Applying onoff filter (onoff < {onoff_threshold})...")
+        
+        if "onoff" not in df_lmm.columns or "onoff" not in df_lmm_ie.columns:
+            raise ValueError(
+                "apply_onoff_filter is True but 'onoff' column is missing in the data."
+            )
+        
+        # Filter function
+        def _filter(df: pd.DataFrame) -> pd.DataFrame:
+            return df[df["onoff"] < onoff_threshold].copy()
+        
+        # Apply to both datasets
+        before_n_lmm = len(df_lmm)
+        before_s_lmm = df_lmm["subject_id"].nunique()
+        before_n_ie = len(df_lmm_ie)
+        before_s_ie = df_lmm_ie["subject_id"].nunique()
+        
+        df_lmm = _filter(df_lmm)
+        df_lmm_ie = _filter(df_lmm_ie)
+        
+        after_n_lmm = len(df_lmm)
+        after_s_lmm = df_lmm["subject_id"].nunique()
+        after_n_ie = len(df_lmm_ie)
+        after_s_ie = df_lmm_ie["subject_id"].nunique()
+        
+        print(f"  - Probe-level: {before_n_lmm} rows/{before_s_lmm} subjects -> {after_n_lmm} rows/{after_s_lmm} subjects")
+        print(f"  - IE-level:    {before_n_ie} rows/{before_s_ie} subjects -> {after_n_ie} rows/{after_s_ie} subjects")
+    else:
+        print("\nStep 3: Skipping onoff filter (not requested)")
+    
+    # =========================================================================
+    # STEP 4: Exclude baseline condition from IE analysis (AFTER filtering)
+    # =========================================================================
+    if exclude_baseline:
+        print("\nStep 4: Excluding baseline condition from IE analysis...")
+        
+        if "inclusion_exclusion" not in df_lmm_ie.columns:
+            raise ValueError(
+                "exclude_baseline is True but 'inclusion_exclusion' column is missing."
+            )
+        
+        before_n_ie = len(df_lmm_ie)
+        before_s_ie = df_lmm_ie["subject_id"].nunique()
+        
+        df_lmm_ie = df_lmm_ie[df_lmm_ie["inclusion_exclusion"] != "baseline"].copy()
+        
+        after_n_ie = len(df_lmm_ie)
+        after_s_ie = df_lmm_ie["subject_id"].nunique()
+        
+        print(f"  - IE-level: {before_n_ie} rows/{before_s_ie} subjects -> {after_n_ie} rows/{after_s_ie} subjects")
+    else:
+        print("\nStep 4: Keeping baseline condition in IE analysis")
+    
+    # =========================================================================
+    # STEP 5: Remove rows with missing normalized values
+    # =========================================================================
+    print("\nStep 5: Cleaning up rows with missing normalized values...")
+    
+    before_dropna = len(df_lmm_ie)
+    before_subjects = df_lmm_ie["subject_id"].nunique()
+    
+    # Drop rows where ANY normalized column is NaN
+    normalized_cols = [f'{dim}_normalized' for dim in dimensions if f'{dim}_normalized' in df_lmm_ie.columns]
+    if normalized_cols:
+        df_lmm_ie = df_lmm_ie.dropna(subset=normalized_cols)
+    
+    after_dropna = len(df_lmm_ie)
+    after_subjects = df_lmm_ie["subject_id"].nunique()
+    
+    if before_dropna > after_dropna:
+        print(f"  - Removed {before_dropna - after_dropna} rows with missing baseline data")
+        print(f"  - Subjects: {before_subjects} -> {after_subjects}")
+    else:
+        print("  - No rows removed (all baselines available)")
+    
+    # =========================================================================
+    # FINAL SUMMARY
+    # =========================================================================
+    print("\n" + "="*60)
+    print("PREPROCESSING COMPLETE")
+    print("="*60)
+    print(f"Final probe-level dataset: {len(df_lmm)} rows, {df_lmm['subject_id'].nunique()} subjects")
+    print(f"Final IE-level dataset:    {len(df_lmm_ie)} rows, {df_lmm_ie['subject_id'].nunique()} subjects")
+    
+    if normalized_cols:
+        print("\nNormalized dimension ranges (IE analysis):")
+        for dim in dimensions:
+            col = f'{dim}_normalized'
+            if col in df_lmm_ie.columns:
+                print(f"  {col}: [{df_lmm_ie[col].min():.2f}, {df_lmm_ie[col].max():.2f}]")
+    
+    return df_lmm, df_lmm_ie
 
+
+def main() -> None:
+    """Entry point to run the multi-dimension analysis loop."""
+    ensure_directories()
+    df_lmm, df_lmm_ie = load_dataframes()
+    
+    # Update output directories based on filtering options
+    global RESULTS_DIR, PLOTS_DIR
+    if APPLY_ONOFF_FILTER:
+        RESULTS_DIR = os.path.join(RESULTS_DIR, "onoff_lt50")
+        PLOTS_DIR = os.path.join(PLOTS_DIR, "onoff_lt50")
+    if EXCLUDE_BASELINE:
+        RESULTS_DIR = os.path.join(RESULTS_DIR, "no_baseline")
+        PLOTS_DIR = os.path.join(PLOTS_DIR, "no_baseline")
+    ensure_directories()
+    
+    # Validate columns before preprocessing
+    validate_columns(df_lmm, df_lmm_ie, DIMENSIONS)
+    
+    # Preprocess data (baseline normalization happens BEFORE filtering)
+    df_lmm, df_lmm_ie = preprocess_data(
+        df_lmm=df_lmm,
+        df_lmm_ie=df_lmm_ie,
+        dimensions=DIMENSIONS,
+        apply_onoff_filter=APPLY_ONOFF_FILTER,
+        onoff_threshold=ONOFF_MAX_EXCLUSIVE,
+        exclude_baseline=EXCLUDE_BASELINE,
+    )
+
+    # Run analysis for each dimension
     for dep in DIMENSIONS:
         analyze_dimension(df_lmm, df_lmm_ie, dep)
 

@@ -1,9 +1,0 @@
-dv,analysis_type,n_predictors,predictors,bic,aic,loglik,n_obs,n_subjects,converged
-onoff,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",431.32855265354965,367.7069381047827,-167.85346905239135,394,29,True
-valence,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",850.1837163272994,786.5621017785325,-377.2810508892662,394,29,True
-time,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1073.7152355686007,1010.0936210198338,-489.0468105099169,394,29,False
-selfother,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",954.353981909871,890.732367361104,-429.366183680552,394,29,True
-confidence,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1115.9193716226973,1052.2977570739304,-510.1488785369652,394,29,True
-PC1,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",908.6728440713255,845.0512295225585,-406.52561476127926,394,29,True
-PC2,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1053.33277787936,989.7111633305931,-478.85558166529654,394,29,True
-PC3,complete,10,"age, bdi, rrs_tot, mwq, fne, self_esteem, ctq_tot, a_rsq, sris, time_on_task",1094.309213923872,1030.687599375105,-499.3437996875525,394,29,True

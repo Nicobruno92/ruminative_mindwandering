@@ -57,10 +57,15 @@ try:
     from steps_asr import apply_asr_if_configured
     from steps_bads import run_pyprep_noisychannels
     from steps_ica import fit_ica_deterministic, auto_select_ica_components
-    from steps_epochs import make_evoked_epochs, make_state_preprobe_epochs
+    from steps_epochs import (
+        make_evoked_epochs,
+        make_state_preprobe_epochs,
+        make_sleep_preprobe_epochs,
+    )
     from steps_reject import run_autoreject
     from steps_report import (
-        compute_psd_figure, add_psd_figures, add_excluded_ics, add_drop_log,
+        compute_psd_figure, add_psd_figures, add_excluded_ics,
+        add_ica_selection_table, add_drop_log,
         add_epoch_rejection_summary, add_qa_metrics_summary
     )
     from steps_qa_metrics import (
@@ -79,11 +84,15 @@ except ImportError:
     from steps_asr import apply_asr_if_configured
     from steps_bads import run_pyprep_noisychannels
     from steps_ica import fit_ica_deterministic, auto_select_ica_components
-    from steps_epochs import make_evoked_epochs, make_state_preprobe_epochs
+    from steps_epochs import (
+        make_evoked_epochs,
+        make_state_preprobe_epochs,
+        make_sleep_preprobe_epochs,
+    )
     from steps_reject import run_autoreject
     from steps_report import (
-        add_psd_figures, add_excluded_ics, add_drop_log,
-        add_epoch_rejection_summary, add_qa_metrics_summary
+        add_psd_figures, add_excluded_ics, add_ica_selection_table,
+        add_drop_log, add_epoch_rejection_summary, add_qa_metrics_summary
     )
     from steps_qa_metrics import (
         run_complete_qa_assessment, compute_evoked_epoch_metrics,
@@ -307,6 +316,7 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     _ = name_ica  # kept for compatibility with previous outputs
     name_evoked = _get_cfg_required(cfg, ["names", "evoked_desc"])
     name_state = _get_cfg_required(cfg, ["names", "state_desc"])
+    name_sleep = _get_cfg_required(cfg, ["names", "sleep_desc"])
     
     # Epoch parameters
     state_overlap = float(_get_cfg_required(cfg, ["state_windows_overlap_s"]))
@@ -318,6 +328,12 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     )
     mini_epoch_s = float(
         _get_cfg_required(cfg, ["state_windows", "mini_epoch_s"])
+    )
+    sleep_pre_probe_s = float(
+        _get_cfg_required(cfg, ["sleep_windows", "pre_probe_s"])
+    )
+    sleep_reject_by_annotation = bool(
+        cfg.get("sleep_windows", {}).get("reject_by_annotation", True)
     )
     
     # Coarse epoch rejection threshold (applied before AutoReject)
@@ -347,6 +363,13 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     print("Loading raw data...")
     # Read raw from BIDS (annotations already harmonized by previous step)
     raw = bidsio.read_raw(subject=subject, task=task, preload=True)
+    # Ensure EOG channels are correctly typed
+    eog_candidates = {}
+    for ch_name in ["VEOG", "HEOG"]:
+        if ch_name in raw.ch_names:
+            eog_candidates[ch_name] = "eog"
+    if eog_candidates:
+        raw.set_channel_types(eog_candidates)
     # Build events directly from existing annotations
     events, event_id = mne.events_from_annotations(raw)
     
@@ -551,6 +574,12 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         print("  [WARNING] No ICA components excluded, skipping ICA.apply()")
         print("  This means no artifacts were detected or thresholds are too strict!")
     
+    # Add ICA-related sections to report
+    add_excluded_ics(report, ica, raw_clean)
+    add_ica_selection_table(report, ica_selection_log)
+    report.add_raw(raw=raw_clean, title="Raw clean", psd=True)
+
+
     # Memory cleanup: ICA copy no longer needed
     del raw_for_ica
     gc.collect()
@@ -695,14 +724,22 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     print("Processing evoked epochs for saving...")
     # Build ERP evoked responses for QA
     evk = []
-    if "go/correct" in ar_epochs.event_id:
-        evk.append(ar_epochs["go/correct"].average())
-    if "nogo/correct" in ar_epochs.event_id:
-        evk.append(ar_epochs["nogo/correct"].average())
+    go_labels = [
+        k for k in ar_epochs.event_id.keys()
+        if isinstance(k, str) and k.lower().startswith("go")
+    ]
+    nogo_labels = [
+        k for k in ar_epochs.event_id.keys()
+        if isinstance(k, str) and k.lower().startswith("nogo")
+    ]
+    if go_labels:
+        evk.append(ar_epochs[go_labels].average())
+    if nogo_labels:
+        evk.append(ar_epochs[nogo_labels].average())
     if evk:
         report.add_evokeds(
             evokeds=evk,
-            titles=["Go/correct", "NoGo/correct"][: len(evk)],
+            titles=["Go (all)", "NoGo (all)"][: len(evk)],
         )
 
     # Save evoked epochs to derivatives
@@ -755,20 +792,15 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     print("Creating state epochs...")
     # State windows pre-probe using existing THOUGHT_PROBE annotations
     raw_state = raw_clean.copy()
-    # raw_state.filter(
-    #     l_freq=filters_state.get("l_freq"),
-    #     h_freq=filters_state.get("h_freq"),
-    #     phase="zero",
-    #     n_jobs=1,
-    #     # picks=picks_eeg,
-    # )
     
+    # For state epochs, don't apply coarse rejection - let AutoReject handle it
+    # State/resting data naturally has more variability than evoked responses
     epochs_state = make_state_preprobe_epochs(
         raw_state,
         pre_probe_s=pre_probe_s,
         mini_epoch_s=mini_epoch_s,
         overlap_s=state_overlap,
-        reject=reject_threshold,
+        reject=None,  # No coarse rejection for state epochs
     )
     
     # # Apply picks_eeg to state epochs after creation
@@ -874,6 +906,66 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         gc.collect()
 
     # =========================================================================
+    # 14b. SLEEP (LONG PRE-PROBE) EPOCHS PROCESSING
+    # =========================================================================
+    print("Creating sleep epochs...")
+    raw_sleep = raw_clean.copy()
+
+    # For sleep epochs, don't apply coarse rejection - let AutoReject handle it
+    # Long resting-state windows need permissive thresholds
+    epochs_sleep = make_sleep_preprobe_epochs(
+        raw_sleep,
+        pre_probe_s=sleep_pre_probe_s,
+        reject=None,  # No coarse rejection for sleep epochs
+        reject_by_annotation=sleep_reject_by_annotation,
+    )
+
+    # raw_sleep no longer needed after constructing epochs
+    del raw_sleep
+    gc.collect()
+
+    if epochs_sleep is not None:
+        # Track sleep epoch counts
+        try:
+            sleep_input_total = len(getattr(epochs_sleep, "drop_log", []))
+        except Exception:
+            sleep_input_total = None
+        try:
+            sleep_after_construct = int(len(epochs_sleep.events))
+        except Exception:
+            sleep_after_construct = None
+        
+        # For sleep epochs, skip AutoReject and rely only on the coarse
+        # amplitude-based rejection defined at epoch construction
+        print("Skipping AutoReject for sleep epochs; using fixed reject thresholds only.")
+        sleep_epochs_clean = epochs_sleep.copy()
+        
+        # Update epoch metrics with sleep information
+        epoch_metrics.update({
+            'has_sleep_epochs': True,
+            'sleep_input_total': sleep_input_total,
+            'sleep_after_construct': sleep_after_construct,
+            'n_sleep_epochs': int(len(sleep_epochs_clean)),
+        })
+
+        # Save sleep epochs to derivatives
+        bidsio.write_derivative_epochs(
+            sleep_epochs_clean,
+            derivatives_root,
+            subject,
+            task,
+            desc=name_sleep,
+        )
+
+        from steps_report import add_epochs_sections
+        add_epochs_sections(
+            report, sleep_epochs_clean, sleep_epochs_clean, label="Sleep"
+        )
+
+        # Memory cleanup
+        gc.collect()
+
+    # =========================================================================
     # 15. COMPLETE QUALITY ASSESSMENT
     # =========================================================================
     print("Running complete quality assessment...")
@@ -907,13 +999,6 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     # 16. FINAL REPORTING AND CLEANUP
     # =========================================================================
     print("Generating final report...")
-    # Add figures to report
-    add_excluded_ics(report, ica, raw_clean)
-    try:
-        report.add_raw(raw=raw_clean, title="Raw clean", psd=True)
-    except Exception:
-        pass
-
     # Add final drop-log figure (after drop_bad)
     add_drop_log(report, ar_epochs, title="Final clean epochs drop log")
 

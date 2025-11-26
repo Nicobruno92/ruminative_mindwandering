@@ -91,6 +91,8 @@ while IFS=',' read -r subject task desc; do
     # Construct file paths
     fif_file="${DERIVATIVES_DIR}/${subject}/eeg/${subject}_task-${task}_desc-${desc}_epo.fif"
     h5_file="${H5_FEATURES_DIR}/element_${subject}_${task}_${desc}_markers.h5"
+    # New Junifer naming duplicates the desc at the end (e.g., _markers_state.h5, _markers_sleep.h5)
+    alt_h5_file="${H5_FEATURES_DIR}/element_${subject}_${task}_${desc}_markers_${desc}.h5"
     pkl_file="${PKL_FEATURES_DIR}/${subject}/eeg/junifer/${subject}_task-${task}_desc-${desc}_markers.pkl"
     
     # Check if input files exist
@@ -101,9 +103,16 @@ while IFS=',' read -r subject task desc; do
     fi
     
     if [ ! -f "${h5_file}" ]; then
-        echo "  ⚠️  H5 file not found: ${h5_file}"
-        ((failed++))
-        continue
+        if [ -f "${alt_h5_file}" ]; then
+            echo "  ℹ️  Primary H5 not found, using alternative: ${alt_h5_file}"
+            h5_file="${alt_h5_file}"
+        else
+            echo "  ⚠️  H5 file not found (tried):"
+            echo "      - ${h5_file}"
+            echo "      - ${alt_h5_file}"
+            ((failed++))
+            continue
+        fi
     fi
     
     # Check if output already exists (only skip if force mode is off)

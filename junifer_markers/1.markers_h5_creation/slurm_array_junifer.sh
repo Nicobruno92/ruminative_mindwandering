@@ -19,9 +19,9 @@
 # Example:
 #   sbatch --array=0-167 slurm_array_junifer.sh
 
-#SBATCH --job-name=CYBERSART_features
-#SBATCH --output=logs/CYBERSART_features_%A_%a.out
-#SBATCH --error=logs/CYBERSART_features_%A_%a.err
+#SBATCH --job-name=CYBERSART_markers
+#SBATCH --output=logs/CYBERSART_markers_%A_%a.out
+#SBATCH --error=logs/CYBERSART_markers_%A_%a.err
 #SBATCH --cpus-per-task=4
 #SBATCH --time=08:00:00
 #SBATCH --mem=8G
@@ -29,11 +29,12 @@
 set -euo pipefail
 
 # Parameters (overridable)
-JOBNAME=${JOBNAME:-CYBERSART_features}
+CONFIG_TYPE=${CONFIG_TYPE:-state}  # "state", "evoked" or "sleep" (matches desc in elements.csv)
+JOBNAME=${JOBNAME:-CYBERSART_${CONFIG_TYPE}}
 WORKDIR=${WORKDIR:-/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering}
 CONDA_ENV=${CONDA_ENV:-junifer}
 SHELL_KIND=${SHELL:-zsh}
-CONFIG=${CONFIG:-${WORKDIR}/junifer_markers/1.markers_h5_creation/config.yaml}
+CONFIG=${CONFIG:-${WORKDIR}/junifer_markers/1.markers_h5_creation/config_${CONFIG_TYPE}.yaml}
 ELEMENTS_FILE=${ELEMENTS_FILE:-${WORKDIR}/junifer_markers/1.markers_h5_creation/elements.csv}
 LOG_DIR=${LOG_DIR:-${WORKDIR}/logs}
 PYTHONPATH_EXTRA=${PYTHONPATH_EXTRA:-/network/iss/home/nicolas.bruno/Junifer}
@@ -88,15 +89,21 @@ if [ ! -f "$ELEMENTS_FILE" ]; then
   exit 1
 fi
 
-# Map array index to the corresponding line (0-based index expected)
-# Note: We skip the header line (line 1), so we add 2 instead of 1
+# Map array index (0-based) to the corresponding line among rows matching this CONFIG_TYPE
 TASK_ID=${SLURM_ARRAY_TASK_ID:?SLURM_ARRAY_TASK_ID not set}
-# Convert to 1-based for sed, +1 to skip header
-LINE_NO=$((TASK_ID + 2))
-ELEMENT=$(sed -n "${LINE_NO}p" "$ELEMENTS_FILE" | tr -d '\r')
+ELEMENT=$(awk -F',' -v d="${CONFIG_TYPE}" -v idx="$TASK_ID" '
+  NR==1 {next}  # skip header
+  $3==d {
+    if (c==idx) {
+      print $0
+      exit
+    }
+    c++
+  }
+' "$ELEMENTS_FILE" | tr -d '\r')
 
 if [ -z "$ELEMENT" ]; then
-  echo "[ERROR] No element for index $TASK_ID (line $LINE_NO in CSV)"
+  echo "[ERROR] No element for index $TASK_ID for CONFIG_TYPE=${CONFIG_TYPE} in $ELEMENTS_FILE"
   exit 1
 fi
 
@@ -105,11 +112,11 @@ SUBJECT=$(echo "$ELEMENT" | awk -F, '{print $1}')
 TASK=$(echo "$ELEMENT" | awk -F, '{print $2}')
 DESC=$(echo "$ELEMENT" | awk -F, '{print $3}')
 
-echo "[INFO] Job ${SLURM_ARRAY_JOB_ID:-NA}_${SLURM_ARRAY_TASK_ID:-NA} -> element: $SUBJECT,$TASK,$DESC"
+echo "[INFO] Job ${SLURM_ARRAY_JOB_ID:-NA}_${SLURM_ARRAY_TASK_ID:-NA} [${CONFIG_TYPE}] -> element: $SUBJECT,$TASK,$DESC"
 
 # Run the specific element - pass the full element string as expected by Junifer
 set -x
 junifer run "$CONFIG" --verbose info --element "$ELEMENT"
 set +x
 
-echo "[INFO] Done: $SUBJECT,$TASK,$DESC"
+echo "[INFO] Done [${CONFIG_TYPE}]: $SUBJECT,$TASK"

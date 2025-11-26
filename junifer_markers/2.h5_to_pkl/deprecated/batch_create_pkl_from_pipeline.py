@@ -129,6 +129,17 @@ def process_element(subject: str, task: str, desc: str, dry_run: bool = False,
     print(f"  H5:  {h5_path}", flush=True)
     print(f"  PKL: {pkl_path}", flush=True)
     
+    # Support both old and new Junifer H5 naming conventions.
+    # Old pattern (original pipeline):
+    #   element_sub-XX_SartY_state_markers.h5
+    # New pattern (split configs, e.g. markers_state.h5):
+    #   element_sub-XX_SartY_state_markers_state.h5
+    alt_h5_path = H5_FEATURES_DIR / f"element_{subject}_{task}_{desc}_markers_{desc}.h5"
+    if (not h5_path.exists()) and alt_h5_path.exists():
+        print(f"[DEBUG] Primary H5 not found, using alternative H5 path", flush=True)
+        print(f"  H5 (alt): {alt_h5_path}", flush=True)
+        h5_path = alt_h5_path
+    
     # Check if input files exist
     print(f"[DEBUG] Checking FIF file existence", flush=True)
     if not fif_path.exists():

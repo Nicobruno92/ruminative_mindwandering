@@ -15,10 +15,10 @@ Usage:
 # =============================================================================
 # Path to the PKL file containing markers
 # PKL_PATH = "/Volumes/cenir/analyse/meeg/CYBERSART/BIDS/features/sub-07/eeg/junifer/sub-07_task-Sart1_desc-evoked_markers.pkl"
-PKL_PATH = "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/sub-07/eeg/junifer/sub-07_task-Sart1_desc-evoked_markers.pkl"
+PKL_PATH = "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/sub-01/eeg/junifer/sub-01_task-Sart1_desc-evoked_markers.pkl"
 
 # Subject and session info (for plot titles)
-SUBJECT_ID = "07"
+SUBJECT_ID = "01"
 SESSION = "Sart1"
 DATA_TYPE = "evoked"  # 'state' or 'evoked'
 

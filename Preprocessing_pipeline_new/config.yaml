@@ -30,9 +30,9 @@ tasks: ["Sart1", "Sart2", "Sart3", 'Sart4']
 # 2. INITIAL PROCESSING PARAMETERS
 # =============================================================================
 # Target resampling rate and basic filtering
-sr_target: 250  # target resampling rate for the pipeline
+sr_target: 500  # target resampling rate for the pipeline
 notch_freqs: [50, 100, 150]  # line noise removal frequencies
-avg_ref_projector: true  # apply average reference
+avg_ref_projector: false  # apply average reference
 
 # =============================================================================
 # 3. ARTIFACT SUBSPACE RECONSTRUCTION (ASR)
@@ -60,7 +60,7 @@ pyprep:
 # This helps avoid over-flagging frontal channels dominated by slow drifts
 # and strong blinks. The original Raw remains unfiltered for downstream steps.
 pyprep_prefilter:
-  apply: false     # set true to enable
+  apply: true     # set true to enable
   l_freq: 1      # e.g., 0.5–40 Hz
   h_freq: 40
 
@@ -79,7 +79,7 @@ pyprep_pre_ica:
 # 5. FILTERING PARAMETERS
 # =============================================================================
 filters:
-  ica: {l_freq: 0.1, h_freq: 45}      # Filter for ICA fitting (same as analysis)
+  ica: {l_freq: 1, h_freq: 40}      # Filter for ICA fitting (same as analysis)
   analysis: {l_freq: 0.1, h_freq: 45}   # Filter for evoked analysis
 
 # =============================================================================
@@ -87,7 +87,7 @@ filters:
 # =============================================================================
 ica:
   method: picard        # Single deterministic method: 'picard', 'infomax', or 'fastica'
-  n_components: 30    # Number of components (proportion of variance)
+  n_components: 0.95    # Number of components (proportion of variance)
   max_iter: 1000        # Explicit iteration limit for reproducibility
   random_state: 42      # Random seed for reproducibility
 
@@ -133,15 +133,15 @@ epoch_reject_threshold:
 # State windows (pre-probe analysis)
 state_windows:
   pre_probe_s: 10                    # Duration before probe (seconds)
-  mini_epoch_s: 2                    # Mini-epoch duration (seconds)
+  mini_epoch_s: 3                    # Mini-epoch duration (seconds)
   exclude_last_s_before_resp: 0    # Exclude period before response
 
-state_windows_overlap_s: 1.0  # Overlap between state windows (seconds)
+state_windows_overlap_s: 2.0  # Overlap between state windows (seconds)
 
-# Response padding
-resp_pad:
-  pre_s: 0.5   # Pre-response padding
-  post_s: 1.0  # Post-response padding
+# Sleep windows (long pre-probe epochs)
+sleep_windows:
+  pre_probe_s: 20                    # Duration before probe for sleep epochs (seconds)
+  reject_by_annotation: false        # Whether to reject epochs overlapping with bad annotations
 
 # Additional processing
 use_csd: false        # Compute current source density
@@ -159,7 +159,7 @@ autoreject:
   # Parámetros menos estrictos para AutoReject
   thresh_method: bayesian_optimization   # opciones: 'bayesian_optimization', 'random_search'
   n_interpolate: [1,2,4,8,16]
-  n_consensus: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  n_consensus: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]  # Higher consensus = more permissive (0.7 selected is reasonable)
   picks: null  # picks_eeg will be used from pipeline (excludes REF/EXG/EOG)
 
 reject_threshold_uv: 150  # Manual rejection threshold (microvolts)
@@ -219,5 +219,6 @@ names:
   ica_desc: ica            # ICA decomposition
   evoked_desc: evoked      # Evoked epochs
   state_desc: state        # State epochs
+  sleep_desc: sleep        # Sleep (long pre-probe) epochs
 
 

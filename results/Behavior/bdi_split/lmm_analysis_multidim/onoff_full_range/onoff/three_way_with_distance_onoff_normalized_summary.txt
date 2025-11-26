@@ -1,0 +1,44 @@
+                                           Mixed Linear Model Regression Results
+===========================================================================================================================
+Model:                                 MixedLM                     Dependent Variable:                     onoff_normalized
+No. Observations:                      1189                        Method:                                 REML            
+No. Groups:                            41                          Scale:                                  330.4027        
+Min. group size:                       15                          Log-Likelihood:                         -5162.8397      
+Max. group size:                       30                          Converged:                              Yes             
+Mean group size:                       29.0                                                                                
+---------------------------------------------------------------------------------------------------------------------------
+                                                                                Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+---------------------------------------------------------------------------------------------------------------------------
+Intercept                                                                       -4.303    3.413 -1.261 0.207 -10.993  2.387
+group_bdi3[T.Controls High BDI]                                                 -2.735    4.913 -0.557 0.578 -12.363  6.894
+group_bdi3[T.Risk of Depression]                                               -11.452    5.205 -2.200 0.028 -21.654 -1.250
+inclusion_exclusion[T.inclusion]                                                 3.864    3.633  1.064 0.288  -3.257 10.984
+group_bdi3[T.Controls High BDI]:inclusion_exclusion[T.inclusion]                 1.225    5.252  0.233 0.816  -9.068 11.518
+group_bdi3[T.Risk of Depression]:inclusion_exclusion[T.inclusion]                4.670    5.508  0.848 0.396  -6.125 15.465
+probe_number                                                                    -0.179    0.280 -0.638 0.524  -0.729  0.371
+group_bdi3[T.Controls High BDI]:probe_number                                    -0.401    0.404 -0.993 0.320  -1.192  0.390
+group_bdi3[T.Risk of Depression]:probe_number                                    0.129    0.431  0.299 0.765  -0.716  0.974
+inclusion_exclusion[T.inclusion]:probe_number                                   -0.139    0.401 -0.346 0.729  -0.925  0.647
+group_bdi3[T.Controls High BDI]:inclusion_exclusion[T.inclusion]:probe_number   -0.120    0.579 -0.207 0.836  -1.254  1.015
+group_bdi3[T.Risk of Depression]:inclusion_exclusion[T.inclusion]:probe_number  -0.396    0.605 -0.653 0.513  -1.582  0.791
+subject_id Var                                                                  77.214    1.153                            
+===========================================================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 10351.679430
+BIC: 10417.730713
+LOG_LIKELIHOOD: -5162.839715
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 1189
+N_GROUPS: 41
+N_PARAMETERS: 13
+N_FIXED_EFFECTS: 12
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 330.402712
+DEVIANCE: 10325.679430
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

@@ -234,8 +234,23 @@ def main():
     
     # Get correction settings
     mcc_config = config.get('multiple_comparisons', {})
-    mcc_alpha = mcc_config.get('alpha', config['clustering']['alpha'])
-    
+
+    # Determine alpha level in a config-agnostic way so this script can be
+    # reused for both the original Statistics pipeline and the Andrillon
+    # pipeline.
+    if 'alpha' in mcc_config and mcc_config['alpha'] is not None:
+        mcc_alpha = mcc_config['alpha']
+    else:
+        # Fallbacks: legacy "clustering.alpha" (Statistics) or
+        # "andrillon_clustering.montecarlo_alpha" (Andrillon pipeline).
+        if 'clustering' in config and 'alpha' in config['clustering']:
+            mcc_alpha = config['clustering']['alpha']
+        elif 'andrillon_clustering' in config and 'montecarlo_alpha' in config['andrillon_clustering']:
+            mcc_alpha = config['andrillon_clustering']['montecarlo_alpha']
+        else:
+            # Sensible default if nothing is specified
+            mcc_alpha = 0.05
+
     print(f"Configuration loaded from: {config_path}")
     print(f"Alpha level: {mcc_alpha}")
     

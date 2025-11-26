@@ -20,7 +20,7 @@ Usage:
 PKL_PATH = "/Volumes/cenir/analyse/meeg/CYBERSART/BIDS/features/sub-07/eeg/junifer/sub-07_task-Sart1_desc-evoked_markers.pkl"
 
 # Subject and session info (for plot titles)
-SUBJECT_ID = "07"
+SUBJECT_ID = "02"
 SESSION = "Sart1"
 DATA_TYPE = "evoked"  # 'state' or 'evoked'
 

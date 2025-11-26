@@ -13,6 +13,8 @@ project:
   results_root: "results/junifer_markers"
   # Name of the preprocessed epochs derivative to load (for metadata and outlier detection)
   input_evoked_desc: "evoked"
+  input_state_desc: "state"
+  input_sleep_desc: "sleep"
 
 # Subjects and tasks to process (can be overridden via CLI)
 tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
@@ -90,3 +92,8 @@ marker_name_mapping:
   
   # Kolmogorov complexity
   "EEG_kolmogorov_complexity_kolmogorovcomplexity": "kolmogorov_complexity"
+
+  # Sleep markers (slow waves and spindles)
+  # Use partial-name patterns so verbose HDF5 names containing these strings are mapped correctly
+  "slowwaves": "slowwaves"
+  "spindles": "spindles"

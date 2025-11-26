@@ -24,7 +24,7 @@ project:
   onoff_max_value: null
   
   # Filter subjects by predictor variability (optional)
-  min_predictor_variability: null
+  min_predictor_variability: 5
   
   # Markers to analyze
   markers: "all"  # or specify list of markers
@@ -32,7 +32,7 @@ project:
 # Preprocessing parameters
 preprocessing:
   # Subject-level normalization
-  normalize_by_subject: true
+  normalize_by_subject: false
   subject_column: "subject"
   normalization_method: "zscore"
   channel_wise: false
@@ -41,7 +41,7 @@ preprocessing:
 lmm:
   # Formula for the LMM
   # Same syntax as current pipeline
-  formula: "power ~ onoff + time_on_task + valence + selfother + time + (1|subject)"
+  formula: "power ~ onoff + (1|subject)"
   
   # Predictor of interest (will be permuted and tested)
   predictor_of_interest: "onoff"
@@ -92,7 +92,7 @@ andrillon_clustering:
   # Permutation strategy
   # Andrillon permutes within subject × task × electrode
   # Since we fit per electrode, we permute within subject × task
-  permutation_within: ["subject", "task"]
+  permutation_within: ["subject"]
   
   # Random seed for reproducibility
   seed: 42

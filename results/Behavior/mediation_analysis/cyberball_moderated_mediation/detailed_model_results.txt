@@ -1,0 +1,45 @@
+================================================================================
+CYBERBALL MODERATED MEDIATION ANALYSIS - DETAILED RESULTS
+================================================================================
+
+Hypothesis: The Risk Group shows stronger emotional reactivity to exclusion,
+leading to a larger indirect effect (Condition → Mood → Thoughts) compared
+to Controls.
+
+Model: Hayes Model 7 (Moderated Mediation)
+  X: Cyberball Condition (0=Inclusion, 1=Exclusion)
+  M: Mood (EVA scales)
+  Y: Thought Dimensions
+  W: Group (0=Controls, 1=Risk)
+  Cov: Baseline Mood (mood_pre)
+
+Monte Carlo Simulations: 20,000
+Confidence Level: 95%
+
+--------------------------------------------------------------------------------
+DATASET SUMMARY
+--------------------------------------------------------------------------------
+Total Blocks: 57
+Total Subjects: 33
+Controls: 38 blocks
+Risk Group: 19 blocks
+Inclusion: 27 blocks
+Exclusion: 30 blocks
+
+================================================================================
+SUMMARY: SIGNIFICANT EFFECTS
+================================================================================
+
+Significant Index of Moderated Mediation (Group difference in indirect effect):
+  None
+
+Significant Indirect Effects for Risk Group:
+  None
+
+Significant Indirect Effects for Controls:
+  None
+
+
+================================================================================
+END OF REPORT
+================================================================================

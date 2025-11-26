@@ -771,15 +771,19 @@ def aggregate_marker_epochs(
     # DETERMINISTIC MARKER TYPE CLASSIFICATION
     # Only these markers are considered spectral - no automatic detection
     spectral_whitelist = ["power", "power_normalized"]
+    sleep_marker_types = ["sleep_spindles", "sleep_slow_waves"]
     
     is_spectral = False
+    is_sleep = False
     marker_type = "unknown"
     
     # Check marker type from object attribute
     if hasattr(marker_data, 'marker_type'):
         marker_type = marker_data.marker_type
-        if marker_type == 'spectral':
+        if marker_type == "spectral":
             is_spectral = True
+        elif marker_type in sleep_marker_types:
+            is_sleep = True
     else:
         # Check marker name against whitelist
         if any(spectral_name in marker_name.lower() for spectral_name in spectral_whitelist):
@@ -788,8 +792,92 @@ def aggregate_marker_epochs(
         else:
             marker_type = "non-spectral"
     
+    if is_sleep:
+        print(f"→ Aggregating marker: {marker_name} (type={marker_type}, multi-feature sleep)")
+        if not hasattr(marker_data, "_epoch_data") or not marker_data._epoch_data:
+            raise ValueError(
+                f"[{subject_id} {task}] Sleep marker {marker_name} has no epoch data"
+            )
+        first_epoch = None
+        first_epoch_idx = None
+        for epoch_idx in epoch_indices:
+            if epoch_idx in marker_data._epoch_data:
+                first_epoch = marker_data._epoch_data[epoch_idx]
+                first_epoch_idx = epoch_idx
+                break
+        if first_epoch is None:
+            raise ValueError(
+                f"[{subject_id} {task}] No epochs found for sleep marker {marker_name} "
+                f"in requested indices {epoch_indices}"
+            )
+        if not hasattr(first_epoch, "_channel_data") or not first_epoch._channel_data:
+            raise ValueError(
+                f"[{subject_id} {task}] Sleep marker {marker_name} has no channel data in epoch {first_epoch_idx}"
+            )
+        first_channel = channels[0] if channels else None
+        if first_channel and first_channel in first_epoch._channel_data:
+            ch_data = first_epoch._channel_data[first_channel]
+            if hasattr(ch_data, "data") and isinstance(ch_data.data, np.ndarray):
+                data_shape = ch_data.data.shape
+                if len(data_shape) != 1:
+                    raise ValueError(
+                        f"[{subject_id} {task}] Sleep marker {marker_name} has unexpected data shape "
+                        f"{data_shape} for channel {first_channel}. Expected 1D array of features."
+                    )
+                n_features = data_shape[0]
+            else:
+                raise ValueError(
+                    f"[{subject_id} {task}] Sleep marker {marker_name} has non-array data "
+                    f"for channel {first_channel}. Expected 1D numpy array of features."
+                )
+        else:
+            raise ValueError(
+                f"[{subject_id} {task}] Sleep marker {marker_name} missing channel {first_channel} "
+                f"in epoch {first_epoch_idx}"
+            )
+        raw_feature_names = []
+        if hasattr(marker_data, "metadata") and isinstance(marker_data.metadata, dict):
+            raw_feature_names = marker_data.metadata.get("feature_names", []) or []
+        if raw_feature_names and len(raw_feature_names) != n_features:
+            raw_feature_names = raw_feature_names[:n_features]
+        if not raw_feature_names:
+            raw_feature_names = [f"feature_{i}" for i in range(n_features)]
+        feature_names = [str(name).strip().lower().replace(" ", "_") for name in raw_feature_names]
+        print(f"  Detected {n_features} sleep features: {', '.join(feature_names)}")
+        aggregated = {}
+        for feat_idx, feat_name in enumerate(feature_names):
+            feat_aggregated = {}
+            for channel in channels:
+                values = []
+                for epoch_idx in epoch_indices:
+                    val = extract_epoch_value_from_marker(
+                        marker_data,
+                        channel,
+                        epoch_idx,
+                        marker_name,
+                        band_idx=feat_idx,
+                        subject_id=subject_id,
+                        task=task,
+                    )
+                    if val is not None:
+                        values.append(val)
+                if values:
+                    if use_trimmean and len(values) > 2:
+                        feat_aggregated[channel] = float(
+                            scipy.stats.trim_mean(values, trimmean_percent / 200)
+                        )
+                    else:
+                        feat_aggregated[channel] = float(np.mean(values))
+                else:
+                    feat_aggregated[channel] = np.nan
+                    print(
+                        f"        [WARN] No values found for {marker_name} feature {feat_name} channel {channel}"
+                    )
+            aggregated[feat_name] = feat_aggregated
+        print(f"✓ Aggregated {marker_name} sleep features successfully")
+    
     # VALIDATE SPECTRAL MARKER STRUCTURE
-    if is_spectral:
+    elif is_spectral:
         print(f"→ Aggregating marker: {marker_name} (type={marker_type}, 5 bands)")
         
         # Check data structure for spectral markers
@@ -1147,6 +1235,7 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
     bids_root = project.get("bids_root")
     input_evoked_desc = project.get("input_evoked_desc", "evoked")
     input_state_desc = project.get("input_state_desc", "state")
+    input_sleep_desc = project.get("input_sleep_desc", "sleep")
     
     if not derivatives_root or not features_root:
         raise ValueError("'project.derivatives_root' and 'project.features_root' must be set in config")
@@ -1210,9 +1299,6 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
     except FileNotFoundError as exc:
         print(f"[WARN] Evoked epochs not found: {exc}")
     
-    # ========================================================================
-    # LOAD STATE EPOCHS AND EVENTS (for state markers - independent system)
-    # ========================================================================
     state_epochs = None
     state_events_df = None
     try:
@@ -1232,15 +1318,32 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
         print(f"Loaded state epochs: {len(state_events_df)} epochs")
     except FileNotFoundError as exc:
         print(f"[WARN] State epochs not found: {exc}")
+    sleep_epochs = None
+    sleep_events_df = None
+    try:
+        sleep_epochs, sleep_events_tsv, _ = read_derivative_epochs(
+            derivatives_root=derivatives_root,
+            subject=subject,
+            task=task,
+            desc=input_sleep_desc,
+            preload=True,
+            bids_root=bids_root,
+        )
+        sleep_events_df = parse_events_tsv(sleep_events_tsv)
+        sleep_events_df = enrich_events_with_parsed_fields(sleep_events_df)
+        sleep_events_df["epoch_index"] = np.arange(len(sleep_events_df))
+        sleep_events_df = sleep_events_df.rename(columns={"row_index": "tsv_row_index"})
+        print(f"Loaded sleep epochs: {len(sleep_events_df)} epochs")
+    except FileNotFoundError as exc:
+        print(f"[WARN] Sleep epochs not found: {exc}")
     
-    # Check that we have at least one type of epochs
-    if evoked_events_df is None and state_events_df is None:
+    if evoked_events_df is None and state_events_df is None and sleep_events_df is None:
         print(f"[ERROR] No epochs found for sub-{subject} task-{task}")
         return pd.DataFrame()
     
-    # Use whichever events dataframe is available to get probe information
-    # (both should have the same probes, just different epoch windows)
-    events_df = evoked_events_df if evoked_events_df is not None else state_events_df
+    events_df = evoked_events_df if evoked_events_df is not None else (
+        state_events_df if state_events_df is not None else sleep_events_df
+    )
     
     # Get unique probes
     probes = events_df["probe_number"].dropna().unique()
@@ -1283,8 +1386,18 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
             print(f"  Renamed state markers: {list(state_data['markers'].keys())}")
     else:
         print(f"[WARN] State markers not found: {state_pkl_path}")
+    sleep_pkl_path = junifer_dir / f"sub-{subject}_task-{task}_desc-sleep_markers.pkl"
+    sleep_data = None
+    if sleep_pkl_path.exists():
+        debug_pkl_comprehensive(str(sleep_pkl_path))
+        sleep_data = load_marker_pkl(str(sleep_pkl_path))
+        if sleep_data and "markers" in sleep_data and marker_name_mapping:
+            sleep_data["markers"] = rename_markers(sleep_data["markers"], marker_name_mapping)
+            print(f"  Renamed sleep markers: {list(sleep_data['markers'].keys())}")
+    else:
+        print(f"[WARN] Sleep markers not found: {sleep_pkl_path}")
     
-    if evoked_data is None and state_data is None:
+    if evoked_data is None and state_data is None and sleep_data is None:
         print(f"[ERROR] No marker PKL files found for sub-{subject} task-{task}")
         return pd.DataFrame()
     
@@ -1297,6 +1410,11 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
     
     if not channels and state_data is not None:
         metadata = state_data.get("metadata", {})
+        fif_info = metadata.get("fif_info", {})
+        channels = fif_info.get("channel_names", [])
+    
+    if not channels and sleep_data is not None:
+        metadata = sleep_data.get("metadata", {})
         fif_info = metadata.get("fif_info", {})
         channels = fif_info.get("channel_names", [])
     
@@ -1557,6 +1675,86 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
                     print(f"    No valid epochs for state markers after aggregation")
             else:
                 print(f"    No trials found for state markers")
+        if sleep_data is not None and sleep_events_df is not None:
+            print(f"  Processing SLEEP markers (distance {state_dist_min} to {state_dist_max})")
+            sleep_trials = select_trials_for_probe(
+                events_df=sleep_events_df,
+                probe_number=probe_num,
+                only_go_correct=False,
+                distance_min=state_dist_min,
+                distance_max=state_dist_max,
+            )
+            if len(sleep_trials) > 0:
+                sleep_epoch_indices = sleep_trials["epoch_index"].astype(int).tolist()
+                if enable_outlier_detection:
+                    valid_indices, outlier_stats = detect_outlier_epochs(
+                        epochs=sleep_epochs,
+                        events_df=sleep_events_df,
+                        probe_number=probe_num,
+                        baseline_distance_min=baseline_distance_min,
+                        baseline_distance_max=baseline_distance_max,
+                        min_baseline_epochs=min_baseline_epochs,
+                        z_threshold=epoch_z_threshold,
+                    )
+                    final_sleep_indices = [idx for idx in sleep_epoch_indices if idx in valid_indices]
+                    print(f"    {len(final_sleep_indices)} valid epochs after outlier removal")
+                else:
+                    final_sleep_indices = sleep_epoch_indices
+                    print(f"    {len(final_sleep_indices)} epochs (outlier detection disabled)")
+                if len(final_sleep_indices) > 0:
+                    sleep_markers_dict = sleep_data.get("markers", {})
+                    aggregated_sleep = {}
+                    for marker_name, marker_data in sleep_markers_dict.items():
+                        print(f"      Processing sleep marker: {marker_name}")
+                        aggregated = aggregate_marker_epochs(
+                            marker_data=marker_data,
+                            marker_name=marker_name,
+                            epoch_indices=final_sleep_indices,
+                            channels=channels,
+                            use_trimmean=not enable_outlier_detection,
+                            trimmean_percent=trimmean_percent,
+                            subject_id=subject,
+                            task=task,
+                        )
+                        if "overall" in aggregated:
+                            aggregated_sleep[marker_name] = aggregated["overall"]
+                        else:
+                            for feature_name, feature_data in aggregated.items():
+                                feature_marker_name = f"{marker_name}_{feature_name}"
+                                aggregated_sleep[feature_marker_name] = feature_data
+                    if len(aggregated_sleep) > 0:
+                        extra_meta = {
+                            "n_sleep_trials": len(final_sleep_indices),
+                            "aggregation_method": "trimmean" if not enable_outlier_detection else "outlier_detection",
+                            "trimmean_percent": trimmean_percent if not enable_outlier_detection else None,
+                        }
+                        out_path = save_aggregated_markers(
+                            aggregated_markers=aggregated_sleep,
+                            features_root=features_root,
+                            subject=subject,
+                            task=task,
+                            probe_number=probe_num,
+                            label=label_str,
+                            extra_meta=extra_meta,
+                            overwrite=overwrite,
+                            marker_type="sleep",
+                            save_format="csv",
+                            probe_metadata=probe_metadata,
+                        )
+                        outputs.append({
+                            "subject": subject,
+                            "task": task,
+                            "probe_number": probe_num,
+                            "label": label_str,
+                            "marker_type": "sleep",
+                            "n_markers": len(aggregated_sleep),
+                            "n_trials": len(final_sleep_indices),
+                            "output_path": out_path,
+                        })
+                else:
+                    print(f"    No valid epochs for sleep markers after aggregation")
+            else:
+                print(f"    No trials found for sleep markers")
     
     return pd.DataFrame(outputs)
 

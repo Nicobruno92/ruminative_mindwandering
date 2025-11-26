@@ -1,0 +1,436 @@
+================================================================================
+REVERSE MULTILEVEL MEDIATION ANALYSIS - DETAILED RESULTS
+================================================================================
+
+Hypothesis: Vicious Cycle - Group → Thoughts → Mood Worsening
+Analysis: Group (Depression Risk) → Thought Content → Mood Post-Block
+Controlling for: Baseline Mood (mood_pre) + Time-on-Task (block_z)
+Monte Carlo Simulations: 10,000
+Confidence Level: 95%
+
+--------------------------------------------------------------------------------
+DATASET SUMMARY
+--------------------------------------------------------------------------------
+Total Blocks: 69
+Total Subjects: 29
+Controls: 44 blocks
+Risk Group: 25 blocks
+
+================================================================================
+MEDIATOR: onoff
+================================================================================
+
+PATH A: Group → Thought
+  Model: onoff ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -0.700894
+  Standard Error: 0.383220
+  t-value: -1.829
+
+PATH B: Thought → Mood Change (controlling for Baseline Mood, Group, Time)
+--------------------------------------------------------------------------------
+
+  Outcome: EVAaverage_post
+    Model: EVAaverage_post ~ onoff + group_bin + EVAaverage_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.001405
+    Standard Error: 0.175171
+    t-value: 0.008
+
+    INDIRECT EFFECT (a × b): -0.003226
+    95% CI: [-0.301059, 0.286013]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAmood_post
+    Model: EVAmood_post ~ onoff + group_bin + EVAmood_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.128677
+    Standard Error: 0.152011
+    t-value: 0.846
+
+    INDIRECT EFFECT (a × b): -0.092239
+    95% CI: [-0.404518, 0.126747]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAfeel_post
+    Model: EVAfeel_post ~ onoff + group_bin + EVAfeel_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.155320
+    Standard Error: 0.207111
+    t-value: 0.750
+
+    INDIRECT EFFECT (a × b): -0.111639
+    95% CI: [-0.527881, 0.189086]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAtense_post
+    Model: EVAtense_post ~ onoff + group_bin + EVAtense_pre + block_z + (1|subject_id)
+    Coefficient (b): -0.080275
+    Standard Error: 0.211368
+    t-value: -0.380
+
+    INDIRECT EFFECT (a × b): 0.053627
+    95% CI: [-0.272694, 0.436148]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAhurt_post
+    Model: EVAhurt_post ~ onoff + group_bin + EVAhurt_pre + block_z + (1|subject_id)
+    Coefficient (b): -0.197542
+    Standard Error: 0.239020
+    t-value: -0.826
+
+    INDIRECT EFFECT (a × b): 0.135561
+    95% CI: [-0.210578, 0.619614]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: valence
+================================================================================
+
+PATH A: Group → Thought
+  Model: valence ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -0.614191
+  Standard Error: 0.381121
+  t-value: -1.612
+
+PATH B: Thought → Mood Change (controlling for Baseline Mood, Group, Time)
+--------------------------------------------------------------------------------
+
+  Outcome: EVAaverage_post
+    Model: EVAaverage_post ~ valence + group_bin + EVAaverage_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.150527
+    Standard Error: 0.212933
+    t-value: 0.707
+
+    INDIRECT EFFECT (a × b): -0.095044
+    95% CI: [-0.490858, 0.182705]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAmood_post
+    Model: EVAmood_post ~ valence + group_bin + EVAmood_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.026442
+    Standard Error: 0.195202
+    t-value: 0.135
+
+    INDIRECT EFFECT (a × b): -0.018526
+    95% CI: [-0.330568, 0.266381]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAfeel_post
+    Model: EVAfeel_post ~ valence + group_bin + EVAfeel_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.172733
+    Standard Error: 0.244329
+    t-value: 0.707
+
+    INDIRECT EFFECT (a × b): -0.109065
+    95% CI: [-0.563244, 0.209630]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAtense_post
+    Model: EVAtense_post ~ valence + group_bin + EVAtense_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.032058
+    Standard Error: 0.242622
+    t-value: 0.132
+
+    INDIRECT EFFECT (a × b): -0.022530
+    95% CI: [-0.410061, 0.331807]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAhurt_post
+    Model: EVAhurt_post ~ valence + group_bin + EVAhurt_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.221690
+    Standard Error: 0.265632
+    t-value: 0.835
+
+    INDIRECT EFFECT (a × b): -0.139421
+    95% CI: [-0.647380, 0.201650]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: time
+================================================================================
+
+PATH A: Group → Thought
+  Model: time ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -0.042272
+  Standard Error: 0.326120
+  t-value: -0.130
+
+PATH B: Thought → Mood Change (controlling for Baseline Mood, Group, Time)
+--------------------------------------------------------------------------------
+
+  Outcome: EVAaverage_post
+    Model: EVAaverage_post ~ time + group_bin + EVAaverage_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.163153
+    Standard Error: 0.154006
+    t-value: 1.059
+
+    INDIRECT EFFECT (a × b): -0.007531
+    95% CI: [-0.175490, 0.145588]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAmood_post
+    Model: EVAmood_post ~ time + group_bin + EVAmood_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.186005
+    Standard Error: 0.075108
+    t-value: 2.476
+
+    INDIRECT EFFECT (a × b): -0.008246
+    95% CI: [-0.145771, 0.125249]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAfeel_post
+    Model: EVAfeel_post ~ time + group_bin + EVAfeel_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.204610
+    Standard Error: 0.195905
+    t-value: 1.044
+
+    INDIRECT EFFECT (a × b): -0.009455
+    95% CI: [-0.221837, 0.183433]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAtense_post
+    Model: EVAtense_post ~ time + group_bin + EVAtense_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.073422
+    Standard Error: 0.249893
+    t-value: 0.294
+
+    INDIRECT EFFECT (a × b): -0.004000
+    95% CI: [-0.199850, 0.178894]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAhurt_post
+    Model: EVAhurt_post ~ time + group_bin + EVAhurt_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.210858
+    Standard Error: 0.223581
+    t-value: 0.943
+
+    INDIRECT EFFECT (a × b): -0.009817
+    95% CI: [-0.241706, 0.197962]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: selfother
+================================================================================
+
+PATH A: Group → Thought
+  Model: selfother ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): 0.092990
+  Standard Error: 0.363502
+  t-value: 0.256
+
+PATH B: Thought → Mood Change (controlling for Baseline Mood, Group, Time)
+--------------------------------------------------------------------------------
+
+  Outcome: EVAaverage_post
+    Model: EVAaverage_post ~ selfother + group_bin + EVAaverage_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.322456
+    Standard Error: 0.182182
+    t-value: 1.770
+
+    INDIRECT EFFECT (a × b): 0.029393
+    95% CI: [-0.240280, 0.332019]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAmood_post
+    Model: EVAmood_post ~ selfother + group_bin + EVAmood_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.034822
+    Standard Error: 0.158295
+    t-value: 0.220
+
+    INDIRECT EFFECT (a × b): 0.002914
+    95% CI: [-0.127608, 0.139166]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAfeel_post
+    Model: EVAfeel_post ~ selfother + group_bin + EVAfeel_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.298752
+    Standard Error: 0.205816
+    t-value: 1.452
+
+    INDIRECT EFFECT (a × b): 0.027163
+    95% CI: [-0.235915, 0.329327]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAtense_post
+    Model: EVAtense_post ~ selfother + group_bin + EVAtense_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.556724
+    Standard Error: 0.237013
+    t-value: 2.349
+
+    INDIRECT EFFECT (a × b): 0.050893
+    95% CI: [-0.389709, 0.526862]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAhurt_post
+    Model: EVAhurt_post ~ selfother + group_bin + EVAhurt_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.284845
+    Standard Error: 0.235127
+    t-value: 1.211
+
+    INDIRECT EFFECT (a × b): 0.025826
+    95% CI: [-0.242271, 0.340033]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: confidence
+================================================================================
+
+PATH A: Group → Thought
+  Model: confidence ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -0.428784
+  Standard Error: 0.388881
+  t-value: -1.103
+
+PATH B: Thought → Mood Change (controlling for Baseline Mood, Group, Time)
+--------------------------------------------------------------------------------
+
+  Outcome: EVAaverage_post
+    Model: EVAaverage_post ~ confidence + group_bin + EVAaverage_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.167825
+    Standard Error: 0.178047
+    t-value: 0.943
+
+    INDIRECT EFFECT (a × b): -0.073730
+    95% CI: [-0.384137, 0.117378]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAmood_post
+    Model: EVAmood_post ~ confidence + group_bin + EVAmood_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.075312
+    Standard Error: 0.161222
+    t-value: 0.467
+
+    INDIRECT EFFECT (a × b): -0.033831
+    95% CI: [-0.274063, 0.140492]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAfeel_post
+    Model: EVAfeel_post ~ confidence + group_bin + EVAfeel_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.153243
+    Standard Error: 0.197778
+    t-value: 0.775
+
+    INDIRECT EFFECT (a × b): -0.067646
+    95% CI: [-0.395347, 0.141816]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAtense_post
+    Model: EVAtense_post ~ confidence + group_bin + EVAtense_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.068938
+    Standard Error: 0.233765
+    t-value: 0.295
+
+    INDIRECT EFFECT (a × b): -0.031757
+    95% CI: [-0.360499, 0.231775]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAhurt_post
+    Model: EVAhurt_post ~ confidence + group_bin + EVAhurt_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.318085
+    Standard Error: 0.219511
+    t-value: 1.449
+
+    INDIRECT EFFECT (a × b): -0.138664
+    95% CI: [-0.582094, 0.134348]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+================================================================================
+MEDIATOR: pca1
+================================================================================
+
+PATH A: Group → Thought
+  Model: pca1 ~ group_bin + block_z + (1|subject_id)
+  Coefficient (a): -0.436516
+  Standard Error: 0.389236
+  t-value: -1.121
+
+PATH B: Thought → Mood Change (controlling for Baseline Mood, Group, Time)
+--------------------------------------------------------------------------------
+
+  Outcome: EVAaverage_post
+    Model: EVAaverage_post ~ pca1 + group_bin + EVAaverage_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.336231
+    Standard Error: 0.186942
+    t-value: 1.799
+
+    INDIRECT EFFECT (a × b): -0.148781
+    95% CI: [-0.562015, 0.120765]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAmood_post
+    Model: EVAmood_post ~ pca1 + group_bin + EVAmood_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.138351
+    Standard Error: 0.142044
+    t-value: 0.974
+
+    INDIRECT EFFECT (a × b): -0.061823
+    95% CI: [-0.313242, 0.092183]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAfeel_post
+    Model: EVAfeel_post ~ pca1 + group_bin + EVAfeel_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.334439
+    Standard Error: 0.213377
+    t-value: 1.567
+
+    INDIRECT EFFECT (a × b): -0.148242
+    95% CI: [-0.591321, 0.130179]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAtense_post
+    Model: EVAtense_post ~ pca1 + group_bin + EVAtense_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.287201
+    Standard Error: 0.267516
+    t-value: 1.074
+
+    INDIRECT EFFECT (a × b): -0.128084
+    95% CI: [-0.615238, 0.171844]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+  Outcome: EVAhurt_post
+    Model: EVAhurt_post ~ pca1 + group_bin + EVAhurt_pre + block_z + (1|subject_id)
+    Coefficient (b): 0.372679
+    Standard Error: 0.238699
+    t-value: 1.561
+
+    INDIRECT EFFECT (a × b): -0.165201
+    95% CI: [-0.660163, 0.146093]
+    Significant: NO
+    ----------------------------------------------------------------------
+
+================================================================================
+SUMMARY: SIGNIFICANT INDIRECT EFFECTS
+================================================================================
+
+No significant indirect effects found.
+
+
+================================================================================
+END OF REPORT
+================================================================================

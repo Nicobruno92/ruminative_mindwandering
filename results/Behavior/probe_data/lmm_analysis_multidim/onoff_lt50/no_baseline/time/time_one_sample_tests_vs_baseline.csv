@@ -1,3 +1,0 @@
-Dimension,Condition,N,Mean,SE,t_statistic,p_value,p_bonferroni,Significant_uncorrected,Significant_bonferroni
-time,Inclusion,202,-0.7915729072907284,1.474950481934857,-0.5366776152731134,0.5920838340181765,1.0,False,False
-time,Exclusion,223,-2.9169741568844705,1.299577585779137,-2.2445556069941404,0.025782779103031624,0.05156555820606325,True,False

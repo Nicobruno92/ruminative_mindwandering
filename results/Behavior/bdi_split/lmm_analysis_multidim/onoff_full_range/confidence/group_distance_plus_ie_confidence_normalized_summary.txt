@@ -1,0 +1,39 @@
+                         Mixed Linear Model Regression Results
+========================================================================================
+Model:                   MixedLM        Dependent Variable:        confidence_normalized
+No. Observations:        1189           Method:                    REML                 
+No. Groups:              41             Scale:                     181.4380             
+Min. group size:         15             Log-Likelihood:            -4817.4435           
+Max. group size:         30             Converged:                 Yes                  
+Mean group size:         29.0                                                           
+----------------------------------------------------------------------------------------
+                                              Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+----------------------------------------------------------------------------------------
+Intercept                                     -0.579    2.293 -0.253 0.801 -5.073  3.915
+group_bdi3[T.Controls High BDI]                0.673    3.257  0.207 0.836 -5.710  7.056
+group_bdi3[T.Risk of Depression]               0.702    3.401  0.207 0.836 -5.964  7.369
+inclusion_exclusion[T.inclusion]              -2.001    0.791 -2.529 0.011 -3.551 -0.450
+probe_number                                   0.082    0.149  0.554 0.579 -0.209  0.374
+group_bdi3[T.Controls High BDI]:probe_number  -0.228    0.214 -1.064 0.287 -0.648  0.192
+group_bdi3[T.Risk of Depression]:probe_number -0.459    0.224 -2.047 0.041 -0.898 -0.020
+subject_id Var                                49.399    0.969                           
+========================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 9650.887085
+BIC: 9691.534028
+LOG_LIKELIHOOD: -4817.443542
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 1189
+N_GROUPS: 41
+N_PARAMETERS: 8
+N_FIXED_EFFECTS: 7
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 181.437954
+DEVIANCE: 9634.887085
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available
