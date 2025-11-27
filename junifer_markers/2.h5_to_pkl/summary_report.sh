@@ -84,18 +84,28 @@ echo "Total PKL files in ${PKL_DIR}: ${total_pkl}"
 # Count by description type
 evoked_pkl=$(find "${PKL_DIR}" -name "*_desc-evoked_markers.pkl" -type f 2>/dev/null | wc -l)
 state_pkl=$(find "${PKL_DIR}" -name "*_desc-state_markers.pkl" -type f 2>/dev/null | wc -l)
+sleep_pkl=$(find "${PKL_DIR}" -name "*_desc-sleep_markers.pkl" -type f 2>/dev/null | wc -l)
 
 echo "  - desc-evoked: ${evoked_pkl}"
 echo "  - desc-state: ${state_pkl}"
+echo "  - desc-sleep: ${sleep_pkl}"
+
+# Determine expected PKL counts from elements.csv
+LOCAL_ROOT="/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering"
+ELEMENTS_FILE="${LOCAL_ROOT}/junifer_markers/1.markers_h5_creation/elements.csv"
+expected_total="unknown"
+if [ -f "${ELEMENTS_FILE}" ]; then
+    expected_total=$(tail -n +2 "${ELEMENTS_FILE}" | wc -l)
+fi
 
 echo ""
-echo "Expected: 167 elements × 2 descriptions = 334 PKL files"
-echo "Actual: ${total_pkl} PKL files"
+echo "Expected PKL files (from elements.csv): ${expected_total}"
+echo "Actual PKL files: ${total_pkl}"
 
-if [ ${total_pkl} -eq 334 ]; then
+if [ "${expected_total}" != "unknown" ] && [ "${total_pkl}" -eq "${expected_total}" ]; then
     echo "✓ All PKL files generated successfully!"
-else
-    missing=$((334 - total_pkl))
+elif [ "${expected_total}" != "unknown" ]; then
+    missing=$((expected_total - total_pkl))
     echo "⚠️  Missing ${missing} PKL files"
 fi
 

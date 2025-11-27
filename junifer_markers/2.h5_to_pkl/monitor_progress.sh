@@ -31,7 +31,15 @@ echo ""
 # Get job array status
 running=$(squeue -j ${JOB_ID} -t RUNNING -h 2>/dev/null | wc -l)
 pending=$(squeue -j ${JOB_ID} -t PENDING -h 2>/dev/null | wc -l)
-total=167
+# Determine expected total number of tasks from elements.csv (one per element)
+LOCAL_ROOT="/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering"
+ELEMENTS_FILE="${LOCAL_ROOT}/junifer_markers/1.markers_h5_creation/elements.csv"
+if [ -f "${ELEMENTS_FILE}" ]; then
+    total=$(tail -n +2 "${ELEMENTS_FILE}" | wc -l)
+else
+    echo "Warning: elements.csv not found at ${ELEMENTS_FILE}, falling back to array logs"
+    total=$(squeue -j ${JOB_ID} -h 2>/dev/null | wc -l)
+fi
 
 completed=$((total - running - pending))
 
@@ -43,7 +51,11 @@ echo "  Pending: ${pending}"
 echo ""
 
 # Calculate progress percentage
-progress=$((completed * 100 / total))
+if [ "${total}" -gt 0 ]; then
+    progress=$((completed * 100 / total))
+else
+    progress=0
+fi
 echo "Progress: ${completed}/${total} (${progress}%)"
 
 # Progress bar

@@ -167,6 +167,8 @@ logs/
 results/*
 # Pero NO ignorar la carpeta behavior
 !results/Behavior/
+!results/demographics/
+
 # Ignorar el archivo all_extracted_event_components.csv de la carpeta probe_data pesa 15gb
 results/Behavior/probe_data/all_extracted_event_components.csv
 

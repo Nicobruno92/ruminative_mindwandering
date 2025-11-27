@@ -1113,17 +1113,25 @@ def page_bdi_split() -> None:
     )
     # LMM table for ON/OFF (full range)
     bdi_onoff_lmm_dir = BDI_SPLIT_DIR / "lmm_analysis_multidim" / "onoff_full_range"
+    safe_table(
+        bdi_onoff_lmm_dir / "onoff" / "onoff_descriptive_statistics.csv",
+        title="ON/OFF – descriptive statistics (BDI-split, full range)",
+    )
     bic_bdi_onoff = load_bic_from_metrics(
         bdi_onoff_lmm_dir / "onoff" / "group_effect_onoff_metrics.csv"
     )
     bic_bdi_onoff_ie = load_bic_from_metrics(
         bdi_onoff_lmm_dir / "onoff" / "inclusion_exclusion_effect_onoff_normalized_metrics.csv"
     )
-    st.markdown("### ON/OFF – model comparison")
+    bic_bdi_onoff_ie_int = load_bic_from_metrics(
+        bdi_onoff_lmm_dir / "onoff" / "group_ie_interaction_onoff_normalized_metrics.csv"
+    )
+    st.markdown("### ON/OFF – group models (full range)")
     show_model_comparison_table(
         bdi_onoff_lmm_dir / "onoff",
         "onoff",
-        "Model comparison – ON/OFF (full range, all tested LMMs)",
+        "Model comparison – ON/OFF (full range, group models)",
+        group_kind="all_data",
     )
     st.markdown("#### Best model: three-level group effect (full range)")
     safe_table(
@@ -1138,6 +1146,14 @@ def page_bdi_split() -> None:
         bdi_onoff_lmm_dir / "onoff" / "pairwise_group_comparisons_onoff_overall.csv",
         title="Pairwise group comparisons – ON/OFF (BDI-split groups)",
     )
+
+    st.markdown("### ON/OFF – Inclusion/Exclusion models (baseline-corrected IE blocks)")
+    show_model_comparison_table(
+        bdi_onoff_lmm_dir / "onoff",
+        "onoff",
+        "Model comparison – ON/OFF (IE blocks, baseline-corrected)",
+        group_kind="ie_blocks",
+    )
     st.markdown("#### Best model: Inclusion/Exclusion blocks (baseline-corrected)")
     safe_table(
         bdi_onoff_lmm_dir
@@ -1146,6 +1162,16 @@ def page_bdi_split() -> None:
         title=(
             "LMM results – ON/OFF (Inclusion/Exclusion model, baseline-corrected; "
             f"BIC≈{bic_bdi_onoff_ie})"
+        ),
+    )
+    st.markdown("#### Best model: Group × Inclusion/Exclusion interaction (baseline-corrected)")
+    safe_table(
+        bdi_onoff_lmm_dir
+        / "onoff"
+        / "group_ie_interaction_onoff_normalized_results.csv",
+        title=(
+            "LMM results – ON/OFF (Group × Inclusion/Exclusion interaction model, baseline-corrected; "
+            f"BIC≈{bic_bdi_onoff_ie_int})"
         ),
     )
     st.caption(
@@ -1167,6 +1193,10 @@ def page_bdi_split() -> None:
     )
     # LMM table for Valence (off-task only)
     bdi_lt50_lmm_dir = BDI_SPLIT_DIR / "lmm_analysis_multidim" / "onoff_lt50"
+    safe_table(
+        bdi_lt50_lmm_dir / "valence" / "valence_descriptive_statistics.csv",
+        title="Valence – descriptive statistics (BDI-split, off-task)",
+    )
     bic_bdi_val = load_bic_from_metrics(
         bdi_lt50_lmm_dir / "valence" / "group_effect_valence_metrics.csv"
     )
@@ -1175,11 +1205,17 @@ def page_bdi_split() -> None:
         / "valence"
         / "inclusion_exclusion_effect_valence_normalized_metrics.csv"
     )
-    st.markdown("### Valence – model comparison (off-task)")
+    bic_bdi_val_ie_int = load_bic_from_metrics(
+        bdi_lt50_lmm_dir
+        / "valence"
+        / "group_ie_interaction_valence_normalized_metrics.csv"
+    )
+    st.markdown("### Valence – group models (off-task)")
     show_model_comparison_table(
         bdi_lt50_lmm_dir / "valence",
         "valence",
-        "Model comparison – Valence (off-task, all tested LMMs)",
+        "Model comparison – Valence (off-task, group models)",
+        group_kind="all_data",
     )
     st.markdown("#### Best model: three-level group effect (off-task)")
     safe_table(
@@ -1194,6 +1230,14 @@ def page_bdi_split() -> None:
         bdi_lt50_lmm_dir / "valence" / "pairwise_group_comparisons_valence_overall.csv",
         title="Pairwise group comparisons – Valence (BDI-split groups)",
     )
+
+    st.markdown("### Valence – Inclusion/Exclusion models (baseline-corrected IE blocks)")
+    show_model_comparison_table(
+        bdi_lt50_lmm_dir / "valence",
+        "valence",
+        "Model comparison – Valence (IE blocks, baseline-corrected)",
+        group_kind="ie_blocks",
+    )
     st.markdown("#### Best model: Inclusion/Exclusion blocks (baseline-corrected)")
     safe_table(
         bdi_lt50_lmm_dir
@@ -1202,6 +1246,16 @@ def page_bdi_split() -> None:
         title=(
             "LMM results – Valence (Inclusion/Exclusion model, baseline-corrected; "
             f"BIC≈{bic_bdi_val_ie})"
+        ),
+    )
+    st.markdown("#### Best model: Group × Inclusion/Exclusion interaction (baseline-corrected)")
+    safe_table(
+        bdi_lt50_lmm_dir
+        / "valence"
+        / "group_ie_interaction_valence_normalized_results.csv",
+        title=(
+            "LMM results – Valence (Group × Inclusion/Exclusion interaction model, baseline-corrected; "
+            f"BIC≈{bic_bdi_val_ie_int})"
         ),
     )
     st.caption(
@@ -1213,7 +1267,7 @@ def page_bdi_split() -> None:
         "with higher depressive symptoms."
     )
 
-    st.subheader("TIME (off-task only)", divider = True)
+    st.subheader("Time (off-task only)", divider = True)
     safe_image(
         BDI_SPLIT_DIR
         / "lmm_plots_multidim"
@@ -1238,11 +1292,15 @@ def page_bdi_split() -> None:
     bic_time_bdi_ie = load_bic_from_metrics(
         time_bdi_dir / "inclusion_exclusion_effect_time_normalized_metrics.csv"
     )
-    st.markdown("### Time – model comparison (off-task)")
+    bic_time_bdi_ie_int = load_bic_from_metrics(
+        time_bdi_dir / "group_ie_interaction_time_normalized_metrics.csv"
+    )
+    st.markdown("### Time – group models (off-task)")
     show_model_comparison_table(
         time_bdi_dir,
         "time",
-        "Model comparison – Time (off-task, all tested LMMs)",
+        "Model comparison – Time (off-task, group models)",
+        group_kind="all_data",
     )
     st.markdown("#### Best model: three-level group effect (off-task)")
     safe_table(
@@ -1257,12 +1315,28 @@ def page_bdi_split() -> None:
         time_bdi_dir / "pairwise_group_comparisons_time_overall.csv",
         title="Pairwise group comparisons – Time (BDI-split groups)",
     )
+
+    st.markdown("### Time – Inclusion/Exclusion models (baseline-corrected IE blocks)")
+    show_model_comparison_table(
+        time_bdi_dir,
+        "time",
+        "Model comparison – Time (IE blocks, baseline-corrected)",
+        group_kind="ie_blocks",
+    )
     st.markdown("#### Best model: Inclusion/Exclusion blocks (baseline-corrected)")
     safe_table(
         time_bdi_dir / "inclusion_exclusion_effect_time_normalized_results.csv",
         title=(
             "LMM results – Time (Inclusion/Exclusion model, baseline-corrected; "
             f"BIC≈{bic_time_bdi_ie})"
+        ),
+    )
+    st.markdown("#### Best model: Group × Inclusion/Exclusion interaction (baseline-corrected)")
+    safe_table(
+        time_bdi_dir / "group_ie_interaction_time_normalized_results.csv",
+        title=(
+            "LMM results – Time (Group × Inclusion/Exclusion interaction model, baseline-corrected; "
+            f"BIC≈{bic_time_bdi_ie_int})"
         ),
     )
     st.caption(
@@ -1297,11 +1371,15 @@ def page_bdi_split() -> None:
     bic_self_bdi_ie = load_bic_from_metrics(
         self_bdi_dir / "inclusion_exclusion_effect_selfother_normalized_metrics.csv"
     )
-    st.markdown("### Self/Other – model comparison (off-task)")
+    bic_self_bdi_ie_int = load_bic_from_metrics(
+        self_bdi_dir / "group_ie_interaction_selfother_normalized_metrics.csv"
+    )
+    st.markdown("### Self/Other – group models (off-task)")
     show_model_comparison_table(
         self_bdi_dir,
         "selfother",
-        "Model comparison – Self/Other (off-task, all tested LMMs)",
+        "Model comparison – Self/Other (off-task, group models)",
+        group_kind="all_data",
     )
     st.markdown("#### Best model: three-level group effect (off-task)")
     safe_table(
@@ -1316,12 +1394,28 @@ def page_bdi_split() -> None:
         self_bdi_dir / "pairwise_group_comparisons_selfother_overall.csv",
         title="Pairwise group comparisons – Self/Other (BDI-split groups)",
     )
+
+    st.markdown("### Self/Other – Inclusion/Exclusion models (baseline-corrected IE blocks)")
+    show_model_comparison_table(
+        self_bdi_dir,
+        "selfother",
+        "Model comparison – Self/Other (IE blocks, baseline-corrected)",
+        group_kind="ie_blocks",
+    )
     st.markdown("#### Best model: Inclusion/Exclusion blocks (baseline-corrected)")
     safe_table(
         self_bdi_dir / "inclusion_exclusion_effect_selfother_normalized_results.csv",
         title=(
             "LMM results – Self/Other (Inclusion/Exclusion model, baseline-corrected; "
             f"BIC≈{bic_self_bdi_ie})"
+        ),
+    )
+    st.markdown("#### Best model: Group × Inclusion/Exclusion interaction (baseline-corrected)")
+    safe_table(
+        self_bdi_dir / "group_ie_interaction_selfother_normalized_results.csv",
+        title=(
+            "LMM results – Self/Other (Group × Inclusion/Exclusion interaction model, baseline-corrected; "
+            f"BIC≈{bic_self_bdi_ie_int})"
         ),
     )
     st.caption(
@@ -1354,11 +1448,15 @@ def page_bdi_split() -> None:
     bic_conf_bdi_ie = load_bic_from_metrics(
         conf_bdi_dir / "inclusion_exclusion_effect_confidence_normalized_metrics.csv"
     )
-    st.markdown("### Confidence – model comparison (off-task)")
+    bic_conf_bdi_ie_int = load_bic_from_metrics(
+        conf_bdi_dir / "group_ie_interaction_confidence_normalized_metrics.csv"
+    )
+    st.markdown("### Confidence – group models (off-task)")
     show_model_comparison_table(
         conf_bdi_dir,
         "confidence",
-        "Model comparison – Confidence (off-task, all tested LMMs)",
+        "Model comparison – Confidence (off-task, group models)",
+        group_kind="all_data",
     )
     st.markdown("#### Best model: three-level group effect (off-task)")
     safe_table(
@@ -1373,12 +1471,28 @@ def page_bdi_split() -> None:
         conf_bdi_dir / "pairwise_group_comparisons_confidence_overall.csv",
         title="Pairwise group comparisons – Confidence (BDI-split groups)",
     )
+
+    st.markdown("### Confidence – Inclusion/Exclusion models (baseline-corrected IE blocks)")
+    show_model_comparison_table(
+        conf_bdi_dir,
+        "confidence",
+        "Model comparison – Confidence (IE blocks, baseline-corrected)",
+        group_kind="ie_blocks",
+    )
     st.markdown("#### Best model: Inclusion/Exclusion blocks (baseline-corrected)")
     safe_table(
         conf_bdi_dir / "inclusion_exclusion_effect_confidence_normalized_results.csv",
         title=(
             "LMM results – Confidence (Inclusion/Exclusion model, baseline-corrected; "
             f"BIC≈{bic_conf_bdi_ie})"
+        ),
+    )
+    st.markdown("#### Best model: Group × Inclusion/Exclusion interaction (baseline-corrected)")
+    safe_table(
+        conf_bdi_dir / "group_ie_interaction_confidence_normalized_results.csv",
+        title=(
+            "LMM results – Confidence (Group × Inclusion/Exclusion interaction model, baseline-corrected; "
+            f"BIC≈{bic_conf_bdi_ie_int})"
         ),
     )
     st.caption(
@@ -1406,19 +1520,54 @@ def page_bdi_split() -> None:
             / "pca_components"
             / pc
         )
+
+        # Descriptive statistics (if available)
+        safe_table(
+            pc_lmm_dir / f"{pc}_descriptive_statistics.csv",
+            title=f"{pc} – descriptive statistics (BDI-split)",
+        )
+
+        # Model comparison – group models
+        st.markdown(f"### {pc} – group models (off-task)")
+        show_model_comparison_table(
+            pc_lmm_dir,
+            pc,
+            f"Model comparison – {pc} (off-task, group models)",
+            group_kind="all_data",
+        )
+
+        # Best group-effect model
         bic_group = load_bic_from_metrics(
             pc_lmm_dir / f"group_effect_{pc}_metrics.csv"
         )
-        bic_ie = load_bic_from_metrics(
-            pc_lmm_dir
-            / f"inclusion_exclusion_effect_{pc}_normalized_metrics.csv"
-        )
+        st.markdown("#### Best model: three-level group effect (off-task)")
         safe_table(
             pc_lmm_dir / f"group_effect_{pc}_results.csv",
             title=(
                 f"LMM results – {pc} (three-level group effect, BIC≈{bic_group})"
             ),
         )
+        show_pairwise_if_significant(
+            pc_lmm_dir / f"group_effect_{pc}_results.csv",
+            pc_lmm_dir / f"pairwise_group_comparisons_{pc}_overall.csv",        
+            title=f"Pairwise group comparisons – {pc} (BDI-split groups)",
+        )
+
+        # Model comparison – Inclusion/Exclusion models
+        st.markdown(f"### {pc} – Inclusion/Exclusion models (baseline-corrected IE blocks)")
+        show_model_comparison_table(
+            pc_lmm_dir,
+            pc,
+            f"Model comparison – {pc} (IE blocks, baseline-corrected)",
+            group_kind="ie_blocks",
+        )
+
+        # Best inclusion/exclusion main-effect model (baseline-corrected)
+        bic_ie = load_bic_from_metrics(
+            pc_lmm_dir
+            / f"inclusion_exclusion_effect_{pc}_normalized_metrics.csv"
+        )
+        st.markdown("#### Best model: Inclusion/Exclusion blocks (baseline-corrected)")
         safe_table(
             pc_lmm_dir / f"inclusion_exclusion_effect_{pc}_normalized_results.csv",
             title=(
@@ -1426,15 +1575,19 @@ def page_bdi_split() -> None:
                 f"BIC≈{bic_ie})"
             ),
         )
-        show_model_comparison_table(
-            pc_lmm_dir,
-            pc,
-            f"Model comparison – {pc} (off-task, all tested LMMs)",
+
+        # Best Group × Inclusion/Exclusion interaction model (baseline-corrected)
+        bic_ie_int = load_bic_from_metrics(
+            pc_lmm_dir
+            / f"group_ie_interaction_{pc}_normalized_metrics.csv"
         )
-        show_pairwise_if_significant(
-            pc_lmm_dir / f"group_effect_{pc}_results.csv",
-            pc_lmm_dir / f"pairwise_group_comparisons_{pc}_overall.csv",        
-            title=f"Pairwise group comparisons – {pc} (BDI-split groups)",
+        st.markdown("#### Best model: Group × Inclusion/Exclusion interaction (baseline-corrected)")
+        safe_table(
+            pc_lmm_dir / f"group_ie_interaction_{pc}_normalized_results.csv",
+            title=(
+                f"LMM results – {pc} (Group × Inclusion/Exclusion interaction model, baseline-corrected; "
+                f"BIC≈{bic_ie_int})"
+            ),
         )
 
     st.subheader("Interpretation", divider = True)
