@@ -1,0 +1,96 @@
+<svg width="800" height="450" viewBox="0 0 800 450" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .label { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; }
+    .desc { font-family: Arial, sans-serif; font-size: 14px; }
+    .player-label { font-family: Arial, sans-serif; font-size: 12px; text-anchor: middle; }
+    .arrow-line { stroke-width: 2.5; fill: none; }
+    .panel-border { stroke: #ccc; fill: none; stroke-width: 1.5; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#3498db" />
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#e74c3c" />
+    </marker>
+    <g id="player">
+      <circle cx="0" cy="-15" r="8" fill="none" stroke="black" stroke-width="1.5" />
+      <line x1="0" y1="-7" x2="0" y2="5" stroke="black" stroke-width="1.5" />
+      <line x1="-10" y1="0" x2="10" y2="0" stroke="black" stroke-width="1.5" />
+      <line x1="0" y1="5" x2="-7" y2="20" stroke="black" stroke-width="1.5" />
+      <line x1="0" y1="5" x2="7" y2="20" stroke="black" stroke-width="1.5" />
+    </g>
+    <circle id="ball" r="5" fill="#f1c40f" stroke="#f39c12" stroke-width="1" />
+  </defs>
+
+  <g transform="translate(20, 20)">
+    <text x="0" y="20" class="label" fill="#3498db">INCLUSIÓN :</text>
+    <text x="0" y="50" class="desc">1/3 de los lanzamientos recibidos</text>
+
+    <g transform="translate(180, 0)">
+      <rect x="0" y="0" width="180" height="120" class="panel-border" />
+      <use href="#player" x="40" y="80" /><text x="40" y="105" class="player-label">Jugador 1</text>
+      <use href="#player" x="140" y="80" /><text x="140" y="105" class="player-label">Jugador 3</text>
+      <use href="#player" x="90" y="30" /><text x="90" y="55" class="player-label">Jugador 2</text>
+      <use href="#ball" x="55" y="70" />
+      <path d="M60,70 L120,70" class="arrow-line" stroke="#3498db" marker-end="url(#arrow-blue)" />
+    </g>
+    <path d="M370,60 L400,60" stroke="#999" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-blue)" marker-units="strokeWidth" />
+
+    <g transform="translate(410, 0)">
+      <rect x="0" y="0" width="180" height="120" class="panel-border" />
+      <use href="#player" x="40" y="80" /><text x="40" y="105" class="player-label">Jugador 1</text>
+      <use href="#player" x="140" y="80" /><text x="140" y="105" class="player-label">Jugador 3</text>
+      <use href="#player" x="90" y="30" /><text x="90" y="55" class="player-label">Jugador 2</text>
+      <use href="#ball" x="125" y="70" />
+      <path d="M125,70 L100,40" class="arrow-line" stroke="#3498db" marker-end="url(#arrow-blue)" />
+    </g>
+    <path d="M600,60 L630,60" stroke="#999" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-blue)" marker-units="strokeWidth" />
+
+    <g transform="translate(640, 0)">
+      <rect x="0" y="0" width="180" height="120" class="panel-border" />
+      <use href="#player" x="40" y="80" /><text x="40" y="105" class="player-label">Jugador 1</text>
+      <use href="#player" x="140" y="80" /><text x="140" y="105" class="player-label">Jugador 3</text>
+      <use href="#player" x="90" y="30" /><text x="90" y="55" class="player-label">Jugador 2</text>
+      <use href="#ball" x="95" y="45" />
+      <path d="M85,40 L60,70" class="arrow-line" stroke="#3498db" marker-end="url(#arrow-blue)" />
+    </g>
+  </g>
+
+  <g transform="translate(20, 220)">
+    <text x="0" y="20" class="label" fill="#e74c3c">EXCLUSIÓN :</text>
+    <text x="0" y="50" class="desc">2 lanzamientos iniciales recibidos</text>
+    <text x="0" y="75" class="desc">luego ninguno</text>
+
+    <g transform="translate(180, 0)">
+      <rect x="0" y="0" width="180" height="120" class="panel-border" />
+      <use href="#player" x="40" y="80" /><text x="40" y="105" class="player-label">Jugador 1</text>
+      <use href="#player" x="140" y="80" /><text x="140" y="105" class="player-label">Jugador 3</text>
+      <use href="#player" x="90" y="30" /><text x="90" y="55" class="player-label">Jugador 2</text>
+      <use href="#ball" x="125" y="70" />
+      <path d="M120,70 L60,70" class="arrow-line" stroke="#e74c3c" marker-end="url(#arrow-red)" />
+    </g>
+    <path d="M370,60 L400,60" stroke="#999" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-red)" marker-units="strokeWidth" />
+
+    <g transform="translate(410, 0)">
+      <rect x="0" y="0" width="180" height="120" class="panel-border" />
+      <use href="#player" x="40" y="80" /><text x="40" y="105" class="player-label">Jugador 1</text>
+      <use href="#player" x="140" y="80" /><text x="140" y="105" class="player-label">Jugador 3</text>
+      <use href="#player" x="90" y="30" /><text x="90" y="55" class="player-label">Jugador 2</text>
+      <use href="#ball" x="55" y="70" />
+      <path d="M60,70 L120,70" class="arrow-line" stroke="#e74c3c" marker-end="url(#arrow-red)" />
+    </g>
+    <path d="M600,60 L630,60" stroke="#999" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-red)" marker-units="strokeWidth" />
+
+    <g transform="translate(640, 0)">
+      <rect x="0" y="0" width="180" height="120" class="panel-border" />
+      <use href="#player" x="40" y="80" /><text x="40" y="105" class="player-label">Jugador 1</text>
+      <text x="70" y="80" class="label" fill="#e74c3c">?</text>
+      <use href="#player" x="140" y="80" /><text x="140" y="105" class="player-label">Jugador 3</text>
+      <use href="#player" x="90" y="30" /><text x="90" y="55" class="player-label">Jugador 2</text>
+      <use href="#ball" x="100" y="40" />
+      <path d="M105,45 L130,70" class="arrow-line" stroke="#e74c3c" marker-end="url(#arrow-red)" />
+    </g>
+  </g>
+
+</svg>

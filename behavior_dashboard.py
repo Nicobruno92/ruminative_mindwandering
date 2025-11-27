@@ -22,6 +22,7 @@ BEHAVIOR_DIR = RESULTS_DIR / "Behavior"
 PROBE_DATA_DIR = BEHAVIOR_DIR / "probe_data"
 BDI_SPLIT_DIR = BEHAVIOR_DIR / "bdi_split"
 MEDIATION_DIR = BEHAVIOR_DIR / "mediation_analysis"
+MOOD_DIR = BEHAVIOR_DIR / "mood"
 
 # Common helpers for safe loading of images/HTML
 
@@ -411,7 +412,7 @@ def page_probe_multidim() -> None:
         / "no_baseline"
     )
 
-    st.subheader("Comprehensive analysis: Valence")
+    st.subheader("Comprehensive analysis: Valence", divider=True)
     valence_dir = multidim_dir / "valence"
     safe_image(
         valence_dir / "valence_comprehensive_analysis.png",
@@ -504,7 +505,7 @@ def page_probe_multidim() -> None:
         "modest modulation by Cyberball."
     )
 
-    st.subheader("Comprehensive analysis: Self/Other")
+    st.subheader("Comprehensive analysis: Self/Other", divider=True)
     selfother_dir = multidim_dir / "selfother"
     safe_image(
         selfother_dir / "selfother_comprehensive_analysis.png",
@@ -552,7 +553,7 @@ def page_probe_multidim() -> None:
         "valence."
     )
 
-    st.subheader("Comprehensive analysis: Confidence")
+    st.subheader("Comprehensive analysis: Confidence", divider=True)
     confidence_dir = multidim_dir / "confidence"
     safe_image(
         confidence_dir / "confidence_comprehensive_analysis.png",
@@ -592,7 +593,7 @@ def page_probe_multidim() -> None:
             f"BIC≈{bic_conf_ie})"
         ),
     )
-    st.subheader("Interpretation")
+    st.subheader("Interpretation", divider=True)
     st.markdown(
         textwrap.dedent(
             """
@@ -665,7 +666,7 @@ def page_probe_onoff() -> None:
     )
     onoff_plots_dir = PROBE_DATA_DIR / "lmm_plots_onoff"
 
-    st.subheader("Overall ON/OFF effects")
+    st.subheader("Overall ON/OFF effects", divider=True)
     safe_image(
         onoff_plots_dir / "onoff_comprehensive_analysis.png",
         "Comprehensive ON/OFF analysis (group, time-on-task, inclusion/exclusion)",
@@ -691,7 +692,7 @@ def page_probe_onoff() -> None:
         title=f"LMM results – ON/OFF ~ Group × Inclusion/Exclusion (BIC≈{bic_ie})",
     )
 
-    st.subheader("Time-on-task trajectories")
+    st.subheader("Time-on-task trajectories", divider=True)
     safe_image(
         onoff_plots_dir / "onoff_time_on_task_analysis.png",
         "ON/OFF trajectories across probes by group",
@@ -730,7 +731,7 @@ def page_pca() -> None:
             """
         )
     )
-    st.subheader("Overall PCA summary")
+    st.subheader("Overall PCA summary", divider=True)
     safe_image(
         PROBE_DATA_DIR / "pca_scree_plot.png",
         "Scree plot: proportion of variance explained by each component",
@@ -758,7 +759,7 @@ def page_pca() -> None:
         "PC3–Valence r≈0.56, PC3–Time r≈−0.37, PC3–Self/Other r≈−0.42."
     )
 
-    st.subheader("Group, inclusion/exclusion and time-on-task effects on PCs")
+    st.subheader("Group, inclusion/exclusion and time-on-task effects on PCs", divider=True)
     pca_lmm_dir = PROBE_DATA_DIR / "lmm_analysis_pca"
     safe_table(
         pca_lmm_dir / "descriptive_statistics.csv",
@@ -960,7 +961,7 @@ def page_pca() -> None:
         ),
     )
 
-    st.subheader("Interpretation")
+    st.subheader("Interpretation", divider=True)
     st.markdown(
         textwrap.dedent(
             """
@@ -1014,7 +1015,7 @@ def page_correlations() -> None:
             """
         )
     )
-    st.subheader("Probe-level correlations with clinical scales")
+    st.subheader("Probe-level correlations with clinical scales", divider = True)
     corr_dir = PROBE_DATA_DIR / "final_correlation_analysis"
     safe_image(
         corr_dir / "final_correlation_heatmap.png",
@@ -1027,7 +1028,7 @@ def page_correlations() -> None:
 
     partial_corr_dir = PROBE_DATA_DIR / "partial_correlation_analysis"
     if partial_corr_dir.exists():
-        st.subheader("Partial correlations (controlling for other dimensions)")
+        st.subheader("Partial correlations (controlling for other dimensions)", divider = True)
         safe_image(
             partial_corr_dir / "partial_correlation_heatmap.png",
             "Partial correlation heatmap",
@@ -1048,7 +1049,7 @@ def page_correlations() -> None:
             "partial-correlation results before using this page.",
         )
 
-    st.subheader("How to read these matrices")
+    st.subheader("How to read these matrices", divider = True)
     st.markdown(
         textwrap.dedent(
             """
@@ -1101,7 +1102,7 @@ def page_bdi_split() -> None:
             """
         )
     )
-    st.subheader("Main figure: ON/OFF (full range)")
+    st.subheader("Main figure: ON/OFF (full range)", divider = True)
     safe_image(
         BDI_SPLIT_DIR
         / "lmm_plots_multidim"
@@ -1155,7 +1156,7 @@ def page_bdi_split() -> None:
         "sustained attention as depressive symptoms increase."
     )
 
-    st.subheader("Main figure: Valence (off-task only)")
+    st.subheader("Main figure: Valence (off-task only)", divider = True)
     safe_image(
         BDI_SPLIT_DIR
         / "lmm_plots_multidim"
@@ -1212,7 +1213,7 @@ def page_bdi_split() -> None:
         "with higher depressive symptoms."
     )
 
-    st.subheader("Multidimensional dimensions (off-task only)")
+    st.subheader("TIME (off-task only)", divider = True)
     safe_image(
         BDI_SPLIT_DIR
         / "lmm_plots_multidim"
@@ -1270,6 +1271,8 @@ def page_bdi_split() -> None:
         "especially during exclusion, whereas Low- and High-BDI Controls hover "
         "closer to the mid-range."
     )
+    
+    st.subheader("Self/Other (off-task only)", divider = True)
     safe_image(
         BDI_SPLIT_DIR
         / "lmm_plots_multidim"
@@ -1385,7 +1388,7 @@ def page_bdi_split() -> None:
         "particularly under inclusion where their scores are clearly reduced."
     )
 
-    st.subheader("PCA components by BDI-split group")
+    st.subheader("PCA components by BDI-split group", divider = True)
     for pc in ("PC1", "PC2", "PC3"):
         img = (
             BDI_SPLIT_DIR
@@ -1430,11 +1433,11 @@ def page_bdi_split() -> None:
         )
         show_pairwise_if_significant(
             pc_lmm_dir / f"group_effect_{pc}_results.csv",
-            pc_lmm_dir / f"pairwise_group_comparisons_{pc}_overall.csv",
+            pc_lmm_dir / f"pairwise_group_comparisons_{pc}_overall.csv",        
             title=f"Pairwise group comparisons – {pc} (BDI-split groups)",
         )
 
-    st.subheader("Interpretation")
+    st.subheader("Interpretation", divider = True)
     st.markdown(
         textwrap.dedent(
             """
@@ -1494,7 +1497,7 @@ def page_mediation() -> None:
     )
 
     # Forward mediation
-    st.subheader("Forward mediation: Group → Mood → Thought Content")
+    st.subheader("Forward mediation: Group → Mood → Thought Content", divider = True)
     dag_forward = MEDIATION_DIR / "DAGs" / "DAG_forward.png"
     safe_image(dag_forward, "DAG of the forward mediation model (Group → Mood → Thoughts)")
 
@@ -1531,7 +1534,7 @@ def page_mediation() -> None:
     )
 
     # Reverse mediation
-    st.subheader("Reverse mediation: Group → Thoughts → Mood change")
+    st.subheader("Reverse mediation: Group → Thoughts → Mood change", divider = True)
     dag_reverse = MEDIATION_DIR / "DAGs" / "DAG_reverse.png"
     safe_image(dag_reverse, "DAG of the reverse mediation model (Group → Thoughts → Mood)")
 
@@ -1689,6 +1692,20 @@ def page_cyberball_moderated_mediation() -> None:
         with col3:
             st.metric("Significant IE (Controls)", f"{n_sig_ctrl}/{len(df_results)}")
 
+        # Brief textual summary of the overall pattern
+        if n_sig_index == 0:
+            st.info(
+                "In this dataset, no indices of moderated mediation reach significance; "
+                "we do not find strong evidence that the indirect effects differ between groups."
+            )
+        else:
+            st.markdown(
+                f"In this dataset, {n_sig_index} combinations of mood scale and thought "
+                "dimension show a significant Index of Moderated Mediation, indicating that "
+                "the indirect effect of Cyberball condition on thought content via mood is "
+                "stronger in the Risk group than in Controls for these pairs."
+            )
+
         # Show significant Index of Moderated Mediation
         sig_index = df_results[df_results["index_mm_sig"]].sort_values(
             "index_mm", ascending=False
@@ -1723,7 +1740,7 @@ def page_cyberball_moderated_mediation() -> None:
         )
 
     # Interpretation
-    st.subheader("Interpretation")
+    st.subheader("Interpretation", divider = True)
     st.markdown(
         textwrap.dedent(
             """
@@ -1761,6 +1778,90 @@ def page_cyberball_moderated_mediation() -> None:
 # MAIN APP
 ######################################################################
 
+# 9) Mood Analysis (Block-level LMM)
+
+def page_mood_analysis() -> None:
+    st.header("7. Mood Analysis (Block-level)")
+    
+    st.markdown(
+        textwrap.dedent(
+            """
+            This page summarizes the block-level linear mixed-model analyses of
+            mood scales (EVA) measured before/after tasks.
+            
+            **Analysis overview**
+            We fitted LMMs to each mood dimension (EVAtense, EVAfeel, EVAmood,
+            EVAhurt, EVAaverage, total_score).
+            
+            1. **Group Effect**: Comparing Controls vs Risk of Depression across all blocks.
+            2. **Inclusion/Exclusion**: Comparing baseline-corrected mood changes
+               (Post - Pre) for SART2 (after Cyberball 1) and SART4 (after Cyberball 2).
+            """
+        )
+    )
+    
+    mood_vars = [
+        "EVAtense", "EVAfeel", "EVAmood", "EVAhurt", "EVAaverage", "total_score"
+    ]
+    
+    for dim in mood_vars:
+        st.subheader(f"Analysis: {dim}", divider = True)
+        dim_dir = MOOD_DIR / dim
+        
+        if not dim_dir.exists():
+            st.info(f"Results not found for {dim}")
+            continue
+            
+        # 1. Comprehensive Plot
+        safe_image(
+            dim_dir / f"{dim}_mood_analysis.png",
+            f"{dim} - Group, IE, Interaction, and SART Trajectory"
+        )
+        
+        # 2. Descriptive Stats
+        safe_table(
+            dim_dir / f"{dim}_descriptive_statistics.csv",
+            f"{dim} - Descriptive Statistics"
+        )
+        
+        # 3. Model Results (Group Effect)
+        bic_group = load_bic_from_metrics(dim_dir / f"group_effect_{dim}_metrics.csv")
+        safe_table(
+            dim_dir / f"group_effect_{dim}_results.csv",
+            f"LMM Results - {dim} (Group Effect, BIC≈{bic_group})"
+        )
+        
+        # 4. Model Results (IE Effect)
+        bic_ie = load_bic_from_metrics(dim_dir / f"inclusion_exclusion_effect_{dim}_normalized_metrics.csv")
+        safe_table(
+            dim_dir / f"inclusion_exclusion_effect_{dim}_normalized_results.csv",
+            f"LMM Results - {dim} (Inclusion/Exclusion Effect, BIC≈{bic_ie})"
+        )
+        
+        # 5. Model Results (Interaction)
+        bic_int = load_bic_from_metrics(dim_dir / f"group_ie_interaction_{dim}_normalized_metrics.csv")
+        safe_table(
+            dim_dir / f"group_ie_interaction_{dim}_normalized_results.csv",
+            f"LMM Results - {dim} (Group × IE Interaction, BIC≈{bic_int})"
+        )
+        
+        st.markdown("---")
+
+    st.subheader("Interpretation", divider=True)
+    st.markdown(
+        textwrap.dedent(
+            """
+            Across EVA dimensions, these block-level models typically show that:
+            - The Risk-of-Depression group reports consistently worse mood than Controls across blocks (group effect).
+            - Cyberball exclusion is associated with sharper mood deterioration than inclusion, especially in the Risk group.
+            - Inclusion partially restores mood but rarely to the baseline levels observed in Controls.
+
+            These mood patterns mirror the behavioral and phenomenological results in the other pages: worse and more labile mood in the Risk group helps explain their more negative, self-focused and low-confidence mind-wandering, and their greater vulnerability to exclusion observed in the ON/OFF and PCA analyses.
+            """
+        )
+    )
+
+
 PAGES: List[str] = [
     "Overview (Text Summary)",
     "1. Demographics & Psychometrics",
@@ -1769,8 +1870,9 @@ PAGES: List[str] = [
     "4. PCA Analysis",
     "5. Correlation Analyses",
     "6. BDI-Split Analysis",
-    "7. Mediation Analyses",
-    "8. Cyberball Moderated Mediation",
+    "7. Mood Analysis",
+    "8. Mediation Analyses",
+    "9. Cyberball Moderated Mediation",
 ]
 
 
@@ -1870,6 +1972,11 @@ def main() -> None:
             "the key figures with a short statistical summary and interpretation "
             "that you can reuse in slides or manuscripts."
         )
+        st.header("Experimental Procedure Overview")
+        safe_image(
+            PROJECT_ROOT / "Figures" / "procedure.svg",
+            "General design of the experimental sessions. Each participant started by filling questionnaires  evaluating psychiatric disorders (MINI), mood (BDI), ruminative style (RRS), mind-wandering (MWQ),  rejection  sensitivity  (A-RSQ),  fear  of  negative  evaluation  (FEN),  self-esteem  (Rosenberg)  and  self- reflection (SRIS). Then a 64-EEG electrode grid was positioned and used to record a 5 min block of  resting-state EEG and then used  to monitor the whole experimental session. A first Cyberball block  referred as “Cyberball test” implementing the inclusion condition was carried out in order to get the  participant acquainted with this paradigm. Then the 1st half of the experimental session started. Once  terminated and following a 20 minutes wash-out period, the 2nd half of the experimental session started.  Each of the two halves of the experiment included two SARTs blocks immediately preceding (SART 1  and SART 1’) and following (SART 2 and SART 2’) a Cyberball intervention (Cyberball 1 and Cyberball  2). The Cyberball social distress condition, either exclusion (1st half) followed by inclusion (2nd half) or  inclusion (1st half) followed by exclusion (2nd half). The order of Cyberball conditions was randomly  counterbalanced across the participants of each group.",
+        )
 
     elif selection == "1. Demographics & Psychometrics":
         page_demographics()
@@ -1888,13 +1995,15 @@ def main() -> None:
 
     elif selection == "6. BDI-Split Analysis":
         page_bdi_split()
+        
+    elif selection == "7. Mood Analysis":
+        page_mood_analysis()
 
-    elif selection == "7. Mediation Analyses":
+    elif selection == "8. Mediation Analyses":
         page_mediation()
 
-    elif selection == "8. Cyberball Moderated Mediation":
+    elif selection == "9. Cyberball Moderated Mediation":
         page_cyberball_moderated_mediation()
-
 
 if __name__ == "__main__":
     main()

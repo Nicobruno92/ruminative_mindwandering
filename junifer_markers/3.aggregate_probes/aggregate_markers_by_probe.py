@@ -266,14 +266,15 @@ def extract_epoch_value_from_marker(
                                 )
                             return float(data_val[band_idx])
                         else:
-                            # For non-spectral markers, data should be scalar
+                            # For non-spectral markers without band_idx
                             if len(data_val) == 1:
+                                # Single value - return it
                                 return float(data_val[0])
                             else:
-                                raise ValueError(
-                                    f"[{subject_id} {task}] Non-spectral marker {marker_name} has unexpected "
-                                    f"data shape {data_val.shape} for channel {channel}. Expected scalar."
-                                )
+                                # Multi-element array from new h5_to_pkl format
+                                # For non-spectral markers, take the mean across all values
+                                # This handles cases where the converter stored multiple features
+                                return float(np.mean(data_val))
                     else:
                         # Scalar data
                         if band_idx is not None:
@@ -345,12 +346,13 @@ def extract_epoch_value_from_marker(
                                 f"channel {channel}: data has {len(val) if hasattr(val, '__len__') else 1} elements"
                             )
                     else:
-                        if isinstance(val, (list, np.ndarray)) and len(val) > 1:
-                            raise ValueError(
-                                f"[{subject_id} {task}] Non-spectral marker {marker_name} has array data "
-                                f"for channel {channel}: {val}. Expected scalar."
-                            )
-                        return float(val[0] if isinstance(val, (list, np.ndarray)) else val)
+                        if isinstance(val, (list, np.ndarray)):
+                            if len(val) == 1:
+                                return float(val[0])
+                            else:
+                                # Multi-element array - take mean
+                                return float(np.mean(val))
+                        return float(val)
                 return None
                 
             elif access_pattern == "epoch_channel":
@@ -366,12 +368,13 @@ def extract_epoch_value_from_marker(
                                 f"channel {channel}: data has {len(val) if hasattr(val, '__len__') else 1} elements"
                             )
                     else:
-                        if isinstance(val, (list, np.ndarray)) and len(val) > 1:
-                            raise ValueError(
-                                f"[{subject_id} {task}] Non-spectral marker {marker_name} has array data "
-                                f"for channel {channel}: {val}. Expected scalar."
-                            )
-                        return float(val[0] if isinstance(val, (list, np.ndarray)) else val)
+                        if isinstance(val, (list, np.ndarray)):
+                            if len(val) == 1:
+                                return float(val[0])
+                            else:
+                                # Multi-element array - take mean
+                                return float(np.mean(val))
+                        return float(val)
                 return None
                 
             elif access_pattern == "channel_pair_epoch":
@@ -389,12 +392,14 @@ def extract_epoch_value_from_marker(
                                     f"pair {pair_key}: data has {len(val) if hasattr(val, '__len__') else 1} elements"
                                 )
                         else:
-                            if isinstance(val, (list, np.ndarray)) and len(val) > 1:
-                                raise ValueError(
-                                    f"[{subject_id} {task}] Non-spectral marker {marker_name} has array data "
-                                    f"for pair {pair_key}: {val}. Expected scalar."
-                                )
-                            values.append(val[0] if isinstance(val, (list, np.ndarray)) else val)
+                            if isinstance(val, (list, np.ndarray)):
+                                if len(val) == 1:
+                                    values.append(val[0])
+                                else:
+                                    # Multi-element array - take mean
+                                    values.append(np.mean(val))
+                            else:
+                                values.append(val)
                 
                 if values:
                     return float(np.mean(values))
