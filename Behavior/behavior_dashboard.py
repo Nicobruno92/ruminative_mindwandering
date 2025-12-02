@@ -11,7 +11,7 @@ import textwrap
 # =============================================================================
 # CONFIGURATION - Modify these variables if paths change
 # =============================================================================
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = PROJECT_ROOT / "results"
 
 DEMOGRAPHICS_DIR = RESULTS_DIR / "demographics"
@@ -1790,6 +1790,102 @@ def page_bdi_split() -> None:
 # Cyberball Moderated Mediation Results Directory
 CYBERBALL_MEDIATION_DIR = MEDIATION_DIR / "cyberball_moderated_mediation"
 
+def page_cyberball_moderated_mediation() -> None:
+    st.header("8. Mechanism of Social Sensitivity (Cyberball)")
+
+    st.markdown(
+        textwrap.dedent(
+            """
+            **The Puzzle: Emotion vs. Cognition under Stress**
+            
+            We established earlier that **Social Exclusion (Cyberball)** triggers more negative thoughts (Valence) 
+            in the Risk Group than in Controls. 
+            
+            This analysis asks **WHY** this happens. We test two possibilities:
+            1.  **Emotional Reactivity (Mediation):** Does the Risk Group get significantly *sadder* or *more hurt* than controls when excluded, and *that* emotional drop causes the negative thoughts?
+            2.  **Cognitive Bias (Direct Effect):** Or do they activate negative thought patterns directly ("I am inadequate"), 
+                without necessarily feeling a stronger emotional shift first?
+            """
+        )
+    )
+
+    # DAG
+    st.subheader("Conceptual Model")
+    dag_cyberball = MEDIATION_DIR / "DAGs" / "DAG_cyberball_moderated.png"
+    safe_image(
+        dag_cyberball,
+        "DAG showing the pathway from Exclusion (X) to Thoughts (Y), potentially via Mood (M)"
+    )
+    st.markdown(
+        textwrap.dedent(
+            """
+            **Visual Guide:**
+            * The **Red Dashed Arrow** is the key test. It asks: "Does the Risk Group have an amplifier on emotional pain?"
+            * If the red arrow is significant, it's an emotional mechanism. If not, the effect follows the bottom arrow ($c'$), implying a direct cognitive mechanism.
+            """
+        )
+    )
+
+    # Combined Figure
+    st.subheader("Results")
+    combined_fig = CYBERBALL_MEDIATION_DIR / "plots" / "cyberball_moderated_mediation_combined.png"
+    safe_image(
+        combined_fig,
+        "Results Dashboard: Note the null findings in the Forest Plot (Top) and Path A (Middle Left)"
+    )
+
+    st.markdown(
+        textwrap.dedent(
+            """
+            **Key Findings**
+            
+            1.  **The Emotional Trigger Misfired (Null Path A):** Look at the middle-left panel. The Risk Group (Red) **did NOT** show a significantly larger drop in mood 
+                than the Control Group (Blue) after exclusion. Their subjective report of "Hurt" or "Sadness" was statistically comparable to controls.
+            
+            2.  **The Mediation Failed:** Because the emotional reaction wasn't different, it cannot explain why their thoughts became more negative. 
+                This is why the "Indirect Effects" (Top Panel) are all centered on zero.
+            """
+        )
+    )
+
+    # Results Table
+    st.subheader("Statistical Summary")
+    results_csv = CYBERBALL_MEDIATION_DIR / "cyberball_moderated_mediation_results.csv"
+    if results_csv.exists():
+        df_results = pd.read_csv(results_csv)
+        n_sig_index = df_results["index_mm_sig"].sum()
+        
+        if n_sig_index == 0:
+            st.info(
+                "**Result:** No significant moderated mediation was found. The interaction between Group and Exclusion "
+                "on thoughts is NOT mediated by self-reported mood changes."
+            )
+        
+        with st.expander("Show Full Statistical Table"):
+            st.dataframe(df_results[["mood_scale", "thought_dim", "index_mm", "index_mm_sig"]].round(4))
+    else:
+        st.error("Results file not found.")
+
+    # Interpretation
+    st.subheader("Conclusion: The 'Cognitive Bypass' Hypothesis", divider=True)
+    st.markdown(
+        textwrap.dedent(
+            """
+            **Dissecting the Mechanism**
+            
+            These results point to a fascinating dissociation in the Risk of Depression profile:
+            * **Cognitively:** They are highly sensitive to rejection (their thoughts turn negative immediately).
+            * **Affectively:** They are not hypersensitive in their subjective report (their mood doesn't drop more than controls).
+            
+            **Theoretical Implication**
+            This supports a **"Cognitive Bypass"** or **"Scarring"** model. Social stress seems to trigger negative 
+            cognitive schemas (e.g., automatic negative thoughts) directly. This process is automatic and "cold," 
+            operating independently of the "hot" emotional response. 
+            
+            *In simple terms: They think "I am rejected" before they necessarily feel "I am sad".*
+            """
+        )
+    )
 
 def page_mediation() -> None:
     st.header("Mediation Analyses: The Directionality of Affect and Cognition")
