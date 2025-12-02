@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=andrillon_report
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=8G
+#SBATCH --mem=12G
 #SBATCH --time=2:00:00
 #SBATCH --output=logs/andrillon_report_%j.out
 #SBATCH --error=logs/andrillon_report_%j.err
@@ -29,10 +29,10 @@ echo "=========================================="
 echo "GENERATING ANDRILLON SUMMARY REPORT"
 echo "=========================================="
 echo "Start time: $(date)"
-echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff"
+echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_time_on_task"
 echo ""
 
-python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff
+python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_time_on_task
 
 EXIT_CODE=$?
 

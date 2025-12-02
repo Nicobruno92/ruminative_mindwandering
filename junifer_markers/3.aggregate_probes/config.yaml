@@ -62,6 +62,10 @@ outlier_detection:
 connectivity:
   channel_reduction: "mean_pairs"  # Average all pairs involving each channel
 
+# Sleep marker specific options
+sleep_markers:
+  nan_policy: "zero"  # Options: null (keep NaN), zero, mean, median
+
 # Marker name mapping: rename verbose marker names to clean short names
 # Maps from pattern in PKL file names to desired output name
 marker_name_mapping:

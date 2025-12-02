@@ -555,27 +555,18 @@ results_interaction, model_interaction = run_lmm_analysis(
     df_lmm_ie, 'onoff_normalized', 'group * inclusion_exclusion', 'group_ie_interaction', lmm_output_dir
 )
 
-# Model 4: Time on task effect
+# Model 4: Group + Time on task
 print("\n" + "="*60)
-print("MODEL 4: ONOFF ~ TIME_ON_TASK")
-print("="*60)
-
-results_time, model_time = run_lmm_analysis(
-    df_lmm, 'onoff', 'time_on_task', 'time_on_task_effect', lmm_output_dir
-)
-
-# Model 5: Group + Time on task
-print("\n" + "="*60)
-print("MODEL 5: ONOFF ~ GROUP + TIME_ON_TASK")
+print("MODEL 4: ONOFF ~ GROUP + TIME_ON_TASK")
 print("="*60)
 
 results_group_time, model_group_time = run_lmm_analysis(
     df_lmm, 'onoff', 'group + time_on_task', 'group_time_additive', lmm_output_dir
 )
 
-# Model 6: Group × Time on task interaction
+# Model 5: Group × Time on task interaction
 print("\n" + "="*60)
-print("MODEL 6: ONOFF ~ GROUP * TIME_ON_TASK")
+print("MODEL 5: ONOFF ~ GROUP * TIME_ON_TASK")
 print("="*60)
 
 results_group_time_int, model_group_time_int = run_lmm_analysis(

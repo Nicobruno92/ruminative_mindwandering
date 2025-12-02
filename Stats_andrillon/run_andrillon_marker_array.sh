@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=andrillon_marker
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=8G
+#SBATCH --mem=12G
 #SBATCH --time=8:00:00
 #SBATCH --output=logs/andrillon_marker_%A_%a.out
 #SBATCH --error=logs/andrillon_marker_%A_%a.err

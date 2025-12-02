@@ -1029,6 +1029,80 @@ def aggregate_marker_epochs(
     return aggregated
 
 
+def apply_nan_policy_to_sleep_markers(
+    aggregated_sleep: Dict[str, Dict[str, float]],
+    nan_policy: str,
+) -> Dict[str, Dict[str, float]]:
+    """Apply NaN handling policy to aggregated sleep markers.
+
+    Parameters
+    ----------
+    aggregated_sleep : Dict[str, Dict[str, float]]
+        Mapping from sleep marker names (possibly feature-expanded) to
+        channel -> value dictionaries.
+    nan_policy : str
+        NaN handling policy. Supported values are:
+        - "null": keep NaN values as-is
+        - "zero": replace NaN by 0.0
+        - "mean": replace NaN by the mean of non-NaN values for the same
+          marker across channels (per probe)
+        - "median": replace NaN by the median of non-NaN values for the same
+          marker across channels (per probe)
+
+    Returns
+    -------
+    Dict[str, Dict[str, float]]
+        Processed mapping with NaNs handled according to the requested policy.
+    """
+    if not aggregated_sleep:
+        return aggregated_sleep
+
+    policy = (nan_policy or "null").lower()
+    if policy not in {"null", "zero", "mean", "median"}:
+        policy = "null"
+
+    if policy == "null":
+        return aggregated_sleep
+
+    processed: Dict[str, Dict[str, float]] = {}
+
+    for marker_name, channel_values in aggregated_sleep.items():
+        if not channel_values:
+            processed[marker_name] = channel_values
+            continue
+
+        channels = list(channel_values.keys())
+        values = np.array([channel_values[ch] for ch in channels], dtype=float)
+        nan_mask = np.isnan(values)
+
+        if not nan_mask.any():
+            processed[marker_name] = channel_values
+            continue
+
+        if policy == "zero":
+            fill_value = 0.0
+        else:
+            valid_values = values[~nan_mask]
+            if valid_values.size == 0:
+                processed[marker_name] = channel_values
+                continue
+            if policy == "mean":
+                fill_value = float(np.mean(valid_values))
+            else:
+                fill_value = float(np.median(valid_values))
+
+        new_channel_values: Dict[str, float] = {}
+        for ch, val, is_nan in zip(channels, values, nan_mask):
+            if is_nan:
+                new_channel_values[ch] = fill_value
+            else:
+                new_channel_values[ch] = float(val)
+
+        processed[marker_name] = new_channel_values
+
+    return processed
+
+
 def select_trials_for_probe(
     events_df: pd.DataFrame,
     probe_number: int,
@@ -1065,6 +1139,12 @@ def select_trials_for_probe(
     if only_go_correct:
         df = df[(df["trial_type"] == "go") & (df["correctness"] == "correct")]
     
+    # For sleep/preprobe windows and other events without distance coding,
+    # distance_to_probe may be entirely missing or NaN. In that case, keep
+    # all epochs for this probe instead of dropping everything.
+    if "distance_to_probe" not in df.columns or df["distance_to_probe"].isna().all():
+        return df
+
     # Keep distance in [distance_min, distance_max]
     df = df[df["distance_to_probe"].notna()]
     df = df[(df["distance_to_probe"] >= distance_min) & (df["distance_to_probe"] <= distance_max)]
@@ -1120,10 +1200,10 @@ def save_aggregated_markers(
     out_dir = Path(features_root) / f"sub-{subject}" / "eeg" / "junifer"
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create filename: sub-XX_task-YY_desc-probe-NNN_[evoked|state]_aggMarkers.csv
+    # Create filename: features/sub-XX/eeg/junifer/
     desc = f"probe-{probe_number:03d}"
     extension = save_format.lower()
-    if marker_type in ["evoked", "state"]:
+    if marker_type in ["evoked", "state", "sleep"]:
         fname = f"sub-{subject}_task-{task}_desc-{desc}_{marker_type}_aggMarkers.{extension}"
     else:
         fname = f"sub-{subject}_task-{task}_desc-{desc}_aggMarkers.{extension}"
@@ -1267,6 +1347,9 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
     
     out_cfg = cfg.get("output", {})
     overwrite = bool(out_cfg.get("overwrite", True))
+
+    sleep_cfg = cfg.get("sleep_markers", {})
+    sleep_nan_policy = str(sleep_cfg.get("nan_policy", "null")).lower()
     
     # Get marker name mapping for renaming
     marker_name_mapping = cfg.get("marker_name_mapping", {})
@@ -1728,6 +1811,10 @@ def process_subject_task(cfg: Dict, subject: str, task: str) -> pd.DataFrame:
                                 feature_marker_name = f"{marker_name}_{feature_name}"
                                 aggregated_sleep[feature_marker_name] = feature_data
                     if len(aggregated_sleep) > 0:
+                        aggregated_sleep = apply_nan_policy_to_sleep_markers(
+                            aggregated_sleep=aggregated_sleep,
+                            nan_policy=sleep_nan_policy,
+                        )
                         extra_meta = {
                             "n_sleep_trials": len(final_sleep_indices),
                             "aggregation_method": "trimmean" if not enable_outlier_detection else "outlier_detection",

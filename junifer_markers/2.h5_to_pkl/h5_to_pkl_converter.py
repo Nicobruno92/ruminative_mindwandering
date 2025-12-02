@@ -212,11 +212,13 @@ class MarkerData:
                         epoch_data.add_channel_data(
                             ch_name, ch_idx, np.array([0.0])
                         )
-        elif data.ndim == 2:  # Channel x features (spectral or single values)
+        elif data.ndim == 2:  # Channel x features (spectral, time-series, or single values)
             if self.marker_type in ["sleep_spindles", "sleep_slow_waves"]:
                 # Sleep markers: data is (features, channels) after transpose
                 for ch_idx, ch_name in enumerate(self.channel_names):
-                    if ch_idx < data.shape[1]:  # channels are in dim 1 for sleep markers
+                    if (
+                        ch_idx < data.shape[1]
+                    ):  # channels are in dim 1 for sleep markers
                         # Extract all features for this channel: data[:, ch_idx]
                         channel_features = data[:, ch_idx]  # (n_features,)
                         epoch_data.add_channel_data(
@@ -227,10 +229,15 @@ class MarkerData:
                         epoch_data.add_channel_data(
                             ch_name, ch_idx, np.zeros(data.shape[0])
                         )
-            elif "spectral" in self.marker_type.lower() or "psd" in self.marker_type.lower():
+            elif (
+                "spectral" in self.marker_type.lower()
+                or "psd" in self.marker_type.lower()
+            ):
                 # Spectral power markers: data is (bands, channels) after transpose
                 for ch_idx, ch_name in enumerate(self.channel_names):
-                    if ch_idx < data.shape[1]:  # channels are in dim 1 for spectral markers
+                    if (
+                        ch_idx < data.shape[1]
+                    ):  # channels are in dim 1 for spectral markers
                         # Extract all frequency bands for this channel: data[:, ch_idx]
                         channel_bands = data[:, ch_idx]  # (n_bands,)
                         epoch_data.add_channel_data(
@@ -240,6 +247,23 @@ class MarkerData:
                         # Handle missing channels
                         epoch_data.add_channel_data(
                             ch_name, ch_idx, np.zeros(data.shape[0])
+                        )
+            elif self.marker_type == "time_locked":
+                # Time-locked ERP markers: data is (channels, timepoints) after epoch slice
+                logger.info(
+                    f"DEBUG: Processing time-locked marker - shape: {data.shape} (channels, timepoints)"
+                )
+                for ch_idx, ch_name in enumerate(self.channel_names):
+                    if ch_idx < data.shape[0]:  # channels in dim 0
+                        # Extract time series for this channel: data[ch_idx, :]
+                        channel_timeseries = data[ch_idx, :]  # (n_timepoints,)
+                        epoch_data.add_channel_data(
+                            ch_name, ch_idx, channel_timeseries
+                        )
+                    else:
+                        # Handle missing channels
+                        epoch_data.add_channel_data(
+                            ch_name, ch_idx, np.zeros(data.shape[1])
                         )
             else:
                 # Original logic for (channels, features) data
@@ -255,8 +279,10 @@ class MarkerData:
                         )
         elif (
             data.ndim == 3
-        ):  # Channel x channel x features (connectivity matrices)
-            logger.info(f"DEBUG: 3D data in add_epoch_data - shape: {data.shape}, marker_type: {self.marker_type}")
+        ):  # 3D data - could be connectivity, sleep markers, or time-locked ERPs
+            logger.info(
+                f"DEBUG: 3D data in add_epoch_data - shape: {data.shape}, marker_type: {self.marker_type}"
+            )
             if self.marker_type in ["connectivity", "wsmi", "smi"]:
                 for ch_idx, ch_name in enumerate(self.channel_names):
                     if ch_idx < data.shape[0]:
@@ -271,13 +297,19 @@ class MarkerData:
                             np.zeros((data.shape[1], data.shape[2])),
                         )
             elif self.marker_type in ["sleep_spindles", "sleep_slow_waves"]:
-                logger.info(f"DEBUG: Processing 3D sleep marker data - shape: {data.shape}")
+                logger.info(
+                    f"DEBUG: Processing 3D sleep marker data - shape: {data.shape}"
+                )
                 # Sleep markers: (epochs, features, channels) after transpose
                 # Need to extract data[epoch_idx, :, ch_idx] for each channel
                 for ch_idx, ch_name in enumerate(self.channel_names):
-                    if ch_idx < data.shape[2]:  # channels are in dim 2 for sleep markers
+                    if (
+                        ch_idx < data.shape[2]
+                    ):  # channels are in dim 2 for sleep markers
                         # Extract all features for this channel: data[epoch_idx, :, ch_idx]
-                        channel_features = data[:, :, ch_idx]  # (epochs, features)
+                        channel_features = data[
+                            :, :, ch_idx
+                        ]  # (epochs, features)
                         epoch_data.add_channel_data(
                             ch_name, ch_idx, channel_features
                         )
@@ -457,19 +489,27 @@ class H5ToPklConverter:
         if marker_data.size == 0:
             return self.channel_names
 
-        n_epochs = self.n_epochs
         eeg_channels = [
             ch
             for ch in self.channel_names
             if not ch.startswith("EOG") and ch not in ["VEOG", "HEOG"]
         ]
 
-        if marker_data.ndim >= 2 and marker_data.shape[0] == n_epochs:
-            # Special handling for sleep markers with 3D structure (epochs, features, channels)
-            if marker_type in ["sleep_spindles", "sleep_slow_waves"] and marker_data.ndim == 3:
-                n_channels_in_data = marker_data.shape[2]  # channels are in dim 2 for sleep markers
+        # Don't assume marker_data.shape[0] must equal self.n_epochs
+        # The HDF5 data might have a different number of epochs
+        if marker_data.ndim >= 2:
+            # Special handling for 3D markers: different layouts per marker type
+            if marker_data.ndim == 3:
+                if marker_type == "time_locked":
+                    # Time-locked markers: (epochs, channels, timepoints)
+                    n_channels_in_data = marker_data.shape[1]  # channels in dim 1
+                else:
+                    # Sleep markers: (epochs, features, channels)
+                    # Spectral markers: (epochs, bands, channels)
+                    n_channels_in_data = marker_data.shape[2]  # channels in dim 2
             else:
-                n_channels_in_data = marker_data.shape[1]  # default: channels in dim 1
+                # 2D markers: (epochs, channels)
+                n_channels_in_data = marker_data.shape[1]  # channels in dim 1
 
             if marker_type in ["connectivity", "wsmi", "smi"]:
                 return eeg_channels[:n_channels_in_data]
@@ -484,7 +524,10 @@ class H5ToPklConverter:
     def _reshape_marker_data(
         self, marker_name: str, data: np.ndarray, marker_type: str
     ) -> np.ndarray:
-        """Respect the tensor layout provided by Junifer (epochs already ordered)."""
+        """Interpret the tensor layout from Junifer WITHOUT assuming self.n_epochs matches.
+
+        Key insight: We must detect dimensions from the data itself, not from FIF metadata.
+        """
         logger.info(
             f"Validating {marker_name}: input shape {data.shape}, type {marker_type}"
         )
@@ -492,88 +535,156 @@ class H5ToPklConverter:
         if data.size == 0:
             return data
 
-        n_epochs = self.n_epochs
+        # CRITICAL: Detect marker format from shape, not from self.n_epochs
+        # Junifer returns different shapes depending on marker type:
+        #
+        # SpectralPower (multi-band):  (n_bands, n_epochs, n_channels)
+        # PermutationEntropy:          (n_epochs, n_channels)
+        # SymbolicMutualInformation:   (n_epochs, n_channels, n_channels)
+        # KolmogorovComplexity:        (n_epochs, n_channels)
+        # SlowWavesDetection:          (n_features, n_epochs, n_channels)
+        # SpindlesDetection:           (n_features, n_epochs, n_channels)
 
-        # Handle sleep markers which have shape (n_features, n_epochs, n_channels)
+        # Handle sleep markers: (n_features, n_epochs, n_channels)
         if marker_type in ["sleep_spindles", "sleep_slow_waves"]:
-            # Handle legacy flattened vector format from old junifer storage layer
-            if data.ndim == 2 and data.shape[1] == 1:
-                # Check if this is legacy flattened sleep marker data (features x epochs, 1)
-                total_elements = data.shape[0]
-                if total_elements % n_epochs == 0:
-                    n_features = total_elements // n_epochs
-                    logger.info(f"Reshaping legacy flattened sleep marker from {data.shape} to ({n_features}, {n_epochs}, 1)")
-                    # Reshape from (features x epochs, 1) to (features, epochs, 1)
-                    data = data.reshape(n_features, n_epochs, 1)
-                    logger.info(f"After reshape: {data.shape}")
+            if data.ndim == 3:
+                # Expected: (n_features, n_epochs, n_channels)
+                # Need to transpose to: (n_epochs, n_features, n_channels)
+                n_features, n_epochs_in_data, n_channels = data.shape
+                logger.info(
+                    f"Sleep marker {marker_name}: detected shape (features={n_features}, epochs={n_epochs_in_data}, channels={n_channels})"
+                )
+                logger.info(
+                    "Transposing from (features, epochs, channels) to (epochs, features, channels)"
+                )
+                data = np.transpose(
+                    data, (1, 0, 2)
+                )  # (epochs, features, channels)
+                logger.info(f"After transpose: {data.shape}")
+            elif data.ndim == 2:
+                # Could be: (features, epochs) aggregated over channels
+                # Add channel dimension and transpose
+                n_features, n_epochs_in_data = data.shape
+                logger.info(
+                    f"Sleep marker {marker_name}: 2D shape detected (features={n_features}, epochs={n_epochs_in_data})"
+                )
+                data = data[:, :, np.newaxis]  # (features, epochs, 1)
+                data = np.transpose(data, (1, 0, 2))  # (epochs, features, 1)
+                logger.info(
+                    f"After adding channel dim and transpose: {data.shape}"
+                )
+            else:
+                logger.warning(
+                    f"Sleep marker {marker_name} has unexpected shape {data.shape}"
+                )
+
+        # Handle spectral power markers
+        elif "spectral" in marker_type.lower() or "psd" in marker_type.lower():
+            logger.info(
+                f"Processing spectral marker: {marker_name}, shape: {data.shape}"
+            )
+
+            if data.ndim == 4 and data.shape[0] == 1:
+                # Format: (1, n_bands, n_epochs, n_channels) - squeeze and transpose
+                data = data.squeeze(0)  # (bands, epochs, channels)
+                logger.info(f"Squeezed 4D spectral data to: {data.shape}")
+                n_bands, n_epochs_in_data, n_channels = data.shape
+                logger.info(
+                    f"Detected shape (bands={n_bands}, epochs={n_epochs_in_data}, channels={n_channels})"
+                )
+                # Transpose to (epochs, bands, channels)
+                data = np.transpose(data, (1, 0, 2))
+                logger.info(
+                    f"Transposed to (epochs, bands, channels): {data.shape}"
+                )
+
+            elif data.ndim == 3:
+                # Detect format: could be (bands, epochs, channels) or (epochs, bands, channels)
+                # Heuristic: First dimension is usually bands (smaller) or epochs (larger)
+                dim0, dim1, dim2 = data.shape
+
+                # If dim0 is small (2-10), likely bands → transpose needed
+                # If dim1 is small (2-10), likely bands → already correct
+                if dim0 < 20 and dim1 > dim0:
+                    # Likely (bands, epochs, channels) → need transpose
+                    logger.info(
+                        f"Detected (bands={dim0}, epochs={dim1}, channels={dim2}) - transposing"
+                    )
+                    data = np.transpose(
+                        data, (1, 0, 2)
+                    )  # (epochs, bands, channels)
+                    logger.info(f"After transpose: {data.shape}")
                 else:
-                    logger.warning(
-                        f"{marker_name} legacy flattened data size {total_elements} is not divisible by epochs {n_epochs}"
+                    # Likely already (epochs, bands, channels) or (epochs, channels, features)
+                    logger.info(
+                        f"Shape appears to be (epochs={dim0}, dim1={dim1}, dim2={dim2}) - keeping as is"
                     )
 
-            # Handle 2D tensor format from updated junifer markers (features, epochs)
-            elif data.ndim == 2 and data.shape[1] == n_epochs:
-                # This is the new format: (features, epochs) - add missing channel dimension
-                n_features = data.shape[0]
-                logger.info(f"Adding channel dimension to 2D sleep marker from {data.shape} to ({n_features}, {n_epochs}, 1)")
-                data = data[:, :, np.newaxis]  # (features, epochs, 1)
-                logger.info(f"After adding channel dimension: {data.shape}")
-                # Immediately transpose to (epochs, features, channels) for proper processing
-                logger.info(f"Transposing 2D sleep marker data from {data.shape} to (epochs, features, channels)")
-                data = np.transpose(data, (1, 0, 2))  # (epochs, features, channels)
-                logger.info(f"After transpose: {data.shape}")
-
-            # Handle proper 3D tensor format from updated junifer markers
-            elif data.ndim == 3 and (data.shape[1] == n_epochs or data.shape[1] == 1):
-                # Transpose from (features, epochs, channels) to (epochs, features, channels)
-                # Handle both regular epochs (shape[1] == n_epochs) and aggregated data (shape[1] == 1)
-                logger.info(f"Transposing sleep marker data from {data.shape} to (epochs, features, channels)")
-                data = np.transpose(data, (1, 0, 2))  # (epochs, features, channels)
-                logger.info(f"After transpose: {data.shape}")
-            elif data.shape[0] == n_epochs:
-                # Already in correct format (epochs, ...)
-                pass
-            else:
-                logger.warning(
-                    f"{marker_name} sleep marker has unexpected shape {data.shape}, expected ({n_epochs}, ...) or (features, {n_epochs}, channels) or (features, 1, channels)"
+            elif data.ndim == 2:
+                # Single band: (epochs, channels)
+                logger.info(
+                    f"Single-band spectral data: {data.shape} (epochs, channels)"
                 )
-
-        # Handle spectral power markers which have shape (1, n_bands, n_epochs, n_channels)
-        elif "spectral" in marker_type.lower() or "psd" in marker_type.lower():
-            logger.info(f"Processing spectral power marker: {marker_name}, shape: {data.shape}")
-
-            # Handle 4D format from junifer storage: (elements, bands, epochs, channels)
-            if data.ndim == 4 and data.shape[0] == 1:
-                # Squeeze the elements dimension: (1, bands, epochs, channels) → (bands, epochs, channels)
-                logger.info(f"Squeezing spectral power data from {data.shape} to {data.shape[1:]}")
-                data = data.squeeze(0)  # (bands, epochs, channels)
-                logger.info(f"After squeeze: {data.shape}")
-
-                # Transpose from (bands, epochs, channels) to (epochs, bands, channels)
-                logger.info(f"Transposing spectral power data from {data.shape} to (epochs, bands, channels)")
-                data = np.transpose(data, (1, 0, 2))  # (epochs, bands, channels)
-                logger.info(f"After transpose: {data.shape}")
-
-            # Handle 3D format if already squeezed: (bands, epochs, channels)
-            elif data.ndim == 3 and data.shape[1] == n_epochs:
-                # Transpose from (bands, epochs, channels) to (epochs, bands, channels)
-                logger.info(f"Transposing 3D spectral power data from {data.shape} to (epochs, bands, channels)")
-                data = np.transpose(data, (1, 0, 2))  # (epochs, bands, channels)
-                logger.info(f"After transpose: {data.shape}")
 
             else:
                 logger.warning(
-                    f"{marker_name} spectral power marker has unexpected shape {data.shape}, expected (1, bands, {n_epochs}, channels) or (bands, {n_epochs}, channels)"
+                    f"Spectral marker {marker_name} has unexpected shape {data.shape}"
                 )
 
-        elif data.shape[0] != n_epochs:
-            logger.warning(
-                f"{marker_name} first dimension ({data.shape[0]}) does not match number of epochs ({n_epochs}). "
-                "Data will be broadcast across epochs."
+        # Handle connectivity markers
+        elif marker_type in ["connectivity", "wsmi", "smi"]:
+            if data.ndim == 3:
+                # Full connectivity matrix: (n_epochs, n_channels, n_channels)
+                n_epochs_in_data, n_ch1, n_ch2 = data.shape
+                logger.info(
+                    f"Connectivity marker {marker_name}: shape (epochs={n_epochs_in_data}, ch1={n_ch1}, ch2={n_ch2})"
+                )
+            elif data.ndim == 2:
+                # Aggregated connectivity (connectivity_aggregation_method used): (n_epochs, n_channels)
+                n_epochs_in_data, n_channels = data.shape
+                logger.info(
+                    f"Connectivity marker {marker_name}: aggregated shape (epochs={n_epochs_in_data}, channels={n_channels})"
+                )
+            else:
+                logger.warning(
+                    f"Connectivity marker {marker_name} has unexpected shape {data.shape}"
+                )
+
+        # Handle time-locked markers - compute mean across timepoints for 2D output
+        elif marker_type == "time_locked":
+            if data.ndim == 3:
+                n_epochs_in_data, n_channels, n_timepoints = data.shape
+                logger.info(
+                    f"Time-locked marker {marker_name}: shape (epochs={n_epochs_in_data}, channels={n_channels}, timepoints={n_timepoints})"
+                )
+                logger.info(
+                    "Computing mean across timepoints axis to get 2D data (epochs, channels) - simplified approach"
+                )
+                # Compute mean across timepoints (axis=2) to get (epochs, channels)
+                # This provides mean ERP amplitude per channel, which is scientifically standard
+                data = np.mean(data, axis=2)
+                logger.info(
+                    f"After timepoints averaging: new shape (epochs={data.shape[0]}, channels={data.shape[1]})"
+                )
+            else:
+                raise ValueError(
+                    f"Time-locked marker {marker_name} must have 3D shape (epochs, channels, timepoints) for per-epoch data. "
+                    f"Got shape {data.shape} with {data.ndim} dimensions. "
+                    f"Make sure to use trial_aggregation_method: null and channel_aggregation_method: null in your YAML config!"
+                )
+
+        # Handle simple 2D markers: (epochs, channels)
+        elif data.ndim == 2:
+            n_epochs_in_data, n_channels = data.shape
+            logger.info(
+                f"2D marker {marker_name}: shape (epochs={n_epochs_in_data}, channels={n_channels})"
             )
-            if data.ndim == 1:
-                return np.tile(data, (n_epochs, 1))
-            return np.broadcast_to(data, (n_epochs, *data.shape))
+
+        # Handle 1D aggregated markers
+        elif data.ndim == 1:
+            logger.info(
+                f"1D marker {marker_name}: shape {data.shape} (aggregated)"
+            )
 
         return data
 
@@ -683,12 +794,18 @@ class H5ToPklConverter:
                     reshaped_data, marker_type
                 )
 
+                # Detect actual number of epochs in HDF5 data (may differ from FIF)
+                actual_n_epochs_in_data = (
+                    reshaped_data.shape[0] if reshaped_data.ndim >= 1 else 1
+                )
+
                 # Create marker data container
+                # Use n_epochs from FIF for metadata structure, but actual data will come from HDF5
                 marker_data = MarkerData(
                     marker_name=marker_name,
                     marker_type=marker_type,
                     channel_names=actual_channel_names,
-                    n_epochs=self.n_epochs,
+                    n_epochs=actual_n_epochs_in_data,  # Use actual epochs from HDF5 data
                 )
 
                 # Store the raw reshaped data directly in metadata for validation
@@ -701,25 +818,59 @@ class H5ToPklConverter:
                     )
                     continue
 
+                # Detect the actual number of epochs in the HDF5 data
+                # This may differ from self.n_epochs (from FIF) if Junifer processed a subset
+                actual_n_epochs_in_data = (
+                    reshaped_data.shape[0] if reshaped_data.ndim >= 1 else 1
+                )
+
+                logger.info(
+                    f"{marker_name}: HDF5 data has {actual_n_epochs_in_data} epochs, "
+                    f"FIF has {self.n_epochs} epochs"
+                )
+
                 # Check if we have per-epoch data
                 if (
                     reshaped_data.ndim >= 2
-                    and reshaped_data.shape[0] == self.n_epochs
+                    and reshaped_data.shape[0]
+                    > 1  # Use actual data shape, not self.n_epochs
                 ):
                     # Data is structured as (epochs, ...)
-                    for epoch_idx in range(self.n_epochs):
-                        epoch_metadata = self.epoch_metadata[epoch_idx]
+                    # Use the actual number of epochs from the data
+                    for data_epoch_idx in range(actual_n_epochs_in_data):
+                        # Map to the correct epoch_idx from FIF metadata
+                        # If data has fewer epochs than FIF, use sequential mapping
+                        if data_epoch_idx < len(self.epoch_metadata):
+                            epoch_metadata = self.epoch_metadata[
+                                data_epoch_idx
+                            ]
+                            actual_epoch_idx = data_epoch_idx
+                        else:
+                            # Fallback: create minimal metadata for extra epochs
+                            logger.warning(
+                                f"No FIF metadata for data epoch {data_epoch_idx}, creating fallback"
+                            )
+                            epoch_metadata = EpochMetadata(
+                                epoch_idx=data_epoch_idx,
+                                event=np.array([0, 0, 0]),  # Dummy event
+                                annotation=None,
+                            )
+                            actual_epoch_idx = data_epoch_idx
 
                         if reshaped_data.ndim == 2:
-                            epoch_data_slice = reshaped_data[epoch_idx, :]
+                            epoch_data_slice = reshaped_data[data_epoch_idx, :]
                         elif reshaped_data.ndim == 3:
-                            epoch_data_slice = reshaped_data[epoch_idx, :, :]  # (features, channels)
-                            logger.info(f"DEBUG: Main processing - epoch {epoch_idx}, slice shape: {epoch_data_slice.shape}, marker_type: {marker_type}")
+                            epoch_data_slice = reshaped_data[
+                                data_epoch_idx, :, :
+                            ]  # (features, channels)
+                            logger.info(
+                                f"DEBUG: Main processing - epoch {data_epoch_idx}, slice shape: {epoch_data_slice.shape}, marker_type: {marker_type}"
+                            )
                         else:
-                            epoch_data_slice = reshaped_data[epoch_idx]
+                            epoch_data_slice = reshaped_data[data_epoch_idx]
 
                         marker_data.add_epoch_data(
-                            epoch_idx, epoch_metadata, epoch_data_slice
+                            actual_epoch_idx, epoch_metadata, epoch_data_slice
                         )
                 elif (
                     reshaped_data.ndim == 1
@@ -742,57 +893,90 @@ class H5ToPklConverter:
                         f"Replicating single/aggregated data for all epochs: {marker_name}"
                     )
                     # Special handling for sleep markers with aggregated data
-                    logger.info(f"DEBUG: Entering special handling - reshaped_data.shape: {reshaped_data.shape}, ndim: {reshaped_data.ndim}, marker_type: {marker_type}")
-                    if marker_type in ["sleep_spindles", "sleep_slow_waves"] and reshaped_data.ndim == 3:
-                        logger.info(f"DEBUG: Special handling condition TRUE - shape: {reshaped_data.shape}")
+                    logger.info(
+                        f"DEBUG: Entering special handling - reshaped_data.shape: {reshaped_data.shape}, ndim: {reshaped_data.ndim}, marker_type: {marker_type}"
+                    )
+                    if (
+                        marker_type in ["sleep_spindles", "sleep_slow_waves"]
+                        and reshaped_data.ndim == 3
+                    ):
+                        logger.info(
+                            f"DEBUG: Special handling condition TRUE - shape: {reshaped_data.shape}"
+                        )
                         # Handle both epoch-aggregated (1, n_features, n_channels) and channel-aggregated (n_epochs, n_features, 1)
                         if reshaped_data.shape[0] == 1:
                             # Epoch-aggregated data: (1, n_features, n_channels)
-                            feature_data = reshaped_data[0, :, :]  # (n_features, n_channels)
+                            feature_data = reshaped_data[
+                                0, :, :
+                            ]  # (n_features, n_channels)
                             for epoch_idx in range(self.n_epochs):
                                 epoch_metadata = self.epoch_metadata[epoch_idx]
                                 # Create epoch data with all channels at once
-                                epoch_data = EpochData(epoch_idx, epoch_metadata, actual_channel_names)
+                                epoch_data = EpochData(
+                                    epoch_idx,
+                                    epoch_metadata,
+                                    actual_channel_names,
+                                )
                                 # Add each channel's feature vector
-                                for ch_idx, ch_name in enumerate(actual_channel_names):
+                                for ch_idx, ch_name in enumerate(
+                                    actual_channel_names
+                                ):
                                     if ch_idx < feature_data.shape[1]:
-                                        channel_features = feature_data[:, ch_idx]  # (n_features,)
+                                        channel_features = feature_data[
+                                            :, ch_idx
+                                        ]  # (n_features,)
                                         epoch_data.add_channel_data(
                                             ch_name, ch_idx, channel_features
                                         )
                                     else:
                                         # Handle missing channels
                                         epoch_data.add_channel_data(
-                                            ch_name, ch_idx, np.zeros(feature_data.shape[0])
+                                            ch_name,
+                                            ch_idx,
+                                            np.zeros(feature_data.shape[0]),
                                         )
                                 # Store the completed epoch data
                                 marker_data._epoch_data[epoch_idx] = epoch_data
                         elif reshaped_data.shape[2] == 1:
                             # Channel-aggregated data: (n_epochs, n_features, 1)
-                            logger.info(f"DEBUG: Processing channel-aggregated sleep marker data - shape: {reshaped_data.shape}")
+                            logger.info(
+                                f"DEBUG: Processing channel-aggregated sleep marker data - shape: {reshaped_data.shape}"
+                            )
                             for epoch_idx in range(self.n_epochs):
                                 epoch_metadata = self.epoch_metadata[epoch_idx]
                                 # Create epoch data with single channel
-                                epoch_data = EpochData(epoch_idx, epoch_metadata, actual_channel_names)
+                                epoch_data = EpochData(
+                                    epoch_idx,
+                                    epoch_metadata,
+                                    actual_channel_names,
+                                )
                                 # Extract features for this epoch: (n_features,)
-                                channel_features = reshaped_data[epoch_idx, :, 0]  # (n_features,)
+                                channel_features = reshaped_data[
+                                    epoch_idx, :, 0
+                                ]  # (n_features,)
                                 # Add the single channel with all features
                                 if len(actual_channel_names) > 0:
                                     epoch_data.add_channel_data(
-                                        actual_channel_names[0], 0, channel_features
+                                        actual_channel_names[0],
+                                        0,
+                                        channel_features,
                                     )
                                 # Store the completed epoch data
                                 marker_data._epoch_data[epoch_idx] = epoch_data
                         else:
                             # Fallback to original logic
-                            logger.info(f"DEBUG: Fallback - shape doesn't match aggregated patterns: {reshaped_data.shape}")
+                            logger.info(
+                                f"DEBUG: Fallback - shape doesn't match aggregated patterns: {reshaped_data.shape}"
+                            )
                             for epoch_idx in range(self.n_epochs):
                                 epoch_metadata = self.epoch_metadata[epoch_idx]
                                 marker_data.add_epoch_data(
                                     epoch_idx, epoch_metadata, reshaped_data
                                 )
                     else:
-                        logger.info(f"DEBUG: Special handling condition FALSE - shape: {reshaped_data.shape}, ndim: {reshaped_data.ndim}, marker_type: {marker_type}")
+                        logger.info(
+                            f"DEBUG: Special handling condition FALSE - shape: {reshaped_data.shape}, ndim: {reshaped_data.ndim}, marker_type: {marker_type}"
+                        )
                         # Original replication logic for non-sleep markers
                         for epoch_idx in range(self.n_epochs):
                             epoch_metadata = self.epoch_metadata[epoch_idx]
@@ -813,26 +997,47 @@ class H5ToPklConverter:
                             if channel_data.data.ndim >= 1:
                                 n_features = channel_data.data.shape[0]
                                 if n_features == 3:
-                                    feature_names = ["Duration", "Amplitude", "Frequency"]
-                                    feature_descriptions = {
-                                        "Duration": "Mean duration of detected spindles (seconds)",
-                                        "Amplitude": "Mean amplitude of detected spindles (µV)",
-                                        "Frequency": "Mean frequency of detected spindles (Hz)"
-                                    }
-                                elif n_features == 4:
-                                    feature_names = ["Duration", "Amplitude", "Frequency", "Density"]
+                                    feature_names = [
+                                        "Duration",
+                                        "Amplitude",
+                                        "Frequency",
+                                    ]
                                     feature_descriptions = {
                                         "Duration": "Mean duration of detected spindles (seconds)",
                                         "Amplitude": "Mean amplitude of detected spindles (µV)",
                                         "Frequency": "Mean frequency of detected spindles (Hz)",
-                                        "Density": "Count of detected spindles per epoch/channel"
+                                    }
+                                elif n_features == 4:
+                                    feature_names = [
+                                        "Duration",
+                                        "Amplitude",
+                                        "Frequency",
+                                        "Density",
+                                    ]
+                                    feature_descriptions = {
+                                        "Duration": "Mean duration of detected spindles (seconds)",
+                                        "Amplitude": "Mean amplitude of detected spindles (µV)",
+                                        "Frequency": "Mean frequency of detected spindles (Hz)",
+                                        "Density": "Count of detected spindles per epoch/channel",
                                     }
                                 else:
-                                    feature_names = [f"Feature_{i}" for i in range(n_features)]
-                                    feature_descriptions = {f"Feature_{i}": f"Spindle feature {i}" for i in range(n_features)}
-                                    logger.warning(f"Unexpected spindles feature count: {n_features}")
-                                marker_data.metadata["feature_names"] = feature_names
-                                marker_data.metadata["feature_descriptions"] = feature_descriptions
+                                    feature_names = [
+                                        f"Feature_{i}"
+                                        for i in range(n_features)
+                                    ]
+                                    feature_descriptions = {
+                                        f"Feature_{i}": f"Spindle feature {i}"
+                                        for i in range(n_features)
+                                    }
+                                    logger.warning(
+                                        f"Unexpected spindles feature count: {n_features}"
+                                    )
+                                marker_data.metadata["feature_names"] = (
+                                    feature_names
+                                )
+                                marker_data.metadata[
+                                    "feature_descriptions"
+                                ] = feature_descriptions
                                 marker_data.metadata["n_features"] = n_features
 
                 elif marker_type == "sleep_slow_waves":
@@ -847,28 +1052,51 @@ class H5ToPklConverter:
                             if channel_data.data.ndim >= 1:
                                 n_features = channel_data.data.shape[0]
                                 if n_features == 4:
-                                    feature_names = ["Duration", "PTP", "Frequency", "Slope"]
-                                    feature_descriptions = {
-                                        "Duration": "Mean duration of detected slow waves (seconds)",
-                                        "PTP": "Mean peak-to-peak amplitude of detected slow waves (µV)",
-                                        "Frequency": "Mean frequency of detected slow waves (Hz)",
-                                        "Slope": "Mean slope of detected slow waves"
-                                    }
-                                elif n_features == 5:
-                                    feature_names = ["Duration", "PTP", "Frequency", "Slope", "Density"]
+                                    feature_names = [
+                                        "Duration",
+                                        "PTP",
+                                        "Frequency",
+                                        "Slope",
+                                    ]
                                     feature_descriptions = {
                                         "Duration": "Mean duration of detected slow waves (seconds)",
                                         "PTP": "Mean peak-to-peak amplitude of detected slow waves (µV)",
                                         "Frequency": "Mean frequency of detected slow waves (Hz)",
                                         "Slope": "Mean slope of detected slow waves",
-                                        "Density": "Count of detected slow waves per epoch/channel"
+                                    }
+                                elif n_features == 5:
+                                    feature_names = [
+                                        "Duration",
+                                        "PTP",
+                                        "Frequency",
+                                        "Slope",
+                                        "Density",
+                                    ]
+                                    feature_descriptions = {
+                                        "Duration": "Mean duration of detected slow waves (seconds)",
+                                        "PTP": "Mean peak-to-peak amplitude of detected slow waves (µV)",
+                                        "Frequency": "Mean frequency of detected slow waves (Hz)",
+                                        "Slope": "Mean slope of detected slow waves",
+                                        "Density": "Count of detected slow waves per epoch/channel",
                                     }
                                 else:
-                                    feature_names = [f"Feature_{i}" for i in range(n_features)]
-                                    feature_descriptions = {f"Feature_{i}": f"Slow wave feature {i}" for i in range(n_features)}
-                                    logger.warning(f"Unexpected slow waves feature count: {n_features}")
-                                marker_data.metadata["feature_names"] = feature_names
-                                marker_data.metadata["feature_descriptions"] = feature_descriptions
+                                    feature_names = [
+                                        f"Feature_{i}"
+                                        for i in range(n_features)
+                                    ]
+                                    feature_descriptions = {
+                                        f"Feature_{i}": f"Slow wave feature {i}"
+                                        for i in range(n_features)
+                                    }
+                                    logger.warning(
+                                        f"Unexpected slow waves feature count: {n_features}"
+                                    )
+                                marker_data.metadata["feature_names"] = (
+                                    feature_names
+                                )
+                                marker_data.metadata[
+                                    "feature_descriptions"
+                                ] = feature_descriptions
                                 marker_data.metadata["n_features"] = n_features
 
                 markers[marker_name] = marker_data

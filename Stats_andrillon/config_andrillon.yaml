@@ -18,7 +18,7 @@ project:
   # Data filtering
   subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
   tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
-  marker_types: ["evoked", "state"]  # Processed independently
+  marker_types: ["evoked", "state", "sleep"]  # Processed independently
   
   # Filter probes by onoff value (optional)
   onoff_max_value: null
@@ -41,7 +41,7 @@ preprocessing:
 lmm:
   # Formula for the LMM
   # Same syntax as current pipeline
-  formula: "power ~ onoff + (1|subject)"
+  formula: "power ~ onoff + time_on_task + (1|subject)"
   
   # Predictor of interest (will be permuted and tested)
   predictor_of_interest: "onoff"

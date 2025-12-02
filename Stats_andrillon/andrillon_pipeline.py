@@ -133,11 +133,14 @@ def run_marker_analysis(
         logger.info(f"  Marker name: {marker_base_name}")
         
         # Load all probe data
+        marker_types_to_load = config['project']['marker_types']
+        if marker_type is not None:
+            marker_types_to_load = [marker_type]
         df_all = load_all_probe_data(
             features_root=config['project']['features_root'],
             subjects=config['project'].get('subjects'),
             tasks=config['project'].get('tasks'),
-            marker_types=config['project']['marker_types'],
+            marker_types=marker_types_to_load,
         )
         
         # Filter by marker type if specified

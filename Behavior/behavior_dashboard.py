@@ -261,12 +261,112 @@ def show_model_comparison_table(
     styled = (
         df_sub[["equation", "bic", "delta_bic"]]
         .sort_values("bic")
-        .style.format({"bic": "{:,.0f}", "delta_bic": "{:,.1f}"})
-        .apply(_highlight_best, axis=1)
+        .style.apply(_highlight_best, axis=1)
     )
+    st.dataframe(styled)
 
-    # width="stretch" replaces deprecated use_container_width=True
-    st.dataframe(styled, width="stretch")
+
+def get_best_model_info(
+    metrics_dir: Path, dep_name: str, model_family: str
+) -> tuple[str | None, str | None, Path | None]:
+    """Return (model_name, BIC string, results_path) for lowest-BIC model.
+
+    Parameters
+    ----------
+    metrics_dir : Path
+        Directory containing ``*_metrics.csv`` and ``*_results.csv``.
+    dep_name : str
+        Dependent variable name (e.g. "valence", "time", "confidence").
+    model_family : {"all_data", "ie_blocks"}
+        Which family of models to consider (full dataset vs IE blocks).
+    """
+
+    if not metrics_dir.exists():
+        return None, None, None
+
+    # Same classification logic as in show_model_comparison_table
+    model_group: dict[str, str] = {
+        "group_effect": "all_data",
+        "time_on_task_effect": "all_data",
+        "group_time_additive": "all_data",
+        "group_time_interaction": "all_data",
+        "inclusion_exclusion_effect": "ie_blocks",
+        "group_ie_interaction": "ie_blocks",
+        "ie_intervention_distance": "ie_blocks",
+        "group_ie_plus_distance": "ie_blocks",
+        "ie_distance_interaction": "ie_blocks",
+        "three_way_with_distance": "ie_blocks",
+        "group_distance_plus_ie": "ie_blocks",
+        "ie_time_additive": "ie_blocks",
+        "full_model_with_time": "ie_blocks",
+        "ie_time_interaction": "ie_blocks",
+        "three_way_interaction": "ie_blocks",
+        "group_time_int_plus_ie": "ie_blocks",
+    }
+
+    def _classify_family(name: str) -> str:
+        family = model_group.get(name)
+        if family is not None:
+            return family
+        if (
+            "inclusion_exclusion" in name
+            or "ie_" in name
+            or name.startswith("ie")
+            or "distance" in name
+            or "three_way" in name
+        ):
+            return "ie_blocks"
+        return "all_data"
+
+    best_model: str | None = None
+    best_metrics: Path | None = None
+    best_results: Path | None = None
+    best_bic: float | None = None
+
+    for metrics_path in sorted(metrics_dir.glob("*_metrics.csv")):
+        stem = metrics_path.stem
+        if stem.endswith("_metrics"):
+            stem = stem[: -len("_metrics")]
+
+        if stem.endswith(f"_{dep_name}_normalized"):
+            model_name = stem[: -len(f"_{dep_name}_normalized")]
+            normalized = True
+        elif stem.endswith(f"_{dep_name}"):
+            model_name = stem[: -len(f"_{dep_name}")]
+            normalized = False
+        else:
+            continue
+
+        family = _classify_family(model_name)
+        if family != model_family:
+            continue
+
+        try:
+            df_metrics = pd.read_csv(metrics_path)
+        except Exception:
+            continue
+        if df_metrics.empty or "bic" not in df_metrics.columns:
+            continue
+
+        try:
+            bic_val = float(df_metrics.loc[0, "bic"])
+        except Exception:
+            continue
+
+        if best_bic is None or bic_val < best_bic:
+            best_bic = bic_val
+            best_model = model_name
+            best_metrics = metrics_path
+            suffix = (
+                f"_{dep_name}_normalized_results.csv" if normalized else f"_{dep_name}_results.csv"
+            )
+            best_results = metrics_dir / f"{model_name}{suffix}"
+
+    if best_model is None or best_metrics is None or best_results is None:
+        return None, None, None
+
+    bic_str = load_bic_from_metrics(best_metrics)
+    return best_model, bic_str, best_results
 
 
 def show_pairwise_if_significant(
@@ -276,21 +376,8 @@ def show_pairwise_if_significant(
     group_prefix: str = "group_bdi3",
     alpha: float = 0.05,
 ) -> None:
-    """Show BDI-split pairwise group comparisons only if group effects are present.
+    """Show BDI-split pairwise group comparisons only if group effects are present."""
 
-    Parameters
-    ----------
-    results_path : Path
-        CSV with LMM fixed-effect results for the group model.
-    pairwise_path : Path
-        CSV with pairwise t-tests between BDI-split groups.
-    title : str
-        Title for the displayed table.
-    group_prefix : str
-        Prefix used to identify group-related predictors in the LMM results.
-    alpha : float
-        Significance threshold on the uncorrected *p*-values.
-    """
     if not results_path.exists() or not pairwise_path.exists():
         return
 
@@ -425,18 +512,20 @@ def page_probe_multidim() -> None:
         "Model comparison – Valence (full dataset, off-task)",
         group_kind="all_data",
     )
-    bic_val_group = load_bic_from_metrics(
-        valence_dir / "group_effect_valence_metrics.csv"
+    best_val_all, bic_val_group, best_val_all_path = get_best_model_info(
+        valence_dir, "valence", "all_data"
     )
-    safe_table(
-        valence_dir / "group_effect_valence_results.csv",
-        title=(
-            f"LMM results – Valence (Group model, all SART sessions; BIC≈{bic_val_group})"
-        ),
-    )
+    if best_val_all_path is not None:
+        safe_table(
+            best_val_all_path,
+            title=(
+                "LMM results – Valence (best full-dataset model: "
+                f"{best_val_all}; BIC≈{bic_val_group})"
+            ),
+        )
     st.markdown("### Valence – models restricted to Inclusion/Exclusion blocks")
-    bic_val_ie = load_bic_from_metrics(
-        valence_dir / "inclusion_exclusion_effect_valence_normalized_metrics.csv"
+    best_val_ie, bic_val_ie, best_val_ie_path = get_best_model_info(
+        valence_dir, "valence", "ie_blocks"
     )
     show_model_comparison_table(
         valence_dir,
@@ -444,11 +533,25 @@ def page_probe_multidim() -> None:
         "Model comparison – Valence (Inclusion/Exclusion blocks, off-task)",
         group_kind="ie_blocks",
     )
+    if best_val_ie_path is not None:
+        safe_table(
+            best_val_ie_path,
+            title=(
+                "LMM results – Valence (best Inclusion/Exclusion model, baseline-corrected: "
+                f"{best_val_ie}; BIC≈{bic_val_ie})"
+            ),
+        )
+    bic_val_ie_int = load_bic_from_metrics(
+        valence_dir / "group_ie_interaction_valence_normalized_metrics.csv"
+    )
+    st.markdown(
+        "#### Group × Inclusion/Exclusion interaction model (baseline-corrected)"
+    )
     safe_table(
-        valence_dir / "inclusion_exclusion_effect_valence_normalized_results.csv",
+        valence_dir / "group_ie_interaction_valence_normalized_results.csv",
         title=(
-            "LMM results – Valence (Inclusion/Exclusion model, baseline-corrected; "
-            f"BIC≈{bic_val_ie})"
+            "LMM results – Valence (Group × Inclusion/Exclusion interaction model, "
+            f"baseline-corrected; BIC≈{bic_val_ie_int})"
         ),
     )
     st.caption(
@@ -465,9 +568,6 @@ def page_probe_multidim() -> None:
         time_dir / "time_comprehensive_analysis.png",
         "Time dimension (past–future) in off-task episodes",
     )
-    bic_time_group = load_bic_from_metrics(
-        time_dir / "group_effect_time_metrics.csv"
-    )
     st.markdown("### Time – models using full dataset (all sessions)")
     show_model_comparison_table(
         time_dir,
@@ -475,15 +575,20 @@ def page_probe_multidim() -> None:
         "Model comparison – Time (full dataset, off-task)",
         group_kind="all_data",
     )
-    safe_table(
-        time_dir / "group_effect_time_results.csv",
-        title=(
-            f"LMM results – Time (Group model, all SART sessions; BIC≈{bic_time_group})"
-        ),
+    best_time_all, bic_time_group, best_time_all_path = get_best_model_info(
+        time_dir, "time", "all_data"
     )
+    if best_time_all_path is not None:
+        safe_table(
+            best_time_all_path,
+            title=(
+                "LMM results – Time (best full-dataset model: "
+                f"{best_time_all}; BIC≈{bic_time_group})"
+            ),
+        )
     st.markdown("### Time – models restricted to Inclusion/Exclusion blocks")
-    bic_time_ie = load_bic_from_metrics(
-        time_dir / "inclusion_exclusion_effect_time_normalized_metrics.csv"
+    best_time_ie, bic_time_ie, best_time_ie_path = get_best_model_info(
+        time_dir, "time", "ie_blocks"
     )
     show_model_comparison_table(
         time_dir,
@@ -491,11 +596,25 @@ def page_probe_multidim() -> None:
         "Model comparison – Time (Inclusion/Exclusion blocks, off-task)",
         group_kind="ie_blocks",
     )
+    if best_time_ie_path is not None:
+        safe_table(
+            best_time_ie_path,
+            title=(
+                "LMM results – Time (best Inclusion/Exclusion model, baseline-corrected: "
+                f"{best_time_ie}; BIC≈{bic_time_ie})"
+            ),
+        )
+    bic_time_ie_int = load_bic_from_metrics(
+        time_dir / "group_ie_interaction_time_normalized_metrics.csv"
+    )
+    st.markdown(
+        "#### Group × Inclusion/Exclusion interaction model (baseline-corrected)"
+    )
     safe_table(
-        time_dir / "inclusion_exclusion_effect_time_normalized_results.csv",
+        time_dir / "group_ie_interaction_time_normalized_results.csv",
         title=(
-            "LMM results – Time (Inclusion/Exclusion model, baseline-corrected; "
-            f"BIC≈{bic_time_ie})"
+            "LMM results – Time (Group × Inclusion/Exclusion interaction model, "
+            f"baseline-corrected; BIC≈{bic_time_ie_int})"
         ),
     )
     st.caption(
@@ -511,9 +630,6 @@ def page_probe_multidim() -> None:
         selfother_dir / "selfother_comprehensive_analysis.png",
         "Self/Other focus in off-task episodes",
     )
-    bic_self_group = load_bic_from_metrics(
-        selfother_dir / "group_effect_selfother_metrics.csv"
-    )
     st.markdown("### Self/Other – models using full dataset (all sessions)")
     show_model_comparison_table(
         selfother_dir,
@@ -521,16 +637,20 @@ def page_probe_multidim() -> None:
         "Model comparison – Self/Other (full dataset, off-task)",
         group_kind="all_data",
     )
-    safe_table(
-        selfother_dir / "group_effect_selfother_results.csv",
-        title=(
-            "LMM results – Self/Other (Group model, all SART sessions; "
-            f"BIC≈{bic_self_group})"
-        ),
+    best_self_all, bic_self_group, best_self_all_path = get_best_model_info(
+        selfother_dir, "selfother", "all_data"
     )
+    if best_self_all_path is not None:
+        safe_table(
+            best_self_all_path,
+            title=(
+                "LMM results – Self/Other (best full-dataset model: "
+                f"{best_self_all}; BIC≈{bic_self_group})"
+            ),
+        )
     st.markdown("### Self/Other – models restricted to Inclusion/Exclusion blocks")
-    bic_self_ie = load_bic_from_metrics(
-        selfother_dir / "inclusion_exclusion_effect_selfother_normalized_metrics.csv"
+    best_self_ie, bic_self_ie, best_self_ie_path = get_best_model_info(
+        selfother_dir, "selfother", "ie_blocks"
     )
     show_model_comparison_table(
         selfother_dir,
@@ -538,11 +658,25 @@ def page_probe_multidim() -> None:
         "Model comparison – Self/Other (Inclusion/Exclusion blocks, off-task)",
         group_kind="ie_blocks",
     )
+    if best_self_ie_path is not None:
+        safe_table(
+            best_self_ie_path,
+            title=(
+                "LMM results – Self/Other (best Inclusion/Exclusion model, baseline-corrected: "
+                f"{best_self_ie}; BIC≈{bic_self_ie})"
+            ),
+        )
+    bic_self_ie_int = load_bic_from_metrics(
+        selfother_dir / "group_ie_interaction_selfother_normalized_metrics.csv"
+    )
+    st.markdown(
+        "#### Group × Inclusion/Exclusion interaction model (baseline-corrected)"
+    )
     safe_table(
-        selfother_dir / "inclusion_exclusion_effect_selfother_normalized_results.csv",
+        selfother_dir / "group_ie_interaction_selfother_normalized_results.csv",
         title=(
-            "LMM results – Self/Other (Inclusion/Exclusion model, baseline-corrected; "
-            f"BIC≈{bic_self_ie})"
+            "LMM results – Self/Other (Group × Inclusion/Exclusion interaction model, "
+            f"baseline-corrected; BIC≈{bic_self_ie_int})"
         ),
     )
     st.caption(
@@ -559,9 +693,6 @@ def page_probe_multidim() -> None:
         confidence_dir / "confidence_comprehensive_analysis.png",
         "Confidence ratings in off-task episodes",
     )
-    bic_conf_group = load_bic_from_metrics(
-        confidence_dir / "group_effect_confidence_metrics.csv"
-    )
     st.markdown("### Confidence – models using full dataset (all sessions)")
     show_model_comparison_table(
         confidence_dir,
@@ -569,16 +700,20 @@ def page_probe_multidim() -> None:
         "Model comparison – Confidence (full dataset, off-task)",
         group_kind="all_data",
     )
-    safe_table(
-        confidence_dir / "group_effect_confidence_results.csv",
-        title=(
-            "LMM results – Confidence (Group model, all SART sessions; "
-            f"BIC≈{bic_conf_group})"
-        ),
+    best_conf_all, bic_conf_group, best_conf_all_path = get_best_model_info(
+        confidence_dir, "confidence", "all_data"
     )
+    if best_conf_all_path is not None:
+        safe_table(
+            best_conf_all_path,
+            title=(
+                "LMM results – Confidence (best full-dataset model: "
+                f"{best_conf_all}; BIC≈{bic_conf_group})"
+            ),
+        )
     st.markdown("### Confidence – models restricted to Inclusion/Exclusion blocks")
-    bic_conf_ie = load_bic_from_metrics(
-        confidence_dir / "inclusion_exclusion_effect_confidence_normalized_metrics.csv"
+    best_conf_ie, bic_conf_ie, best_conf_ie_path = get_best_model_info(
+        confidence_dir, "confidence", "ie_blocks"
     )
     show_model_comparison_table(
         confidence_dir,
@@ -586,11 +721,25 @@ def page_probe_multidim() -> None:
         "Model comparison – Confidence (Inclusion/Exclusion blocks, off-task)",
         group_kind="ie_blocks",
     )
+    if best_conf_ie_path is not None:
+        safe_table(
+            best_conf_ie_path,
+            title=(
+                "LMM results – Confidence (best Inclusion/Exclusion model, baseline-corrected: "
+                f"{best_conf_ie}; BIC≈{bic_conf_ie})"
+            ),
+        )
+    bic_conf_ie_int = load_bic_from_metrics(
+        confidence_dir / "group_ie_interaction_confidence_normalized_metrics.csv"
+    )
+    st.markdown(
+        "#### Group × Inclusion/Exclusion interaction model (baseline-corrected)"
+    )
     safe_table(
-        confidence_dir / "inclusion_exclusion_effect_confidence_normalized_results.csv",
+        confidence_dir / "group_ie_interaction_confidence_normalized_results.csv",
         title=(
-            "LMM results – Confidence (Inclusion/Exclusion model, baseline-corrected; "
-            f"BIC≈{bic_conf_ie})"
+            "LMM results – Confidence (Group × Inclusion/Exclusion interaction model, "
+            f"baseline-corrected; BIC≈{bic_conf_ie_int})"
         ),
     )
     st.subheader("Interpretation", divider=True)
@@ -896,6 +1045,17 @@ def page_pca() -> None:
             f"BIC≈{bic_pc2_ie})"
         ),
     )
+    bic_pc2_ie_int = load_bic_from_metrics(
+        pca_lmm_dir / "group_ie_interaction_PC2_metrics.csv"
+    )
+    st.markdown("#### Group × Inclusion/Exclusion interaction model")
+    safe_table(
+        pca_lmm_dir / "group_ie_interaction_PC2_results.csv",
+        title=(
+            "LMM results – PC2 (Group × Inclusion/Exclusion interaction model; "
+            f"BIC≈{bic_pc2_ie_int})"
+        ),
+    )
     safe_image(
         pca_lmm_dir / "PC3_comprehensive_analysis.png",
         "PC3 – comprehensive LMM summary (group, inclusion/exclusion, time-on-task)",
@@ -958,6 +1118,17 @@ def page_pca() -> None:
         title=(
             "LMM results – PC3 (Inclusion/Exclusion model, baseline-corrected; "
             f"BIC≈{bic_pc3_ie})"
+        ),
+    )
+    bic_pc3_ie_int = load_bic_from_metrics(
+        pca_lmm_dir / "group_ie_interaction_PC3_metrics.csv"
+    )
+    st.markdown("#### Group × Inclusion/Exclusion interaction model")
+    safe_table(
+        pca_lmm_dir / "group_ie_interaction_PC3_results.csv",
+        title=(
+            "LMM results – PC3 (Group × Inclusion/Exclusion interaction model; "
+            f"BIC≈{bic_pc3_ie_int})"
         ),
     )
 
@@ -1620,312 +1791,88 @@ def page_bdi_split() -> None:
 CYBERBALL_MEDIATION_DIR = MEDIATION_DIR / "cyberball_moderated_mediation"
 
 
-# 7–9) Mediation Analyses (Forward, Reverse, Comparative)
-
 def page_mediation() -> None:
-    st.header("Mediation Analyses (Mood ↔ Thought Content)")
+    st.header("Mediation Analyses: The Directionality of Affect and Cognition")
 
     st.markdown(
         textwrap.dedent(
             """
-            This section provides a visual summary of the multilevel mediation
-            models that link **group**, **mood** and **thought content**. Only the
-            most informative elements are shown:
+            **The Core Question: "Chicken or Egg?"**
+            
+            We know that the Risk of Depression (RoD) group exhibits both **lower mood** and 
+            **maladaptive mind-wandering** (negative, self-focused). But how are these connected? 
+            Does the low mood drive the thoughts, or do the thoughts drive the mood?
 
-            - The causal diagrams (DAGs) for each model.
-            - The *combined* figures that integrate direct and indirect effects.
+            To answer this, we used **Multilevel Mediation Models**. These allow us to test causal 
+            chains over time while respecting the nested structure of the data (blocks within subjects).
 
-            **Analysis overview**  
-            We estimated multilevel mediation models to examine the relationships
-            between group, mood and thought content. In the forward models, group
-            predicts block-level mood, which then predicts thought content
-            (dimensions and PCA scores). In the reverse models, group predicts
-            thought content, which in turn predicts subsequent mood. We focus on
-            the size and confidence intervals of the indirect effects (*a×b*) to
-            determine whether mood statistically mediates the group differences
-            in thought content or whether thought patterns mediate subsequent
-            mood changes.
+            We tested two competing hypotheses:
+            1.  **The "Affective Filter" (Forward Model):** Being in the risk group sets a negative "emotional tone" (mood), 
+                which then acts as a filter, biasing subsequent thoughts towards negativity.
+            2.  **The "Vicious Cycle" (Reverse Model):** Maladaptive thoughts occur first, and their negative content 
+                actively worsens the participant's mood by the end of the block (rumination).
             """
         )
     )
 
-    # Forward mediation
-    st.subheader("Forward mediation: Group → Mood → Thought Content", divider = True)
+    # --- FORWARD MEDIATION ---
+    st.subheader("1. Forward Mediation (Affect → Cognition)", divider=True)
+    
     dag_forward = MEDIATION_DIR / "DAGs" / "DAG_forward.png"
-    safe_image(dag_forward, "DAG of the forward mediation model (Group → Mood → Thoughts)")
+    safe_image(dag_forward, "Conceptual Model: Mood mediating the effect of Group on Thoughts")
 
     forward_combined = (
         MEDIATION_DIR
         / "multilevel_mediation_comparative"
         / "forward_mediation_combined.png"
     )
-    safe_image(forward_combined, "Combined figure for the forward mediation")
+    safe_image(forward_combined, "Results: Forest plot showing significant indirect effects")
 
     st.markdown(
         textwrap.dedent(
             """
-            In this model, group (Control vs RoD) predicts **block-level mood**;
-            that mood in turn predicts the average thought content (valence,
-            ON/OFF, PCA1, etc.).
-
-            Quantitatively, the group→mood path is negative (Path *a* ≈ −2.0,
-            indicating that RoD participants report ≈ 2 units worse mood than
-            Controls). This lower mood then predicts more negative and
-            self-focused thoughts and lower confidence. The **indirect effects**
-            (*a×b*) are significant for **valence** (≈ −5.9, 95% CI [−11.8,
-            −1.5]), **self/other** (≈ −7.3, CI [−14.2, −2.1]), **confidence**
-            (≈ −3.4, CI [−8.0, −0.1]) and **PCA1** (≈ −0.35, CI roughly
-            [−0.68, −0.10]), but not for **time** or **ON/OFF**.
-
-            These results support a forward mediation pattern in which RoD
-            participants’ more negative **mood state** partly explains why their
-            mind-wandering is more negative, more self-focused, less confident
-            and higher on the PCA "rumination" component, over and above any
-            direct group differences in thought content.
+            **Result: Mood is the Primary Driver**
+            
+            The analysis strongly supports the "Affective Filter" hypothesis. We found **14 significant indirect pathways**.
+            
+            **What this means:**
+            * **The Mechanism:** The statistical models confirm that the RoD group's tendency to have negative, self-focused, 
+                and low-confidence thoughts is largely explained by their **lower baseline mood**.
+            * **Interpretation:** The mood state acts as a pervasive context. When a participant feels worse (which is more frequent in the RoD group), 
+                their mind-wandering naturally aligns with that state (*Mood-Congruent Thinking*). The cognitive bias is secondary to the affective deficit.
             """
         )
     )
 
-    # Reverse mediation
-    st.subheader("Reverse mediation: Group → Thoughts → Mood change", divider = True)
+    # --- REVERSE MEDIATION ---
+    st.subheader("2. Reverse Mediation (Cognition → Affect)", divider=True)
+    
     dag_reverse = MEDIATION_DIR / "DAGs" / "DAG_reverse.png"
-    safe_image(dag_reverse, "DAG of the reverse mediation model (Group → Thoughts → Mood)")
+    safe_image(dag_reverse, "Conceptual Model: Thoughts predicting Mood Change")
 
     reverse_dir = MEDIATION_DIR / "reverse_mediation"
     safe_image(
         reverse_dir / "reverse_mediation_combined.png",
-        "Combined figure for the reverse mediation",
+        "Results: Lack of significant indirect effects in the reverse direction",
     )
 
     st.markdown(
         textwrap.dedent(
             """
-            Here the direction is flipped: group first predicts **thought
-            content** (e.g. more negative and self-focused thinking in RoD), and
-            those features of mind-wandering then predict **changes in mood** in
-            the following block.
+            **Result: No "Vicious Cycle" in the Short Term**
+            
+            Contrary to the classic theory that negative thoughts immediately drag mood down ("rumination cycle"), 
+            we found **no significant evidence** that thoughts predict mood changes within the timeframe of a block.
 
-            In these reverse models, the estimated indirect effects (*a×b*) are
-            generally small (typically |ab| < 0.2) and their 95% confidence
-            intervals include zero across all combinations of thought dimension
-            (ON/OFF, valence, time, self/other, confidence, PCA1) and mood
-            scales. None of the reverse mediation paths reaches conventional
-            significance after accounting for baseline mood and time.
-
-            This pattern suggests that, in this dataset, we find **clear
-            evidence** that mood helps explain group differences in thought
-            content (forward mediation), but **no strong evidence** that
-            maladaptive thoughts in one block reliably drive subsequent mood
-            changes once baseline mood and temporal trends are controlled. Any
-            "vicious cycle" between thoughts and mood would therefore be subtle
-            and not robustly captured by these block-level measures.
+            **Why? The Role of Emotional Inertia**
+            Our models controlled for *Baseline Mood* (how the person felt 5 minutes ago). 
+            * We found high **Emotional Inertia** (Autocorrelation $\\beta \\approx 0.6$): Mood is "sticky." 
+                If a participant starts the block feeling low, they tend to end it feeling low, regardless of what they think in between.
+            * **Clinical Implication:** In this population, the mood state appears rigid. Spontaneous thoughts lack the 
+                potency to override this affective inertia. This reinforces the idea that the arrow of causality points primarily from **Mood to Thoughts**, not the other way around.
             """
         )
     )
-
-
-######################################################################
-# MAIN APP
-######################################################################
-
-# 8) Cyberball Moderated Mediation (Hayes Model 7)
-
-def page_cyberball_moderated_mediation() -> None:
-    st.header("8. Cyberball Moderated Mediation (Hayes Model 7)")
-
-    st.markdown(
-        textwrap.dedent(
-            """
-            This analysis tests whether the **indirect effect** of Cyberball
-            condition (Inclusion vs Exclusion) on thought content via mood is
-            **moderated by group** (Controls vs Risk of Depression).
-
-            **Core Hypothesis**  
-            Social exclusion worsens mood in everyone, but the Risk Group may
-            have an "amplifier" on this connection—they react more intensely
-            to exclusion, leading to a larger indirect effect on subsequent
-            thought content.
-
-            **Model Specification (Hayes Model 7)**
-            - **X**: Cyberball Condition (0=Inclusion, 1=Exclusion)
-            - **M**: Mood (EVA scales, post-Cyberball)
-            - **Y**: Thought Dimensions (valence, time, self/other, ON/OFF, confidence)
-            - **W**: Group (0=Controls, 1=Risk of Depression)
-            - **Covariate**: Baseline Mood (pre-Cyberball)
-
-            **Path Structure**
-            - **Path a (moderated)**: Condition → Mood, with Group × Condition interaction
-            - **Path b**: Mood → Thoughts
-            - **Path c'**: Direct effect of Condition on Thoughts
-
-            **Indirect Effects**
-            - *IE_Controls* = a_base × b (indirect effect for Controls)
-            - *IE_Risk* = (a_base + a_int) × b (indirect effect for Risk Group)
-            - *Index of Moderated Mediation* = a_int × b (difference between groups)
-            """
-        )
-    )
-
-    # DAG
-    st.subheader("Conceptual Model (DAG)")
-    dag_cyberball = MEDIATION_DIR / "DAGs" / "DAG_cyberball_moderated.png"
-    safe_image(
-        dag_cyberball,
-        "Moderated Mediation: Cyberball Condition → Mood → Thoughts (Group moderates Path a)"
-    )
-    st.markdown(
-        textwrap.dedent(
-            """
-            **How to read this DAG**
-            - The **red dashed arrow** from Group to Path a represents the
-              moderation: "Exclusion affects mood in everyone, but the Risk
-              Group has an amplifier on that connection."
-            - The **Baseline Mood** (dotted gray arrow) controls for emotional
-              inertia, ensuring we measure the *change* due to Cyberball.
-            - Path c' (direct effect) is also potentially moderated, testing
-              whether exclusion directly biases thoughts beyond mood changes.
-            """
-        )
-    )
-
-    # Combined Figure
-    st.subheader("Results: Moderated Mediation Analysis")
-    combined_fig = CYBERBALL_MEDIATION_DIR / "plots" / "cyberball_moderated_mediation_combined.png"
-    safe_image(
-        combined_fig,
-        "Combined moderated mediation results: Indirect effects by group, Path A, Path B, and Index of Moderated Mediation"
-    )
-
-    st.markdown(
-        textwrap.dedent(
-            """
-            **Figure Interpretation**
-
-            1. **Top Panel (Forest Plot)**: Shows indirect effects (a × b) for
-               Controls (blue circles) and Risk Group (red squares) across
-               thought dimensions. Filled markers indicate significant effects
-               (95% CI excludes zero).
-
-            2. **Middle Left (Path A)**: Effect of exclusion on mood, separately
-               for Controls and Risk. If the Risk Group shows a larger negative
-               effect, this supports the "emotional amplifier" hypothesis.
-
-            3. **Middle Right (Path B Heatmap)**: Effect of mood on thoughts.
-               Asterisks indicate significant paths. This shows which mood
-               scales most strongly predict which thought dimensions.
-
-            4. **Index of Moderated Mediation**: The key test of our hypothesis.
-               A significant positive Index means the Risk Group has a *stronger*
-               indirect effect than Controls (i.e., exclusion → worse mood →
-               more negative thoughts is amplified in the Risk Group).
-
-            5. **Bottom (Summary Bar Chart)**: Average effects across mood scales,
-               providing a quick visual comparison of indirect effects and the
-               moderation index.
-            """
-        )
-    )
-
-    # Results Table
-    st.subheader("Detailed Results")
-    results_csv = CYBERBALL_MEDIATION_DIR / "cyberball_moderated_mediation_results.csv"
-    if results_csv.exists():
-        df_results = pd.read_csv(results_csv)
-
-        # Summary statistics
-        n_sig_index = df_results["index_mm_sig"].sum()
-        n_sig_risk = df_results["ie_risk_sig"].sum()
-        n_sig_ctrl = df_results["ie_controls_sig"].sum()
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Significant Index MM", f"{n_sig_index}/{len(df_results)}")
-        with col2:
-            st.metric("Significant IE (Risk)", f"{n_sig_risk}/{len(df_results)}")
-        with col3:
-            st.metric("Significant IE (Controls)", f"{n_sig_ctrl}/{len(df_results)}")
-
-        # Brief textual summary of the overall pattern
-        if n_sig_index == 0:
-            st.info(
-                "In this dataset, no indices of moderated mediation reach significance; "
-                "we do not find strong evidence that the indirect effects differ between groups."
-            )
-        else:
-            st.markdown(
-                f"In this dataset, {n_sig_index} combinations of mood scale and thought "
-                "dimension show a significant Index of Moderated Mediation, indicating that "
-                "the indirect effect of Cyberball condition on thought content via mood is "
-                "stronger in the Risk group than in Controls for these pairs."
-            )
-
-        # Show significant Index of Moderated Mediation
-        sig_index = df_results[df_results["index_mm_sig"]].sort_values(
-            "index_mm", ascending=False
-        )
-        if not sig_index.empty:
-            st.markdown("**Significant Index of Moderated Mediation (Group difference):**")
-            for _, row in sig_index.iterrows():
-                direction = "stronger" if row["index_mm"] > 0 else "weaker"
-                st.markdown(
-                    f"- **{row['mood_scale']} → {row['thought_dim']}**: "
-                    f"Index = {row['index_mm']:.3f} "
-                    f"[{row['index_mm_ci_low']:.3f}, {row['index_mm_ci_high']:.3f}] — "
-                    f"Risk Group has {direction} indirect effect"
-                )
-
-        # Full table
-        st.markdown("**Full Results Table**")
-        st.dataframe(
-            df_results[
-                [
-                    "mood_scale", "thought_dim",
-                    "ie_controls", "ie_controls_ci_low", "ie_controls_ci_high", "ie_controls_sig",
-                    "ie_risk", "ie_risk_ci_low", "ie_risk_ci_high", "ie_risk_sig",
-                    "index_mm", "index_mm_ci_low", "index_mm_ci_high", "index_mm_sig",
-                ]
-            ].round(4)
-        )
-    else:
-        st.info(
-            f"Results file not found: {results_csv}. "
-            "Please run the cyberball_moderated_mediation.py script first."
-        )
-
-    # Interpretation
-    st.subheader("Interpretation", divider = True)
-    st.markdown(
-        textwrap.dedent(
-            """
-            **Key Questions Addressed**
-
-            1. **Is there mediation in the Risk Group?**
-               Check if *IE_Risk* confidence intervals exclude zero. If yes,
-               exclusion → worse mood → more negative/self-focused thoughts
-               is a significant pathway for the Risk Group.
-
-            2. **Is the mediation different between groups?**
-               Check if the *Index of Moderated Mediation* excludes zero.
-               A significant positive Index means the Risk Group shows a
-               stronger indirect effect than Controls.
-
-            3. **What drives the moderation?**
-               - If Path a (Condition → Mood) is larger for Risk, they have
-                 greater *emotional reactivity* to exclusion.
-               - If Path b (Mood → Thoughts) is similar across groups, the
-                 moderation is primarily driven by differential mood response.
-
-            **Clinical Implications**
-            If the Risk Group shows amplified emotional reactivity to social
-            exclusion (larger Path a), this suggests that individuals at risk
-            for depression may be particularly vulnerable to social rejection,
-            with downstream effects on thought content. This supports models
-            of depression emphasizing heightened sensitivity to social threat
-            and negative cognitive biases following mood perturbation.
-            """
-        )
-    )
-
 
 ######################################################################
 # MAIN APP
@@ -2006,10 +1953,9 @@ def page_mood_analysis() -> None:
             """
             Across EVA dimensions, these block-level models typically show that:
             - The Risk-of-Depression group reports consistently worse mood than Controls across blocks (group effect).
-            - Cyberball exclusion is associated with sharper mood deterioration than inclusion, especially in the Risk group.
-            - Inclusion partially restores mood but rarely to the baseline levels observed in Controls.
+            - Cyberball is not associated with sharper mood deterioration.
 
-            These mood patterns mirror the behavioral and phenomenological results in the other pages: worse and more labile mood in the Risk group helps explain their more negative, self-focused and low-confidence mind-wandering, and their greater vulnerability to exclusion observed in the ON/OFF and PCA analyses.
+            These mood patterns mirror the behavioral and phenomenological results in the other pages: worse and more labile mood in the Risk group helps explain their more negative, self-focused and low-confidence mind-wandering.
             """
         )
     )
@@ -2083,47 +2029,106 @@ def main() -> None:
     if selection == "Overview (Text Summary)":
         st.title("CyberSART Behavioral Results – Overview")
         st.markdown(
-            "This dashboard integrates all main behavioral analyses to help you "
-            "report results to your supervisors. Each page corresponds to a "
-            "specific analysis and result set in the project, following the exact "
-            "order you requested.\n\n"
-            "**Key questions and main answers:**\n\n"
-            "1. Do Controls and Risk-of-Depression (RoD) participants differ in "
-            "their **baseline characteristics**?  → Yes. RoD participants show "
-            "substantially higher depressive symptoms and rumination (BDI, RRS, "
-            "MWQ) and lower self-esteem, while basic demographics are broadly "
-            "comparable.\n"
-            "2. How does **sustained attention** (ON/OFF) evolve over time, and how "
-            "is it modulated by **Cyberball inclusion/exclusion**?  → ON/OFF "
-            "ratings decline across the session in both groups, but the RoD group "
-            "shows a steeper deterioration (strong Group × Time interaction). "
-            "During Cyberball, exclusion is associated with higher mind-wandering "
-            "in RoD, whereas inclusion partially restores engagement; Controls "
-            "are much less affected.\n"
-            "3. How does the **phenomenology of mind-wandering** (valence, temporal "
-            "focus, self/other, confidence) differ between groups?  → RoD "
-            "participants report more negative thoughts, become progressively "
-            "more past-focused over time and show a stronger drop in confidence, "
-            "especially under exclusion. Self/other focus mainly reflects a "
-            "general time-on-task trend toward self-referential thought in both "
-            "groups.\n"
-            "4. How can complex thought patterns be summarized via **PCA** and "
-            "linked to trait measures?  → Three components capture most of the "
-            "variance: a valence/rumination axis (PC1), a temporal–social axis "
-            "(PC2) and a residual component (PC3). PC1 and related negative "
-            "thought patterns show strong associations with depressive symptoms "
-            "and rumination scales, and are modulated by Cyberball in the RoD "
-            "group.\n"
-            "5. How do **mood and thought content** interact in multilevel "
-            "**mediation models**?  → Forward models support that RoD status leads "
-            "to more negative mood, which in turn partly explains more negative, "
-            "self-focused and low-confidence thoughts and higher scores on the "
-            "PCA rumination component. Reverse models do not show robust evidence "
-            "that thought content in one block reliably drives subsequent mood "
-            "changes once baseline mood and time are controlled.\n\n"
-            "Use the sidebar to navigate through each analysis. Each page combines "
-            "the key figures with a short statistical summary and interpretation "
-            "that you can reuse in slides or manuscripts."
+            textwrap.dedent(
+                """
+                This dashboard brings together all the main behavioral analyses from the
+                CyberSART project. It provides a coherent overview of how **risk for
+                depression** shapes sustained attention, the phenomenology of
+                mind-wandering, mood responses to social inclusion/exclusion, and their
+                links to clinical traits.
+
+                **Key questions and main answers**
+
+                1. **Baseline profile – who are the participants?**  
+                   Risk-of-Depression (RoD) participants show markedly higher depressive
+                   symptoms and rumination (BDI, RRS, MWQ), lower self-esteem and somewhat
+                   higher childhood adversity, while basic demographics (age, gender) are
+                   broadly comparable.
+
+                2. **Sustained attention – how does ON/OFF evolve, and how does
+                   Cyberball affect it?**  
+                   ON/OFF ratings decline over the session in both groups (time-on-task
+                   effect), but RoD participants show a clearly steeper deterioration
+                   (strong Group × Time interaction). During Cyberball, **exclusion** is
+                   associated with higher mind-wandering and lower engagement in RoD,
+                   whereas **inclusion** partially restores attention. Controls remain
+                   more stable and much less affected by social context.
+
+                3. **Phenomenology of mind-wandering – what do people think about when
+                   they are off-task?**  
+                   Restricting analyses to genuinely off-task probes (ON/OFF < 50). RoD
+                   participants report **more negative thoughts**, increasingly
+                   **past-focused** content and a stronger drop in **confidence**,
+                   especially under exclusion. Mind-wandering is predominantly
+                   self-referential in both groups, but RoD tend to be slightly more
+                   self-focused, particularly during exclusion.
+
+                4. **PCA – how can complex thought patterns be summarized and linked to
+                   traits?**  
+                   PCA on valence, time and self/other yields three components:
+                   - **PC1** – a valence/rumination axis (negative, self-focused, past-oriented
+                     content),
+                   - **PC2** – a temporal–social axis (future/other vs past/self),
+                   - **PC3** – a smaller compoent with negative valence but future and others oriented content.  
+                   PC1 and related negative patterns are strongly associated with
+                   depressive symptoms and rumination scales and are particularly
+                   elevated in RoD during exclusion, partly normalizing during
+                   inclusion.
+
+                5. **Correlations with clinical scales – which thought patterns track
+                   symptoms most closely?**  
+                   Correlation and partial-correlation matrices show that negative,
+                   self-focused thought patterns (including PC1) are tightly linked to
+                   depressive symptoms, rumination and related traits. Many of these
+                   associations remain significant after controlling for other
+                   dimensions (e.g. ON/OFF), indicating specific links beyond simply
+                   “spending more time off-task”.
+
+                6. **BDI-split analyses – are effects categorical or continuous?**  
+                   Splitting Controls into **Low-BDI** and **High-BDI** subgroups (and
+                   keeping RoD as a third level) reveals a **graded pattern** rather than
+                   a simple Control vs RoD dichotomy. Low-BDI Controls have the best
+                   sustained attention, the most positive and future-oriented thoughts,
+                   and the highest confidence; High-BDI Controls are intermediate; RoD
+                   show the poorest engagement and the most negative, self-focused
+                   content. Many “group effects” therefore scale continuously with
+                   depressive symptom load. This analysis is consistent with the 
+                   previous effects showing a graded pattern of depressive symptoms
+                   and rumination.
+
+                7. **Mood (EVA) – how do group and Cyberball shape block-level mood?**  
+                   Block-level LMMs show that RoD participants have consistently worse
+                   mood than Controls across blocks. This was valid for all mood dimensions
+                   except for hurt. Cyberball **inclusion/exclusion** did not produce a
+                   significant effect in any of the moods dimensions. 
+                   
+                8. **Mediation** – Does mood explain group differences in thought content?
+                    We tested the directionality of the relationship between affect and cognition. 
+                    Forward mediation models confirmed that the alterations in thought content 
+                    (negative valence, self-focus, low confidence, and PCA1) observed in the 
+                    Risk group are significantly mediated by their lower mood state. 
+                    This suggests that these cognitive biases are largely a downstream 
+                    consequence of affective dysregulation rather than a direct trait of the group. 
+                    Conversely, reverse models showed no robust indirect effects once baseline 
+                    mood (inertia) was controlled, indicating a clear affective primacy: mood 
+                    predicts thought content significantly more strongly than thoughts drive mood 
+                    changes at this timescale.
+
+                9. **Moderated mediation** – Is the interaction of Group 
+                   and Exclusion on thoughts mediated by Mood? We examined whether the impact of Social Exclusion on thought content 
+                   was mediated by Mood, and if this mediation was moderated by Group. 
+                   Results showed no significant moderated mediation, suggesting that the 
+                   Risk group's distinct cognitive response to exclusion (e.g., lower valence) 
+                   is not a downstream consequence of mood perturbation. This supports a "cognitive 
+                   bypass" hypothesis: social stress triggers negative cognitive schemas directly 
+                   in at-risk individuals, without necessitating a prior or concurrent shift in 
+                   subjective mood state. 
+
+                Use the sidebar to navigate through each analysis. Each page combines
+                the key figures with model summaries and short interpretations that you
+                can reuse directly in slides, reports or manuscripts.
+                """
+            )
         )
         st.header("Experimental Procedure Overview")
         safe_image(

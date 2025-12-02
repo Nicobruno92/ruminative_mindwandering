@@ -1327,13 +1327,6 @@ def analyze_dimension(
         run_lmm_analysis(
             df_lmm,
             dep,
-            "time_on_task",
-            "time_on_task_effect",
-            dim_results_dir,
-        )
-        run_lmm_analysis(
-            df_lmm,
-            dep,
             f"{GROUP_COLUMN} + time_on_task",
             "group_time_additive",
             dim_results_dir,

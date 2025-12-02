@@ -120,8 +120,24 @@ cd "$WORKDIR/junifer_markers/2.h5_to_pkl"
 # Submit step 2 with dependency on step 1 completion
 # Step 1 is an array job, so we use afterany to wait for ALL array elements
 # afterany handles jobs that complete before dependency is registered
-echo "Submitting Step 2 with dependency afterany:${STEP1_JOB_ID}..."
-STEP2_JOB_ID=$(sbatch --parsable --dependency=afterany:${STEP1_JOB_ID} batch_convert_h5_to_pkl_parallel.sh)
+ELEMENTS_FILE="$WORKDIR/junifer_markers/1.markers_h5_creation/elements.csv"
+
+if [ ! -f "${ELEMENTS_FILE}" ]; then
+    echo "❌ ERROR: Elements file not found for Step 2: ${ELEMENTS_FILE}"
+    exit 1
+fi
+
+total_elements=$(tail -n +2 "${ELEMENTS_FILE}" | wc -l)
+
+if [ "${total_elements}" -le 0 ]; then
+    echo "❌ ERROR: No elements found in ${ELEMENTS_FILE} for Step 2"
+    exit 1
+fi
+
+ARRAY_RANGE="1-${total_elements}%20"
+
+echo "Submitting Step 2 with dependency afterany:${STEP1_JOB_ID} and array range ${ARRAY_RANGE}..."
+STEP2_JOB_ID=$(sbatch --parsable --dependency=afterany:${STEP1_JOB_ID} --array=${ARRAY_RANGE} batch_convert_h5_to_pkl_parallel.sh)
 
 if [ -z "$STEP2_JOB_ID" ]; then
     echo "❌ ERROR: Failed to submit Step 2"

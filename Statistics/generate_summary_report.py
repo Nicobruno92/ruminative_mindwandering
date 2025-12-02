@@ -176,6 +176,7 @@ def create_comparison_topoplots(
     # Separate by marker type
     evoked_results = [r for r in results if r.get('marker_type') == 'evoked']
     state_results = [r for r in results if r.get('marker_type') == 'state']
+    sleep_results = [r for r in results if r.get('marker_type') == 'sleep']
     
     with PdfPages(output_path) as pdf:
         # Plot evoked markers
@@ -193,6 +194,15 @@ def create_comparison_topoplots(
                 print(f"\nCreating topoplots for {len(state_results)} state markers...")
             _plot_marker_type_topoplots(
                 state_results, pdf, "State Markers", alpha,
+                max_per_page, use_corrected, verbose
+            )
+        
+        # Plot sleep markers
+        if sleep_results:
+            if verbose:
+                print(f"\nCreating topoplots for {len(sleep_results)} sleep markers...")
+            _plot_marker_type_topoplots(
+                sleep_results, pdf, "Sleep Markers", alpha,
                 max_per_page, use_corrected, verbose
             )
     
@@ -419,7 +429,12 @@ def create_detailed_results_table(
         state_df = summary_df[summary_df['Marker Type'] == 'state'].copy()
         state_df.to_excel(writer, sheet_name='State Markers', index=False)
         
-        # Sheet 5: Cluster details for significant markers
+        # Sheet 5: Sleep markers (if present)
+        sleep_df = summary_df[summary_df['Marker Type'] == 'sleep'].copy()
+        if not sleep_df.empty:
+            sleep_df.to_excel(writer, sheet_name='Sleep Markers', index=False)
+        
+        # Sheet 6: Cluster details for significant markers
         cluster_details = []
         for result in results:
             marker_name = result.get('marker_name', 'unknown')
@@ -516,6 +531,7 @@ def generate_summary_report(
     print(f"  Total markers: {len(results)}")
     print(f"  Evoked markers: {len([r for r in results if r.get('marker_type') == 'evoked'])}")
     print(f"  State markers: {len([r for r in results if r.get('marker_type') == 'state'])}")
+    print(f"  Sleep markers: {len([r for r in results if r.get('marker_type') == 'sleep'])}")
     
     if use_corrected:
         n_sig = summary_df['Sig Clusters (corr)'].sum()

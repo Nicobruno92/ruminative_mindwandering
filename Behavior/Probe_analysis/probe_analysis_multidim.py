@@ -910,10 +910,6 @@ def analyze_dimension(df_lmm: pd.DataFrame, df_lmm_ie: pd.DataFrame, dep: str) -
     
     # Model 4: Time on task effect (if available)
     if 'time_on_task' in df_lmm.columns:
-        run_lmm_analysis(
-            df_lmm, dep, "time_on_task", "time_on_task_effect", dim_results_dir
-        )
-        
         # Model 5: Group + Time on task
         run_lmm_analysis(
             df_lmm, dep, "group + time_on_task", "group_time_additive", dim_results_dir
