@@ -1,0 +1,29 @@
+                Mixed Linear Model Regression Results
+======================================================================
+Model:                 MixedLM    Dependent Variable:    omission_rate
+No. Observations:      2460       Method:                REML         
+No. Groups:            42         Scale:                 1.0053       
+Min. group size:       45         Log-Likelihood:        -3506.5723   
+Max. group size:       60         Converged:             Yes          
+Mean group size:       58.6                                           
+----------------------------------------------------------------------
+                            Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+----------------------------------------------------------------------
+Intercept                   -0.000    0.039 -0.000 1.000 -0.077  0.077
+group[T.Risk of Depression]  0.000    0.045  0.000 1.000 -0.088  0.088
+time_on_task                 0.003    0.001  2.196 0.028  0.000  0.005
+subject Var                  0.000                                    
+======================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 7021.144595
+BIC: 7044.376262
+LOG_LIKELIHOOD: -3506.572298
+N_OBSERVATIONS: 2460
+N_GROUPS: 42
+N_PARAMETERS: 4
+CONVERGED: True
+SCALE: 1.005281

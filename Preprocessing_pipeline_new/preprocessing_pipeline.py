@@ -548,6 +548,8 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     logger.log_detail("ica_selection_details", ica_selection_log)
 
     # Apply ICA to analysis copy
+    # IMPORTANT: Save a copy BEFORE ICA for QA comparison (pre vs post)
+    raw_before_ica = raw_analysis.copy()
     raw_clean = raw_analysis
     
     # DEBUG: Voltage BEFORE ICA application
@@ -978,8 +980,8 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     except Exception:
         pass
     qa_results = run_complete_qa_assessment(
-        raw_before_ica=raw_analysis,  # Pre-ICA for comparison
-        raw_after_ica=raw_clean,      # Post-ICA for comparison
+        raw_before_ica=raw_before_ica,  # Pre-ICA for comparison (saved copy)
+        raw_after_ica=raw_clean,        # Post-ICA for comparison
         ica_exclude=ica_exclude,
         ica_n_components=ica.n_components_,
         bads_pre_interp=bads_pre_interp,
@@ -1060,6 +1062,10 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         pass
     try:
         del ica
+    except Exception:
+        pass
+    try:
+        del raw_before_ica
     except Exception:
         pass
     

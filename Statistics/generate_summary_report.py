@@ -15,8 +15,9 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 import mne
+import yaml
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict, List, Optional
 import pickle
 from datetime import datetime
 
@@ -31,6 +32,148 @@ from plot_results import plot_cluster_topomap
 FIGURE_DPI = 300
 TOPOMAP_SIZE = 3.5  # inches per topomap
 COLORMAP = 'RdBu_r'
+
+
+# ====================================================================================
+# CONFIG HELPERS
+# ============================================================================
+
+def flatten_config_dict(config: Dict, parent_key: str = "", sep: str = ".") -> Dict[str, object]:
+    """Flatten a nested configuration dictionary into dotted-key format.
+
+    Parameters
+    ----------
+    config : dict
+        Nested configuration dictionary.
+    parent_key : str
+        Prefix for keys in nested calls.
+    sep : str
+        Separator between key levels.
+
+    Returns
+    -------
+    dict
+        Flattened dictionary mapping 'section.subsection.key' to values.
+    """
+    items: Dict[str, object] = {}
+    for key, value in config.items():
+        new_key = f"{parent_key}{sep}{key}" if parent_key else str(key)
+        if isinstance(value, dict):
+            items.update(flatten_config_dict(value, new_key, sep=sep))
+        else:
+            items[new_key] = value
+    return items
+
+
+def load_config_table(config_path: Path) -> pd.DataFrame:
+    """Load YAML configuration file and convert to a flat table.
+
+    Parameters
+    ----------
+    config_path : Path
+        Path to the YAML configuration file.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns 'Parameter' and 'Value'.
+    """
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    with config_path.open("r") as f:
+        config = yaml.safe_load(f)
+
+    if config is None:
+        data = []
+    else:
+        flat_config = flatten_config_dict(config)
+
+        # Curated subset of keys that are most relevant for understanding a run
+        include_keys = {
+            # Project-level
+            "project.features_root",
+            "project.output_path",
+            "project.montage_path",
+            "project.pca_results_path",
+            "project.qa_summary_path",
+            "project.exclude_failed_qa",
+            "project.marker_types",
+            "project.markers",
+            # Preprocessing
+            "preprocessing.normalize_by_subject",
+            "preprocessing.normalization_method",
+            "preprocessing.channel_wise",
+            # LMM
+            "lmm.formula",
+            "lmm.predictor_of_interest",
+            "lmm.method",
+            "lmm.maxiter",
+            "lmm.random_state",
+            # Clustering (general pipeline)
+            "clustering.method",
+            "clustering.permutation_method",
+            "clustering.threshold",
+            "clustering.tail",
+            "clustering.stat_fun",
+            "clustering.t_power",
+            "clustering.tfce.E",
+            "clustering.tfce.H",
+            "clustering.tfce.n_steps",
+            "clustering.n_permutations",
+            "clustering.alpha",
+            "clustering.seed",
+            "clustering.n_jobs",
+            # Andrillon-specific clustering (if present)
+            "andrillon_clustering.cluster_alpha",
+            "andrillon_clustering.n_permutations",
+            "andrillon_clustering.n_jobs",
+            "andrillon_clustering.montecarlo_alpha",
+            "andrillon_clustering.stat_fun",
+            "andrillon_clustering.bonferroni_correction",
+            "andrillon_clustering.permutation_within",
+            "andrillon_clustering.seed",
+            # Multiple comparisons
+            "multiple_comparisons.evoked",
+            "multiple_comparisons.state",
+            "multiple_comparisons.alpha",
+            # Output
+            "output.save_pickle",
+            "output.save_csv",
+            "output.save_figures",
+            "output.fig_format",
+            "output.fig_dpi",
+            "output.overwrite",
+        }
+
+        # If none of the curated keys are present (e.g., future configs),
+        # fall back to showing all flattened keys.
+        intersection = {k: v for k, v in flat_config.items() if k in include_keys}
+        items_to_use = intersection if intersection else flat_config
+
+        def _is_effectively_unused(value: object) -> bool:
+            """Return True for values that indicate a parameter is not used.
+
+            Filters out None, empty strings, and empty containers.
+            """
+            if value is None:
+                return True
+            if isinstance(value, str) and value.strip() == "":
+                return True
+            if isinstance(value, (list, tuple, dict, set)) and len(value) == 0:
+                return True
+            return False
+
+        data = [
+            {"Parameter": key, "Value": value}
+            for key, value in items_to_use.items()
+            if not _is_effectively_unused(value)
+        ]
+
+    df = pd.DataFrame(data, columns=["Parameter", "Value"])
+    if not df.empty:
+        df = df.sort_values(by="Parameter").reset_index(drop=True)
+    return df
 
 
 # ============================================================================
@@ -149,7 +292,8 @@ def create_comparison_topoplots(
     alpha: float = 0.05,
     max_per_page: int = 12,
     use_corrected: bool = True,
-    verbose: bool = True
+    verbose: bool = True,
+    config_df: Optional[pd.DataFrame] = None
 ) -> None:
     """
     Create comparison topoplots showing all markers together.
@@ -168,6 +312,8 @@ def create_comparison_topoplots(
         Whether to use corrected p-values if available
     verbose : bool
         Whether to print progress
+    config_df : pd.DataFrame, optional
+        Optional configuration table to add as the first page of the PDF.
     """
     if len(results) == 0:
         print("No results to plot")
@@ -179,6 +325,36 @@ def create_comparison_topoplots(
     sleep_results = [r for r in results if r.get('marker_type') == 'sleep']
     
     with PdfPages(output_path) as pdf:
+        # Optional first page: configuration table
+        if config_df is not None and not config_df.empty:
+            fig = plt.figure(figsize=(11.69, 8.27))  # A4 landscape
+            ax = fig.add_subplot(111)
+            ax.axis('off')
+            fig.suptitle("Analysis Configuration", fontsize=16, fontweight='bold', y=0.96)
+            fig.subplots_adjust(top=0.9)
+
+            # Build table data (limit very long values for readability)
+            max_value_len = 80
+            table_rows = []
+            for _, row in config_df.iterrows():
+                param = str(row.get("Parameter", ""))
+                value = str(row.get("Value", ""))
+                if len(value) > max_value_len:
+                    value = value[: max_value_len - 3] + "..."
+                table_rows.append([param, value])
+
+            table = ax.table(
+                cellText=table_rows,
+                colLabels=["Parameter", "Value"],
+                loc='center',
+                cellLoc='left'
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(8)
+            table.scale(1.0, 1.2)
+
+            pdf.savefig(fig, bbox_inches='tight')
+            plt.close(fig)
         # Plot evoked markers
         if evoked_results:
             if verbose:
@@ -391,7 +567,8 @@ def create_detailed_results_table(
     results: List[Dict],
     output_path: Path,
     alpha: float = 0.05,
-    use_corrected: bool = True
+    use_corrected: bool = True,
+    config_df: Optional[pd.DataFrame] = None
 ) -> None:
     """
     Create detailed Excel file with multiple sheets for different views.
@@ -406,6 +583,8 @@ def create_detailed_results_table(
         Significance threshold
     use_corrected : bool
         Whether to use corrected p-values
+    config_df : pd.DataFrame, optional
+        Optional configuration table to include as an additional sheet.
     """
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
         # Sheet 1: Overall summary
@@ -468,6 +647,10 @@ def create_detailed_results_table(
             cluster_df = pd.DataFrame(cluster_details)
             cluster_df = cluster_df.sort_values(by=['Marker Type', 'Marker Name', 'P-value'])
             cluster_df.to_excel(writer, sheet_name='Cluster Details', index=False)
+
+        # Sheet 7: Configuration (optional)
+        if config_df is not None and not config_df.empty:
+            config_df.to_excel(writer, sheet_name='Config', index=False)
     
     print(f"✓ Detailed results saved to {output_path}")
 
@@ -476,7 +659,8 @@ def generate_summary_report(
     model_dir: Path,
     alpha: float = 0.05,
     use_corrected: bool = True,
-    verbose: bool = True
+    verbose: bool = True,
+    config_path: Optional[Path] = None
 ) -> None:
     """
     Generate comprehensive summary report for all markers in a model directory.
@@ -496,6 +680,10 @@ def generate_summary_report(
         Whether to use corrected p-values if available
     verbose : bool
         Whether to print progress
+    config_path : Path, optional
+        Optional path to YAML configuration file. If provided, a
+        flattened config table will be saved and added to the
+        detailed Excel report.
     """
     print("="*80)
     print("GENERATING SUMMARY REPORT")
@@ -525,6 +713,17 @@ def generate_summary_report(
     summary_df = create_summary_table(results, alpha)
     summary_df.to_csv(summary_csv, index=False)
     print(f"✓ Summary table saved to {summary_csv}")
+
+    # Optionally load configuration and save as table
+    config_df: Optional[pd.DataFrame] = None
+    if config_path is not None:
+        try:
+            config_df = load_config_table(config_path)
+            config_csv = model_dir / f"SUMMARY_CONFIG_{timestamp}.csv"
+            config_df.to_csv(config_csv, index=False)
+            print(f"✓ Config table saved to {config_csv}")
+        except Exception as exc:
+            print(f"⚠ Failed to load config from {config_path}: {exc}")
     
     # Display summary
     print("\nSummary Statistics:")
@@ -548,8 +747,11 @@ def generate_summary_report(
     print("Creating comparison topoplots...")
     print("-"*80)
     create_comparison_topoplots(
-        results, topoplots_pdf, alpha, 
-        max_per_page=12, use_corrected=use_corrected, verbose=verbose
+        results, topoplots_pdf, alpha,
+        max_per_page=12,
+        use_corrected=use_corrected,
+        verbose=verbose,
+        config_df=config_df
     )
     
     # Generate detailed Excel file
@@ -557,7 +759,7 @@ def generate_summary_report(
     print("Creating detailed Excel file...")
     print("-"*80)
     create_detailed_results_table(
-        results, detailed_xlsx, alpha, use_corrected
+        results, detailed_xlsx, alpha, use_corrected, config_df
     )
     
     # Final summary
@@ -604,10 +806,17 @@ def main():
         action="store_true",
         help="Suppress progress messages"
     )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Optional path to YAML config file to include in the report"
+    )
     
     args = parser.parse_args()
     
     model_dir = Path(args.model_dir)
+    config_path = Path(args.config) if args.config is not None else None
     
     if not model_dir.exists():
         print(f"Error: Directory not found: {model_dir}")
@@ -621,7 +830,8 @@ def main():
         model_dir=model_dir,
         alpha=args.alpha,
         use_corrected=not args.use_uncorrected,
-        verbose=not args.quiet
+        verbose=not args.quiet,
+        config_path=config_path
     )
     
     return 0

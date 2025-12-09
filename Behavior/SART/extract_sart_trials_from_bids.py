@@ -26,8 +26,10 @@ warnings.filterwarnings('ignore')
 # =============================================================================
 # CONFIGURATION - Modify these variables as needed
 # =============================================================================
-BIDS_RAW_ROOT = "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/raw"
-BIDS_OUTPUT_ROOT = "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS"
+# ROOT = "/network/iss/"
+ROOT = "/Volumes/"
+BIDS_RAW_ROOT =  ROOT + "cenir/analyse/meeg/CYBERSART/BIDS/raw"
+BIDS_OUTPUT_ROOT = ROOT + "cenir/analyse/meeg/CYBERSART/BIDS/raw"
 SUBJECTS = ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
             "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
             "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34",

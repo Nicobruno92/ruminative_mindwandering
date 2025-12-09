@@ -41,41 +41,102 @@ fi
 
 # Get number of markers from config using Python
 echo "Detecting number of markers from config..."
-N_MARKERS=$(python -c "
+
+# Run Python and capture both stdout and stderr separately
+# NOTE: Using lightweight marker counting (reads only one CSV header per marker type)
+# instead of loading all data, to avoid OOM on login nodes
+PYTHON_OUTPUT=$(python -c "
 import yaml
 import sys
-sys.path.append('${SCRIPT_DIR}')
-from reader import get_available_markers
+import os
+from pathlib import Path
+from collections import defaultdict
 
-# Load config
-with open('${CONFIG_FILE}', 'r') as f:
-    config = yaml.safe_load(f)
+try:
+    # Load config
+    with open('${CONFIG_FILE}', 'r') as f:
+        config = yaml.safe_load(f)
 
-features_root = config['project']['features_root']
-marker_types = config['project'].get('marker_types', None)
-markers_config = config['project'].get('markers', 'all')
+    features_root = config['project']['features_root']
+    marker_types_filter = config['project'].get('marker_types', None)
+    markers_config = config['project'].get('markers', 'all')
 
-# Determine number of marker-type combinations
-if isinstance(markers_config, str) and markers_config.lower() == 'all':
-    # Get all markers, counting each (marker, type) combination separately
-    available_markers_dict = get_available_markers(features_root, marker_types)
-    n_markers = sum(len(markers) for markers in available_markers_dict.values())
-elif isinstance(markers_config, list):
-    # For each marker, count how many types it exists in
-    available_markers_dict = get_available_markers(features_root, marker_types)
-    n_markers = 0
-    for marker_name in markers_config:
-        for marker_type, type_markers in available_markers_dict.items():
-            if marker_name in type_markers:
-                n_markers += 1
-else:
-    n_markers = 0
+    # Lightweight marker discovery: scan filenames and read ONE csv header per type
+    # instead of loading all data into memory
+    features_path = Path(features_root)
+    
+    # Find all CSV files matching the pattern
+    pattern = '**/sub-*_task-*_desc-probe-*_*_aggMarkers.csv'
+    csv_files = list(features_path.glob(pattern))
+    
+    if len(csv_files) == 0:
+        print(f'No CSV files found in {features_root}', file=sys.stderr)
+        sys.exit(1)
+    
+    # Group files by marker type and find one sample file per type
+    sample_files_by_type = {}
+    for f in csv_files:
+        filename = f.name
+        if '_aggMarkers.csv' in filename:
+            marker_type = filename.split('_desc-probe-')[1].split('_aggMarkers.csv')[0]
+            if '_' in marker_type:
+                marker_type = marker_type.split('_')[-1]
+            else:
+                marker_type = 'mixed'
+            
+            if marker_types_filter is None or marker_type in marker_types_filter:
+                if marker_type not in sample_files_by_type:
+                    sample_files_by_type[marker_type] = f
+    
+    # Read marker names from ONE sample file per type (memory efficient)
+    import pandas as pd
+    markers_by_type = {}
+    for marker_type, sample_file in sample_files_by_type.items():
+        # Read only the 'marker' column from one file
+        df = pd.read_csv(sample_file, usecols=['marker'])
+        markers_by_type[marker_type] = sorted(df['marker'].unique().tolist())
+    
+    # Count markers
+    if isinstance(markers_config, str) and markers_config.lower() == 'all':
+        n_markers = sum(len(markers) for markers in markers_by_type.values())
+    elif isinstance(markers_config, list):
+        n_markers = 0
+        for marker_name in markers_config:
+            for marker_type, type_markers in markers_by_type.items():
+                if marker_name in type_markers:
+                    n_markers += 1
+    else:
+        n_markers = 0
 
-print(n_markers)
-")
+    print(n_markers)
+except Exception as e:
+    import traceback
+    print(f'PYTHON_ERROR: {e}', file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
+" 2>&1)
 
-if [ -z "${N_MARKERS}" ] || [ "${N_MARKERS}" -eq 0 ]; then
+PYTHON_EXIT_CODE=$?
+
+# Check if Python failed
+if [ ${PYTHON_EXIT_CODE} -ne 0 ]; then
+    echo "ERROR: Python script failed!"
+    echo "Exit code: ${PYTHON_EXIT_CODE}"
+    echo "Python executable: $(which python)"
+    echo "Python version: $(python --version 2>&1)"
+    echo "Working directory: $(pwd)"
+    echo "--- Python output ---"
+    echo "${PYTHON_OUTPUT}"
+    echo "--- End output ---"
+    exit 1
+fi
+
+# Extract the number (last line of output, in case there are warnings)
+N_MARKERS=$(echo "${PYTHON_OUTPUT}" | tail -n 1)
+
+if [ -z "${N_MARKERS}" ] || ! [[ "${N_MARKERS}" =~ ^[0-9]+$ ]] || [ "${N_MARKERS}" -eq 0 ]; then
     echo "ERROR: Could not determine number of markers or no markers found!"
+    echo "Python output: ${PYTHON_OUTPUT}"
     echo "Please check your config.yaml file."
     exit 1
 fi

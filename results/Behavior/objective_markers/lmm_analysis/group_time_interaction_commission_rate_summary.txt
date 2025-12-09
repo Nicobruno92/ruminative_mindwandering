@@ -1,0 +1,30 @@
+                       Mixed Linear Model Regression Results
+===================================================================================
+Model:                    MixedLM        Dependent Variable:        commission_rate
+No. Observations:         2460           Method:                    REML           
+No. Groups:               42             Scale:                     1.0144         
+Min. group size:          45             Log-Likelihood:            -3522.1616     
+Max. group size:          60             Converged:                 Yes            
+Mean group size:          58.6                                                     
+-----------------------------------------------------------------------------------
+                                         Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+-----------------------------------------------------------------------------------
+Intercept                                -0.000    0.037 -0.000 1.000 -0.073  0.073
+group[T.Risk of Depression]               0.000    0.090  0.000 1.000 -0.177  0.177
+time_on_task                              0.005    0.001  3.273 0.001  0.002  0.007
+group[T.Risk of Depression]:time_on_task  0.000    0.003  0.016 0.987 -0.005  0.005
+subject Var                               0.000                                    
+===================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 7054.323271
+BIC: 7083.362854
+LOG_LIKELIHOOD: -3522.161636
+N_OBSERVATIONS: 2460
+N_GROUPS: 42
+N_PARAMETERS: 5
+CONVERGED: True
+SCALE: 1.014370

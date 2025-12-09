@@ -23,6 +23,7 @@ PROBE_DATA_DIR = BEHAVIOR_DIR / "probe_data"
 BDI_SPLIT_DIR = BEHAVIOR_DIR / "bdi_split"
 MEDIATION_DIR = BEHAVIOR_DIR / "mediation_analysis"
 MOOD_DIR = BEHAVIOR_DIR / "mood"
+OBJECTIVE_MARKERS_DIR = BEHAVIOR_DIR / "objective_markers"
 
 # Common helpers for safe loading of images/HTML
 
@@ -851,6 +852,256 @@ def page_probe_onoff() -> None:
         "progresses, but the Risk-of-Depression group deteriorates more steeply, "
         "leading to a substantial group difference in task engagement by the end "
         "of the experiment."
+    )
+
+
+def page_objective_markers() -> None:
+    st.header("Objective Markers – SART Performance (Errors & RT Variability)")
+
+    st.markdown(
+        textwrap.dedent(
+            """
+            This page summarizes **objective performance markers** of sustained
+            attention on the SART, aligned to each thought probe:
+
+            - **Omission rate** – missed responses on go trials (lapses of
+              responsiveness).
+            - **Commission rate** – false alarms on nogo trials (failure to
+              withhold a response).
+            - **RTCV** – reaction time coefficient of variation
+              (RT standard deviation divided by mean RT), indexing trial‑to‑trial
+              variability in responding.
+
+            Trial-level SART data are aggregated **per probe**, using the
+            trials immediately preceding each probe. This provides a behavioral
+            snapshot of performance leading up to each mind‑wandering report,
+            in parallel with the subjective ON/OFF and phenomenology measures.
+            """
+        )
+    )
+
+    obj_plots_dir = OBJECTIVE_MARKERS_DIR / "lmm_plots"
+    obj_lmm_dir = OBJECTIVE_MARKERS_DIR / "lmm_analysis"
+
+    # Shared descriptive statistics table (all markers × group × condition)
+    st.subheader("Descriptive statistics", divider=True)
+    safe_table(
+        obj_plots_dir / "objective_markers_descriptive_statistics.csv",
+        title="Objective markers – descriptive statistics (all probes)",
+    )
+
+    # ------------------------------------------------------------------
+    # Omission rate
+    # ------------------------------------------------------------------
+    st.subheader("Omission rate (missed go trials)", divider=True)
+    safe_image(
+        obj_plots_dir / "omission_rate_comprehensive_analysis.png",
+        "Omission rate: group, inclusion/exclusion and time-on-task effects",
+    )
+
+    bic_group_om = load_bic_from_metrics(
+        obj_lmm_dir / "group_effect_omission_rate_metrics.csv"
+    )
+    bic_time_om = load_bic_from_metrics(
+        obj_lmm_dir / "group_time_interaction_omission_rate_metrics.csv"
+    )
+    bic_ie_om = load_bic_from_metrics(
+        obj_lmm_dir / "inclusion_exclusion_effect_omission_rate_normalized_metrics.csv"
+    )
+    bic_ie_int_om = load_bic_from_metrics(
+        obj_lmm_dir / "group_ie_interaction_omission_rate_normalized_metrics.csv"
+    )
+
+    st.markdown("### LMM results – Group and time-on-task (all probes)")
+    safe_table(
+        obj_lmm_dir / "group_effect_omission_rate_results.csv",
+        title=(
+            "LMM results – Omission rate (Group model across all probes; "
+            f"BIC≈{bic_group_om})"
+        ),
+    )
+    safe_table(
+        obj_lmm_dir / "group_time_interaction_omission_rate_results.csv",
+        title=(
+            "LMM results – Omission rate (Group × Time-on-Task model; "
+            f"BIC≈{bic_time_om})"
+        ),
+    )
+
+    st.markdown("### LMM results – Cyberball Inclusion/Exclusion (baseline-corrected)")
+    safe_table(
+        obj_lmm_dir / "inclusion_exclusion_effect_omission_rate_normalized_results.csv",
+        title=(
+            "LMM results – Omission rate (Inclusion/Exclusion model, baseline-corrected; "
+            f"BIC≈{bic_ie_om})"
+        ),
+    )
+    safe_table(
+        obj_lmm_dir / "group_ie_interaction_omission_rate_normalized_results.csv",
+        title=(
+            "LMM results – Omission rate (Group × Inclusion/Exclusion interaction, baseline-corrected; "
+            f"BIC≈{bic_ie_int_om})"
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Commission rate
+    # ------------------------------------------------------------------
+    st.subheader("Commission rate (false alarms on nogo trials)", divider=True)
+    safe_image(
+        obj_plots_dir / "commission_rate_comprehensive_analysis.png",
+        "Commission rate: group, inclusion/exclusion and time-on-task effects",
+    )
+
+    bic_group_com = load_bic_from_metrics(
+        obj_lmm_dir / "group_effect_commission_rate_metrics.csv"
+    )
+    bic_time_com = load_bic_from_metrics(
+        obj_lmm_dir / "group_time_interaction_commission_rate_metrics.csv"
+    )
+    bic_ie_com = load_bic_from_metrics(
+        obj_lmm_dir / "inclusion_exclusion_effect_commission_rate_normalized_metrics.csv"
+    )
+    bic_ie_int_com = load_bic_from_metrics(
+        obj_lmm_dir / "group_ie_interaction_commission_rate_normalized_metrics.csv"
+    )
+
+    st.markdown("### LMM results – Group and time-on-task (all probes)")
+    safe_table(
+        obj_lmm_dir / "group_effect_commission_rate_results.csv",
+        title=(
+            "LMM results – Commission rate (Group model across all probes; "
+            f"BIC≈{bic_group_com})"
+        ),
+    )
+    safe_table(
+        obj_lmm_dir / "group_time_interaction_commission_rate_results.csv",
+        title=(
+            "LMM results – Commission rate (Group × Time-on-Task model; "
+            f"BIC≈{bic_time_com})"
+        ),
+    )
+
+    st.markdown("### LMM results – Cyberball Inclusion/Exclusion (baseline-corrected)")
+    safe_table(
+        obj_lmm_dir / "inclusion_exclusion_effect_commission_rate_normalized_results.csv",
+        title=(
+            "LMM results – Commission rate (Inclusion/Exclusion model, baseline-corrected; "
+            f"BIC≈{bic_ie_com})"
+        ),
+    )
+    safe_table(
+        obj_lmm_dir / "group_ie_interaction_commission_rate_normalized_results.csv",
+        title=(
+            "LMM results – Commission rate (Group × Inclusion/Exclusion interaction, baseline-corrected; "
+            f"BIC≈{bic_ie_int_com})"
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # RTCV – only IE-block, baseline-corrected models are available
+    # ------------------------------------------------------------------
+    st.subheader("RTCV (RT variability)", divider=True)
+    safe_image(
+        obj_plots_dir / "rtcv_comprehensive_analysis.png",
+        "RTCV: group, inclusion/exclusion, and time-on-task effects",
+    )
+
+    # Group/time models (all probes)
+    bic_group_rtcv = load_bic_from_metrics(
+        obj_lmm_dir / "group_effect_rtcv_metrics.csv"
+    )
+    bic_time_rtcv = load_bic_from_metrics(
+        obj_lmm_dir / "group_time_interaction_rtcv_metrics.csv"
+    )
+
+    bic_ie_rtcv = load_bic_from_metrics(
+        obj_lmm_dir / "inclusion_exclusion_effect_rtcv_normalized_metrics.csv"
+    )
+    bic_ie_int_rtcv = load_bic_from_metrics(
+        obj_lmm_dir / "group_ie_interaction_rtcv_normalized_metrics.csv"
+    )
+
+    st.markdown("### LMM results – Group and time-on-task (all probes)")
+    safe_table(
+        obj_lmm_dir / "group_effect_rtcv_results.csv",
+        title=(
+            "LMM results – RTCV (Group model across all probes; "
+            f"BIC≈{bic_group_rtcv})"
+        ),
+    )
+    safe_table(
+        obj_lmm_dir / "group_time_interaction_rtcv_results.csv",
+        title=(
+            "LMM results – RTCV (Group × Time-on-Task model; "
+            f"BIC≈{bic_time_rtcv})"
+        ),
+    )
+
+    st.markdown("### LMM results – Cyberball Inclusion/Exclusion (baseline-corrected IE blocks)")
+    safe_table(
+        obj_lmm_dir / "inclusion_exclusion_effect_rtcv_normalized_results.csv",
+        title=(
+            "LMM results – RTCV (Inclusion/Exclusion model, baseline-corrected; "
+            f"BIC≈{bic_ie_rtcv})"
+        ),
+    )
+    safe_table(
+        obj_lmm_dir / "group_ie_interaction_rtcv_normalized_results.csv",
+        title=(
+            "LMM results – RTCV (Group × Inclusion/Exclusion interaction, baseline-corrected; "
+            f"BIC≈{bic_ie_int_rtcv})"
+        ),
+    )
+
+    # Baseline-corrected one-sample IE tests (all markers)
+    st.subheader("Baseline-corrected Inclusion/Exclusion tests", divider=True)
+    safe_table(
+        obj_lmm_dir / "one_sample_tests_vs_baseline.csv",
+        title="One-sample tests vs baseline (normalized inclusion/exclusion effects)",
+    )
+
+    st.subheader("How to read these results", divider=True)
+    st.markdown(
+        textwrap.dedent(
+            """
+            - **Higher omission rates** indicate more frequent lapses of
+              responsiveness to go targets. If one group or condition sits
+              consistently higher in the plots and LMM tables, this points to
+              poorer sustained attention.
+            - **Higher commission rates** reflect more impulsive responding on
+              nogo trials (difficulty withholding responses). Condition or
+              group differences here highlight failures of inhibitory control.
+            - **Higher RTCV** means that reaction times are more variable from
+              trial to trial, a classic marker of unstable attention.
+
+            The **time-on-task trajectories** for omission and commission
+            rates show how errors evolve across the 60 probes: upward trends
+            suggest accumulating fatigue or drifting mind-wandering, whereas
+            flat trajectories indicate relatively stable performance.
+
+            The **Inclusion/Exclusion models** use baseline-corrected scores
+            within Cyberball blocks, allowing you to see whether social
+            exclusion is associated with a transient increase in errors or RT
+            variability over and above each participant's own baseline SART
+            performance.
+
+            When interpreting this page together with the ON/OFF and
+            phenomenology results, keep in mind that:
+
+            - Subjective **OFF ratings** capture how off-task participants feel
+              at each probe.
+            - Objective **error rates and RT variability** capture how that
+              internal disengagement translates into observable performance
+              failures.
+
+            Coherent patterns across these measures (for example, higher OFF
+            ratings accompanied by increased omission rates and RTCV) provide
+            converging evidence that the same underlying fluctuations in
+            sustained attention are being tracked both subjectively and
+            behaviorally.
+            """
+        )
     )
 
 
@@ -2068,6 +2319,7 @@ PAGES: List[str] = [
     "7. Mood Analysis",
     "8. Mediation Analyses",
     "9. Cyberball Moderated Mediation",
+    "10. Objective Markers – SART Performance",
 ]
 
 
@@ -2258,6 +2510,9 @@ def main() -> None:
 
     elif selection == "9. Cyberball Moderated Mediation":
         page_cyberball_moderated_mediation()
+
+    elif selection == "10. Objective Markers – SART Performance":
+        page_objective_markers()
 
 if __name__ == "__main__":
     main()

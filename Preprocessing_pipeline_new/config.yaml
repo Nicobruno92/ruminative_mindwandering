@@ -62,7 +62,7 @@ pyprep:
 pyprep_prefilter:
   apply: true     # set true to enable
   l_freq: 1      # e.g., 0.5–40 Hz
-  h_freq: 40
+  h_freq: 30
 
 # Optional quick ICA on a copy before bad-channel detection
 # Helps reduce frontal over-flagging by removing ocular/muscle on the fly
@@ -79,8 +79,8 @@ pyprep_pre_ica:
 # 5. FILTERING PARAMETERS
 # =============================================================================
 filters:
-  ica: {l_freq: 1, h_freq: 40}      # Filter for ICA fitting (same as analysis)
-  analysis: {l_freq: 0.1, h_freq: 45}   # Filter for evoked analysis
+  ica: {l_freq: 1, h_freq: 30}      # Filter for ICA fitting (same as analysis)
+  analysis: {l_freq: 0.1, h_freq: 35}   # Filter for evoked analysis
 
 # =============================================================================
 # 6. ICA PARAMETERS
@@ -202,7 +202,8 @@ qa_thresholds:
 pass_criteria:
   fail_on_flags: [
     "max_bad_channels_ratio",
-    "max_bad_epochs_ratio",
+    "max_bad_epochs_ratio",Holahola4
+    
     "max_annot_dropped_epochs_ratio",
     "variance_budget_exceeded",  # New flag: ICA variance budget was exceeded
     "ocular_ic_required"

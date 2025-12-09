@@ -65,7 +65,7 @@ andrillon_clustering:
   # Andrillon uses 1000 (paper line 106-107)
   # "We then created permuted datasets by permuting the labels of the 
   # predictor within each subject, each task and each electrode (N=1,000 permutations)"
-  n_permutations: 100
+  n_permutations: 1000
   
   # Parallel processing for permutations
   # -1 = use all available CPUs, 1 = sequential (for debugging)

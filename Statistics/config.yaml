@@ -108,7 +108,7 @@ preprocessing:
 #   Example: "onoff * valence" -> test "onoff" or "valence" or "onoff:valence"
 #
 lmm:
-  formula: "power ~ onoff + time_on_task +(1|subject)"
+  formula: "power ~ onoff + valence + selfother + time + time_on_task +(1|subject)"
   predictor_of_interest: "onoff"  # specify predictor name (e.g., "onoff") for clustering analysis
   method: "powell"  # Powell: gradient-free, more robust for complex models with numerical issues
   maxiter: 5000     # High value to ensure convergence in difficult cases
@@ -191,8 +191,8 @@ clustering:
       - "P7"    # Theta=-90°, lateral parietal left
       - "P8"    # Theta=90°, lateral parietal right
       # Extreme anterior - eye movement artifacts
-      - "Fp1"   # Phi=-72°, left frontopolar
-      - "Fp2"   # Phi=72°, right frontopolar
+      # - "Fp1"   # Phi=-72°, left frontopolar
+      # - "Fp2"   # Phi=72°, right frontopolar
       # Extreme posterior - edge effects
       - "Iz"    # Theta=112°, Phi=-90°, inferior occipital
 

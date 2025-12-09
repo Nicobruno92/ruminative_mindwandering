@@ -1,0 +1,28 @@
+                  Mixed Linear Model Regression Results
+=========================================================================
+Model:                MixedLM     Dependent Variable:     rtcv_normalized
+No. Observations:     1197        Method:                 REML           
+No. Groups:           42          Scale:                  1.0017         
+Min. group size:      15          Log-Likelihood:         -1703.0394     
+Max. group size:      30          Converged:              Yes            
+Mean group size:      28.5                                               
+-------------------------------------------------------------------------
+                                 Coef. Std.Err.   z   P>|z| [0.025 0.975]
+-------------------------------------------------------------------------
+Intercept                        0.000    0.040 0.000 1.000 -0.078  0.078
+inclusion_exclusion[T.inclusion] 0.055    0.058 0.950 0.342 -0.058  0.168
+subject Var                      0.000                                   
+=========================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 3412.078748
+BIC: 3427.341469
+LOG_LIKELIHOOD: -1703.039374
+N_OBSERVATIONS: 1197
+N_GROUPS: 42
+N_PARAMETERS: 3
+CONVERGED: True
+SCALE: 1.001698

@@ -1,0 +1,29 @@
+                   Mixed Linear Model Regression Results
+===========================================================================
+Model:             MixedLM  Dependent Variable:  commission_rate_normalized
+No. Observations:  1197     Method:              REML                      
+No. Groups:        42       Scale:               0.9997                    
+Min. group size:   15       Log-Likelihood:      -1705.4192                
+Max. group size:   30       Converged:           Yes                       
+Mean group size:   28.5                                                    
+---------------------------------------------------------------------------
+                                 Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+---------------------------------------------------------------------------
+Intercept                        -0.000    0.066 -0.000 1.000 -0.128  0.128
+inclusion_exclusion[T.inclusion] -0.107    0.058 -1.856 0.063 -0.221  0.006
+probe_number                      0.014    0.007  2.124 0.034  0.001  0.027
+subject Var                       0.000                                    
+===========================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 3418.838405
+BIC: 3439.188700
+LOG_LIKELIHOOD: -1705.419203
+N_OBSERVATIONS: 1197
+N_GROUPS: 42
+N_PARAMETERS: 4
+CONVERGED: True
+SCALE: 0.999671
