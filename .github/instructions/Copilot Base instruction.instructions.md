@@ -11,6 +11,7 @@ applyTo: '**'
 - **Maintainability**: Write code that's easy to modify and extend
 - **Single responsibility**: Each function/class should have one clear purpose
 - **Configuration over hardcoding**: Use variables for parameters, avoid magic numbers
+- **NO fallbacks**: As you are being used for scientific purposes a fallback to a simpler method is not acceptable, it is better to raise an error than to provide a different non traceable solution.
 
 ## Code Style Guidelines
 

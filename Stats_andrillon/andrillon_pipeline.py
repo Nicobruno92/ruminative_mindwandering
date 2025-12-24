@@ -249,6 +249,11 @@ def run_marker_analysis(
     perm_p_values = np.ones((n_permutations, len(channels)))
     permutation_within = config['andrillon_clustering']['permutation_within']
     
+    # Use faster settings for permutations (don't need perfect convergence)
+    # Reduced maxiter and faster optimizer for null distribution estimation
+    perm_method = config['lmm'].get('perm_method', 'lbfgs')
+    perm_maxiter = config['lmm'].get('perm_maxiter', 500)
+    
     for perm_idx in range(n_permutations):
         if (perm_idx + 1) % 100 == 0 or perm_idx == 0:
             print(f"  Permutation {perm_idx+1}/{n_permutations}", flush=True)
@@ -261,14 +266,14 @@ def run_marker_analysis(
             permuted_values = np.random.permutation(predictor_values)
             df_perm.loc[indices, predictor] = permuted_values
         
-        # Fit LMM with permuted data
+        # Fit LMM with permuted data (faster settings)
         perm_t, perm_p, _ = run_lmm_per_channel(
             power_data=power_data,
             df_behavioral=df_perm,
             formula=formula,
             predictor_of_interest=predictor,
-            method=config['lmm']['method'],
-            maxiter=config['lmm']['maxiter'],
+            method=perm_method,
+            maxiter=perm_maxiter,
             random_state=config['andrillon_clustering']['seed'] + perm_idx,
             return_diagnostics=False
         )

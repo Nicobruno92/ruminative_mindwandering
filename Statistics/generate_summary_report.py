@@ -655,6 +655,193 @@ def create_detailed_results_table(
     print(f"✓ Detailed results saved to {output_path}")
 
 
+def generate_pipeline_qa_html_report(
+    model_dir: Path,
+    successful_markers: List[str],
+    failed_markers: List[Dict[str, str]],
+    config: Dict,
+    output_filename: str = "pipeline_qa_summary.html"
+) -> str:
+    """
+    Generate a visual HTML summary report showing pipeline execution status.
+    
+    Parameters
+    ----------
+    model_dir : Path
+        Path to model directory where report will be saved
+    successful_markers : List[str]
+        List of marker names that were processed successfully
+    failed_markers : List[Dict[str, str]]
+        List of dicts with 'marker' and 'error' keys for failed markers
+    config : Dict
+        Configuration dictionary used for the run
+    output_filename : str
+        Name of the output HTML file
+        
+    Returns
+    -------
+    str
+        Path to the generated HTML report
+    """
+    output_path = model_dir / output_filename
+    
+    # Compute summary statistics
+    n_total = len(successful_markers) + len(failed_markers)
+    n_passed = len(successful_markers)
+    n_failed = len(failed_markers)
+    pass_rate = (n_passed / n_total * 100) if n_total > 0 else 0
+    
+    # Load results for successful markers to get significance info
+    results = load_all_marker_results(model_dir, verbose=False)
+    n_with_sig_clusters = sum(1 for r in results if r.get('n_sig_clusters', 0) > 0)
+    
+    # Count by marker type
+    evoked_success = [m for m in successful_markers if 'evoked' in m.lower() or any(
+        r.get('marker_type') == 'evoked' for r in results if r.get('marker_name') == m
+    )]
+    state_success = [m for m in successful_markers if 'state' in m.lower() or any(
+        r.get('marker_type') == 'state' for r in results if r.get('marker_name') == m
+    )]
+    
+    # Build HTML
+    html_parts = [
+        "<!DOCTYPE html>",
+        "<html>",
+        "<head>",
+        "<meta charset='utf-8'>",
+        "<title>LMM Pipeline Execution Summary</title>",
+        "<style>",
+        "body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }",
+        ".container { max-width: 1400px; margin: 0 auto; }",
+        "h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }",
+        "h2 { color: #34495e; margin-top: 30px; }",
+        ".summary-cards { display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }",
+        ".card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); min-width: 150px; text-align: center; }",
+        ".card-value { font-size: 36px; font-weight: bold; }",
+        ".card-label { color: #7f8c8d; font-size: 14px; margin-top: 5px; }",
+        ".pass { color: #27ae60; }",
+        ".fail { color: #e74c3c; }",
+        ".warn { color: #f39c12; }",
+        ".neutral { color: #3498db; }",
+        ".progress-bar { background: #ecf0f1; border-radius: 10px; height: 30px; overflow: hidden; margin: 10px 0; display: flex; }",
+        ".progress-fill { height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; }",
+        ".progress-pass { background: linear-gradient(90deg, #27ae60, #2ecc71); }",
+        ".progress-fail { background: linear-gradient(90deg, #e74c3c, #c0392b); }",
+        "table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin: 20px 0; }",
+        "th { background: #3498db; color: white; padding: 12px 8px; text-align: left; font-size: 12px; }",
+        "td { padding: 10px 8px; border-bottom: 1px solid #ecf0f1; font-size: 12px; }",
+        "tr:hover { background: #f8f9fa; }",
+        ".status-pass { background: #d5f4e6; color: #27ae60; padding: 4px 8px; border-radius: 4px; font-weight: bold; }",
+        ".status-fail { background: #fde8e8; color: #e74c3c; padding: 4px 8px; border-radius: 4px; font-weight: bold; }",
+        ".status-sig { background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 4px; font-weight: bold; }",
+        ".config-section { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin: 20px 0; }",
+        ".config-item { display: flex; padding: 5px 0; border-bottom: 1px solid #ecf0f1; }",
+        ".config-key { font-weight: bold; color: #34495e; width: 300px; }",
+        ".config-value { color: #7f8c8d; }",
+        ".timestamp { color: #95a5a6; font-size: 12px; margin-top: 30px; }",
+        "</style>",
+        "</head>",
+        "<body>",
+        "<div class='container'>",
+        f"<h1>LMM Cluster Pipeline - Execution Summary</h1>",
+        f"<p class='timestamp'>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>",
+        "",
+        "<div class='summary-cards'>",
+        f"<div class='card'><div class='card-value neutral'>{n_total}</div><div class='card-label'>Total Markers</div></div>",
+        f"<div class='card'><div class='card-value pass'>{n_passed}</div><div class='card-label'>Successful</div></div>",
+        f"<div class='card'><div class='card-value fail'>{n_failed}</div><div class='card-label'>Failed</div></div>",
+        f"<div class='card'><div class='card-value'>{pass_rate:.1f}%</div><div class='card-label'>Success Rate</div></div>",
+        f"<div class='card'><div class='card-value warn'>{n_with_sig_clusters}</div><div class='card-label'>With Sig. Clusters</div></div>",
+        "</div>",
+        "",
+        "<h2>Success Rate</h2>",
+        "<div class='progress-bar'>",
+        f"<div class='progress-fill progress-pass' style='width: {pass_rate}%'>{n_passed} passed</div>" if pass_rate > 0 else "",
+        f"<div class='progress-fill progress-fail' style='width: {100-pass_rate}%'>{n_failed} failed</div>" if (100-pass_rate) > 0 else "",
+        "</div>",
+    ]
+    
+    # Configuration summary
+    html_parts.append("<h2>Analysis Configuration</h2>")
+    html_parts.append("<div class='config-section'>")
+    
+    key_configs = [
+        ('Formula', config.get('lmm', {}).get('formula', 'N/A')),
+        ('Predictor of Interest', config.get('lmm', {}).get('predictor_of_interest', 'auto')),
+        ('Clustering Method', config.get('clustering', {}).get('method', 'threshold')),
+        ('Permutation Method', config.get('clustering', {}).get('permutation_method', 'simple')),
+        ('N Permutations', config.get('clustering', {}).get('n_permutations', 'N/A')),
+        ('Alpha', config.get('clustering', {}).get('alpha', 0.05)),
+        ('Threshold', config.get('clustering', {}).get('threshold', 'N/A')),
+        ('Normalize by Subject', config.get('preprocessing', {}).get('normalize_by_subject', False)),
+        ('QA Filtering', config.get('project', {}).get('exclude_failed_qa', False)),
+    ]
+    
+    for key, value in key_configs:
+        html_parts.append(f"<div class='config-item'><span class='config-key'>{key}</span><span class='config-value'>{value}</span></div>")
+    
+    html_parts.append("</div>")
+    
+    # Successful markers table
+    html_parts.append("<h2>Successful Markers</h2>")
+    if results:
+        html_parts.append("<table>")
+        html_parts.append("<tr><th>Marker Name</th><th>Type</th><th>N Subjects</th><th>N Obs</th><th>N Clusters</th><th>Sig Clusters</th><th>Status</th></tr>")
+        
+        for result in sorted(results, key=lambda r: (r.get('marker_type', ''), r.get('marker_name', ''))):
+            marker_name = result.get('marker_name', 'unknown')
+            marker_type = result.get('marker_type', 'unknown')
+            n_subjects = result.get('n_subjects', 0)
+            n_obs = result.get('n_observations', 0)
+            n_clusters = result.get('n_clusters', 0)
+            n_sig = result.get('n_sig_clusters', 0)
+            
+            status_class = 'status-sig' if n_sig > 0 else 'status-pass'
+            status_text = f'{n_sig} SIG' if n_sig > 0 else 'OK'
+            
+            html_parts.append(
+                f"<tr><td>{marker_name}</td><td>{marker_type}</td><td>{n_subjects}</td>"
+                f"<td>{n_obs}</td><td>{n_clusters}</td><td>{n_sig}</td>"
+                f"<td><span class='{status_class}'>{status_text}</span></td></tr>"
+            )
+        
+        html_parts.append("</table>")
+    else:
+        html_parts.append("<p>No successful markers to display.</p>")
+    
+    # Failed markers section
+    if failed_markers:
+        html_parts.append("<h2>Failed Markers</h2>")
+        html_parts.append("<table>")
+        html_parts.append("<tr><th>Marker Name</th><th>Error</th><th>Status</th></tr>")
+        
+        for fail_info in failed_markers:
+            marker_name = fail_info.get('marker', 'unknown')
+            error = fail_info.get('error', 'Unknown error')
+            # Truncate long error messages
+            if len(error) > 200:
+                error = error[:200] + "..."
+            
+            html_parts.append(
+                f"<tr><td>{marker_name}</td><td>{error}</td>"
+                f"<td><span class='status-fail'>FAILED</span></td></tr>"
+            )
+        
+        html_parts.append("</table>")
+    
+    html_parts.extend([
+        "</div>",
+        "</body>",
+        "</html>",
+    ])
+    
+    # Write HTML
+    with open(output_path, 'w') as f:
+        f.write("\n".join(html_parts))
+    
+    return str(output_path)
+
+
 def generate_summary_report(
     model_dir: Path,
     alpha: float = 0.05,

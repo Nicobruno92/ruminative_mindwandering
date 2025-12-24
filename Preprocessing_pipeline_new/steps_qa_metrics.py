@@ -47,6 +47,13 @@ def compute_band_power_db(
         # Default to EEG channels excluding bads
         picks = mne.pick_types(raw.info, eeg=True, exclude='bads')
     
+    # Guard against insufficient data length for PSD computation
+    n_samples = raw.n_times
+    n_fft = 2048
+    if n_samples < n_fft:
+        # Not enough samples for reliable PSD - return NaN
+        return float('nan')
+    
     # Compute PSD using the modern Raw.compute_psd method
     spectrum = raw.compute_psd(
         method='welch',
@@ -588,7 +595,8 @@ def save_qa_csv(
     epoch_metrics: Dict[str, Any],
     flags: List[str],
     passed: bool,
-    fail_reasons: List[str]
+    fail_reasons: List[str],
+    session: str = "default"
 ) -> None:
     """
     Save QA metrics to CSV files (per-subject and summary).
@@ -611,6 +619,8 @@ def save_qa_csv(
         Overall pass status
     fail_reasons : List[str]
         Reasons for failure
+    session : str
+        Session identifier (default: "default")
     """
     def _safe_int(val, default=0):
         try:
@@ -627,6 +637,7 @@ def save_qa_csv(
     # Common QA metrics
     common_metrics = {
         "subject": subject,
+        "session": session,
         "task": task,
         "delta_50hz_db": qa_metrics['delta_50_db'],
         "delta_emg_30_80_db": qa_metrics['delta_emg_db'],
@@ -716,12 +727,17 @@ def save_qa_csv(
 
     # Save per-subject CSV
     try:
-        qa_dir = os.path.join(derivatives_root, f"sub-{subject}")
+        if session and session != "default":
+            qa_dir = os.path.join(derivatives_root, f"sub-{subject}", f"ses-{session}")
+            qa_csv_name = f"sub-{subject}_ses-{session}_task-{task}_qa_metrics.csv"
+        else:
+            qa_dir = os.path.join(derivatives_root, f"sub-{subject}")
+            qa_csv_name = f"sub-{subject}_task-{task}_qa_metrics.csv"
         os.makedirs(qa_dir, exist_ok=True)
-        qa_csv = os.path.join(qa_dir, f"sub-{subject}_task-{task}_qa_metrics.csv")
+        qa_csv = os.path.join(qa_dir, qa_csv_name)
 
         col_order = [
-            'subject', 'task', 'epoch_type', 'passed', 'fail_reasons',
+            'subject', 'session', 'task', 'epoch_type', 'passed', 'fail_reasons',
             'delta_50hz_db', 'delta_emg_30_80_db', 'delta_blink_1_4hz_frontal_db',
             'ica_excluded_ratio', 'ica_excluded_variance_pct', 'n_bad_channels', 'bad_channels', 'n_ica_excluded',
             'ica_excluded_indices', 'excluded_components_summary',
@@ -759,9 +775,10 @@ def save_qa_csv(
 
             # Update existing entries or add new ones
             for row in qa_entries:
-                if not df_sum.empty and {"subject", "task", "epoch_type"}.issubset(df_sum.columns):
+                if not df_sum.empty and {"subject", "session", "task", "epoch_type"}.issubset(df_sum.columns):
                     mask = (
                         (df_sum["subject"].astype(str) == str(subject)) & 
+                        (df_sum["session"].astype(str) == str(session)) &
                         (df_sum["task"].astype(str) == str(task)) &
                         (df_sum["epoch_type"].astype(str) == str(row["epoch_type"]))
                     )
@@ -800,7 +817,8 @@ def run_complete_qa_assessment(
     logger: Optional[LogPreprocessingDetails] = None,
     prelim_bads: List[str] = None,
     prep_bads: List[str] = None,
-    ica_selection_log: Optional[Dict[str, Any]] = None
+    ica_selection_log: Optional[Dict[str, Any]] = None,
+    session: str = "default"
 ) -> Dict[str, Any]:
     """
     Run complete QA assessment pipeline.
@@ -866,7 +884,8 @@ def run_complete_qa_assessment(
     
     # Save CSV files
     save_qa_csv(
-        derivatives_root, subject, task, qa_metrics, epoch_metrics, flags, passed, fail_reasons
+        derivatives_root, subject, task, qa_metrics, epoch_metrics, flags, passed, fail_reasons,
+        session=session
     )
     
     return {
@@ -875,3 +894,349 @@ def run_complete_qa_assessment(
         'passed': passed,
         'fail_reasons': fail_reasons
     }
+
+
+def generate_preprocessing_qa_html_report(
+    derivatives_root: str,
+    output_filename: str = "preprocessing_qa_summary.html",
+    subject_filter: str = None
+) -> str:
+    """
+    Generate a visual HTML summary report from the QA summary CSV.
+    
+    Parameters
+    ----------
+    derivatives_root : str
+        Path to derivatives directory containing qa_summary.csv
+    output_filename : str
+        Name of the output HTML file
+    subject_filter : str, optional
+        If provided, only include data for this subject
+        
+    Returns
+    -------
+    str
+        Path to the generated HTML report
+    """
+    from datetime import datetime
+    
+    summary_csv = os.path.join(derivatives_root, "qa_summary.csv")
+    
+    # Determine output path
+    if subject_filter:
+        subject_dir = os.path.join(derivatives_root, f"sub-{subject_filter}")
+        os.makedirs(subject_dir, exist_ok=True)
+        output_path = os.path.join(subject_dir, output_filename)
+    else:
+        output_path = os.path.join(derivatives_root, output_filename)
+    
+    # Load data
+    if os.path.exists(summary_csv):
+        df = pd.read_csv(summary_csv)
+    else:
+        df = pd.DataFrame()
+    
+    # Filter by subject if requested
+    if subject_filter and not df.empty and 'subject' in df.columns:
+        df = df[df['subject'].astype(str) == str(subject_filter)]
+    
+    # Compute summary statistics
+    if not df.empty:
+        total = len(df)
+        # Group by subject-session-task for unique recordings
+        unique_recordings = df.groupby(['subject', 'session', 'task']).first().reset_index()
+        n_recordings = len(unique_recordings)
+        n_passed = unique_recordings['passed'].sum() if 'passed' in unique_recordings.columns else 0
+        n_failed = n_recordings - n_passed
+        pass_rate = (n_passed / n_recordings * 100) if n_recordings > 0 else 0
+        
+        # Count by epoch type
+        evoked_df = df[df['epoch_type'] == 'evoked'] if 'epoch_type' in df.columns else df
+        state_df = df[df['epoch_type'] == 'state'] if 'epoch_type' in df.columns else pd.DataFrame()
+        sleep_df = df[df['epoch_type'] == 'sleep'] if 'epoch_type' in df.columns else pd.DataFrame()
+        
+        # Flag counts
+        flag_cols = [
+            'too_many_bad_channels', 'variance_budget_exceeded', 
+            'too_many_bad_epochs', 'low_line_noise_suppression',
+            'no_ocular_ic_detected_with_eog'
+        ]
+        flag_counts = {}
+        for col in flag_cols:
+            if col in df.columns:
+                flag_counts[col] = df[col].sum()
+    else:
+        n_recordings = 0
+        n_passed = 0
+        n_failed = 0
+        pass_rate = 0
+        evoked_df = pd.DataFrame()
+        state_df = pd.DataFrame()
+        sleep_df = pd.DataFrame()
+        flag_counts = {}
+    
+    # Build HTML
+    html_parts = [
+        "<!DOCTYPE html>",
+        "<html>",
+        "<head>",
+        "<meta charset='utf-8'>",
+        "<title>EEG Preprocessing QA Summary</title>",
+        "<style>",
+        "body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }",
+        ".container { max-width: 1400px; margin: 0 auto; }",
+        "h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }",
+        "h2 { color: #34495e; margin-top: 30px; }",
+        ".summary-cards { display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }",
+        ".card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); min-width: 150px; text-align: center; }",
+        ".card-value { font-size: 36px; font-weight: bold; }",
+        ".card-label { color: #7f8c8d; font-size: 14px; margin-top: 5px; }",
+        ".pass { color: #27ae60; }",
+        ".fail { color: #e74c3c; }",
+        ".warn { color: #f39c12; }",
+        ".neutral { color: #3498db; }",
+        ".progress-bar { background: #ecf0f1; border-radius: 10px; height: 30px; overflow: hidden; margin: 10px 0; }",
+        ".progress-fill { height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; }",
+        ".progress-pass { background: linear-gradient(90deg, #27ae60, #2ecc71); }",
+        ".progress-fail { background: linear-gradient(90deg, #e74c3c, #c0392b); }",
+        ".flags-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin: 20px 0; }",
+        ".flag-item { background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #e74c3c; }",
+        ".flag-item.ok { border-left-color: #27ae60; }",
+        ".flag-count { font-size: 24px; font-weight: bold; }",
+        ".flag-name { color: #7f8c8d; font-size: 12px; }",
+        "table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin: 20px 0; }",
+        "th { background: #3498db; color: white; padding: 12px 8px; text-align: left; font-size: 12px; }",
+        "td { padding: 10px 8px; border-bottom: 1px solid #ecf0f1; font-size: 12px; }",
+        "tr:hover { background: #f8f9fa; }",
+        ".status-pass { background: #d5f4e6; color: #27ae60; padding: 4px 8px; border-radius: 4px; font-weight: bold; }",
+        ".status-fail { background: #fde8e8; color: #e74c3c; padding: 4px 8px; border-radius: 4px; font-weight: bold; }",
+        ".epoch-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }",
+        ".epoch-evoked { background: #e8f4fd; color: #3498db; }",
+        ".epoch-state { background: #fef3e2; color: #f39c12; }",
+        ".epoch-sleep { background: #f3e8fd; color: #9b59b6; }",
+        ".timestamp { color: #95a5a6; font-size: 12px; margin-top: 30px; }",
+        "</style>",
+        "</head>",
+        "<body>",
+        "<div class='container'>",
+        f"<h1>EEG Preprocessing QA Report{' - Subject ' + subject_filter if subject_filter else ' - Global Summary'}</h1>",
+        f"<p class='timestamp'>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>",
+        "",
+        "<div class='summary-cards'>",
+        f"<div class='card'><div class='card-value neutral'>{n_recordings}</div><div class='card-label'>Total Recordings</div></div>",
+        f"<div class='card'><div class='card-value pass'>{n_passed}</div><div class='card-label'>Passed QA</div></div>",
+        f"<div class='card'><div class='card-value fail'>{n_failed}</div><div class='card-label'>Failed QA</div></div>",
+        f"<div class='card'><div class='card-value'>{pass_rate:.1f}%</div><div class='card-label'>Pass Rate</div></div>",
+        "</div>",
+        "",
+        "<h2>Pass Rate</h2>",
+        "<div class='progress-bar'>",
+        f"<div class='progress-fill progress-pass' style='width: {pass_rate}%'>{n_passed} passed</div>" if pass_rate > 0 else "",
+        f"<div class='progress-fill progress-fail' style='width: {100-pass_rate}%'>{n_failed} failed</div>" if (100-pass_rate) > 0 else "",
+        "</div>",
+    ]
+    
+    # QA Flags section
+    if flag_counts:
+        html_parts.append("<h2>QA Flag Summary</h2>")
+        html_parts.append("<div class='flags-grid'>")
+        flag_labels = {
+            'too_many_bad_channels': 'Too Many Bad Channels',
+            'variance_budget_exceeded': 'ICA Variance Budget Exceeded',
+            'too_many_bad_epochs': 'Too Many Bad Epochs',
+            'low_line_noise_suppression': 'Low Line Noise Suppression',
+            'no_ocular_ic_detected_with_eog': 'No Ocular IC Detected'
+        }
+        for flag, count in flag_counts.items():
+            label = flag_labels.get(flag, flag.replace('_', ' ').title())
+            ok_class = "ok" if count == 0 else ""
+            html_parts.append(
+                f"<div class='flag-item {ok_class}'>"
+                f"<div class='flag-count'>{int(count)}</div>"
+                f"<div class='flag-name'>{label}</div>"
+                f"</div>"
+            )
+        html_parts.append("</div>")
+    
+    # Epoch type summary
+    html_parts.append("<h2>Epoch Type Summary</h2>")
+    html_parts.append("<div class='summary-cards'>")
+    html_parts.append(f"<div class='card'><div class='card-value'>{len(evoked_df)}</div><div class='card-label'>Evoked Epochs Records</div></div>")
+    html_parts.append(f"<div class='card'><div class='card-value'>{len(state_df)}</div><div class='card-label'>State Epochs Records</div></div>")
+    html_parts.append(f"<div class='card'><div class='card-value'>{len(sleep_df)}</div><div class='card-label'>Sleep Epochs Records</div></div>")
+    html_parts.append("</div>")
+
+    # Subject-level summary (subjects x sessions/tasks, PASS/FAIL)
+    html_parts.append("<h2>Subject Summary</h2>")
+    if (not df.empty and
+        all(col in df.columns for col in ['subject', 'session', 'task', 'passed'])):
+        try:
+            # One row per unique recording
+            rec_df = df.drop_duplicates(subset=['subject', 'session', 'task'])
+
+            # Classify subjects: completely good / partially bad / completely bad
+            subj_pass = rec_df.groupby('subject')['passed'].apply(list)
+            n_complete_good = 0
+            n_partial_bad = 0
+            n_complete_bad = 0
+            for _subj, vals in subj_pass.items():
+                has_pass = any(bool(v) for v in vals)
+                has_fail = any(not bool(v) for v in vals)
+                if has_pass and not has_fail:
+                    n_complete_good += 1
+                elif not has_pass and has_fail:
+                    n_complete_bad += 1
+                elif has_pass and has_fail:
+                    n_partial_bad += 1
+
+            html_parts.append("<div class='summary-cards'>")
+            html_parts.append(
+                f"<div class='card'><div class='card-value pass'>{n_complete_good}</div><div class='card-label'>Subjects Completely OK</div></div>"
+            )
+            html_parts.append(
+                f"<div class='card'><div class='card-value neutral'>{n_partial_bad}</div><div class='card-label'>Subjects Partially Problematic</div></div>"
+            )
+            html_parts.append(
+                f"<div class='card'><div class='card-value fail'>{n_complete_bad}</div><div class='card-label'>Subjects Completely Problematic</div></div>"
+            )
+            html_parts.append("</div>")
+
+            summary = rec_df.pivot_table(
+                index='subject',
+                columns=['session', 'task'],
+                values='passed',
+                aggfunc='first'
+            )
+            summary = summary.sort_index(axis=0)
+
+            sessions = []
+            tasks_by_session = {}
+            if summary.columns.nlevels == 2:
+                for sess, task in summary.columns:
+                    if sess not in tasks_by_session:
+                        tasks_by_session[sess] = []
+                        sessions.append(sess)
+                    if task not in tasks_by_session[sess]:
+                        tasks_by_session[sess].append(task)
+
+            html_parts.append("<table>")
+            # Header row: sessions
+            html_parts.append("<tr>")
+            html_parts.append("<th rowspan='2'>Subject</th>")
+            for sess in sessions:
+                n_tasks = len(tasks_by_session.get(sess, []))
+                html_parts.append(
+                    f"<th colspan='{n_tasks}'>ses-{sess}</th>"
+                )
+            html_parts.append("</tr>")
+
+            # Header row: tasks
+            html_parts.append("<tr>")
+            for sess in sessions:
+                for task in tasks_by_session.get(sess, []):
+                    html_parts.append(f"<th>{task}</th>")
+            html_parts.append("</tr>")
+
+            # Rows per subject
+            for subj in summary.index:
+                html_parts.append("<tr>")
+                html_parts.append(f"<td>sub-{subj}</td>")
+                for sess in sessions:
+                    for task in tasks_by_session.get(sess, []):
+                        val = None
+                        if (sess, task) in summary.columns:
+                            try:
+                                val = summary.loc[subj, (sess, task)]
+                            except Exception:
+                                val = None
+                        if pd.isna(val):
+                            val = None
+
+                        cell_html = ""
+                        if isinstance(val, (bool, int)):
+                            passed_flag = bool(val)
+                            status_class = 'status-pass' if passed_flag else 'status-fail'
+                            status_text = 'PASS' if passed_flag else 'FAIL'
+                            cell_html = f"<span class='{status_class}'>{status_text}</span>"
+                        html_parts.append(f"<td>{cell_html}</td>")
+                html_parts.append("</tr>")
+
+            html_parts.append("</table>")
+        except Exception:
+            html_parts.append("<p>Could not compute subject summary.</p>")
+    else:
+        html_parts.append("<p>No subject summary available.</p>")
+
+    # Detailed table
+    html_parts.append("<h2>Detailed Results</h2>")
+    if not df.empty:
+        # Select columns to display
+        display_cols = [
+            'subject', 'session', 'task', 'epoch_type', 'passed', 'fail_reasons',
+            'n_epochs', 'n_rejected_by_ar', 'n_bad_channels', 'n_ica_excluded',
+            'delta_50hz_db', 'ica_excluded_variance_pct'
+        ]
+        display_cols = [c for c in display_cols if c in df.columns]
+        
+        html_parts.append("<table>")
+        html_parts.append("<tr>")
+        for col in display_cols:
+            html_parts.append(f"<th>{col.replace('_', ' ').title()}</th>")
+        html_parts.append("</tr>")
+        
+        for _, row in df.iterrows():
+            html_parts.append("<tr>")
+            for col in display_cols:
+                val = row.get(col, '')
+                if pd.isna(val):
+                    val = ''
+                
+                # Format specific columns
+                if col == 'passed':
+                    status_class = 'status-pass' if val else 'status-fail'
+                    status_text = 'PASS' if val else 'FAIL'
+                    val = f"<span class='{status_class}'>{status_text}</span>"
+                elif col == 'epoch_type':
+                    badge_class = f"epoch-{val}" if val in ['evoked', 'state', 'sleep'] else ''
+                    val = f"<span class='epoch-badge {badge_class}'>{val}</span>"
+                elif col in ['delta_50hz_db', 'ica_excluded_variance_pct']:
+                    try:
+                        val = f"{float(val):.2f}"
+                    except:
+                        pass
+                
+                html_parts.append(f"<td>{val}</td>")
+            html_parts.append("</tr>")
+        
+        html_parts.append("</table>")
+    else:
+        html_parts.append("<p>No QA data available yet.</p>")
+    
+    # Failed recordings section
+    if not df.empty and 'passed' in df.columns:
+        failed_df = df[df['passed'] == False]
+        if not failed_df.empty:
+            html_parts.append("<h2>Failed Recordings Details</h2>")
+            html_parts.append("<table>")
+            html_parts.append("<tr><th>Subject</th><th>Session</th><th>Task</th><th>Epoch Type</th><th>Fail Reasons</th></tr>")
+            for _, row in failed_df.iterrows():
+                html_parts.append(
+                    f"<tr><td>sub-{row.get('subject', '?')}</td>"
+                    f"<td>ses-{row.get('session', '?')}</td>"
+                    f"<td>{row.get('task', '?')}</td>"
+                    f"<td>{row.get('epoch_type', '?')}</td>"
+                    f"<td>{row.get('fail_reasons', '')}</td></tr>"
+                )
+            html_parts.append("</table>")
+    
+    html_parts.extend([
+        "</div>",
+        "</body>",
+        "</html>",
+    ])
+    
+    # Write HTML
+    with open(output_path, 'w') as f:
+        f.write("\n".join(html_parts))
+    
+    return output_path

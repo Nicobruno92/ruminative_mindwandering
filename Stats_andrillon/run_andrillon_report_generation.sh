@@ -23,28 +23,16 @@ fi
 
 export MPLBACKEND=Agg
 
-PROJECT_ROOT=""
-if [ -d "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering" ]; then
-  PROJECT_ROOT="/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering"
-elif [ -d "/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering" ]; then
-  PROJECT_ROOT="/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering"
-else
-  echo "Project directory not found under /network/iss or /Volumes"
-  exit 1
-fi
-
-cd "${PROJECT_ROOT}"
+cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 
 echo "=========================================="
 echo "GENERATING ANDRILLON SUMMARY REPORT"
 echo "=========================================="
 echo "Start time: $(date)"
-echo "Model directory: ${PROJECT_ROOT}/results/andrillon_cluster/onoff_time_on_task"
+echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence"
 echo ""
 
-python Statistics/generate_summary_report.py \
-  "${PROJECT_ROOT}/results/andrillon_cluster/onoff_time_on_task" \
-  --config "${PROJECT_ROOT}/Stats_andrillon/config_andrillon.yaml"
+python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence
 
 EXIT_CODE=$?
 

@@ -211,7 +211,19 @@ pass_criteria:
   require_all_flags_absent: false
 
 # =============================================================================
-# 11. OUTPUT FILE NAMING
+# 11. ANNOTATION HARMONIZATION
+# =============================================================================
+# Harmonizes event annotations to standardized format while preserving original content
+annotation_harmonization:
+  enabled: true
+  # ONTASK/OFFTASK classification based on onoff dimension
+  # ONTASK = onoff >= ontask_threshold, OFFTASK = onoff < ontask_threshold
+  ontask_threshold: 50
+  # Dimension used for ONTASK/OFFTASK classification
+  ontask_dimension: "onoff"
+
+# =============================================================================
+# 12. OUTPUT FILE NAMING
 # =============================================================================
 # Derivative description names for BIDS compliance
 names:

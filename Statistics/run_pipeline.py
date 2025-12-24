@@ -42,7 +42,7 @@ from helpers import (
     load_pca_data,
     summarize_clusters
 )
-from generate_summary_report import generate_summary_report
+from generate_summary_report import generate_summary_report, generate_pipeline_qa_html_report
 
 
 def create_marker_type_summaries(summary_df: pd.DataFrame, output_dir: Path) -> None:
@@ -563,11 +563,11 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             )
             print(f"✓ Figures saved to {output_dir}")
         
-        return results_dict
+        return {'success': True, 'result': results_dict}
         
     except Exception as e:
         print(f"✗ Error processing marker '{marker_name}': {e}")
-        return None
+        return {'success': False, 'error': str(e)}
 
 
 def main(config_path: str = "Statistics/config.yaml", 
@@ -798,13 +798,13 @@ def main(config_path: str = "Statistics/config.yaml",
     print("-"*80)
     
     successful_results = []
-    failed_markers = []
+    failed_markers = []  # List of dicts with 'marker' and 'error' keys
     
     for i, marker_spec in enumerate(markers_to_process):
         marker_name, marker_type = marker_spec
         print(f"\nProcessing marker {i+1}/{len(markers_to_process)}: {marker_name} ({marker_type})")
         
-        result = process_single_marker(
+        outcome = process_single_marker(
             marker_spec=marker_spec,
             df_all=df_all,
             config=config,
@@ -814,11 +814,15 @@ def main(config_path: str = "Statistics/config.yaml",
             qa_exclusions_dict=qa_exclusions_dict
         )
         
-        if result is not None:
-            successful_results.append(result)
+        if outcome is not None and outcome.get('success', False):
+            successful_results.append(outcome['result'])
             print(f"✓ Successfully processed {marker_name} ({marker_type})")
         else:
-            failed_markers.append(marker_spec)
+            error_msg = outcome.get('error', 'Unknown error') if outcome else 'Unknown error'
+            failed_markers.append({
+                'marker': f"{marker_name} ({marker_type})",
+                'error': error_msg
+            })
             print(f"✗ Failed to process {marker_name} ({marker_type})")
     
     # Step 4: Create summary report
@@ -920,6 +924,20 @@ def main(config_path: str = "Statistics/config.yaml",
         except Exception as e:
             print(f"⚠ Warning: Failed to generate summary report: {e}")
             print("  Individual marker results are still available.")
+        
+        # Generate HTML QA report
+        try:
+            successful_marker_names = [r.get('marker_name', 'unknown') for r in successful_results]
+            html_path = generate_pipeline_qa_html_report(
+                model_dir=model_output_dir,
+                successful_markers=successful_marker_names,
+                failed_markers=failed_markers,
+                config=config,
+                output_filename="pipeline_qa_summary.html"
+            )
+            print(f"✓ Pipeline QA HTML report saved to {html_path}")
+        except Exception as e:
+            print(f"⚠ Warning: Failed to generate HTML QA report: {e}")
     
     # Print completion message
     print("\n" + "="*80)
@@ -929,7 +947,8 @@ def main(config_path: str = "Statistics/config.yaml",
     print(f"Successfully processed: {len(successful_results)} markers")
     print(f"Failed markers: {len(failed_markers)}")
     if failed_markers:
-        print(f"Failed markers: {failed_markers}")
+        for fail_info in failed_markers:
+            print(f"  - {fail_info['marker']}: {fail_info['error'][:100]}..." if len(fail_info['error']) > 100 else f"  - {fail_info['marker']}: {fail_info['error']}")
     
     # Show QA filtering summary if applied
     if qa_exclusions_dict:
@@ -950,6 +969,7 @@ def main(config_path: str = "Statistics/config.yaml",
         print("SUMMARY REPORT FILES")
         print("="*80)
         print("Check the model directory for:")
+        print("  - pipeline_qa_summary.html  : Pipeline execution status (HTML)")
         print("  - SUMMARY_REPORT_*.csv      : Complete results table")
         print("  - SUMMARY_TOPOPLOTS_*.pdf   : All topoplots for comparison")
         print("  - SUMMARY_DETAILED_*.xlsx   : Detailed Excel with multiple sheets")

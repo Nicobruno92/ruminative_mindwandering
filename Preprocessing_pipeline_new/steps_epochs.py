@@ -2,7 +2,11 @@
 
 This module isolates the logic that builds:
 - Evoked (ERP) epochs around task events
-- Pre-probe state epochs (windowed segments before THOUGHT_PROBE)
+- Pre-probe state epochs (windowed segments before THOUGHT-PROBE)
+- Pre-probe sleep epochs (long windows before THOUGHT-PROBE)
+
+THOUGHT-PROBE markers are created during data harmonization and mark
+the onset of thought probe presentations to participants.
 
 Keeping epoch creation here improves readability and testability.
 """
@@ -11,6 +15,12 @@ from typing import Dict, List, Optional
 
 import mne
 import numpy as np
+
+
+# Probe annotation patterns to search for (in priority order)
+# THOUGHT-PROBE is the harmonized format from data_harmonization
+# Legacy patterns are kept for backwards compatibility
+PROBE_PATTERNS = ["THOUGHT-PROBE", "THOUGHT_PROBE"]
 
 
 def make_evoked_epochs(
@@ -22,22 +32,62 @@ def make_evoked_epochs(
     baseline: Optional[tuple],
     reject_by_annotation: bool,
     reject: Optional[Dict[str, float]] = None,
-) -> mne.Epochs:
+) -> Optional[mne.Epochs]:
     """Create evoked (ERP) epochs.
 
     Parameters
-    - raw: MNE Raw object (already cleaned, projector applied if desired)
-    - events: events array as returned by mne.events_from_annotations
-    - event_id: mapping of event labels to numerical codes
-    - tmin, tmax: epoch window
-    - baseline: baseline tuple or None
-    - reject_by_annotation: honor BAD_* annotations
-    - reject: dict of rejection thresholds for coarse artifact rejection
-              (e.g., {'eeg': 500e-6}). Applied before AutoReject.
+    ----------
+    raw : mne.io.BaseRaw
+        MNE Raw object (already cleaned, projector applied if desired)
+    events : np.ndarray
+        Events array as returned by mne.events_from_annotations
+    event_id : Dict[str, int]
+        Mapping of event labels to numerical codes
+    tmin : float
+        Start time of epoch window
+    tmax : float
+        End time of epoch window
+    baseline : tuple or None
+        Baseline tuple or None
+    reject_by_annotation : bool
+        Honor BAD_* annotations
+    reject : Dict[str, float], optional
+        Dict of rejection thresholds for coarse artifact rejection
+        (e.g., {'eeg': 500e-6}). Applied before AutoReject.
 
     Returns
-    - Epochs instance (preloaded for AutoReject compatibility)
+    -------
+    mne.Epochs or None
+        Epochs instance (preloaded for AutoReject compatibility), or None if no events
+        
+    Raises
+    ------
+    ValueError
+        If events array is empty or event_id has no matching events
     """
+    # Validate inputs before creating epochs
+    if events is None or len(events) == 0:
+        raise ValueError(
+            "No events found in data. Check that events.tsv exists and contains "
+            "valid event markers, or that annotations are properly set."
+        )
+    
+    if not event_id:
+        raise ValueError(
+            "event_id is empty. No event types match the requested filter criteria."
+        )
+    
+    # Filter events to only those present in event_id
+    event_codes_requested = set(event_id.values())
+    events_matching = events[np.isin(events[:, 2], list(event_codes_requested))]
+    
+    if len(events_matching) == 0:
+        raise ValueError(
+            f"No events match the requested event_id. "
+            f"Requested event codes: {event_codes_requested}. "
+            f"Available event codes in data: {set(events[:, 2])}"
+        )
+    
     return mne.Epochs(
         raw=raw,
         events=events,
@@ -149,10 +199,24 @@ def make_state_preprobe_epochs(
 
         return '/'.join(parts)
     for onset, desc in zip(ann.onset, ann.description):
-        if isinstance(desc, str) and desc.startswith("THOUGHT_PROBE"):
-            # Keep everything after 'THOUGHT_PROBE' to retain identification
+        if not isinstance(desc, str):
+            continue
+        
+        # Check for any probe pattern (THOUGHT-PROBE or THOUGHT_PROBE)
+        matched_pattern = None
+        for pattern in PROBE_PATTERNS:
+            if desc.startswith(pattern):
+                matched_pattern = pattern
+                break
+        
+        if matched_pattern:
+            # Keep everything after the pattern to retain identification
             if "/" in desc:
-                probe_tail = _ensure_bins_and_label(desc.split("/", 1)[1])
+                probe_tail = desc.split("/", 1)[1]
+                # Only apply legacy bin/label processing for old numeric formats
+                # Skip for harmonized format which already has ONTASK/OFFTASK
+                if not any(x in probe_tail for x in ['ONTASK', 'OFFTASK']):
+                    probe_tail = _ensure_bins_and_label(probe_tail)
             else:
                 probe_tail = ""
             tp_records.append((float(onset), probe_tail))
@@ -340,9 +404,23 @@ def make_sleep_preprobe_epochs(
         return '/'.join(parts)
 
     for onset, desc in zip(ann.onset, ann.description):
-        if isinstance(desc, str) and desc.startswith("THOUGHT_PROBE"):
+        if not isinstance(desc, str):
+            continue
+        
+        # Check for any probe pattern (THOUGHT-PROBE or THOUGHT_PROBE)
+        matched_pattern = None
+        for pattern in PROBE_PATTERNS:
+            if desc.startswith(pattern):
+                matched_pattern = pattern
+                break
+        
+        if matched_pattern:
+            # Keep everything after the pattern to retain identification
             if "/" in desc:
-                probe_tail = _ensure_bins_and_label(desc.split("/", 1)[1])
+                probe_tail = desc.split("/", 1)[1]
+                # Only apply legacy bin/label processing for old numeric formats
+                if not any(x in probe_tail for x in ['ONTASK', 'OFFTASK']):
+                    probe_tail = _ensure_bins_and_label(probe_tail)
             else:
                 probe_tail = ""
             tp_records.append((float(onset), probe_tail))

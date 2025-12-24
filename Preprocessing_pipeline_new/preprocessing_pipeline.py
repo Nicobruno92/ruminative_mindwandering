@@ -50,56 +50,29 @@ import mne
 # =============================================================================
 # LOCAL MODULE IMPORTS
 # =============================================================================
-# Local imports (support running as a script)
-try:
-    from bids_compliance import BIDSCompliance
-    from data_harmonization import load_config
-    from steps_asr import apply_asr_if_configured
-    from steps_bads import run_pyprep_noisychannels
-    from steps_ica import fit_ica_deterministic, auto_select_ica_components
-    from steps_epochs import (
-        make_evoked_epochs,
-        make_state_preprobe_epochs,
-        make_sleep_preprobe_epochs,
-    )
-    from steps_reject import run_autoreject
-    from steps_report import (
-        compute_psd_figure, add_psd_figures, add_excluded_ics,
-        add_ica_selection_table, add_drop_log,
-        add_epoch_rejection_summary, add_qa_metrics_summary
-    )
-    from steps_qa_metrics import (
-        run_complete_qa_assessment, compute_evoked_epoch_metrics,
-        compute_epoch_counts_around_autoreject, 
-        prepare_epoch_metrics_for_reports
-    )
-except ImportError:
-    # Fallback for running as script from within directory
-    _this_dir = os.path.dirname(__file__)
-    if _this_dir not in sys.path:
-        sys.path.append(_this_dir)
-    from bids_compliance import BIDSCompliance
-    from data_harmonization import load_config
-    from steps_report import compute_psd_figure
-    from steps_asr import apply_asr_if_configured
-    from steps_bads import run_pyprep_noisychannels
-    from steps_ica import fit_ica_deterministic, auto_select_ica_components
-    from steps_epochs import (
-        make_evoked_epochs,
-        make_state_preprobe_epochs,
-        make_sleep_preprobe_epochs,
-    )
-    from steps_reject import run_autoreject
-    from steps_report import (
-        add_psd_figures, add_excluded_ics, add_ica_selection_table,
-        add_drop_log, add_epoch_rejection_summary, add_qa_metrics_summary
-    )
-    from steps_qa_metrics import (
-        run_complete_qa_assessment, compute_evoked_epoch_metrics,
-        compute_epoch_counts_around_autoreject, 
-        prepare_epoch_metrics_for_reports
-    )
-
+from bids_compliance import BIDSCompliance
+from data_harmonization import load_config
+from steps_asr import apply_asr_if_configured
+from steps_bads import run_pyprep_noisychannels
+from steps_ica import fit_ica_deterministic, auto_select_ica_components
+from steps_epochs import (
+    make_evoked_epochs,
+    make_state_preprobe_epochs,
+    make_sleep_preprobe_epochs,
+)
+from steps_reject import run_autoreject
+from steps_report import (
+    compute_psd_figure, add_psd_figures, add_excluded_ics,
+    add_ica_selection_table, add_drop_log,
+    add_epoch_rejection_summary, add_qa_metrics_summary
+)
+from steps_qa_metrics import (
+    run_complete_qa_assessment, compute_evoked_epoch_metrics,
+    compute_epoch_counts_around_autoreject, 
+    prepare_epoch_metrics_for_reports,
+    generate_preprocessing_qa_html_report
+)
+from steps_bad_rest import drop_bad_rest_segments
 from utils.log_preprocessing import LogPreprocessingDetails
 
 # =============================================================================
@@ -377,6 +350,30 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     _compute_voltage_stats(raw, "1. RAW (after loading)")
 
     # =========================================================================
+    # 3a. DROP BAD_REST SEGMENTS (BEFORE ANY PROCESSING)
+    # =========================================================================
+    # Drop BAD_rest segments early to prevent rest periods from contaminating
+    # ASR, PyPREP bad channel detection, or ICA fitting.
+    # These segments were annotated during data harmonization.
+    bad_rest_cfg = cfg.get("bad_rest", {})
+    if bad_rest_cfg.get("drop_before_processing", True):
+        print("Dropping BAD_rest segments...")
+        original_duration = raw.times[-1]
+        raw = drop_bad_rest_segments(
+            raw,
+            bad_rest_label=bad_rest_cfg.get("label", "BAD_rest"),
+            verbose=True
+        )
+        new_duration = raw.times[-1]
+        logger.log_detail("bad_rest_dropped", True)
+        logger.log_detail("bad_rest_original_duration_s", float(original_duration))
+        logger.log_detail("bad_rest_final_duration_s", float(new_duration))
+        logger.log_detail("bad_rest_dropped_duration_s", float(original_duration - new_duration))
+        
+        # Rebuild events from the cropped data
+        events, event_id = mne.events_from_annotations(raw)
+
+    # =========================================================================
     # 4. NOTCH FILTERING AND PSD ANALYSIS
     # =========================================================================
     print("Applying notch filter...")
@@ -431,15 +428,27 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     prelim_bads = list(raw.info.get("bads", []))
 
     # Detect noisy channels using PyPREP RANSAC
-    prep_bads = run_pyprep_noisychannels(
-        raw,
-        do_detrend=do_detrend,
-        ransac=use_ransac,
-        channel_wise=channel_wise,
-        random_state=random_state,
-        prefilter=prefilter_for_pyprep,
-        pre_ica_opts=pre_ica_opts,
-    )
+    try:
+        prep_bads = run_pyprep_noisychannels(
+            raw,
+            do_detrend=do_detrend,
+            ransac=use_ransac,
+            channel_wise=channel_wise,
+            random_state=random_state,
+            prefilter=prefilter_for_pyprep,
+            pre_ica_opts=pre_ica_opts,
+        )
+    except RuntimeError as e:
+        # Handle ICA fitting failures (e.g., one PCA component captures most variance)
+        if "ICA fitting failed" in str(e):
+            print(f"[SKIP] ICA fitting failed for sub-{subject} task-{task}: {e}")
+            print("This subject/task will be skipped due to data quality issues.")
+            logger.log_detail("skipped", True)
+            logger.log_detail("skip_reason", f"ICA fitting failed: {str(e)[:200]}")
+            logger.save_preprocessing_details()
+            return
+        else:
+            raise
     
     # Combine bad channels from different sources
     all_bads = (raw.info.get("bads") or []) + (prep_bads or [])
@@ -648,20 +657,25 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
     else:
         event_id_use = event_id
         
-    # Create evoked epochs
-    epochs = make_evoked_epochs(
-        raw_clean,
-        events,
-        event_id_use,
-        tmin=tmin,
-        tmax=tmax,
-        baseline=baseline,
-        reject_by_annotation=True,
-        reject=reject_threshold,
-    )
-    
-    # Apply picks_eeg to epochs after creation
-    # epochs.pick(picks_eeg)
+    # Create evoked epochs with validation
+    try:
+        epochs = make_evoked_epochs(
+            raw_clean,
+            events,
+            event_id_use,
+            tmin=tmin,
+            tmax=tmax,
+            baseline=baseline,
+            reject_by_annotation=True,
+            reject=reject_threshold,
+        )
+    except ValueError as e:
+        print(f"[SKIP] Cannot create evoked epochs for sub-{subject} task-{task}: {e}")
+        print("This subject/task will be skipped. Check that events.tsv exists and contains valid markers.")
+        logger.log_detail("skipped", True)
+        logger.log_detail("skip_reason", str(e))
+        logger.save_preprocessing_details()
+        return
 
     # =========================================================================
     # 11. AUTOREJECT ARTIFACT REJECTION
@@ -744,14 +758,20 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
             titles=["Go (all)", "NoGo (all)"][: len(evk)],
         )
 
+    # Drop non-EEG channels before saving to avoid downstream issues
+    ar_epochs.pick('eeg')
+    
     # Save evoked epochs to derivatives
-    bidsio.write_derivative_epochs(
+    evoked_path = bidsio.write_derivative_epochs(
         ar_epochs,
         derivatives_root,
         subject,
         task,
         desc=name_evoked,
     )
+    print(f"  [SAVED] Evoked epochs: {evoked_path}")
+    logger.log_detail("saved_evoked_epochs", True)
+    logger.log_detail("n_evoked_epochs_saved", len(ar_epochs))
     
     # Add before/after epochs and comparison to report
     try:
@@ -886,14 +906,20 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
         epoch_metrics['has_state_epochs'] = True
         epoch_metrics['n_state_epochs'] = n_after_state_drop
         
+        # Drop non-EEG channels before saving
+        ar_state_epochs.pick('eeg')
+        
         # Save state epochs to derivatives
-        bidsio.write_derivative_epochs(
+        state_path = bidsio.write_derivative_epochs(
             ar_state_epochs,
             derivatives_root,
             subject,
             task,
             desc=name_state,
         )
+        print(f"  [SAVED] State epochs: {state_path}")
+        logger.log_detail("saved_state_epochs", True)
+        logger.log_detail("n_state_epochs_saved", len(ar_state_epochs))
         
         # Add before/after to report
         try:
@@ -950,14 +976,20 @@ def process_subject_task(cfg: Dict[str, Any], subject: str, task: str) -> None:
             'n_sleep_epochs': int(len(sleep_epochs_clean)),
         })
 
+        # Drop non-EEG channels before saving
+        sleep_epochs_clean.pick('eeg')
+        
         # Save sleep epochs to derivatives
-        bidsio.write_derivative_epochs(
+        sleep_path = bidsio.write_derivative_epochs(
             sleep_epochs_clean,
             derivatives_root,
             subject,
             task,
             desc=name_sleep,
         )
+        print(f"  [SAVED] Sleep epochs: {sleep_path}")
+        logger.log_detail("saved_sleep_epochs", True)
+        logger.log_detail("n_sleep_epochs_saved", len(sleep_epochs_clean))
 
         from steps_report import add_epochs_sections
         add_epochs_sections(
@@ -1114,9 +1146,35 @@ def main():
     # Load configuration
     cfg = load_config(args.config)
 
+    # Get derivatives root for QA reports
+    project = cfg.get("project", {})
+    derivatives_root = project.get("derivatives_root", "../../../data/derivatives")
+
     # Process single subject-task if specified
     if args.subject and args.task:
         process_subject_task(cfg, args.subject, args.task)
+        
+        # Generate per-subject HTML report
+        try:
+            subj_html = generate_preprocessing_qa_html_report(
+                derivatives_root,
+                output_filename=f"preprocessing_qa_sub-{args.subject}.html",
+                subject_filter=args.subject
+            )
+            print(f"[QA REPORT] Per-subject HTML: {subj_html}")
+        except Exception as e:
+            print(f"[WARN] Could not generate per-subject HTML report: {e}")
+        
+        # Generate/update global HTML report
+        try:
+            global_html = generate_preprocessing_qa_html_report(
+                derivatives_root,
+                output_filename="preprocessing_qa_summary.html"
+            )
+            print(f"[QA REPORT] Global HTML: {global_html}")
+        except Exception as e:
+            print(f"[WARN] Could not generate global HTML report: {e}")
+        
         return
 
     # Process all subjects and tasks from config
@@ -1156,6 +1214,29 @@ def main():
             except Exception as e:
                 print(f"✗ Error processing subject {sub}, task {t}: {e}")
                 continue
+    
+    # Generate per-subject HTML reports for all processed subjects
+    print("\n[QA REPORT] Generating HTML reports...")
+    for sub in subjects:
+        try:
+            subj_html = generate_preprocessing_qa_html_report(
+                derivatives_root,
+                output_filename=f"preprocessing_qa_sub-{sub}.html",
+                subject_filter=sub
+            )
+            print(f"  - Per-subject: {subj_html}")
+        except Exception as e:
+            print(f"  - [WARN] Could not generate report for sub-{sub}: {e}")
+    
+    # Generate global HTML report
+    try:
+        global_html = generate_preprocessing_qa_html_report(
+            derivatives_root,
+            output_filename="preprocessing_qa_summary.html"
+        )
+        print(f"  - Global: {global_html}")
+    except Exception as e:
+        print(f"  - [WARN] Could not generate global HTML report: {e}")
     
     print(f"\n{'='*60}")
     print("Preprocessing pipeline completed!")

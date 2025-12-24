@@ -41,6 +41,30 @@ echo "Detecting number of markers from Andrillon config..."
 N_MARKERS=$(python -c "
 import yaml
 import sys
+import logging
+from pathlib import Path
+
+# Suppress logging to avoid polluting stdout
+logging.disable(logging.CRITICAL)
+
+sys.path.append('${SCRIPT_DIR}')
+from andrillon_pipeline import get_marker_list
+
+CONFIG_PATH = Path('${CONFIG_FILE}')
+with open(CONFIG_PATH, 'r') as f:
+    config = yaml.safe_load(f)
+
+markers = get_marker_list(config)
+print(len(markers))
+" 2>/dev/null)
+PYTHON_EXIT_CODE=$?
+
+if [ ${PYTHON_EXIT_CODE} -ne 0 ] || [ -z "${N_MARKERS}" ]; then
+    echo "ERROR: Python failed to detect markers!"
+    # Re-run to show the error
+    python -c "
+import yaml
+import sys
 from pathlib import Path
 
 sys.path.append('${SCRIPT_DIR}')
@@ -52,7 +76,9 @@ with open(CONFIG_PATH, 'r') as f:
 
 markers = get_marker_list(config)
 print(len(markers))
-")
+"
+    exit 1
+fi
 
 if [ -z "${N_MARKERS}" ] || [ "${N_MARKERS}" -eq 0 ]; then
     echo "ERROR: Could not determine number of markers or no markers found!"

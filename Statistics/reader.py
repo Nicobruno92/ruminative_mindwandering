@@ -666,10 +666,12 @@ def prepare_channel_data(power_data: np.ndarray,
 def get_available_markers(features_root: str, 
                          marker_types: Optional[List[str]] = None) -> Dict[str, List[str]]:
     """
-    Get list of available markers from the aggregated data.
+    Get list of available markers from the aggregated data by scanning filenames.
     
     This function ensures that state and evoked markers are treated as completely separate,
     even if they have the same marker name. Each marker type maintains its own list.
+    
+    Uses fast filesystem scan instead of loading data.
     
     Parameters
     ----------
@@ -684,17 +686,47 @@ def get_available_markers(features_root: str,
         Dictionary mapping marker types to lists of marker names.
         State and evoked markers are kept separate even if names are similar.
     """
-    # Load a sample of data to get marker information
-    sample_df = load_all_probe_data(features_root, verbose=False)
+    import re
+    features_path = Path(features_root)
     
-    # Group markers by type (state and evoked are completely separate)
+    if not features_path.exists():
+        raise FileNotFoundError(f"Features root directory not found: {features_root}")
+    
+    # Fast scan: find CSV files and extract marker info from filenames
+    # Pattern: sub-XX_task-SartX_desc-probe-XXX_TYPE_aggMarkers.csv
+    # where TYPE is like "evoked" or "state"
+    pattern = "**/sub-*_task-*_desc-probe-*_*_aggMarkers.csv"
+    csv_files = list(features_path.glob(pattern))
+    
+    if not csv_files:
+        raise ValueError(f"No aggregated marker CSV files found in {features_root}")
+    
+    # Extract marker types from filenames first
+    # Filename format: sub-02_task-Sart1_desc-probe-001_evoked_aggMarkers.csv
+    # The marker type is the part before _aggMarkers.csv
     marker_info = {}
-    for marker_type in sample_df['marker_type'].unique():
-        if marker_types is None or marker_type in marker_types:
-            # Get markers for this specific type only
-            type_data = sample_df[sample_df['marker_type'] == marker_type]
-            type_markers = sorted(type_data['marker'].unique())
-            marker_info[marker_type] = type_markers
+    files_by_type = {}
+    
+    # Group files by marker type (extracted from filename)
+    for f in csv_files:
+        # Extract type from filename: ...desc-probe-XXX_TYPE_aggMarkers.csv
+        fname = f.name
+        match = re.search(r'_desc-probe-\d+_(\w+)_aggMarkers\.csv$', fname)
+        if match:
+            mtype = match.group(1)
+            if mtype not in files_by_type:
+                files_by_type[mtype] = f
+    
+    # Read one sample file per marker type to get marker names
+    for mtype, sample_file in files_by_type.items():
+        if marker_types is not None and mtype not in marker_types:
+            continue
+        try:
+            sample_df = pd.read_csv(sample_file, usecols=['marker'])
+            type_markers = sorted(sample_df['marker'].unique())
+            marker_info[mtype] = type_markers
+        except Exception as e:
+            raise ValueError(f"Failed to read marker info from {sample_file}: {e}")
     
     return marker_info
 
