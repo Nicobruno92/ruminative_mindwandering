@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import textwrap
+from PIL import Image
 
 # =============================================================================
 # CONFIGURATION - Modify these variables if paths change
@@ -38,11 +39,13 @@ def safe_image(path: Path, caption: str = "") -> None:
         return
 
     try:
-        # width="stretch" replaces deprecated use_container_width=True
-        st.image(str(path), caption=caption, width="stretch")
-    except Exception:
-        # If PIL/Streamlit cannot interpret the file as an image, show a message
-        st.info(f"File exists but could not be loaded as an image: {path}")
+        # Try opening with PIL first to verify validity
+        img = Image.open(path)
+        # use_column_width is more compatible with older Streamlit versions than use_container_width
+        st.image(img, caption=caption, use_column_width=True)
+    except Exception as e:
+        # If PIL/Streamlit cannot interpret the file as an image, show a message with the error
+        st.error(f"Error loading image: {path}\nDetails: {str(e)}")
 
 
 def safe_html_plot(path: Path, caption: str = "") -> None:
@@ -2325,6 +2328,103 @@ def page_mood_analysis() -> None:
     )
 
 
+
+# 9a) Cyberball Delayed Mood Mediation
+
+def page_cyberball_delayed_mood_mediation() -> None:
+    st.header("9a. Cyberball Delayed Mood Mediation")
+    st.markdown(
+        textwrap.dedent(
+            """
+            This page presents a **Delayed Mood Mediation** analysis, testing whether
+            the effect of Cyberball Condition on **Delayed Mood** (measured *after*
+            the SART task) is mediated by **Thoughts** during the SART, and whether
+            this mediation is moderated by Group.
+
+            **Model Structure (Hayes Model 7/8)**
+            - **X**: Cyberball Condition (Inclusion vs Exclusion)
+            - **M**: Thought Dimension (during SART)
+            - **Y**: Delayed Mood (Last EVA block, after SART)
+            - **W**: Group (Moderator of Path A: Condition → Thoughts)
+            - **Cov**: Baseline Mood (First EVA block of the session)
+
+            **Key Question**
+            Does the exclusion-induced mood change persist or emerge *after* the
+            SART task, and is this delayed effect driven by the content of
+            mind-wandering during the task (e.g. ruminative thoughts)?
+            """
+        )
+    )
+
+    results_dir = BEHAVIOR_DIR / "mediation_analysis" / "cyberball_delayed_mood_mediation"
+    plots_dir = results_dir / "plots"
+    dags_dir = BEHAVIOR_DIR / "mediation_analysis" / "DAGs"
+
+    # 1. DAG Visualization
+    st.subheader("Conceptual Model (DAG)", divider=True)
+    safe_image(
+        dags_dir / "DAG_cyberball_delayed_mood.png",
+        "Directed Acyclic Graph: Cyberball → Thoughts → Delayed Mood"
+    )
+
+    # 2. Combined Results Visualization
+    st.subheader("Mediation Results", divider=True)
+    st.markdown(
+        """
+        The visualization below summarizes the results across all 30 models 
+        (6 Thought Dimensions × 5 Mood Scales).
+        
+        **Panels:**
+        1. **Indirect Effects (Heatmaps)**: Colored cells show significant indirect effects
+           for Controls (left) and Risk Group (right).
+        2. **Path A (Interaction)**: Shows whether Cyberball differentially affects thoughts 
+           depending on the group.
+        3. **Path B (Thoughts → Mood)**: Shows which thoughts predict delayed mood changes.
+        4. **Index of Moderated Mediation**: Tests if the indirect effect significantly 
+           differs between groups.
+        """
+    )
+    
+    safe_image(
+        plots_dir / "cyberball_delayed_mood_mediation_combined.png",
+        "Combined Mediation Results"
+    )
+
+    # 3. Detailed Results Table
+    st.subheader("Detailed Statistics", divider=True)
+    if (results_dir / "mediation_results.csv").exists():
+        df = pd.read_csv(results_dir / "mediation_results.csv")
+        st.dataframe(df)
+        
+        st.markdown("### Download Full Results")
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "Download CSV",
+            csv,
+            "cyberball_delayed_mood_mediation_results.csv",
+            "text/csv",
+            key='download-delayed-mediation'
+        )
+    else:
+        st.info("Results CSV not found.")
+
+    st.subheader("Interpretation")
+    st.markdown(
+        textwrap.dedent(
+            """
+            - **Path A (Condition → Thoughts)**: Check if Cyberball exclusion
+              significantly alters thoughts (e.g., increases PC1/rumination)
+              compared to inclusion, and if this effect is stronger in the Risk group.
+            - **Path B (Thoughts → Delayed Mood)**: Check if thoughts during the task
+              predict mood *after* the task. For example, does more negative thinking
+              during SART predict worse mood later?
+            - **Indirect Effect**: If significant, it means the Cyberball intervention
+              influences delayed mood *through* its effect on thoughts.
+            """
+        )
+    )
+
+
 PAGES: List[str] = [
     "Overview (Text Summary)",
     "1. Demographics & Psychometrics",
@@ -2336,6 +2436,7 @@ PAGES: List[str] = [
     "7. Mood Analysis",
     "8. Mediation Analyses",
     "9. Cyberball Moderated Mediation",
+    "9a. Cyberball Delayed Mood Mediation",
     "10. Objective Markers – SART Performance",
 ]
 
@@ -2527,6 +2628,9 @@ def main() -> None:
 
     elif selection == "9. Cyberball Moderated Mediation":
         page_cyberball_moderated_mediation()
+
+    elif selection == "9a. Cyberball Delayed Mood Mediation":
+        page_cyberball_delayed_mood_mediation()
 
     elif selection == "10. Objective Markers – SART Performance":
         page_objective_markers()
