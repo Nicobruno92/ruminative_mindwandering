@@ -1,0 +1,35 @@
+                 Mixed Linear Model Regression Results
+========================================================================
+Model:                  MixedLM      Dependent Variable:      valence   
+No. Observations:       857          Method:                  REML      
+No. Groups:             33           Scale:                   220.2023  
+Min. group size:        1            Log-Likelihood:          -3567.9450
+Max. group size:        58           Converged:               Yes       
+Mean group size:        26.0                                            
+------------------------------------------------------------------------
+                             Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+------------------------------------------------------------------------
+Intercept                    59.733    3.307 18.063 0.000  53.252 66.215
+group[T.Risk of Depression] -10.708    5.295 -2.023 0.043 -21.085 -0.331
+time_on_task                 -0.027    0.032 -0.835 0.404  -0.090  0.036
+subject_id Var              180.713    3.551                            
+========================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 7143.890088
+BIC: 7162.903839
+LOG_LIKELIHOOD: -3567.945044
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 857
+N_GROUPS: 33
+N_PARAMETERS: 4
+N_FIXED_EFFECTS: 3
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 220.202296
+DEVIANCE: 7135.890088
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

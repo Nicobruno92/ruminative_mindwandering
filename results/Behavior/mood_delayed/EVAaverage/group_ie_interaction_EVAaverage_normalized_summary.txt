@@ -1,0 +1,17 @@
+                                 Mixed Linear Model Regression Results
+=======================================================================================================
+Model:                        MixedLM             Dependent Variable:             EVAaverage_normalized
+No. Observations:             80                  Method:                         REML                 
+No. Groups:                   42                  Scale:                          0.7057               
+Min. group size:              1                   Log-Likelihood:                 -111.7972            
+Max. group size:              2                   Converged:                      Yes                  
+Mean group size:              1.9                                                                      
+-------------------------------------------------------------------------------------------------------
+                                                             Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+-------------------------------------------------------------------------------------------------------
+Intercept                                                    -0.247    0.182 -1.356 0.175 -0.603  0.110
+group[T.Risk of Depression]                                   0.232    0.351  0.662 0.508 -0.456  0.920
+inclusion_exclusion[T.inclusion]                              0.191    0.225  0.851 0.395 -0.249  0.632
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion] -0.194    0.418 -0.462 0.644 -1.014  0.627
+subject_id Var                                                0.288    0.255                           
+=======================================================================================================

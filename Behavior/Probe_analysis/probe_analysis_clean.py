@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 df = pd.read_csv('../../results/Behavior/probe_data/probe_level_aggregated_data.csv')
 
 #%%
-display(df.describe())
+print(df.describe())
 
 #distribution plots
 fig = px.histogram(df, x='onoff', nbins=100, title='Distribution of On/Off')
@@ -574,6 +574,210 @@ results_group_time_int, model_group_time_int = run_lmm_analysis(
 )
 
 # =============================================================================
+# MODEL 6: EXTRACT INDIVIDUAL TIME-ON-TASK SLOPES (OLS per subject)
+# =============================================================================
+# Simple linear regression per subject to capture individual time-on-task effect
+# More variable than LMM random slopes (no shrinkage toward population mean)
+
+print("\n" + "="*60)
+print("MODEL 6: EXTRACTING INDIVIDUAL TIME-ON-TASK SLOPES (OLS)")
+print("="*60)
+
+# Calculate OLS slope per subject
+tot_slopes_list = []
+for subject_id in df_lmm['subject_id'].unique():
+    subject_data = df_lmm[df_lmm['subject_id'] == subject_id]
+    n_probes = len(subject_data)
+    
+    if n_probes >= 10:  # Need minimum points for reliable slope
+        # Fit linear regression: onoff ~ time_on_task
+        slope, intercept = np.polyfit(subject_data['time_on_task'], subject_data['onoff'], 1)
+        
+        # Calculate R² for quality check
+        predicted = slope * subject_data['time_on_task'] + intercept
+        ss_res = ((subject_data['onoff'] - predicted) ** 2).sum()
+        ss_tot = ((subject_data['onoff'] - subject_data['onoff'].mean()) ** 2).sum()
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+        
+        # New metric: difference between first 5 and last 5 probes
+        # Sort by time_on_task to ensure correct order
+        subject_sorted = subject_data.sort_values('time_on_task')
+        first_5_mean = subject_sorted.head(5)['onoff'].mean()
+        last_5_mean = subject_sorted.tail(5)['onoff'].mean()
+        first_last_diff = last_5_mean - first_5_mean
+        
+        tot_slopes_list.append({
+            'subject_id': subject_id,
+            'time_on_task_slope': slope,
+            'intercept': intercept,
+            'r_squared': r_squared,
+            'n_probes': n_probes,
+            'tot_first_last_diff': first_last_diff
+        })
+
+tot_slopes_df = pd.DataFrame(tot_slopes_list)
+
+# Add group information
+subject_group_map = df_lmm.drop_duplicates('subject_id').set_index('subject_id')['group'].to_dict()
+tot_slopes_df['group'] = tot_slopes_df['subject_id'].map(subject_group_map)
+
+# Add BDI information
+subject_bdi_map = df_lmm.drop_duplicates('subject_id').set_index('subject_id')['bdi'].to_dict()
+tot_slopes_df['bdi'] = tot_slopes_df['subject_id'].map(subject_bdi_map)
+
+# Summary statistics
+print(f"\nTime-on-Task Slopes Summary (OLS per subject):")
+print(f"  N subjects: {len(tot_slopes_df)}")
+metrics = ['time_on_task_slope', 'tot_first_last_diff']
+labels = ['Linear Slope', 'First-Last Diff']
+
+for metric, label in zip(metrics, labels):
+    print(f"\n{label}:")
+    print(f"  Mean: {tot_slopes_df[metric].mean():.4f}")
+    print(f"  SD: {tot_slopes_df[metric].std():.4f}")
+    print(f"  Range: [{tot_slopes_df[metric].min():.4f}, {tot_slopes_df[metric].max():.4f}]")
+    
+    # Group comparison
+    print(f"  By Group:")
+    groups = tot_slopes_df['group'].dropna().unique()
+    for group in groups:
+        group_data = tot_slopes_df[tot_slopes_df['group'] == group][metric]
+        print(f"    {group}: M = {group_data.mean():.4f}, SD = {group_data.std():.4f}")
+    
+    # T-test
+    if len(groups) >= 2:
+        g1 = tot_slopes_df[tot_slopes_df['group'] == groups[0]][metric]
+        g2 = tot_slopes_df[tot_slopes_df['group'] == groups[1]][metric]
+        t_stat, p_val = stats.ttest_ind(g1, g2)
+        print(f"  Group difference t-test: t = {t_stat:.3f}, p = {p_val:.3f}")
+
+# =============================================================================
+# VISUALIZATION: Time-on-Task Slopes by Group
+# =============================================================================
+# Define colors for consistency
+group_colors = ['#2E86AB', '#F24236']
+ie_colors = ['#A23B72', '#F18F01']
+
+# Define plots output directory
+plots_output_dir = '../../results/Behavior/probe_data/lmm_plots_onoff'
+os.makedirs(plots_output_dir, exist_ok=True)
+
+# Save individual slopes
+tot_slopes_file = os.path.join(lmm_output_dir, 'time_on_task_slopes_per_subject.csv')
+tot_slopes_df.to_csv(tot_slopes_file, index=False)
+print(f"\nIndividual time-on-task metrics saved to: {tot_slopes_file}")
+
+# Also save to the main results folder for easy access by correlation scripts
+main_results_slopes_file = '../../results/Behavior/probe_data/time_on_task_slopes_per_subject.csv'
+tot_slopes_df.to_csv(main_results_slopes_file, index=False)
+print(f"Also saved to: {main_results_slopes_file}")
+
+print("\n" + "="*60)
+print("CREATING TIME-ON-TASK SLOPES VISUALIZATION")
+print("="*60)
+
+metrics = ['time_on_task_slope', 'tot_first_last_diff']
+metric_labels = ['Linear Slope', 'First-Last Diff']
+metric_short = ['linear_slope', 'first_last_diff']
+
+for metric, label, short in zip(metrics, metric_labels, metric_short):
+    fig, axes = plt.subplots(1, 4, figsize=(24, 6))
+    
+    # Plot 1: Raincloud plot comparing groups
+    ax1 = axes[0]
+    pt.RainCloud(
+        x="group",
+        y=metric,
+        data=tot_slopes_df,
+        palette=group_colors,
+        order=['Controls', 'Risk of Depression'],
+        bw=0.2,
+        width_viol=0.6,
+        alpha=0.7,
+        dodge=True,
+        pointplot=True,
+        move=-0.1,
+        ax=ax1,
+    )
+    ax1.set_title(f"{label} by Group", fontsize=16, fontweight="bold")
+    ax1.set_xlabel("Group", fontsize=12, fontweight="bold")
+    ax1.set_ylabel(label, fontsize=12, fontweight="bold")
+    ax1.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+    ax1.grid(True, alpha=0.3)
+
+    # Plot 2: Scatter plot of individual values with jitter
+    ax2 = axes[1]
+    for i, group in enumerate(['Controls', 'Risk of Depression']):
+        group_data = tot_slopes_df[tot_slopes_df['group'] == group]
+        x_jitter = np.random.normal(i, 0.1, len(group_data))
+        ax2.scatter(x_jitter, group_data[metric], 
+                    c=group_colors[i], alpha=0.7, s=80, edgecolor='white', linewidth=0.5,
+                    label=f"{group} (n={len(group_data)})")
+        # Add mean line
+        mean_val = group_data[metric].mean()
+        ax2.hlines(mean_val, i-0.3, i+0.3, colors=group_colors[i], linewidth=3)
+
+    ax2.set_xticks([0, 1])
+    ax2.set_xticklabels(['Controls', 'Risk of Depression'])
+    ax2.set_title(f"Individual {label}", fontsize=16, fontweight="bold")
+    ax2.set_xlabel("Group", fontsize=12, fontweight="bold")
+    ax2.set_ylabel(label, fontsize=12, fontweight="bold")
+    ax2.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+    ax2.legend(fontsize=10)
+    ax2.grid(True, alpha=0.3)
+
+    # Plot 3: Histogram of values by group
+    ax3 = axes[2]
+    for i, group in enumerate(['Controls', 'Risk of Depression']):
+        group_data = tot_slopes_df[tot_slopes_df['group'] == group][metric]
+        ax3.hist(group_data, bins=15, alpha=0.6, color=group_colors[i], 
+                 label=f"{group}", edgecolor='white')
+        ax3.axvline(group_data.mean(), color=group_colors[i], linestyle='--', linewidth=2)
+
+    ax3.set_title(f"Distribution of {label}", fontsize=16, fontweight="bold")
+    ax3.set_xlabel(label, fontsize=12, fontweight="bold")
+    ax3.set_ylabel("Count", fontsize=12, fontweight="bold")
+    ax3.axvline(x=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+    ax3.legend(fontsize=10)
+    ax3.grid(True, alpha=0.3)
+
+    # Plot 4: Correlation with BDI
+    ax4 = axes[3]
+    for i, group in enumerate(['Controls', 'Risk of Depression']):
+        group_data = tot_slopes_df[tot_slopes_df['group'] == group]
+        if len(group_data.dropna(subset=['bdi', metric])) > 0:
+            ax4.scatter(group_data['bdi'], group_data[metric], 
+                       c=group_colors[i], alpha=0.7, s=80, edgecolor='white', linewidth=0.5,
+                       label=group)
+
+    # Add trend line and correlation for all data
+    valid_data = tot_slopes_df.dropna(subset=['bdi', metric])
+    if len(valid_data) > 5:
+        line_slope, line_intercept, r_val, p_val_bdi, _ = stats.linregress(valid_data['bdi'], valid_data[metric])
+        corr_spearman, p_spearman = stats.spearmanr(valid_data['bdi'], valid_data[metric])
+        
+        x_range = np.array([valid_data['bdi'].min(), valid_data['bdi'].max()])
+        ax4.plot(x_range, line_slope * x_range + line_intercept, color='red', linestyle='--', linewidth=2, alpha=0.8)
+        
+        corr_text = f"Spearman r = {corr_spearman:.3f}\np = {p_spearman:.3f}"
+        ax4.text(0.95, 0.95, corr_text, transform=ax4.transAxes, ha='right', va='top',
+                 fontsize=12, fontweight='bold', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+    ax4.set_title(f"{label} vs BDI", fontsize=16, fontweight="bold")
+    ax4.set_xlabel("BDI Score", fontsize=12, fontweight="bold")
+    ax4.set_ylabel(label, fontsize=12, fontweight="bold")
+    ax4.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+    ax4.grid(True, alpha=0.3)
+    ax4.legend(fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_output_dir, f'time_on_task_{short}_analysis.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(plots_output_dir, f'time_on_task_{short}_analysis.svg'), dpi=300, bbox_inches='tight')
+    plt.close(fig) # Close to free memory
+
+print(f"Slopes visualizations saved to: {plots_output_dir}")
+
+# =============================================================================
 # INTERVENTION DISTANCE MODELS (probe_number within block: 1-15)
 # These test how the effect evolves within each manipulation block
 # =============================================================================
@@ -634,17 +838,16 @@ print("CREATING VISUALIZATIONS FOR ON/OFF ANALYSIS")
 print("="*60)
 
 # Create output directory for plots
-plots_output_dir = '../../results/Behavior/probe_data/lmm_plots_onoff'
-os.makedirs(plots_output_dir, exist_ok=True)
+# Create time-on-task visualization
+plt.style.use('default')
 
 # Time-on-task visualization
 print("\n" + "="*60)
 print("CREATING TIME-ON-TASK VISUALIZATION")
 print("="*60)
 
-# Define colors for consistency
-group_colors = ['#2E86AB', '#F24236']
-ie_colors = ['#A23B72', '#F18F01']
+# Create time-on-task visualization
+plt.style.use('default')
 
 plt.style.use('default')
 fig_time, axes_time = plt.subplots(2, 2, figsize=(18, 12))

@@ -27,17 +27,14 @@ from scipy import stats
 
 # Input data files
 PROBE_DATA_FILE: str = (
-    "/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/"
     "results/Behavior/probe_data/pca_results.csv"
 )
 EVA_DATA_FILE: str = (
-    "/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/"
     "results/Behavior/scales_data/eva_aggregated_data.csv"
 )
 
 # Output directory
 RESULTS_DIR: str = (
-    "/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/"
     "results/Behavior/mediation_analysis/multilevel_mediation"
 )
 
@@ -51,8 +48,16 @@ THOUGHT_DIMENSIONS: List[str] = [
     "pca1",
 ]
 
-# Mood dimension from EVA scale
-MOOD_COLUMN: str = "EVAaverage"  # Options: EVAtense, EVAfeel, EVAmood, EVAhurt, EVAaverage, "total_score"
+# All mood dimensions from EVA scale to analyze
+MOOD_COLUMNS: List[str] = [
+    "EVAaverage",
+    "EVAmood",
+    "EVAfeel",
+    "EVAtense",
+    "EVAhurt",
+]
+
+# Colors will be generated using husl palette (matching reverse_mediation style)
 
 # Monte Carlo simulation parameters
 N_SIMULATIONS: int = 20000
@@ -68,7 +73,12 @@ MIN_BLOCKS: int = 25
 
 # Optional: Filter ON-task probes only
 APPLY_ONOFF_FILTER: bool = True
-ONOFF_MAX_EXCLUSIVE: float = 50.0
+ONOFF_MAX_EXCLUSIVE: float = 62.0
+
+# Standardization
+# If True, all thought dimensions (including pca1) are z-scored
+# at the block level before fitting the mediation models for comparability.
+STANDARDIZE_THOUGHTS: bool = True
 
 # =============================================================================
 # DATA LOADING AND PREPROCESSING
@@ -89,7 +99,7 @@ def load_and_merge_data() -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        Block-level data with mean thought scores and mood_pre per block.
+        Block-level data with mean thought scores and all mood_pre columns per block.
     """
     print("\n" + "=" * 70)
     print("LOADING DATA")
@@ -125,7 +135,7 @@ def load_and_merge_data() -> pd.DataFrame:
     df_eva = pd.read_csv(EVA_DATA_FILE)
     print(f"Loaded {len(df_eva)} EVA block observations")
     
-    required_eva_cols = {"subject_id", "task", "block_number", MOOD_COLUMN}
+    required_eva_cols = {"subject_id", "task", "block_number"} | set(MOOD_COLUMNS)
     missing = required_eva_cols - set(df_eva.columns)
     if missing:
         raise ValueError(f"Missing EVA columns: {sorted(missing)}")
@@ -139,17 +149,21 @@ def load_and_merge_data() -> pd.DataFrame:
         .rename(columns={dim: f"mean_{dim}" for dim in THOUGHT_DIMENSIONS})
     )
     
-    # Extract mood_pre (first EVA block per subject × task)
-    def get_mood_pre(group: pd.DataFrame) -> pd.Series:
+    # Extract mood_pre for ALL mood columns (first EVA block per subject × task)
+    def get_all_mood_pre(group: pd.DataFrame) -> pd.Series:
         group_sorted = group.sort_values("block_number")
-        mood_vals = group_sorted[MOOD_COLUMN].dropna()
-        if mood_vals.empty:
-            return pd.Series({"mood_pre": np.nan})
-        return pd.Series({"mood_pre": float(mood_vals.iloc[0])})
+        result = {}
+        for mood_col in MOOD_COLUMNS:
+            mood_vals = group_sorted[mood_col].dropna()
+            if mood_vals.empty:
+                result[f"mood_pre_{mood_col}"] = np.nan
+            else:
+                result[f"mood_pre_{mood_col}"] = float(mood_vals.iloc[0])
+        return pd.Series(result)
     
     df_mood = (
         df_eva.groupby(["subject_id", "task"], as_index=False)
-        .apply(get_mood_pre)
+        .apply(get_all_mood_pre, include_groups=False)
         .reset_index(drop=True)
     )
     
@@ -158,10 +172,18 @@ def load_and_merge_data() -> pd.DataFrame:
         df_mood, on=["subject_id", "task"], how="inner"
     )
     
-    # Remove missing data
+    # Remove rows missing ALL mood data
+    mood_pre_cols = [f"mood_pre_{m}" for m in MOOD_COLUMNS]
     before = len(df_block)
-    df_block = df_block.dropna(subset=["mood_pre"]).reset_index(drop=True)
+    df_block = df_block.dropna(subset=mood_pre_cols, how="all").reset_index(drop=True)
     print(f"Block-level dataset: {before} → {len(df_block)} blocks after removing missing mood")
+    
+    # Optional: Standardize thought dimensions for comparability
+    if STANDARDIZE_THOUGHTS:
+        thought_cols = [f"mean_{d}" for d in THOUGHT_DIMENSIONS if f"mean_{d}" in df_block.columns]
+        for col in thought_cols:
+            df_block[col] = stats.zscore(df_block[col], nan_policy="omit")
+        print(f"Standardized {len(thought_cols)} thought dimensions (z-scored)")
     
     print(f"\nFinal dataset:")
     print(f"  N blocks: {len(df_block)}")
@@ -180,7 +202,7 @@ def load_and_merge_data() -> pd.DataFrame:
 # =============================================================================
 
 
-def fit_path_a(data: pd.DataFrame) -> Tuple[float, float, bool]:
+def fit_path_a(data: pd.DataFrame, mood_col: str) -> Tuple[float, float, bool]:
     """
     Fit Path a: Mood ~ Group + (1|Subject)
     
@@ -188,13 +210,15 @@ def fit_path_a(data: pd.DataFrame) -> Tuple[float, float, bool]:
     ----------
     data : pd.DataFrame
         Block-level data.
+    mood_col : str
+        Mood column name (e.g., 'mood_pre_EVAaverage').
     
     Returns
     -------
     tuple
         (coefficient, standard_error, converged)
     """
-    formula = "mood_pre ~ group_binary"
+    formula = f"{mood_col} ~ group_binary"
     
     try:
         model = smf.mixedlm(formula, data, groups=data["subject_id"])
@@ -206,11 +230,11 @@ def fit_path_a(data: pd.DataFrame) -> Tuple[float, float, bool]:
         return float(coef), float(se), True
         
     except Exception as e:
-        warnings.warn(f"Path a failed to converge: {e}")
+        warnings.warn(f"Path a failed to converge for {mood_col}: {e}")
         return np.nan, np.nan, False
 
 
-def fit_path_b(data: pd.DataFrame, thought_dim: str) -> Tuple[float, float, bool]:
+def fit_path_b(data: pd.DataFrame, thought_dim: str, mood_col: str) -> Tuple[float, float, bool]:
     """
     Fit Path b: Thought ~ Mood + Group + (1|Subject)
     
@@ -220,6 +244,8 @@ def fit_path_b(data: pd.DataFrame, thought_dim: str) -> Tuple[float, float, bool
         Block-level data.
     thought_dim : str
         Thought dimension to analyze.
+    mood_col : str
+        Mood column name (e.g., 'mood_pre_EVAaverage').
     
     Returns
     -------
@@ -227,19 +253,19 @@ def fit_path_b(data: pd.DataFrame, thought_dim: str) -> Tuple[float, float, bool
         (coefficient, standard_error, converged)
     """
     mean_col = f"mean_{thought_dim}"
-    formula = f"{mean_col} ~ mood_pre + group_binary"
+    formula = f"{mean_col} ~ {mood_col} + group_binary"
     
     try:
         model = smf.mixedlm(formula, data, groups=data["subject_id"])
         result = model.fit(method="lbfgs", maxiter=1000)
         
-        coef = result.params["mood_pre"]
-        se = result.bse["mood_pre"]
+        coef = result.params[mood_col]
+        se = result.bse[mood_col]
         
         return float(coef), float(se), True
         
     except Exception as e:
-        warnings.warn(f"Path b failed for {thought_dim}: {e}")
+        warnings.warn(f"Path b failed for {thought_dim} ~ {mood_col}: {e}")
         return np.nan, np.nan, False
 
 
@@ -297,7 +323,7 @@ def monte_carlo_indirect_effect(
 
 def run_mediation_analysis(data: pd.DataFrame) -> pd.DataFrame:
     """
-    Run mediation analysis for all thought dimensions.
+    Run mediation analysis for all thought dimensions × all mood dimensions.
     
     Parameters
     ----------
@@ -307,75 +333,103 @@ def run_mediation_analysis(data: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        Results table with indirect effects and CIs.
+        Results table with indirect effects and CIs for all combinations.
     """
     print("\n" + "=" * 70)
     print("MEDIATION ANALYSIS")
     print("=" * 70)
     print(f"Model: Group → Mood → Thought Content")
-    print(f"Mood measure: {MOOD_COLUMN}")
+    print(f"Mood measures: {MOOD_COLUMNS}")
     print(f"Monte Carlo simulations: {N_SIMULATIONS:,}")
     print(f"Confidence level: {CONFIDENCE_LEVEL * 100:.0f}%")
     
-    # Fit Path a once (same for all thought dimensions)
-    print("\n--- Path a: Mood ~ Group + (1|Subject) ---")
-    a_coef, a_se, a_converged = fit_path_a(data)
-    
-    if not a_converged:
-        raise RuntimeError("Path a failed to converge. Cannot proceed with mediation.")
-    
-    print(f"Group effect on Mood: β = {a_coef:.4f}, SE = {a_se:.4f}")
-    
-    # Fit Path b for each thought dimension
     results = []
     
-    for dim in THOUGHT_DIMENSIONS:
-        mean_col = f"mean_{dim}"
+    # Iterate over all mood dimensions
+    for mood_name in MOOD_COLUMNS:
+        mood_col = f"mood_pre_{mood_name}"
         
-        if mean_col not in data.columns:
-            print(f"\nSkipping {dim}: column {mean_col} not found")
+        if mood_col not in data.columns:
+            print(f"\nSkipping {mood_name}: column {mood_col} not found")
             continue
         
-        print(f"\n--- Path b: {dim} ~ Mood + Group + (1|Subject) ---")
+        print(f"\n{'='*60}")
+        print(f"MOOD DIMENSION: {mood_name}")
+        print(f"{'='*60}")
         
-        b_coef, b_se, b_converged = fit_path_b(data, dim)
+        # Fit Path a for this mood dimension
+        print(f"\n--- Path a: {mood_name} ~ Group + (1|Subject) ---")
+        a_coef, a_se, a_converged = fit_path_a(data, mood_col)
         
-        if not b_converged:
-            print(f"  Path b failed to converge for {dim}")
+        if not a_converged:
+            print(f"  Path a failed to converge for {mood_name}")
+            for dim in THOUGHT_DIMENSIONS:
+                results.append({
+                    "mood": mood_name,
+                    "dimension": dim,
+                    "a_coeff": np.nan,
+                    "a_se": np.nan,
+                    "b_coeff": np.nan,
+                    "b_se": np.nan,
+                    "ab_effect": np.nan,
+                    "ci_lower": np.nan,
+                    "ci_upper": np.nan,
+                    "is_significant": False,
+                })
+            continue
+        
+        print(f"  Group effect on {mood_name}: β = {a_coef:.4f}, SE = {a_se:.4f}")
+        
+        # Fit Path b for each thought dimension
+        for dim in THOUGHT_DIMENSIONS:
+            mean_col = f"mean_{dim}"
+            
+            if mean_col not in data.columns:
+                print(f"\n  Skipping {dim}: column {mean_col} not found")
+                continue
+            
+            print(f"\n--- Path b: {dim} ~ {mood_name} + Group + (1|Subject) ---")
+            
+            b_coef, b_se, b_converged = fit_path_b(data, dim, mood_col)
+            
+            if not b_converged:
+                print(f"    Path b failed to converge for {dim}")
+                results.append({
+                    "mood": mood_name,
+                    "dimension": dim,
+                    "a_coeff": a_coef,
+                    "a_se": a_se,
+                    "b_coeff": np.nan,
+                    "b_se": np.nan,
+                    "ab_effect": np.nan,
+                    "ci_lower": np.nan,
+                    "ci_upper": np.nan,
+                    "is_significant": False,
+                })
+                continue
+            
+            print(f"    {mood_name} effect on {dim}: β = {b_coef:.4f}, SE = {b_se:.4f}")
+            
+            # Compute indirect effect
+            ab_mean, ci_low, ci_high, is_sig = monte_carlo_indirect_effect(
+                a_coef, a_se, b_coef, b_se
+            )
+            
+            print(f"    Indirect effect (a×b): {ab_mean:.4f} [{ci_low:.4f}, {ci_high:.4f}]")
+            print(f"    Significant: {'YES' if is_sig else 'NO'}")
+            
             results.append({
+                "mood": mood_name,
                 "dimension": dim,
                 "a_coeff": a_coef,
                 "a_se": a_se,
-                "b_coeff": np.nan,
-                "b_se": np.nan,
-                "ab_effect": np.nan,
-                "ci_lower": np.nan,
-                "ci_upper": np.nan,
-                "is_significant": False,
+                "b_coeff": b_coef,
+                "b_se": b_se,
+                "ab_effect": ab_mean,
+                "ci_lower": ci_low,
+                "ci_upper": ci_high,
+                "is_significant": is_sig,
             })
-            continue
-        
-        print(f"  Mood effect on {dim}: β = {b_coef:.4f}, SE = {b_se:.4f}")
-        
-        # Compute indirect effect
-        ab_mean, ci_low, ci_high, is_sig = monte_carlo_indirect_effect(
-            a_coef, a_se, b_coef, b_se
-        )
-        
-        print(f"  Indirect effect (a×b): {ab_mean:.4f} [{ci_low:.4f}, {ci_high:.4f}]")
-        print(f"  Significant: {'YES' if is_sig else 'NO'}")
-        
-        results.append({
-            "dimension": dim,
-            "a_coeff": a_coef,
-            "a_se": a_se,
-            "b_coeff": b_coef,
-            "b_se": b_se,
-            "ab_effect": ab_mean,
-            "ci_lower": ci_low,
-            "ci_upper": ci_high,
-            "is_significant": is_sig,
-        })
     
     return pd.DataFrame(results)
 
@@ -387,18 +441,21 @@ def run_mediation_analysis(data: pd.DataFrame) -> pd.DataFrame:
 
 def plot_mediation_forest(results: pd.DataFrame, output_path: str) -> None:
     """
-    Create combined figure with forest plot, Path A, and Path B details.
+    Create combined figure with forest plot showing all mood dimensions.
+    Style matches reverse_mediation_analysis.py for consistency.
     
     Parameters
     ----------
     results : pd.DataFrame
-        Mediation results table.
+        Mediation results table with columns: mood, dimension, a_coeff, etc.
     output_path : str
         Path to save the figure.
     """
     print("\n" + "=" * 70)
     print("CREATING COMBINED MEDIATION FIGURE")
     print("=" * 70)
+    
+    from matplotlib.lines import Line2D
     
     # Filter out dimensions with missing results
     plot_data = results[results["ab_effect"].notna()].copy()
@@ -407,145 +464,198 @@ def plot_mediation_forest(results: pd.DataFrame, output_path: str) -> None:
         print("No valid results to plot.")
         return
     
-    # Sort by effect size for better visualization
-    plot_data = plot_data.sort_values("ab_effect").reset_index(drop=True)
-    
-    # Setup combined figure
-    import seaborn as sns
+    # Setup combined figure (matching reverse_mediation style)
     sns.set_theme(style="white", context="talk")
-    fig = plt.figure(figsize=(18, 12))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.2, 1], width_ratios=[1, 1.2], hspace=0.3, wspace=0.3)
+    fig = plt.figure(figsize=(24, 14))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.3, 1.0], width_ratios=[1, 1.2], hspace=0.35, wspace=0.3)
+    
+    # Create color palette for moods (husl like reverse_mediation)
+    palette = sns.color_palette("husl", n_colors=len(MOOD_COLUMNS))
+    mood_colors = dict(zip(MOOD_COLUMNS, palette))
     
     # ========== PANEL 1: FOREST PLOT (TOP, SPANS BOTH COLUMNS) ==========
     ax_forest = fig.add_subplot(gs[0, :])
     
-    # Add zebra stripes
-    y_positions = np.arange(len(plot_data))
+    # Use consistent order for dimensions and moods
+    dims = THOUGHT_DIMENSIONS
+    moods = MOOD_COLUMNS
+    
+    y_positions = np.arange(len(dims))
+    height_per_group = 0.8
+    bar_height = height_per_group / len(moods)
+    
+    # Add background "cells" for each dimension
     for y in y_positions:
         if y % 2 == 0:
             ax_forest.axhspan(y - 0.5, y + 0.5, color='gray', alpha=0.1, zorder=0, linewidth=0)
     
-    # Plot each dimension with significance styling
-    for idx, row in plot_data.iterrows():
-        is_sig = row["is_significant"]
-        color = "#D32F2F" if is_sig else "#757575"
-        alpha = 1.0 if is_sig else 0.4
-        linestyle = '-' if is_sig else ':'
-        marker_face = color if is_sig else 'white'
+    # Loop to plot each mood's effect
+    for i, mood in enumerate(moods):
+        subset = plot_data[plot_data["mood"] == mood]
         
-        # Confidence interval
-        ax_forest.plot(
-            [row["ci_lower"], row["ci_upper"]],
-            [idx, idx],
-            color=color,
-            linewidth=2,
-            linestyle=linestyle,
-            alpha=alpha,
-            zorder=2,
-        )
+        # Align data to dimensions order
+        subset_indexed = subset.set_index("dimension").reindex(dims)
         
-        # Point estimate
-        ax_forest.plot(
-            row["ab_effect"],
-            idx,
-            marker="o",
-            markersize=9,
-            markerfacecolor=marker_face,
-            markeredgecolor=color,
-            markeredgewidth=2,
-            alpha=alpha,
-            zorder=3,
-        )
+        # Y-offsets to dodge points
+        offsets = y_positions + (i - (len(moods)-1)/2) * bar_height * 0.8
+        
+        # Iterate through each dimension to plot individually
+        for j, dim in enumerate(dims):
+            if dim not in subset_indexed.index:
+                continue
+                
+            row = subset_indexed.loc[dim]
+            if pd.isna(row["ab_effect"]):
+                continue
+                
+            y_pos = offsets[j]
+            x = row["ab_effect"]
+            ci_low = row["ci_lower"]
+            ci_high = row["ci_upper"]
+            is_sig = row["is_significant"]
+            
+            # Styling based on significance
+            color = mood_colors[mood]
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face_color = color if is_sig else 'white'
+            
+            # Error bar
+            ax_forest.plot([ci_low, ci_high], [y_pos, y_pos], 
+                    color=color, alpha=alpha, linestyle=linestyle, linewidth=2, zorder=2)
+            
+            # Point estimate
+            ax_forest.plot(x, y_pos, 
+                    marker='o', markersize=9, 
+                    markeredgecolor=color, markerfacecolor=marker_face_color,
+                    markeredgewidth=2, alpha=alpha, zorder=3)
+
+    # Aesthetics
+    ax_forest.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.3, zorder=1)
+    ax_forest.set_yticks(y_positions)
+    ax_forest.set_yticklabels(dims, fontweight='bold', fontsize=12)
+    ax_forest.set_ylim(-0.5, len(dims) - 0.5)
     
-    # Formatting
-    ax_forest.axvline(x=0, color="black", linestyle="-", linewidth=1, alpha=0.3, zorder=1)
-    ax_forest.set_yticks(range(len(plot_data)))
-    ax_forest.set_yticklabels(plot_data["dimension"], fontweight='bold', fontsize=12)
-    ax_forest.set_xlabel("Indirect Effect (a × b)", fontsize=13, fontweight="bold")
+    ax_forest.set_xlabel("Indirect Effect (a × b)", fontweight='bold', fontsize=13)
     ax_forest.set_title(
-        f"Mediation: Group → {MOOD_COLUMN} → Thought Content (Indirect Effects)\n"
+        f"Mediation: Group → Mood → Thought Content (Indirect Effects)\n"
         f"(Monte Carlo: {N_SIMULATIONS:,} simulations, {CONFIDENCE_LEVEL*100:.0f}% CI)",
-        fontsize=13,
-        fontweight="bold",
-        pad=20,
+        pad=20, fontweight='bold', fontsize=13
     )
-    ax_forest.grid(axis="x", alpha=0.3, linestyle="--")
+    ax_forest.invert_yaxis()
     
-    # Legend
-    from matplotlib.lines import Line2D
+    # Custom Legend (matching reverse_mediation style)
     legend_elements = [
-        Line2D([0], [0], marker="o", color="black", label="Significant",
-               markerfacecolor="black", linestyle="-"),
-        Line2D([0], [0], marker="o", color="black", label="Non-significant",
-               markerfacecolor="white", markeredgecolor="black", linestyle=":", alpha=0.6),
+        Line2D([0], [0], color='gray', label='Mood Mediators:', linewidth=0)
     ]
-    ax_forest.legend(handles=legend_elements, loc="best", frameon=True, fontsize=10)
+    for mood in moods:
+        legend_elements.append(
+            Line2D([0], [0], marker='o', color='w', label=mood,
+                   markerfacecolor=mood_colors[mood], markeredgecolor=mood_colors[mood], markersize=10)
+        )
+    
+    legend_elements.append(Line2D([0], [0], color='gray', label='', linewidth=0))
+    legend_elements.append(Line2D([0], [0], color='gray', label='Significance:', linewidth=0))
+    legend_elements.append(
+        Line2D([0], [0], marker='o', color='black', label='Significant',
+               markerfacecolor='black', linestyle='-')
+    )
+    legend_elements.append(
+        Line2D([0], [0], marker='o', color='black', label='Non-significant',
+               markerfacecolor='white', markeredgecolor='black', linestyle=':', alpha=0.6)
+    )
+    
+    ax_forest.legend(handles=legend_elements, bbox_to_anchor=(1.02, 1), loc='upper left', frameon=True, fontsize=10)
+    ax_forest.grid(True, axis='x', alpha=0.3, linestyle='--')
     
     # ========== PANEL 2: PATH A (Group -> Mood) ==========
     ax_path_a = fig.add_subplot(gs[1, 0])
     
-    # Path A is the same for all dimensions (single mood scale)
-    a_coef = plot_data.iloc[0]["a_coeff"]
-    a_se = plot_data.iloc[0]["a_se"]
-    a_ci = a_se * 1.96
-    a_sig = np.abs(a_coef / a_se) > 1.96
+    # Get unique path A coefficients per mood - reindex to standard order
+    path_a_raw = (
+        plot_data.drop_duplicates(subset=["mood"])
+        .set_index("mood")
+        .reindex(MOOD_COLUMNS)
+    )
+    path_a_data = path_a_raw.reset_index().dropna(subset=["a_coeff", "a_se"]).copy()
+    path_a_data["a_significant"] = np.abs(path_a_data["a_coeff"] / path_a_data["a_se"]) > 1.96
     
-    COLOR_RISK = "#F24236"
-    COLOR_CONTROL = "#2E86AB"
-    color = COLOR_RISK if a_coef < 0 else COLOR_CONTROL
-    alpha = 1.0 if a_sig else 0.4
-    linestyle = '-' if a_sig else ':'
-    marker_face = color if a_sig else 'white'
+    y_pos = np.arange(len(path_a_data))
     
-    # Plot Path A
-    ax_path_a.plot([a_coef - a_ci, a_coef + a_ci], [0, 0], 
-                   color=color, lw=2, linestyle=linestyle, alpha=alpha)
-    ax_path_a.plot(a_coef, 0, 'o', color=color, markersize=12,
-                   markerfacecolor=marker_face, markeredgecolor=color,
-                   markeredgewidth=2, alpha=alpha)
-    ax_path_a.text(a_coef, 0.15, f"β={a_coef:.2f}", ha='center', va='bottom',
-                   fontsize=10, color=color, fontweight='bold', alpha=alpha)
+    for idx, (_, row) in enumerate(path_a_data.iterrows()):
+        val = row["a_coeff"]
+        err = row["a_se"] * 1.96
+        is_sig = row["a_significant"]
+        mood_name = row["mood"]
+        
+        COLOR_RISK = "#F24236"
+        COLOR_CONTROL = "#2E86AB"
+        color = COLOR_RISK if val < 0 else COLOR_CONTROL
+        
+        # Styling based on significance
+        alpha = 1.0 if is_sig else 0.4
+        linestyle = '-' if is_sig else ':'
+        marker_face = color if is_sig else 'white'
+        
+        ax_path_a.plot([val - err, val + err], [idx, idx], 
+                       color=color, lw=2, linestyle=linestyle, alpha=alpha)
+        ax_path_a.plot(val, idx, 'o', color=color, markersize=10,
+                       markerfacecolor=marker_face, markeredgecolor=color,
+                       markeredgewidth=2, alpha=alpha)
+        ax_path_a.text(val, idx + 0.18, f"β={val:.2f}", ha='center', va='bottom',
+                       fontsize=13, color=color, fontweight='bold', alpha=alpha)
     
-    ax_path_a.set_yticks([0])
-    ax_path_a.set_yticklabels([MOOD_COLUMN], fontweight='bold')
+    ax_path_a.set_yticks(y_pos)
+    ax_path_a.set_yticklabels(path_a_data["mood"], fontweight='bold')
     ax_path_a.axvline(0, color='gray', linestyle='--', alpha=0.5)
-    ax_path_a.set_xlabel("Path A Coefficient (Group Effect on Mood)", fontweight='bold', fontsize=11)
+    ax_path_a.set_xlabel("Path A Coef (Group → Mood)", fontweight='bold', fontsize=11)
     ax_path_a.set_title("Path A: Group → Mood", fontweight='bold', pad=12, fontsize=12)
     ax_path_a.grid(True, axis='x', alpha=0.2, linestyle=':')
-    ax_path_a.set_ylim(-0.5, 0.5)
+    ax_path_a.invert_yaxis()
     
-    # ========== PANEL 3: PATH B (Mood -> Thoughts) ==========
+    # ========== PANEL 3: PATH B HEATMAP (Mood -> Thoughts) ==========
     ax_path_b = fig.add_subplot(gs[1, 1])
     
-    # Create bar plot for Path B coefficients
-    dims = plot_data["dimension"].values
-    b_coefs = plot_data["b_coeff"].values
-    b_ses = plot_data["b_se"].values
-    b_sigs = np.abs(b_coefs / b_ses) > 1.96
+    # Pivot: Filas=Thoughts (Outcome), Cols=Moods (Mediator)
+    pivot_b = plot_data.pivot(index="dimension", columns="mood", values="b_coeff")
+    pivot_b = pivot_b.reindex(index=THOUGHT_DIMENSIONS, columns=MOOD_COLUMNS)
     
-    y_pos = np.arange(len(dims))
-    colors = [COLOR_RISK if b < 0 else COLOR_CONTROL for b in b_coefs]
-    alphas = [1.0 if sig else 0.4 for sig in b_sigs]
+    pivot_sig = plot_data.pivot(index="dimension", columns="mood", values="is_significant")
+    pivot_sig = pivot_sig.reindex(index=THOUGHT_DIMENSIONS, columns=MOOD_COLUMNS)
     
-    for i, (dim, b, se, sig, col, alph) in enumerate(zip(dims, b_coefs, b_ses, b_sigs, colors, alphas)):
-        ci = se * 1.96
-        linestyle = '-' if sig else ':'
-        marker_face = col if sig else 'white'
-        
-        ax_path_b.plot([b - ci, b + ci], [i, i], color=col, lw=2, linestyle=linestyle, alpha=alph)
-        ax_path_b.plot(b, i, 'o', color=col, markersize=9,
-                       markerfacecolor=marker_face, markeredgecolor=col,
-                       markeredgewidth=2, alpha=alph)
-        ax_path_b.text(b, i + 0.15, f"{b:.2f}{'*' if sig else ''}", 
-                       ha='center', va='bottom', fontsize=9, color=col, 
-                       fontweight='bold', alpha=alph)
+    # Crear datos coloreados solo para celdas significativas
+    colored_data = pivot_b.copy()
+    colored_data[~pivot_sig] = np.nan
     
-    ax_path_b.set_yticks(y_pos)
-    ax_path_b.set_yticklabels(dims, fontweight='bold')
-    ax_path_b.axvline(0, color='gray', linestyle='--', alpha=0.5)
-    ax_path_b.set_xlabel(f"Path B Coefficient ({MOOD_COLUMN} → Thought)", fontweight='bold', fontsize=11)
-    ax_path_b.set_title(f"Path B: {MOOD_COLUMN} → Thoughts", fontweight='bold', pad=12, fontsize=12)
-    ax_path_b.grid(True, axis='x', alpha=0.2, linestyle=':')
+    # Heatmap solo con celdas significativas coloreadas
+    sns.heatmap(colored_data, cmap="RdBu_r", center=0,
+                ax=ax_path_b, cbar_kws={'label': 'Beta Coefficient'},
+                linewidths=1, linecolor='white')
+    
+    # Añadir manualmente todas las anotaciones (incluyendo celdas blancas)
+    for i in range(pivot_b.shape[0]):
+        for j in range(pivot_b.shape[1]):
+            val = pivot_b.iloc[i, j]
+            if not pd.isna(val):
+                text = f"{val:.2f}"
+                if pivot_sig.iloc[i, j]:
+                    text += "*"
+                # Color del texto: negro para celdas blancas, blanco para celdas coloreadas
+                text_color = 'black' if not pivot_sig.iloc[i, j] else 'white'
+                ax_path_b.text(
+                    j + 0.5,
+                    i + 0.5,
+                    text,
+                    ha='center',
+                    va='center',
+                    color=text_color,
+                    fontsize=14,
+                    fontweight='bold',
+                )
+    
+    ax_path_b.set_title("Path B: Mood → Thoughts (Predictive Power)", fontweight='bold', pad=12, fontsize=12)
+    ax_path_b.set_ylabel("Thought Dimension", fontweight='bold', fontsize=11)
+    ax_path_b.set_xlabel("Mood Mediator", fontweight='bold', fontsize=11)
     
     # Save
     plt.tight_layout()
@@ -582,17 +692,12 @@ def create_summary_table(results: pd.DataFrame, output_path: str) -> None:
         axis=1,
     )
     
-    # Reorder columns
-    summary = summary[[
-        "dimension",
-        "a_coeff",
-        "b_coeff",
-        "ab_effect",
-        "95% CI",
-        "is_significant",
-    ]]
+    # Reorder columns (now includes mood column)
+    cols_to_keep = ["mood", "dimension", "a_coeff", "b_coeff", "ab_effect", "95% CI", "is_significant"]
+    summary = summary[[c for c in cols_to_keep if c in summary.columns]]
     
     summary.columns = [
+        "Mood Dimension",
         "Thought Dimension",
         "Path a (Group→Mood)",
         "Path b (Mood→Thought)",
@@ -656,7 +761,7 @@ def main() -> None:
         print("  None")
     else:
         for _, row in sig_results.iterrows():
-            print(f"  - {row['dimension']}: {row['ab_effect']:.4f} "
+            print(f"  - {row['mood']} → {row['dimension']}: {row['ab_effect']:.4f} "
                   f"[{row['ci_lower']:.4f}, {row['ci_upper']:.4f}]")
     
     print("\n" + "=" * 70)

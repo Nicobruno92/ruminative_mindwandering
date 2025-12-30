@@ -1,0 +1,37 @@
+                                 Mixed Linear Model Regression Results
+=======================================================================================================
+Model:                            MixedLM                 Dependent Variable:                 PC3      
+No. Observations:                 561                     Method:                             REML     
+No. Groups:                       30                      Scale:                              0.5041   
+Min. group size:                  2                       Log-Likelihood:                     -638.4254
+Max. group size:                  30                      Converged:                          Yes      
+Mean group size:                  18.7                                                                 
+-------------------------------------------------------------------------------------------------------
+                                                             Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+-------------------------------------------------------------------------------------------------------
+Intercept                                                     0.093    0.129  0.721 0.471 -0.159  0.345
+group[T.Risk of Depression]                                  -0.401    0.180 -2.236 0.025 -0.753 -0.050
+inclusion_exclusion[T.inclusion]                              0.102    0.081  1.254 0.210 -0.057  0.261
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]  0.242    0.127  1.906 0.057 -0.007  0.491
+time_on_task                                                 -0.002    0.002 -1.149 0.251 -0.006  0.002
+subject_id Var                                                0.149    0.070                           
+=======================================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 1288.850883
+BIC: 1314.829209
+LOG_LIKELIHOOD: -638.425442
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 561
+N_GROUPS: 30
+N_PARAMETERS: 6
+N_FIXED_EFFECTS: 5
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 0.504144
+DEVIANCE: 1276.850883
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

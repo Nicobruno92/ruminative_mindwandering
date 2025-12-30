@@ -1,2 +1,0 @@
-predictor,estimate,std_error,t_value,p_value,conf_lower,conf_upper,significant_05,significant_01,p_value_bonferroni,significant_corrected
-inclusion_exclusion[T.inclusion],0.19061782285758652,0.07755919605210357,2.4577075648067725,0.013982698226960483,0.03860459192558238,0.3426310537895907,True,False,0.013982698226960483,True

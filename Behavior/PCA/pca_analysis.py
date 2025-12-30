@@ -3,7 +3,7 @@
 # CONFIGURATION - Modify these variables as needed
 # =============================================================================
 # Set to True for interactive mode (Jupyter/script in subfolder), False for standalone
-INTERACTIVE_MODE = True
+INTERACTIVE_MODE = False
 
 # Path configuration based on mode
 if INTERACTIVE_MODE:
@@ -16,10 +16,10 @@ else:
     BASE_OUTPUT_DIR = 'results/Behavior/probe_data'
 
 # Derived paths
-LMM_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca'
-PLOTS_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca'
-TRAJECTORY_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca/trajectory_analysis'
-BASELINE_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca/baseline_corrected_analysis'
+LMM_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca_combined_baseline'
+PLOTS_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca_combined_baseline'
+TRAJECTORY_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca_combined_baseline/trajectory_analysis'
+BASELINE_OUTPUT_DIR = f'{BASE_OUTPUT_DIR}/lmm_analysis_pca_combined_baseline/baseline_corrected_analysis'
 # =============================================================================
 
 import pandas as pd
@@ -57,52 +57,24 @@ pca_variables = ['valence', 'selfother', 'time']
 PC_COMPONENTS = ['PC1', 'PC2', 'PC3']
 
 # =============================================================================
-# STEP 1: Compute baseline means from FULL data (BEFORE filtering)
-# =============================================================================
-# This ensures we don't lose participants due to missing baseline data after filtering
-print("\n" + "="*60)
-print("STEP 1: Computing baseline means from FULL data (before filtering)")
-print("="*60)
-
-baseline_means_original = {}
-for subject in df_full['subject_id'].unique():
-    subject_data = df_full[df_full['subject_id'] == subject]
-    
-    # Sart1 baseline (for normalizing Sart2)
-    sart1_data = subject_data[subject_data['task'] == 'Sart1']
-    if len(sart1_data) > 0:
-        for var in pca_variables:
-            if var in sart1_data.columns:
-                baseline_means_original[(subject, 'Sart1', var)] = sart1_data[var].mean()
-    
-    # Sart3 baseline (for normalizing Sart4)
-    sart3_data = subject_data[subject_data['task'] == 'Sart3']
-    if len(sart3_data) > 0:
-        for var in pca_variables:
-            if var in sart3_data.columns:
-                baseline_means_original[(subject, 'Sart3', var)] = sart3_data[var].mean()
-
-print(f"Calculated {len(baseline_means_original)} baseline means for original variables")
-
-# =============================================================================
-# STEP 2: Apply onoff filtering (AFTER computing baselines)
+# STEP 1: Apply onoff filtering FIRST
 # =============================================================================
 print("\n" + "="*60)
-print("STEP 2: Applying onoff filter (onoff <= 50)")
+print("STEP 1: Applying onoff filter FIRST (onoff < 62)")
 print("="*60)
 
 before_n = len(df_full)
 before_s = df_full['subject_id'].nunique()
-df = df_full[df_full['onoff'] <= 50].copy()
+df = df_full[df_full['onoff'] <= 62].copy()
 after_n = len(df)
 after_s = df['subject_id'].nunique()
 print(f"Filtered: {before_n} rows/{before_s} subjects -> {after_n} rows/{after_s} subjects")
 
 # =============================================================================
-# STEP 3: Compute PCA on filtered data
+# STEP 2: Compute PCA on filtered data
 # =============================================================================
 print("\n" + "="*60)
-print("STEP 3: Computing PCA on filtered data")
+print("STEP 2: Computing PCA on filtered data")
 print("="*60)
 
 pca_data = df[pca_variables].dropna()
@@ -201,7 +173,7 @@ for i, (x, y) in enumerate(zip(x_vals, pca.explained_variance_ratio_)):
 plt.tight_layout()
 plt.savefig(f'{BASE_OUTPUT_DIR}/pca_scree_plot.png', dpi=300, bbox_inches='tight')
 plt.savefig(f'{BASE_OUTPUT_DIR}/pca_scree_plot.svg', dpi=300, bbox_inches='tight')
-plt.show()
+# plt.show()  # Removed to prevent segmentation fault
 
 # Create biplot (PC1 vs PC2) using matplotlib/seaborn
 plt.style.use('default')
@@ -267,7 +239,7 @@ for spine in ax.spines.values():
 plt.tight_layout()
 plt.savefig(f'{BASE_OUTPUT_DIR}/pca_biplot.png', dpi=300, bbox_inches='tight')
 plt.savefig(f'{BASE_OUTPUT_DIR}/pca_biplot.svg', dpi=300, bbox_inches='tight')
-plt.show()
+# plt.show()  # Removed to prevent segmentation fault
 
 # Create correlation heatmap of original variables with PC scores
 corr_with_pc = pca_df[pca_variables + ['PC1', 'PC2', 'PC3']].corr()
@@ -332,7 +304,7 @@ for spine in ax.spines.values():
 plt.tight_layout()
 plt.savefig(f'{BASE_OUTPUT_DIR}/pca_correlation_heatmap.png', dpi=300, bbox_inches='tight')
 plt.savefig(f'{BASE_OUTPUT_DIR}/pca_correlation_heatmap.svg', dpi=300, bbox_inches='tight')
-plt.show()
+# plt.show()  # Removed to prevent segmentation fault
 
 # Print summary statistics
 print("\nPCA Summary:")
@@ -635,68 +607,64 @@ for group in group_counts.index:
 print(f"- Inclusion/Exclusion distribution: {df_lmm['inclusion_exclusion'].value_counts().to_dict()}")
 
 # =============================================================================
-# STEP 4: Compute PC baseline means from FULL data (before filtering)
+# STEP 3: Compute COMBINED PC baseline (SART1 + SART3) from FILTERED data
 # =============================================================================
-# Note: We use the baseline_means_original computed earlier (from full data)
-# to normalize the original variables, then project to PC space.
-# This ensures we don't lose participants due to missing baseline data after filtering.
-
 print("\n" + "="*60)
-print("STEP 4: Computing PC baseline means from FULL data")
+print("STEP 3: Computing COMBINED PC baseline (SART1 + SART3) from FILTERED off-task data")
 print("="*60)
-print("Note: Using baseline means computed from full data (before onoff filtering)")
+print("Note: Combining both baseline blocks to maximize data availability")
 
-# For PC normalization, we need to compute PC scores for baseline blocks from full data
-# First, compute PCA scores for ALL data (including filtered-out rows) using the same PCA model
-df_full_valid = df_full[pca_variables].dropna()
-df_full_valid_scaled = scaler.transform(df_full_valid)  # Use same scaler
-df_full_pca_scores = pca.transform(df_full_valid_scaled)  # Use same PCA model
+# Get baseline data (SART1 and SART3) from the FILTERED dataset (df_lmm)
+baseline_data = df_lmm[df_lmm['task'].isin(['Sart1', 'Sart3'])].copy()
 
-# Create full PCA dataframe with subject/task info
-valid_indices = df_full[pca_variables].dropna().index
-df_full_with_pca = df_full.loc[valid_indices].copy().reset_index(drop=True)
-for i, pc in enumerate(PC_COMPONENTS):
-    df_full_with_pca[pc] = df_full_pca_scores[:, i]
+# Calculate COMBINED baseline mean per subject for each PC
+baseline_means_pca_combined = {}
+subjects_with_baseline = set()
+subjects_missing_baseline = set()
 
-# Compute PC baseline means from FULL data
-baseline_means_pca = {}
-for subject in df_full_with_pca['subject_id'].unique():
-    subject_data = df_full_with_pca[df_full_with_pca['subject_id'] == subject]
+for subject in df_lmm['subject_id'].unique():
+    subject_baseline = baseline_data[baseline_data['subject_id'] == subject]
     
-    # Sart1 baseline (for normalizing Sart2)
-    sart1_data = subject_data[subject_data['task'] == 'Sart1']
-    if len(sart1_data) > 0:
+    if len(subject_baseline) > 0:
+        subjects_with_baseline.add(subject)
         for pc in PC_COMPONENTS:
-            if pc in sart1_data.columns:
-                baseline_means_pca[(subject, 'Sart1', pc)] = sart1_data[pc].mean()
-    
-    # Sart3 baseline (for normalizing Sart4)
-    sart3_data = subject_data[subject_data['task'] == 'Sart3']
-    if len(sart3_data) > 0:
-        for pc in PC_COMPONENTS:
-            if pc in sart3_data.columns:
-                baseline_means_pca[(subject, 'Sart3', pc)] = sart3_data[pc].mean()
+            if pc in subject_baseline.columns:
+                baseline_means_pca_combined[(subject, pc)] = subject_baseline[pc].mean()
+    else:
+        subjects_missing_baseline.add(subject)
 
-print(f"Calculated {len(baseline_means_pca)} PC baseline means from full data")
+print(f"  - Subjects with combined baseline data: {len(subjects_with_baseline)}")
+print(f"  - Subjects missing baseline data: {len(subjects_missing_baseline)}")
+if subjects_missing_baseline:
+    print(f"    Missing subjects: {sorted(subjects_missing_baseline)}")
 
-def normalize_pc_by_baseline(row, pc_name):
-    """Normalize PC score by subtracting baseline mean computed from FULL data."""
+# Diagnostic: trials per subject in baseline
+if len(subjects_with_baseline) > 0:
+    baseline_counts = baseline_data.groupby('subject_id').size()
+    print(f"  - Baseline trials per subject: min={baseline_counts.min()}, "
+          f"median={baseline_counts.median():.0f}, max={baseline_counts.max()}")
+
+def normalize_pc_by_combined_baseline(row, pc_name):
+    """Normalize PC score by subtracting COMBINED SART1+SART3 baseline mean."""
     subject = row['subject_id']
     task = row['task']
-    if task == 'Sart2':
-        baseline_key = (subject, 'Sart1', pc_name)
-    elif task == 'Sart4':
-        baseline_key = (subject, 'Sart3', pc_name)
-    else:
+    
+    # Only normalize SART2 and SART4 (post-manipulation blocks)
+    if task not in ['Sart2', 'Sart4']:
         return np.nan
-    baseline_mean = baseline_means_pca.get(baseline_key, np.nan)
+    
+    baseline_key = (subject, pc_name)
+    baseline_mean = baseline_means_pca_combined.get(baseline_key, np.nan)
+    
     if pd.isna(baseline_mean):
         return np.nan
     return row[pc_name] - baseline_mean
 
 for pc in PC_COMPONENTS:
     if pc in df_lmm.columns:
-        df_lmm[f'{pc}_normalized'] = df_lmm.apply(lambda r: normalize_pc_by_baseline(r, pc), axis=1)
+        df_lmm[f'{pc}_normalized'] = df_lmm.apply(
+            lambda r, p=pc: normalize_pc_by_combined_baseline(r, p), axis=1
+        )
 
 # Create IE-only subset for IE-specific analyses (Sart2/Sart4 only)
 df_lmm_ie = df_lmm[df_lmm['inclusion_exclusion'].isin(['inclusion', 'exclusion'])].copy()
@@ -717,7 +685,7 @@ distribution_offtask = df_lmm.groupby(['subject_id', 'group']).count().reset_ind
 pt.RainCloud(x="group", y="probe_number", hue="group", data=distribution_offtask, 
             bw=0.2, width_viol=0.8, alpha=0.7, dodge=True,
             pointplot=True, move=0.15)
-plt.show()
+# plt.show()  # Removed to prevent segmentation fault
 
 # %%
 # Model 1: Group effect (Controls vs Risk of Depression)
@@ -1129,7 +1097,7 @@ def create_raincloud_plot(data, x_var, y_var, hue_var, title, filename, figsize=
     plt.tight_layout()
     plt.savefig(os.path.join(plots_output_dir, filename), dpi=300, bbox_inches='tight')
     plt.savefig(os.path.join(plots_output_dir, filename + '.svg'), dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()  # Removed to prevent segmentation fault
     
     return fig
 
@@ -1240,7 +1208,7 @@ def create_interaction_plot(data, pc_var, filename, figsize=(18, 6)):
     plt.tight_layout(pad=3.0)
     plt.savefig(os.path.join(plots_output_dir, filename), dpi=300, bbox_inches='tight')
     plt.savefig(os.path.join(plots_output_dir, filename.replace('.png', '.svg')), dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()  # Removed to prevent segmentation fault
     
     return fig
 
@@ -1316,7 +1284,7 @@ def create_time_on_task_plot(data, pc_var, filename, figsize=(18, 8)):
     plt.savefig(os.path.join(plots_output_dir, 
                filename.replace('.png', '.svg')), 
                dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()  # Removed to prevent segmentation fault
 
 
 def create_descriptive_stats_table(data, pc_vars):
@@ -1472,11 +1440,6 @@ def run_statistical_tests(data, pc_vars):
     return results_df
 
 # %%
-# Generate all visualizations with comprehensive 2x3 grid
-print("Creating visualizations for PC components...")
-
-pc_components = ['PC1', 'PC2', 'PC3']
-
 # Define consistent ordering and colors
 GROUP_ORDER = ['Controls', 'Risk of Depression']
 IE_ORDER = ['inclusion', 'exclusion']
@@ -1587,6 +1550,10 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
 
     # Plot 3 (0,2): Interaction plot (Group × I/E) (NORMALIZED if available)
     ax3 = fig.add_subplot(gs[0, 2])
+    
+    # Store data for one-sample t-tests against 0 (baseline comparison)
+    baseline_tests = []
+    
     for group in df_lmm_ie["group"].dropna().unique():
         group_data = df_lmm_ie[df_lmm_ie["group"] == group]
         if len(group_data) == 0:
@@ -1613,6 +1580,26 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
             color=color,
             alpha=0.9,
         )
+        
+        # One-sample t-tests against 0 (baseline) for each condition
+        if has_normalized:
+            for i, condition in enumerate(IE_ORDER):
+                cond_data = group_data[group_data["inclusion_exclusion"] == condition]
+                # Aggregate per subject first
+                subj_means = cond_data.groupby("subject_id")[dep_ie].mean()
+                if len(subj_means) > 1:
+                    t_stat, p_val = stats.ttest_1samp(subj_means, 0)
+                    baseline_tests.append({
+                        'group': group,
+                        'condition': condition,
+                        't_stat': t_stat,
+                        'p_val': p_val,
+                        'mean': subj_means.mean(),
+                        'n': len(subj_means),
+                        'x_pos': x_positions[i],
+                        'color': color
+                    })
+    
     ax3.set_xticks([0, 1])
     ax3.set_xticklabels(IE_ORDER, fontsize=14, fontweight="bold")
     ax3.set_ylabel(f"{pc_var} Score{ylabel_suffix}", fontsize=14, fontweight="bold")
@@ -1624,6 +1611,41 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
     )
     if has_normalized:
         ax3.axhline(y=0, color='black', linestyle='--', linewidth=1.5, alpha=0.7, label='Baseline')
+        
+        # Add significance markers for tests against baseline (0)
+        y_min, y_max = ax3.get_ylim()
+        y_range = y_max - y_min
+        
+        for test in baseline_tests:
+            # Determine significance level
+            if test['p_val'] < 0.001:
+                sig_marker = '***'
+            elif test['p_val'] < 0.01:
+                sig_marker = '**'
+            elif test['p_val'] < 0.05:
+                sig_marker = '*'
+            else:
+                sig_marker = ''
+            
+            if sig_marker:
+                # Position marker above or below the point based on mean value
+                y_offset = 0.08 * y_range if test['mean'] > 0 else -0.08 * y_range
+                x_offset = -0.15 if test['group'] == GROUP_ORDER[0] else 0.15
+                ax3.text(
+                    test['x_pos'] + x_offset, 
+                    test['mean'] + y_offset,
+                    sig_marker,
+                    ha='center', va='center',
+                    fontsize=16, fontweight='bold',
+                    color=test['color']
+                )
+        
+        # Print baseline comparison results
+        print(f"\n  {pc_var} - One-sample t-tests against baseline (0):")
+        for test in baseline_tests:
+            sig = '*' if test['p_val'] < 0.05 else ''
+            print(f"    {test['group']} - {test['condition']}: t({test['n']-1})={test['t_stat']:.3f}, p={test['p_val']:.4f} {sig}")
+    
     ax3.legend(fontsize=12, title_fontsize=12, loc='best')
     ax3.grid(True, alpha=0.3)
 
@@ -1792,21 +1814,21 @@ def create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc_var, output_dir):
     out_svg = os.path.join(output_dir, f"{pc_var}_comprehensive_analysis.svg")
     plt.savefig(out_png, dpi=300, bbox_inches="tight")
     plt.savefig(out_svg, dpi=300, bbox_inches="tight")
-    plt.show()
-
-# Generate comprehensive plots for each PC
-print("\nCreating comprehensive 2x3 grid plots for each PC component...")
-for pc in pc_components:
-    print(f"Creating comprehensive plot for {pc}...")
-    create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc, plots_output_dir)
+    # plt.show()  # Removed to prevent segmentation fault
 
 # 5. Generate descriptive statistics
 print("\n5. Generating descriptive statistics...")
-descriptive_stats = create_descriptive_stats_table(df_lmm, pc_components)
+descriptive_stats = create_descriptive_stats_table(df_lmm, PC_COMPONENTS)
 
 # 6. Run statistical tests
 print("\n6. Running statistical tests...")
-statistical_results = run_statistical_tests(df_lmm, pc_components)
+statistical_results = run_statistical_tests(df_lmm, PC_COMPONENTS)
+
+# Generate comprehensive plots for each PC
+print("\nCreating comprehensive PC analysis plots...")
+for pc in PC_COMPONENTS:
+    print(f"Creating comprehensive plot for {pc}...")
+    create_comprehensive_pc_plot(df_lmm, df_lmm_ie, pc, plots_output_dir)
 
 print(f"\n" + "="*60)
 print("VISUALIZATION COMPLETE")
@@ -1961,7 +1983,7 @@ def create_trajectory_plots(data, output_dir):
     plt.tight_layout(pad=4.0)
     plt.savefig(os.path.join(output_dir, 'PC_trajectories_by_group.png'), dpi=300, bbox_inches='tight')
     plt.savefig(os.path.join(output_dir, 'PC_trajectories_by_group.svg'), dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()  # Removed to prevent segmentation fault
     
     # 2. Individual subject trajectories (spaghetti plot)
     print("2. Creating individual subject trajectory plots...")
@@ -2114,7 +2136,7 @@ def create_trajectory_plots(data, output_dir):
     plt.tight_layout(pad=3.0)
     plt.savefig(os.path.join(output_dir, 'PC_individual_trajectories.png'), dpi=300, bbox_inches='tight')
     plt.savefig(os.path.join(output_dir, 'PC_individual_trajectories.svg'), dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()  # Removed to prevent segmentation fault
 
 def analyze_trajectory_changes(data, output_dir):
     """
@@ -2224,7 +2246,7 @@ def analyze_trajectory_changes(data, output_dir):
         plt.tight_layout(pad=3.0)
         plt.savefig(os.path.join(output_dir, 'PC_change_scores.png'), dpi=300, bbox_inches='tight')
         plt.savefig(os.path.join(output_dir, 'PC_change_scores.svg'), dpi=300, bbox_inches='tight')
-        plt.show()
+        # plt.show()  # Removed to prevent segmentation fault
         
         # Statistical tests on change scores
         print("\nStatistical tests on change scores:")

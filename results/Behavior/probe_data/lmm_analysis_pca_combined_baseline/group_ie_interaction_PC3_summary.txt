@@ -1,0 +1,36 @@
+                                 Mixed Linear Model Regression Results
+=======================================================================================================
+Model:                            MixedLM                 Dependent Variable:                 PC3      
+No. Observations:                 561                     Method:                             REML     
+No. Groups:                       30                      Scale:                              0.5047   
+Min. group size:                  2                       Log-Likelihood:                     -633.7931
+Max. group size:                  30                      Converged:                          Yes      
+Mean group size:                  18.7                                                                 
+-------------------------------------------------------------------------------------------------------
+                                                             Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+-------------------------------------------------------------------------------------------------------
+Intercept                                                     0.005    0.103  0.045 0.964 -0.197  0.206
+group[T.Risk of Depression]                                  -0.388    0.178 -2.174 0.030 -0.737 -0.038
+inclusion_exclusion[T.inclusion]                              0.097    0.081  1.198 0.231 -0.062  0.256
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]  0.227    0.126  1.799 0.072 -0.020  0.475
+subject_id Var                                                0.147    0.069                           
+=======================================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 1277.586299
+BIC: 1299.234903
+LOG_LIKELIHOOD: -633.793149
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 561
+N_GROUPS: 30
+N_PARAMETERS: 5
+N_FIXED_EFFECTS: 4
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 0.504721
+DEVIANCE: 1267.586299
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

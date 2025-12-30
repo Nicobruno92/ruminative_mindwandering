@@ -478,26 +478,30 @@ def page_probe_multidim() -> None:
             patterns in mind-wandering experience.
 
             Analyses are restricted to **off-task states**, defined as probes
-            with ON/OFF < 50, to isolate genuine mind-wandering rather than
-            task-focused cognition.
+            with ON/OFF < 62 (mean threshold), to isolate genuine mind-wandering 
+            rather than task-focused cognition.
 
-            **Analysis overview**  
-            For each dimension we fitted several linear mixed-effects models
-            including combinations of Group (Controls vs RoD), Time-on-Task and
-            Cyberball Inclusion/Exclusion. Model comparison (via BIC and
-            significance of key terms) was used to identify, for each
-            dimension, whether group differences, temporal trends, social
-            context, or their interactions best explain variation in
-            phenomenology.
+            **Baseline normalization methodology**  
+            For Inclusion/Exclusion analyses, scores are **baseline-corrected** 
+            by subtracting each participant's mean from the combined SART1+SART3 
+            baseline blocks (before filtering by onoff). This allows us to interpret 
+            the normalized scores as **change from baseline**: a value of 0 means 
+            no change from baseline, positive values indicate an increase, and 
+            negative values indicate a decrease.
+
+            **One-sample t-tests against baseline (0)**  
+            In the Group × I/E interaction plots, we perform one-sample t-tests 
+            to determine whether each group's mean in each condition (inclusion 
+            or exclusion) is significantly different from baseline (0). Significance 
+            markers (* p<.05, ** p<.01, *** p<.001) are displayed on the plots 
+            when effects are significant, indicating a reliable change from baseline.
             """
         )
     )
     multidim_dir = (
         PROBE_DATA_DIR
         / "lmm_analysis_multidim"
-        / "onoff_lt50"
-        / "no_baseline"
-        / "no_baseline"
+        / "onoff_lt62_combined_baseline"
     )
 
     st.subheader("Comprehensive analysis: Valence", divider=True)
@@ -1128,6 +1132,19 @@ def page_pca() -> None:
             ask whether latent thought patterns (e.g. a valence/rumination
             component) differ between groups and how they are shaped by fatigue
             and social context.
+
+            **Baseline normalization methodology**  
+            For Inclusion/Exclusion analyses, PC scores are **baseline-corrected** 
+            by subtracting each participant's mean from the combined SART1+SART3 
+            baseline blocks. This allows interpretation as **change from baseline**: 
+            0 = no change, positive = increase, negative = decrease.
+
+            **One-sample t-tests against baseline (0)**  
+            In the Group × I/E interaction plots, we test whether each group's mean 
+            in each condition differs significantly from baseline (0). Significance 
+            markers (* p<.05, ** p<.01, *** p<.001) indicate reliable change from 
+            baseline, helping identify which specific group-condition combinations 
+            show meaningful shifts in thought content.
             """
         )
     )
@@ -1160,7 +1177,7 @@ def page_pca() -> None:
     )
 
     st.subheader("Group, inclusion/exclusion and time-on-task effects on PCs", divider=True)
-    pca_lmm_dir = PROBE_DATA_DIR / "lmm_analysis_pca"
+    pca_lmm_dir = PROBE_DATA_DIR / "lmm_analysis_pca_combined_baseline"
     safe_table(
         pca_lmm_dir / "descriptive_statistics.csv",
         "Descriptive statistics of PCA scores (PC1–PC3)",

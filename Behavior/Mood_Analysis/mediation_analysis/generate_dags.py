@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import os
 
-# Directorio para guardar los plots
-OUTPUT_DIR = "/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/Behavior/mediation_analysis/DAGs"
+# Output directory for DAGs (relative to project root)
+OUTPUT_DIR = "results/Behavior/mediation_analysis/DAGs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Configuración de Estilo Unificado
@@ -167,7 +167,79 @@ def draw_cyberball_dag():
     print(f"DAG saved: {out_path}")
     plt.close()
 
+
+def draw_cyberball_delayed_mood_dag():
+    """
+    Draw DAG for Delayed Mood Mediation:
+    Cyberball → Thoughts (SART) → Delayed Mood (after SART)
+    Tests whether thoughts during SART mediate the delayed effect on mood.
+    """
+    G = nx.DiGraph()
+    
+    # 1. Positions (Spacious design)
+    pos = {
+        "Cyberball\n(Condition)": (0, 0),           # Left
+        "Thoughts\n(Mediator)": (2, 2),             # Center Top
+        "Delayed Mood\n(Outcome)": (4, 0),          # Right
+        "Group\n(Moderator)": (-1.0, 2.5),          # Top Left (out of the way)
+        "Baseline Mood": (2, 3.8)                   # Very top
+    }
+    
+    # Auxiliary nodes for special arrows
+    pos["_mod_target"] = (1, 1)  # Midpoint of path A
+    
+    # 2. Canvas and Colors
+    plt.figure(figsize=(12, 8))
+    ax = plt.gca()
+    ax.set_xlim(-2.0, 5.0)
+    ax.set_ylim(-1.0, 4.5)
+    
+    node_list = ["Cyberball\n(Condition)", "Thoughts\n(Mediator)", "Delayed Mood\n(Outcome)", "Group\n(Moderator)", "Baseline Mood"]
+    color_map = [COLORS["X"], COLORS["M"], COLORS["Y"], COLORS["Mod"], COLORS["Cov"]]
+    
+    # 3. Draw Nodes
+    nx.draw_networkx_nodes(G, pos, nodelist=node_list, node_size=NODE_SIZE, 
+                           node_color=color_map, edgecolors="black", linewidths=1.5)
+    
+    # 4. Draw Labels
+    nx.draw_networkx_labels(G, pos, labels={k:k for k in node_list}, 
+                            font_size=FONT_SIZE, font_weight=FONT_WEIGHT, font_family="sans-serif")
+    
+    # 5. Draw Arrows
+    arrow_args = dict(lw=EDGE_WIDTH, color="black", mutation_scale=ARROW_SIZE, shrinkA=30, shrinkB=30)
+    
+    # a, b, c'
+    ax.annotate("", xy=pos["Thoughts\n(Mediator)"], xytext=pos["Cyberball\n(Condition)"], arrowprops=dict(arrowstyle="-|>", **arrow_args))
+    ax.annotate("", xy=pos["Delayed Mood\n(Outcome)"], xytext=pos["Thoughts\n(Mediator)"], arrowprops=dict(arrowstyle="-|>", **arrow_args))
+    ax.annotate("", xy=pos["Delayed Mood\n(Outcome)"], xytext=pos["Cyberball\n(Condition)"], arrowprops=dict(arrowstyle="-|>", **arrow_args))
+    
+    # Moderation (Red and Curved)
+    ax.annotate("", xy=pos["_mod_target"], xytext=pos["Group\n(Moderator)"], 
+                arrowprops=dict(arrowstyle="-|>", lw=2, color="#d32f2f", ls="--", 
+                                connectionstyle="arc3,rad=0.2", mutation_scale=20, shrinkA=30))
+    
+    # Control (Gray Dotted)
+    ax.annotate("", xy=pos["Thoughts\n(Mediator)"], xytext=pos["Baseline Mood"], 
+                arrowprops=dict(arrowstyle="-|>", lw=1.5, color="gray", ls=":", mutation_scale=15, shrinkA=30, shrinkB=30))
+    ax.annotate("", xy=pos["Delayed Mood\n(Outcome)"], xytext=pos["Baseline Mood"], 
+                arrowprops=dict(arrowstyle="-|>", lw=1.5, color="gray", ls=":", mutation_scale=15, shrinkA=30, shrinkB=30))
+    
+    # 6. Path Labels (Text)
+    plt.text(0.8, 1.4, "a\n(Interaction)", color="#d32f2f", fontsize=11, fontweight="bold", ha="center", va="center", zorder=15, backgroundcolor="white")
+    plt.text(3.0, 1.2, "b", color="black", fontsize=12, fontweight="bold", ha="center", va="center", zorder=15)
+    plt.text(2.0, -0.2, "c'", color="black", fontsize=12, fontweight="bold", ha="center", va="center", zorder=15)
+    
+    plt.title("Delayed Mood Mediation: Cyberball → Thoughts → Mood\n(Do thoughts during SART mediate delayed mood changes?)", fontsize=16, fontweight="bold", pad=15)
+    plt.axis("off")
+    plt.tight_layout()
+    
+    out_path = os.path.join(OUTPUT_DIR, "DAG_cyberball_delayed_mood.png")
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    print(f"DAG saved: {out_path}")
+    plt.close()
+
 if __name__ == "__main__":
     draw_dag("forward")
     draw_dag("reverse")
     draw_cyberball_dag()
+    draw_cyberball_delayed_mood_dag()

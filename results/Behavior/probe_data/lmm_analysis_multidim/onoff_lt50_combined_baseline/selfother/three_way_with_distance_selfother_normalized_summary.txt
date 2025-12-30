@@ -1,0 +1,40 @@
+                                        Mixed Linear Model Regression Results
+=====================================================================================================================
+Model:                             MixedLM                  Dependent Variable:                  selfother_normalized
+No. Observations:                  443                      Method:                              REML                
+No. Groups:                        24                       Scale:                               519.5535            
+Min. group size:                   3                        Log-Likelihood:                      -2012.3633          
+Max. group size:                   30                       Converged:                           Yes                 
+Mean group size:                   18.5                                                                              
+---------------------------------------------------------------------------------------------------------------------
+                                                                          Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+---------------------------------------------------------------------------------------------------------------------
+Intercept                                                                 -2.105    4.841 -0.435 0.664 -11.593  7.382
+group[T.Risk of Depression]                                                1.099    7.222  0.152 0.879 -13.056 15.254
+inclusion_exclusion[T.inclusion]                                          12.092    6.619  1.827 0.068  -0.881 25.064
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]              -5.152    9.556 -0.539 0.590 -23.882 13.578
+probe_number                                                               1.045    0.471  2.221 0.026   0.123  1.968
+group[T.Risk of Depression]:probe_number                                  -0.910    0.708 -1.286 0.198  -2.296  0.477
+inclusion_exclusion[T.inclusion]:probe_number                             -2.108    0.711 -2.967 0.003  -3.501 -0.716
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]:probe_number  1.318    1.022  1.289 0.197  -0.685  3.321
+subject_id Var                                                            50.476    1.041                            
+=====================================================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 4042.726631
+BIC: 4079.568759
+LOG_LIKELIHOOD: -2012.363315
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 443
+N_GROUPS: 24
+N_PARAMETERS: 9
+N_FIXED_EFFECTS: 8
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 519.553464
+DEVIANCE: 4024.726631
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

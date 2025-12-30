@@ -37,25 +37,40 @@ onoff,time,partial,"valence, selfother, confidence",0.05659148513313624,0.005016
 time,onoff,partial,"valence, selfother, confidence",0.056591485133136145,0.0050167590869030915,2460,0.056591485133136145,probe,0.006689012115870789,True,True
 selfother,self-esteem,partial,"onoff, valence, time, confidence",-0.4150587512335351,0.010635749029852875,41,0.4150587512335351,subject,0.09572174126867589,False,True
 time,ctq_tot,partial,"onoff, valence, selfother, confidence",-0.4103592607191846,0.027031240997677737,33,0.4103592607191846,subject,0.24328116897909965,False,True
+tot_first_last_diff,onoff,partial,"valence, time, selfother, confidence",0.4099746824861552,0.010579010853256425,42,0.4099746824861552,probe,0.052895054266282125,False,True
 PC1,fne,partial,"onoff, valence, time, selfother, confidence",-0.394405253390657,0.03781192514249523,33,0.394405253390657,subject,0.11343577542748569,False,True
 PC1,self-esteem,partial,"onoff, valence, time, selfother, confidence",0.34566985460247796,0.07158898964625568,33,0.34566985460247796,subject,0.16107522670407529,False,False
 PC2,age,partial,"onoff, valence, time, selfother, confidence",-0.32995398553084876,0.08639129107831466,33,0.32995398553084876,subject,0.6975311633403773,False,False
 PC1,bdi,partial,"onoff, valence, time, selfother, confidence",-0.30849642432705904,0.1102163480848418,33,0.30849642432705904,subject,0.19838942655271524,False,False
 confidence,rrs_tot,partial,"onoff, valence, time, selfother",-0.2974664965215289,0.07377022471367703,41,0.2974664965215289,subject,0.6639320224230933,False,False
 selfother,sris,partial,"onoff, valence, time, confidence",0.2899610397880049,0.08171045260195543,41,0.2899610397880049,subject,0.36769703670879944,False,False
+time_on_task_slope,confidence,partial,"valence, time, selfother",0.28736399680760916,0.07609193565538823,42,0.28736399680760916,probe,0.22439567084461579,False,False
 valence,mwq,partial,"onoff, time, selfother, confidence",-0.2857026372462393,0.08650147954217076,41,0.2857026372462393,subject,0.19462832896988422,False,False
 PC1,ctq_tot,partial,"onoff, valence, time, selfother, confidence",0.2813444083814504,0.18292228725434587,29,0.2813444083814504,subject,0.27438343088151884,False,False
+tot_first_last_diff,confidence,partial,"valence, time, selfother",0.27488592914848586,0.0903393461588096,42,0.27488592914848586,probe,0.225848365397024,False,False
+time_on_task_slope,fne,partial,"valence, time, selfother, confidence",-0.27387725165882926,0.10094591302275663,41,0.27387725165882926,subject,0.3653407053991122,False,False
+time_on_task_slope,time,partial,"valence, selfother, confidence",0.27240795783945015,0.09339887543808936,42,0.27240795783945015,probe,0.22439567084461579,False,False
 onoff,a_rsq,partial,"valence, time, selfother, confidence",-0.2657633295985414,0.11187294984061151,41,0.2657633295985414,subject,0.763852649412798,False,False
+time_on_task_slope,bdi,partial,"valence, time, selfother, confidence",-0.25746890815582374,0.12394192899616957,41,0.25746890815582374,subject,0.3653407053991122,False,False
+tot_first_last_diff,ctq_tot,partial,"valence, time, selfother, confidence",-0.2541381711916718,0.18340596631272701,33,0.2541381711916718,subject,0.4385374967840692,False,False
+time_on_task_slope,self-esteem,partial,"valence, time, selfother, confidence",0.2506637844173577,0.1345487170863057,41,0.2506637844173577,subject,0.3653407053991122,False,False
 time,fne,partial,"onoff, valence, selfother, confidence",0.2503432986881436,0.13506427873135432,41,0.2503432986881436,subject,0.5833041903735305,False,False
+time_on_task_slope,onoff,partial,"valence, time, selfother, confidence",0.2369708224792715,0.15200521147670767,42,0.2369708224792715,probe,0.22439567084461579,False,False
 PC1,sris,partial,"onoff, valence, time, selfother, confidence",0.23671939407204048,0.22519780821998867,33,0.23671939407204048,subject,0.28954003913998544,False,False
+time_on_task_slope,rrs_tot,partial,"valence, time, selfother, confidence",-0.23451872853005684,0.16237364684404984,41,0.23451872853005684,subject,0.3653407053991122,False,False
+tot_first_last_diff,bdi,partial,"valence, time, selfother, confidence",-0.23265967415630678,0.16582585593483276,41,0.23265967415630678,subject,0.4385374967840692,False,False
 PC2,fne,partial,"onoff, valence, time, selfother, confidence",0.2282988450616425,0.24261431361555083,33,0.2282988450616425,subject,0.6975311633403773,False,False
 onoff,age,partial,"valence, time, selfother, confidence",0.22739949126690487,0.16974503320284398,42,0.22739949126690487,subject,0.763852649412798,False,False
+tot_first_last_diff,self-esteem,partial,"valence, time, selfother, confidence",0.22282682391464095,0.18496564352526185,41,0.22282682391464095,subject,0.4385374967840692,False,False
 selfother,age,partial,"onoff, valence, time, confidence",-0.21948504072040353,0.18549925934917175,42,0.21948504072040353,subject,0.5564977780475153,False,False
+time_on_task_slope,valence,partial,"time, selfother, confidence",-0.21944035909742313,0.17951653667569265,42,0.21944035909742313,probe,0.22439567084461579,False,False
 selfother,ctq_tot,partial,"onoff, valence, time, confidence",0.21849477911588136,0.25482891033110794,33,0.21849477911588136,subject,0.5681257201572237,False,False
 time,a_rsq,partial,"onoff, valence, selfother, confidence",0.21822765868378402,0.19443473012451015,41,0.21822765868378402,subject,0.5833041903735305,False,False
+tot_first_last_diff,rrs_tot,partial,"valence, time, selfother, confidence",-0.21800312933402868,0.194905554126253,41,0.21800312933402868,subject,0.4385374967840692,False,False
 PC3,age,partial,"onoff, valence, time, selfother, confidence",-0.20828357585547674,0.2875079650190458,33,0.20828357585547674,subject,0.8905815757290239,False,False
 PC3,self-esteem,partial,"onoff, valence, time, selfother, confidence",0.19273185905329554,0.3258056374797451,33,0.19273185905329554,subject,0.8905815757290239,False,False
 valence,a_rsq,partial,"onoff, time, selfother, confidence",-0.189178157917944,0.2621206844453705,41,0.189178157917944,subject,0.45813277167707056,False,False
+tot_first_last_diff,time,partial,"valence, selfother, confidence",0.18906198233782748,0.249029505788495,42,0.18906198233782748,probe,0.41504917631415833,False,False
 confidence,ctq_tot,partial,"onoff, valence, time, selfother",-0.1874136349473057,0.3302942573032649,33,0.1874136349473057,subject,0.6957985331973476,False,False
 PC3,bdi,partial,"onoff, valence, time, selfother, confidence",-0.1806358297878407,0.3576486607000967,33,0.1806358297878407,subject,0.8905815757290239,False,False
 PC2,ctq_tot,partial,"onoff, valence, time, selfother, confidence",-0.18056755203071032,0.3984759572765981,29,0.18056755203071032,subject,0.6975311633403773,False,False
@@ -71,12 +86,18 @@ confidence,bdi,partial,"onoff, valence, time, selfother",-0.14661076646907453,0.
 PC2,a_rsq,partial,"onoff, valence, time, selfother, confidence",0.14391128799765646,0.46502077556025156,33,0.14391128799765646,subject,0.6975311633403773,False,False
 selfother,mwq,partial,"onoff, valence, time, confidence",0.1417894115839393,0.4025304883065941,41,0.1417894115839393,subject,0.5681257201572237,False,False
 time,sris,partial,"onoff, valence, selfother, confidence",-0.13736861006184,0.4175060654966505,41,0.13736861006184,subject,0.8360609916792868,False,False
+time_on_task_slope,selfother,partial,"valence, time, confidence",-0.1370030036595973,0.4055902953493383,42,0.1370030036595973,probe,0.4055902953493383,False,False
 onoff,bdi,partial,"valence, time, selfother, confidence",-0.13517894919553017,0.42503828590010817,41,0.13517894919553017,subject,0.9563361432752434,False,False
 PC3,fne,partial,"onoff, valence, time, selfother, confidence",-0.13457346532242792,0.49476754207167994,33,0.13457346532242792,subject,0.8905815757290239,False,False
+tot_first_last_diff,fne,partial,"valence, time, selfother, confidence",-0.13164340717647643,0.4373589622634667,41,0.13164340717647643,subject,0.78724613207424,False,False
 selfother,bdi,partial,"onoff, valence, time, confidence",0.1303611223173486,0.4418755601222851,41,0.1303611223173486,subject,0.5681257201572237,False,False
 time,age,partial,"onoff, valence, selfother, confidence",-0.12230272540964306,0.4644783287107149,42,0.12230272540964306,subject,0.8360609916792868,False,False
+tot_first_last_diff,valence,partial,"time, selfother, confidence",-0.12118200488751978,0.462416266877824,42,0.12118200488751978,probe,0.5739338564779607,False,False
+time_on_task_slope,ctq_tot,partial,"valence, time, selfother, confidence",-0.12051732420119089,0.5334592929735689,33,0.12051732420119089,subject,0.9602267273524239,False,False
 valence,ctq_tot,partial,"onoff, time, selfother, confidence",0.11250894665196318,0.5611877194024943,33,0.11250894665196318,subject,0.6736706550748514,False,False
+tot_first_last_diff,a_rsq,partial,"valence, time, selfother, confidence",-0.10524679433726639,0.5352947300525852,41,0.10524679433726639,subject,0.8029420950788778,False,False
 PC3,mwq,partial,"onoff, valence, time, selfother, confidence",-0.10064537365907648,0.6103446611196616,33,0.10064537365907648,subject,0.9046669592679899,False,False
+tot_first_last_diff,selfother,partial,"valence, time, confidence",-0.09286120515582338,0.5739338564779607,42,0.09286120515582338,probe,0.5739338564779607,False,False
 PC2,rrs_tot,partial,"onoff, valence, time, selfother, confidence",0.08954984571525279,0.650432394665336,33,0.08954984571525279,subject,0.7123319363948155,False,False
 valence,age,partial,"onoff, time, selfother, confidence",0.0881221691134405,0.5988183600665345,42,0.0881221691134405,subject,0.6736706550748514,False,False
 PC2,bdi,partial,"onoff, valence, time, selfother, confidence",0.08754050383873409,0.6577992729683281,33,0.08754050383873409,subject,0.7123319363948155,False,False
@@ -89,20 +110,27 @@ onoff,rrs_tot,partial,"valence, time, selfother, confidence",-0.0698559952342171
 confidence,self-esteem,partial,"onoff, valence, time, selfother",0.0690462666929403,0.6846969848470716,41,0.0690462666929403,subject,0.7702841079529557,False,False
 time,self-esteem,partial,"onoff, valence, selfother, confidence",-0.0645128263343643,0.7044331159542969,41,0.0645128263343643,subject,0.9056997205126674,False,False
 PC3,rrs_tot,partial,"onoff, valence, time, selfother, confidence",-0.06003002265581824,0.7615542489875997,33,0.06003002265581824,subject,0.9046669592679899,False,False
+tot_first_last_diff,sris,partial,"valence, time, selfother, confidence",0.05819640755290429,0.7322492149981741,41,0.05819640755290429,subject,0.8490811232898023,False,False
 PC2,confidence,partial,"onoff, valence, time, selfother",-0.055468708479235025,0.09932420650696451,888,0.055468708479235025,probe,0.12415525813370563,False,False
 valence,sris,partial,"onoff, time, selfother, confidence",-0.053857214065779806,0.7515574335289233,41,0.053857214065779806,subject,0.7515574335289233,False,False
+tot_first_last_diff,age,partial,"valence, time, selfother, confidence",0.04734847958712,0.7777259088782776,42,0.04734847958712,subject,0.8490811232898023,False,False
 onoff,self-esteem,partial,"valence, time, selfother, confidence",-0.04159810235245475,0.8068804545016688,41,0.04159810235245475,subject,0.9960420934158607,False,False
 PC1,a_rsq,partial,"onoff, valence, time, selfother, confidence",0.03766812990376836,0.8490734655805133,33,0.03766812990376836,subject,0.8490734655805133,False,False
 selfother,a_rsq,partial,"onoff, valence, time, confidence",-0.0326975484538961,0.8476512007614248,41,0.0326975484538961,subject,0.9265476320371581,False,False
+tot_first_last_diff,mwq,partial,"valence, time, selfother, confidence",-0.032387069017506764,0.8490811232898023,41,0.032387069017506764,subject,0.8490811232898023,False,False
 confidence,a_rsq,partial,"onoff, valence, time, selfother",-0.030122932504077424,0.8595227573505579,41,0.030122932504077424,subject,0.8595227573505579,False,False
 onoff,fne,partial,"valence, time, selfother, confidence",0.026957134038890704,0.8741617305982454,41,0.026957134038890704,subject,0.9960420934158607,False,False
 PC3,a_rsq,partial,"onoff, valence, time, selfother, confidence",0.025935830818534244,0.8957719774292552,33,0.025935830818534244,subject,0.9046669592679899,False,False
 PC3,sris,partial,"onoff, valence, time, selfother, confidence",-0.023711968974326002,0.9046669592679899,33,0.023711968974326002,subject,0.9046669592679899,False,False
+time_on_task_slope,a_rsq,partial,"valence, time, selfother, confidence",0.020331416919567514,0.9049278209492464,41,0.020331416919567514,subject,0.9907325563777885,False,False
+time_on_task_slope,age,partial,"valence, time, selfother, confidence",0.016539964515789696,0.9214877463404965,42,0.016539964515789696,subject,0.9907325563777885,False,False
 time,bdi,partial,"onoff, valence, selfother, confidence",0.01571784749125216,0.9264342547085773,41,0.01571784749125216,subject,0.9296326020444673,False,False
 selfother,fne,partial,"onoff, valence, time, confidence",0.015693557820256016,0.9265476320371581,41,0.015693557820256016,subject,0.9265476320371581,False,False
+time_on_task_slope,sris,partial,"valence, time, selfother, confidence",0.015277999008301657,0.9284875624405324,41,0.015277999008301657,subject,0.9907325563777885,False,False
 time,mwq,partial,"onoff, valence, selfother, confidence",-0.015032757360960918,0.9296326020444673,41,0.015032757360960918,subject,0.9296326020444673,False,False
 onoff,ctq_tot,partial,"valence, time, selfother, confidence",0.014475988640175195,0.9405884671740219,33,0.014475988640175195,subject,0.9960420934158607,False,False
 PC2,valence,partial,"onoff, time, selfother, confidence",0.011722873658550539,0.7277914613070187,888,0.011722873658550539,probe,0.7277914613070187,False,False
 time,confidence,partial,"onoff, valence, selfother",0.00444037022654174,0.8258789799482738,2460,0.00444037022654174,probe,0.8258789799482738,False,False
 confidence,time,partial,"onoff, valence, selfother",0.004440370226541334,0.8258789799482895,2460,0.004440370226541334,probe,0.8258789799482895,False,False
+time_on_task_slope,mwq,partial,"valence, time, selfother, confidence",0.001977410749204976,0.9907325563777885,41,0.001977410749204976,subject,0.9907325563777885,False,False
 onoff,sris,partial,"valence, time, selfother, confidence",-0.0008444906416630928,0.9960420934158607,41,0.0008444906416630928,subject,0.9960420934158607,False,False

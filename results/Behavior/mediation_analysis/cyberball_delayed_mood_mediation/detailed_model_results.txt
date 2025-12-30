@@ -1,0 +1,34 @@
+================================================================================
+CYBERBALL DELAYED MOOD MEDIATION ANALYSIS - DETAILED RESULTS
+================================================================================
+
+Hypothesis: Cyberball manipulation affects thoughts during SART,
+which in turn influence delayed mood (measured after completing SART).
+The Risk Group may show stronger thought-driven mood changes.
+
+Model: Hayes Model 7 (Moderated Mediation)
+  X: Cyberball Condition (0=Inclusion, 1=Exclusion)
+  M: Thought Dimensions (during SART)
+  Y: Mood Delayed (after completing SART)
+  W: Group (0=Controls, 1=Risk)
+  Cov: Baseline Mood (mood_pre)
+
+Monte Carlo Simulations: 20,000
+Confidence Level: 95%
+
+--------------------------------------------------------------------------------
+DATASET SUMMARY
+--------------------------------------------------------------------------------
+Total Blocks: 57
+Total Subjects: 33
+Controls: 38 blocks
+Risk Group: 19 blocks
+Inclusion: 27 blocks
+Exclusion: 30 blocks
+
+================================================================================
+SUMMARY: SIGNIFICANT EFFECTS
+================================================================================
+
+No significant Index of Moderated Mediation effects found.
+

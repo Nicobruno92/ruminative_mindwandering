@@ -46,9 +46,8 @@ PROBE_DATA_FILE: str = (
     "results/Behavior/probe_data/probe_level_aggregated_data.csv"
 )
 
-# Output directory for mood LMM analysis
-RESULTS_DIR: str = "results/Behavior/mood"
-PLOTS_DIR: str = RESULTS_DIR
+# Output directory for mood LMM analysis (will be appended with effect type)
+RESULTS_DIR_BASE: str = "results/Behavior/mood"
 
 # Mood dimensions to analyze (columns expected in EVA data)
 MOOD_DIMENSIONS: List[str] = [
@@ -68,6 +67,25 @@ IE_COLORS: List[str] = ["#A23B72", "#F18F01"]
 
 # Minimum number of blocks required for analysis
 MIN_BLOCKS: int = 20
+
+# Effect type: "immediate" or "delayed"
+# - immediate: Uses first block of Sart2/Sart4 (right after Cyberball intervention)
+# - delayed: Uses last block of Sart2/Sart4 (after completing SART task)
+EFFECT_TYPE: str = "delayed"
+
+# Derived output directories (include effect type suffix)
+RESULTS_DIR: str = f"{RESULTS_DIR_BASE}_{EFFECT_TYPE}"
+PLOTS_DIR: str = RESULTS_DIR
+
+# Colors for each mood dimension (same palette as mediation analysis)
+DIMENSION_COLORS: Dict[str, str] = {
+    "EVAtense": "#E74C3C",    # Red
+    "EVAfeel": "#3498DB",      # Blue
+    "EVAmood": "#2ECC71",      # Green
+    "EVAhurt": "#9B59B6",      # Purple
+    "EVAaverage": "#F39C12",   # Orange
+    "total_score": "#1ABC9C",  # Teal
+}
 
 
 # =============================================================================
@@ -118,20 +136,29 @@ def load_block_level_mood_data() -> pd.DataFrame:
     if missing_probe:
         raise ValueError(f"Probe data missing columns: {sorted(missing_probe)}")
 
-    # Aggregate EVA to one row per subject × task (first non-NaN block per mood)
-    def _first_block_moods(group: pd.DataFrame) -> pd.Series:
+    # Aggregate EVA to one row per subject × task
+    # For immediate effect: use first block (right after Cyberball)
+    # For delayed effect: use last block (after completing SART)
+    def _select_block_moods(group: pd.DataFrame) -> pd.Series:
         group_sorted = group.sort_values("block_number")
         out: Dict[str, float] = {}
         for dim in MOOD_DIMENSIONS:
             vals = group_sorted[dim].dropna()
-            out[dim] = float(vals.iloc[0]) if not vals.empty else np.nan
+            if vals.empty:
+                out[dim] = np.nan
+            elif EFFECT_TYPE == "delayed":
+                out[dim] = float(vals.iloc[-1])  # Last block
+            else:
+                out[dim] = float(vals.iloc[0])  # First block (immediate)
         return pd.Series(out)
 
     df_mood = (
         df_eva.groupby(["subject_id", "task"], as_index=False)
-        .apply(_first_block_moods)
+        .apply(_select_block_moods)
         .reset_index(drop=True)
     )
+
+    print(f"\nEffect type: {EFFECT_TYPE} (using {'last' if EFFECT_TYPE == 'delayed' else 'first'} block)")
 
     # Aggregate probe data to task level to attach group and IE labels
     agg_cols = {
@@ -710,6 +737,203 @@ def plot_mood_dimension(
     plt.close(fig)
 
 
+def plot_combined_lineplot_group(
+    df_group: pd.DataFrame,
+    mood_dimensions: List[str],
+    significance_dict: Dict[str, bool],
+    out_dir: str,
+) -> None:
+    """Create a combined line plot showing all mood dimensions for Group effect.
+    
+    Each dimension is plotted as a line connecting Controls to Risk of Depression.
+    Lines are solid if the group effect is significant, dashed if not.
+    
+    Parameters
+    ----------
+    df_group : pd.DataFrame
+        Block-level data for group analyses.
+    mood_dimensions : list of str
+        Mood variables to include.
+    significance_dict : dict
+        Dictionary mapping mood dimension to boolean significance.
+    out_dir : str
+        Output directory for the figure.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    
+    plt.style.use("default")
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    x_positions = [0, 1]  # Controls, Risk of Depression
+    
+    for dim in mood_dimensions:
+        if dim not in df_group.columns:
+            continue
+        
+        color = DIMENSION_COLORS.get(dim, "#333333")
+        is_significant = significance_dict.get(dim, False)
+        linestyle = "-" if is_significant else "--"
+        alpha = 1.0 if is_significant else 0.6
+        
+        # Calculate means and SEMs per group
+        means = []
+        sems = []
+        for group in GROUP_ORDER:
+            subset = df_group[df_group["group"] == group]
+            # Aggregate per subject first, then calculate mean/sem
+            subj_means = subset.groupby("subject_id")[dim].mean()
+            means.append(subj_means.mean())
+            sems.append(subj_means.sem())
+        
+        # Plot line with error bars
+        ax.errorbar(
+            x_positions,
+            means,
+            yerr=sems,
+            marker="o",
+            linewidth=3 if is_significant else 2,
+            markersize=10 if is_significant else 8,
+            capsize=5,
+            capthick=2,
+            linestyle=linestyle,
+            color=color,
+            alpha=alpha,
+            label=f"{dim}" + (" *" if is_significant else ""),
+        )
+    
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(GROUP_ORDER, fontsize=12, fontweight="bold")
+    ax.set_xlabel("Group", fontsize=14, fontweight="bold")
+    ax.set_ylabel("Mood Score", fontsize=14, fontweight="bold")
+    ax.set_title(
+        "Group Effect: All Mood Dimensions\n(solid = significant, dashed = non-significant)",
+        fontsize=16,
+        fontweight="bold",
+    )
+    ax.legend(
+        loc="upper right",
+        fontsize=10,
+        title="Mood Dimension",
+        title_fontsize=11,
+        frameon=True,
+        fancybox=True,
+        shadow=True,
+    )
+    ax.grid(True, alpha=0.3, linestyle="--")
+    
+    plt.tight_layout()
+    
+    out_png = os.path.join(out_dir, "combined_group_effect_lineplot.png")
+    out_svg = os.path.join(out_dir, "combined_group_effect_lineplot.svg")
+    plt.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.savefig(out_svg, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Combined group line plot saved: {out_png}")
+
+
+def plot_combined_lineplot_ie(
+    df_ie: pd.DataFrame,
+    mood_dimensions: List[str],
+    significance_dict: Dict[str, bool],
+    out_dir: str,
+) -> None:
+    """Create a combined line plot showing all mood dimensions for IE effect.
+    
+    Each dimension is plotted as a line connecting Inclusion to Exclusion.
+    Lines are solid if the IE effect is significant, dashed if not.
+    Uses normalized (baseline-corrected) mood scores.
+    
+    Parameters
+    ----------
+    df_ie : pd.DataFrame
+        Inclusion/exclusion dataset with normalized mood.
+    mood_dimensions : list of str
+        Mood variables to include.
+    significance_dict : dict
+        Dictionary mapping mood dimension to boolean significance for IE effect.
+    out_dir : str
+        Output directory for the figure.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    
+    if df_ie.empty:
+        print("No IE data available for combined line plot.")
+        return
+    
+    plt.style.use("default")
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    x_positions = [0, 1]  # Inclusion, Exclusion
+    
+    for dim in mood_dimensions:
+        norm_col = f"{dim}_normalized"
+        if norm_col not in df_ie.columns:
+            continue
+        
+        color = DIMENSION_COLORS.get(dim, "#333333")
+        is_significant = significance_dict.get(dim, False)
+        linestyle = "-" if is_significant else "--"
+        alpha = 1.0 if is_significant else 0.6
+        
+        # Calculate means and SEMs per IE condition
+        means = []
+        sems = []
+        for ie in IE_ORDER:
+            subset = df_ie[df_ie["inclusion_exclusion"] == ie]
+            # Aggregate per subject first, then calculate mean/sem
+            subj_means = subset.groupby("subject_id")[norm_col].mean()
+            means.append(subj_means.mean())
+            sems.append(subj_means.sem())
+        
+        # Plot line with error bars
+        ax.errorbar(
+            x_positions,
+            means,
+            yerr=sems,
+            marker="o",
+            linewidth=3 if is_significant else 2,
+            markersize=10 if is_significant else 8,
+            capsize=5,
+            capthick=2,
+            linestyle=linestyle,
+            color=color,
+            alpha=alpha,
+            label=f"{dim}" + (" *" if is_significant else ""),
+        )
+    
+    # Add baseline reference line
+    ax.axhline(y=0, color="black", linestyle=":", linewidth=1.5, alpha=0.5, label="Baseline")
+    
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(IE_ORDER, fontsize=12, fontweight="bold")
+    ax.set_xlabel("Condition", fontsize=14, fontweight="bold")
+    ax.set_ylabel("Mood Score (Baseline-Corrected)", fontsize=14, fontweight="bold")
+    ax.set_title(
+        "Inclusion/Exclusion Effect: All Mood Dimensions\n(solid = significant, dashed = non-significant)",
+        fontsize=16,
+        fontweight="bold",
+    )
+    ax.legend(
+        loc="upper right",
+        fontsize=10,
+        title="Mood Dimension",
+        title_fontsize=11,
+        frameon=True,
+        fancybox=True,
+        shadow=True,
+    )
+    ax.grid(True, alpha=0.3, linestyle="--")
+    
+    plt.tight_layout()
+    
+    out_png = os.path.join(out_dir, "combined_ie_effect_lineplot.png")
+    out_svg = os.path.join(out_dir, "combined_ie_effect_lineplot.svg")
+    plt.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.savefig(out_svg, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Combined IE line plot saved: {out_png}")
+
+
 def descriptive_statistics(
     df_group: pd.DataFrame,
     df_ie: pd.DataFrame,
@@ -881,11 +1105,68 @@ def main() -> None:
     df_block = load_block_level_mood_data()
     df_group, df_ie = preprocess_mood_data(df_block, MOOD_DIMENSIONS)
 
+    # Track significance for combined plots
+    group_significance: Dict[str, bool] = {}
+    ie_significance: Dict[str, bool] = {}
+
     for dep in MOOD_DIMENSIONS:
         if dep in df_block.columns:
             analyze_mood_dimension(df_group, df_ie, dep)
+            
+            # Load LMM results to determine significance
+            dim_results_dir = os.path.join(RESULTS_DIR, dep)
+            
+            # Check group effect significance
+            group_results_file = os.path.join(
+                dim_results_dir, f"group_effect_{dep}_results.csv"
+            )
+            if os.path.exists(group_results_file):
+                results_df = pd.read_csv(group_results_file)
+                # Look for the group predictor row
+                group_row = results_df[
+                    results_df["predictor"].str.contains("group", case=False, na=False)
+                ]
+                if not group_row.empty:
+                    group_significance[dep] = bool(group_row["significant_05"].iloc[0])
+                else:
+                    group_significance[dep] = False
+            else:
+                group_significance[dep] = False
+            
+            # Check IE effect significance
+            dep_normalized = f"{dep}_normalized"
+            ie_results_file = os.path.join(
+                dim_results_dir, f"inclusion_exclusion_effect_{dep_normalized}_results.csv"
+            )
+            if os.path.exists(ie_results_file):
+                results_df = pd.read_csv(ie_results_file)
+                # Look for the inclusion_exclusion predictor row
+                ie_row = results_df[
+                    results_df["predictor"].str.contains("inclusion_exclusion", case=False, na=False)
+                ]
+                if not ie_row.empty:
+                    ie_significance[dep] = bool(ie_row["significant_05"].iloc[0])
+                else:
+                    ie_significance[dep] = False
+            else:
+                ie_significance[dep] = False
         else:
             print(f"Skipping {dep}: column not found in block-level data")
+
+    # Generate combined line plots
+    print("\n" + "=" * 60)
+    print("GENERATING COMBINED LINE PLOTS")
+    print("=" * 60)
+    
+    # Filter out total_score for combined plots
+    combined_dims = [d for d in MOOD_DIMENSIONS if d != "total_score"]
+    
+    plot_combined_lineplot_group(
+        df_group, combined_dims, group_significance, PLOTS_DIR
+    )
+    plot_combined_lineplot_ie(
+        df_ie, combined_dims, ie_significance, PLOTS_DIR
+    )
 
     print("\n" + "=" * 60)
     print("MOOD ANALYSIS COMPLETE")

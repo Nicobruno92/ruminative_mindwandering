@@ -38,17 +38,14 @@ from scipy import stats
 
 # Input data files
 PROBE_DATA_FILE: str = (
-    "/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/"
     "results/Behavior/probe_data/probe_level_aggregated_data.csv"
 )
 EVA_DATA_FILE: str = (
-    "/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/"
     "results/Behavior/scales_data/eva_aggregated_data.csv"
 )
 
 # Output directory
 RESULTS_DIR: str = (
-    "/Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/"
     "results/Behavior/mediation_analysis/cyberball_moderated_mediation"
 )
 

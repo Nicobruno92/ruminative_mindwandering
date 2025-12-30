@@ -1,0 +1,2 @@
+predictor,estimate,std_error,t_value,p_value,conf_lower,conf_upper,significant_05,significant_01,p_value_bonferroni,significant_corrected
+group[T.Risk of Depression],-11.756846055486989,3.82091826116026,-3.0769687420418426,0.002091172282780463,-19.245708235232506,-4.2679838757414705,True,True,0.002091172282780463,True

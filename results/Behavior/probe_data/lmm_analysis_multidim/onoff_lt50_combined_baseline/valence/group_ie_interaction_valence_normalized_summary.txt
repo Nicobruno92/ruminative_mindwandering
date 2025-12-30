@@ -1,0 +1,36 @@
+                                  Mixed Linear Model Regression Results
+=========================================================================================================
+Model:                           MixedLM              Dependent Variable:              valence_normalized
+No. Observations:                443                  Method:                          REML              
+No. Groups:                      24                   Scale:                           206.3936          
+Min. group size:                 3                    Log-Likelihood:                  -1822.0936        
+Max. group size:                 30                   Converged:                       Yes               
+Mean group size:                 18.5                                                                    
+---------------------------------------------------------------------------------------------------------
+                                                              Coef.  Std.Err.   z    P>|z|  [0.025 0.975]
+---------------------------------------------------------------------------------------------------------
+Intercept                                                      1.597    2.551  0.626 0.531  -3.404  6.598
+group[T.Risk of Depression]                                  -10.528    4.019 -2.619 0.009 -18.405 -2.650
+inclusion_exclusion[T.inclusion]                              -1.203    1.987 -0.605 0.545  -5.098  2.692
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]  14.524    2.875  5.052 0.000   8.889 20.159
+subject_id Var                                                67.145    1.882                            
+=========================================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 3654.187169
+BIC: 3674.655018
+LOG_LIKELIHOOD: -1822.093584
+LOG_LIKELIHOOD_RESTRICTED: Not available
+N_OBSERVATIONS: 443
+N_GROUPS: 24
+N_PARAMETERS: 5
+N_FIXED_EFFECTS: 4
+N_RANDOM_EFFECTS: 1
+CONVERGED: True
+SCALE: 206.393649
+DEVIANCE: 3644.187169
+RSQUARED_WITHIN: Not available
+RSQUARED_BETWEEN: Not available

@@ -1,2 +1,0 @@
-predictor,estimate,std_error,t_value,p_value,conf_lower,conf_upper,significant_05,significant_01,p_value_bonferroni,significant_corrected
-time_on_task,-0.006006562554547478,0.0008076103273917998,-7.437451393106674,1.0264633320552324e-13,-0.007589449709778008,-0.004423675399316949,True,True,1.0264633320552324e-13,True

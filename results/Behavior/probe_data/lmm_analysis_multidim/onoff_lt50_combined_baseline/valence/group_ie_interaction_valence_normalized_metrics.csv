@@ -1,0 +1,2 @@
+aic,bic,log_likelihood,log_likelihood_restricted,n_observations,n_groups,n_parameters,n_fixed_effects,n_random_effects,converged,scale,deviance,rsquared_within,rsquared_between
+3654.1871689314694,3674.6550177816953,-1822.0935844657347,,443,24,5,4,1,True,206.39364933123974,3644.1871689314694,,
