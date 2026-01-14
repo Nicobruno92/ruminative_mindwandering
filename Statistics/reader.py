@@ -177,9 +177,9 @@ def filter_subjects_by_variability(df: pd.DataFrame,
     min_variability : Optional[str]
         Variability threshold specification:
         - None or False: No filtering
-        - "auto": Remove subjects with zero variance (std == 0)
-        - float/int: Minimum standard deviation required
-        - "quantile_X": Remove bottom X% of subjects by variance (e.g., "quantile_10")
+        - "auto": Remove subjects with zero range (max == min)
+        - float/int: Minimum range required (max - min > threshold)
+        - "quantile_X": Remove bottom X% of subjects by range (e.g., "quantile_10")
     subject_column : str
         Name of the subject identifier column (default: 'subject')
     verbose : bool
@@ -212,24 +212,24 @@ def filter_subjects_by_variability(df: pd.DataFrame,
         raise ValueError(f"Predictor column '{predictor_column}' not found in dataframe. "
                         f"Available columns: {list(df.columns)}")
     
-    # Compute within-subject standard deviation for the predictor
-    subject_stats = df.groupby(subject_column)[predictor_column].agg(['std', 'count', 'mean'])
-    subject_stats = subject_stats.rename(columns={'std': 'predictor_std', 
-                                                   'count': 'n_obs',
-                                                   'mean': 'predictor_mean'})
+    # Compute within-subject range for the predictor
+    # ptp = peak to peak (max - min)
+    subject_stats = df.groupby(subject_column)[predictor_column].agg([np.ptp, 'count'])
+    subject_stats = subject_stats.rename(columns={'ptp': 'predictor_range', 
+                                                   'count': 'n_obs'})
     
-    # Handle NaN std (occurs when subject has only 1 observation)
-    subject_stats['predictor_std'] = subject_stats['predictor_std'].fillna(0)
+    # Handle possible NaNs (though agg ignores them usually)
+    subject_stats['predictor_range'] = subject_stats['predictor_range'].fillna(0)
     
     n_subjects_before = len(subject_stats)
     
     # Determine threshold based on min_variability specification
     if isinstance(min_variability, str):
         if min_variability.lower() == 'auto':
-            # Remove subjects with zero variance
+            # Remove subjects with zero range (flat line)
             threshold = 0
-            subjects_to_keep = subject_stats[subject_stats['predictor_std'] > threshold].index
-            threshold_description = "zero variance (auto)"
+            subjects_to_keep = subject_stats[subject_stats['predictor_range'] > threshold].index
+            threshold_description = "zero range (auto)"
         elif min_variability.lower().startswith('quantile_'):
             # Extract percentile (e.g., "quantile_10" -> 10)
             try:
@@ -237,22 +237,22 @@ def filter_subjects_by_variability(df: pd.DataFrame,
                 if not 0 <= percentile <= 100:
                     raise ValueError(f"Percentile must be between 0 and 100, got {percentile}")
                 
-                # Compute threshold as the Xth percentile of std
-                threshold = np.percentile(subject_stats['predictor_std'], percentile)
-                subjects_to_keep = subject_stats[subject_stats['predictor_std'] > threshold].index
+                # Compute threshold as the Xth percentile of range
+                threshold = np.percentile(subject_stats['predictor_range'], percentile)
+                subjects_to_keep = subject_stats[subject_stats['predictor_range'] > threshold].index
                 threshold_description = f"{percentile}th percentile (threshold={threshold:.3f})"
             except (IndexError, ValueError) as e:
                 raise ValueError(f"Invalid quantile specification: '{min_variability}'. "
                                f"Use format 'quantile_X' where X is 0-100. Error: {e}")
         else:
             raise ValueError(f"Invalid min_variability string: '{min_variability}'. "
-                           f"Use 'auto', 'quantile_X', or a numeric value.")
+                           f"Use 'auto', 'quantile_X', or a numeric value (for range).")
     else:
-        # Numeric threshold
+        # Numeric threshold (interpreted as Range)
         try:
             threshold = float(min_variability)
-            subjects_to_keep = subject_stats[subject_stats['predictor_std'] > threshold].index
-            threshold_description = f"std > {threshold}"
+            subjects_to_keep = subject_stats[subject_stats['predictor_range'] > threshold].index
+            threshold_description = f"range > {threshold}"
         except (TypeError, ValueError):
             raise ValueError(f"Invalid min_variability value: {min_variability}. "
                            f"Must be 'auto', 'quantile_X', or a number.")
@@ -274,16 +274,125 @@ def filter_subjects_by_variability(df: pd.DataFrame,
             removed_subjects = sorted(list(set(subject_stats.index) - set(subjects_to_keep)))
             removed_stats = subject_stats.loc[removed_subjects]
             print(f"    Removed subjects: {removed_subjects}")
-            print(f"    Removed subjects' std range: [{removed_stats['predictor_std'].min():.3f}, "
-                  f"{removed_stats['predictor_std'].max():.3f}]")
-            print(f"    Kept subjects' std range: [{subject_stats.loc[subjects_to_keep, 'predictor_std'].min():.3f}, "
-                  f"{subject_stats.loc[subjects_to_keep, 'predictor_std'].max():.3f}]")
+            print(f"    Removed subjects' range: [{removed_stats['predictor_range'].min():.3f}, "
+                  f"{removed_stats['predictor_range'].max():.3f}]")
+            print(f"    Kept subjects' range: [{subject_stats.loc[subjects_to_keep, 'predictor_range'].min():.3f}, "
+                  f"{subject_stats.loc[subjects_to_keep, 'predictor_range'].max():.3f}]")
     
     # Warn if too many subjects removed
     if n_removed / n_subjects_before > 0.3:  # More than 30%
         warnings.warn(f"Variability filter removed {n_removed}/{n_subjects_before} subjects ({100*n_removed/n_subjects_before:.1f}%). "
                      f"Consider using a less strict threshold.")
     
+    return df_filtered
+
+
+def filter_subjects_by_class_balance(df: pd.DataFrame,
+                                     predictor_column: str,
+                                     min_minority_ratio: Optional[float] = None,
+                                     subject_column: str = 'subject',
+                                     verbose: bool = True) -> pd.DataFrame:
+    """
+    Filter subjects whose minority class proportion for the predictor is below threshold.
+    
+    This is critical for binary predictors to ensure each subject has sufficient 
+    observation counts in both conditions.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe containing behavioral data
+    predictor_column : str
+        Name of the predictor column (e.g., 'onoff')
+    min_minority_ratio : float
+        Minimum required ratio of the minority class (0.0 to 0.5)
+        e.g., 0.2 means at least 20% of data must be in the minority class
+    subject_column : str
+        Name of the subject identifier column
+    verbose : bool
+        Whether to print detailed logging about removed subjects
+        
+    Returns
+    -------
+    pd.DataFrame
+        Filtered dataframe
+    """
+    # No filtering if parameter is None
+    if min_minority_ratio is None:
+        if verbose:
+            print("  No class balance filtering applied (min_minority_ratio=None)")
+        return df
+        
+    if not (0.0 < min_minority_ratio <= 0.5):
+        raise ValueError(f"min_minority_ratio must be between 0 and 0.5, got {min_minority_ratio}")
+        
+    if predictor_column not in df.columns:
+        raise ValueError(f"Predictor column '{predictor_column}' not found in dataframe")
+        
+    # Check if predictor is effectively binary (or at least discrete)
+    unique_vals = df[predictor_column].dropna().unique()
+    if len(unique_vals) > 10:
+        if verbose:
+            print(f"  Warning: Predictor '{predictor_column}' has {len(unique_vals)} unique values. "
+                  f"Class balance filtering is intended for discrete/binary variables.")
+                  
+    n_subjects_before = df[subject_column].nunique()
+    subjects_to_remove = []
+    subject_stats = []
+    
+    # Iterate over subjects to check class balance
+    for subj, subj_data in df.groupby(subject_column):
+        # Get predictor values, dropping NaNs
+        vals = subj_data[predictor_column].dropna()
+        n_total = len(vals)
+        
+        if n_total == 0:
+            subjects_to_remove.append(subj)
+            subject_stats.append({'subject': subj, 'n_total': 0, 'minority_ratio': 0.0, 'reason': 'no data'})
+            continue
+            
+        # Count proportions of each class
+        counts = vals.value_counts(normalize=True)
+        if len(counts) < 2:
+            # Only one class present -> minority ratio is 0
+            minority_ratio = 0.0
+        else:
+            minority_ratio = counts.min()
+            
+        if minority_ratio < min_minority_ratio:
+            subjects_to_remove.append(subj)
+            counts_str = ", ".join([f"{k}:{v:.2f}" for k, v in counts.items()])
+            subject_stats.append({
+                'subject': subj, 
+                'n_total': n_total, 
+                'minority_ratio': minority_ratio,
+                'counts': counts_str,
+                'reason': f"ratio {minority_ratio:.3f} < {min_minority_ratio}"
+            })
+            
+    # Remove subjects
+    if subjects_to_remove:
+        df_filtered = df[~df[subject_column].isin(subjects_to_remove)].copy()
+    else:
+        df_filtered = df.copy()
+        
+    n_subjects_after = df_filtered[subject_column].nunique()
+    n_removed = n_subjects_before - n_subjects_after
+    
+    if verbose:
+        print(f"\n  Class balance filtering ({predictor_column}):")
+        print(f"    Min minority ratio: {min_minority_ratio}")
+        print(f"    Subjects before: {n_subjects_before}")
+        print(f"    Subjects after: {n_subjects_after}")
+        print(f"    Subjects removed: {n_removed} ({100*n_removed/n_subjects_before:.1f}%)")
+        
+        if n_removed > 0:
+            print("    Removed subjects details:")
+            print(f"      {'Subject':<10} {'N_Obs':<10} {'Min_Ratio':<12} {'Reason'}")
+            print(f"      {'-'*10} {'-'*10} {'-'*12} {'-'*30}")
+            for stat in subject_stats:
+                print(f"      {str(stat['subject']):<10} {stat['n_total']:<10} {stat['minority_ratio']:<12.3f} {stat['reason']}")
+                
     return df_filtered
 
 
@@ -295,6 +404,7 @@ def prepare_data_for_lmm(df: pd.DataFrame,
                         pca_data: Optional[pd.DataFrame] = None,
                         onoff_max_value: Optional[float] = None,
                         min_predictor_variability: Optional[str] = None,
+                        min_minority_ratio: Optional[float] = None,
                         predictor_of_interest: Optional[str] = None) -> Tuple[np.ndarray, pd.DataFrame, List[str]]:
     """
     Prepare data for LMM analysis for a specific marker.
@@ -321,6 +431,9 @@ def prepare_data_for_lmm(df: pd.DataFrame,
     min_predictor_variability : Optional[str]
         Minimum within-subject variability required for the predictor.
         See filter_subjects_by_variability() for options.
+    min_minority_ratio : Optional[float]
+        Minimum required ratio of the minority class for the predictor.
+        See filter_subjects_by_class_balance() for details.
     predictor_of_interest : Optional[str]
         Name of the predictor to use for variability filtering.
         Required if min_predictor_variability is specified.
@@ -388,8 +501,26 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         
         if len(marker_df) == 0:
             raise ValueError(
-                f"No observations remain after filtering by predictor variability. "
                 f"All subjects had insufficient variability in '{predictor_of_interest}'."
+            )
+
+    # Apply class balance filter if specified
+    if min_minority_ratio is not None:
+        if predictor_of_interest is None:
+            raise ValueError("predictor_of_interest must be specified when using min_minority_ratio")
+            
+        marker_df = filter_subjects_by_class_balance(
+            df=marker_df,
+            predictor_column=predictor_of_interest,
+            min_minority_ratio=min_minority_ratio,
+            subject_column='subject',
+            verbose=True
+        )
+        
+        if len(marker_df) == 0:
+            raise ValueError(
+                f"No observations remain after filtering by class balance. "
+                f"All subjects had minority class ratio < {min_minority_ratio} for '{predictor_of_interest}'."
             )
     
     # Ensure we have only one marker type for this marker

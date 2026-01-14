@@ -169,6 +169,7 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         # Get filtering parameters from config
         onoff_max_value = config['project'].get('onoff_max_value', None)
         min_predictor_variability = config['project'].get('min_predictor_variability', None)
+        min_minority_ratio = config['project'].get('min_minority_ratio', None)
         
         power_data, df_behavioral, channels = prepare_data_for_lmm(
             df=df_marker_type,
@@ -179,6 +180,7 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             pca_data=pca_data,
             onoff_max_value=onoff_max_value,
             min_predictor_variability=min_predictor_variability,
+            min_minority_ratio=min_minority_ratio,
             predictor_of_interest=predictor_of_interest
         )
         

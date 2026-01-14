@@ -43,10 +43,17 @@ project:
   # Options:
   #   - null or false: No filtering
   #   - "auto": Automatically detect and remove subjects with zero variance
-  #   - number (e.g., 5): Minimum standard deviation required
-  #   - "quantile_X" (e.g., "quantile_10"): Remove bottom X% of subjects by variance
+  #   - number (e.g., 5): Minimum Range (Max - Min) required
+  #   - "quantile_X" (e.g., "quantile_10"): Remove bottom X% of subjects by range
   # Note: Uses predictor_of_interest from lmm section
-  min_predictor_variability: null  # "auto", null, number, or "quantile_X"
+  min_predictor_variability: 30  # "auto", null, number, or "quantile_X"
+
+  # Filter subjects by minority class balance (optional)
+  # Removes subjects where the proportion of the minority class is below this threshold
+  # Critical for binary predictors to ensure sufficient data in both conditions
+  # e.g., 0.2 means exclude subjects with < 20% of trials in their minority class
+  # Set to null to disable
+  min_minority_ratio: 0.2  # e.g. 0.2
   
   # Markers to analyze
   # Options:
