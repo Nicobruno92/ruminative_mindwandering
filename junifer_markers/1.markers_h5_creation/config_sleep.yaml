@@ -1,6 +1,6 @@
-# CYBERSART Sleep Epochs Pipeline - No Baseline Correction
+# Wandering Mind Sleep Epochs Pipeline - No Baseline Correction
 # Processes sleep epochs (desc-sleep) which are long pre-probe epochs (20s before probe)
-# Uses same marker configuration as state epochs
+# Supports sessions (a, b) and tasks (sartauditiva, sartvisual)
 # Outputs features to BIDS-structured features directory
 
 with:
@@ -11,12 +11,13 @@ datagrabber:
   kind: PatternDataGrabber
   patterns:
     EEG:
+      # Pattern includes session: sub-XX/ses-X/eeg/sub-XX_ses-X_task-X_desc-X_epo.fif
       pattern: '{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif'
       space: native
   replacements: [subject, task, desc]
   types:
     - EEG
-  # Use the base derivatives directory to find all combinations
+  # CYBERSART derivatives directory
   datadir: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives
 
 datareader:
@@ -30,8 +31,8 @@ datareader:
 storage:
   kind: HDF5FeatureStorage
   # With single_output: false, creates individual files per element
-  # Pattern: element_{subject}_{task}_sleep_markers.h5
-  uri: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/junifer/markers.h5
+  # Pattern: element_{subject}_{session}_{task}_sleep_markers.h5
+  uri: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/BIDS/features/junifer/markers.h5
   single_output: false
   
 markers:
@@ -45,7 +46,7 @@ markers:
       theta: [4.0, 8.0]
       alpha: [8.0, 12.0]
       beta: [12.0, 25.0]
-      jota: [25.0, 35.0]
+      iota: [25.0, 35.0]
       gamma: [35.0, 45.0]
     normalize: false
     dB: true
@@ -65,7 +66,7 @@ markers:
       theta: [4.0, 8.0]
       alpha: [8.0, 12.0]
       beta: [12.0, 25.0]
-      jota: [25.0, 35.0]
+      iota: [25.0, 35.0]
       gamma: [35.0, 45.0]
     normalize: true
     dB: false
@@ -170,11 +171,13 @@ markers:
   # ========================================
   - kind: SlowWavesDetection
     name: slowwaves
-    freq_sw: [0.3, 1.5]
-    amp_ptp_initial: 15.0
+    method: "custom"
     freq_threshold: 7.0
     artifact_threshold: 75.0
-    reference_channels: ["TP7", "TP8"]
+    ptp_threshold_mode: "adaptive"
+    ptp_percentile: 90.0
+    max_ptp_amplitude: 150.0
+    reference: ["TP9", "TP10"]
     # No aggregation: returns (features, epochs, channels)
     channel_aggregation_method: null
     epoch_aggregation_method: null
@@ -188,7 +191,7 @@ markers:
     min_distance: 500
     thresh_rms: 1.5
     thresh_corr: 0.65
-    reference_channels: ["TP7", "TP8"]
+    reference: ["TP9", "TP10"]
     # No aggregation: returns (features, epochs, channels)
     channel_aggregation_method: null
     epoch_aggregation_method: null

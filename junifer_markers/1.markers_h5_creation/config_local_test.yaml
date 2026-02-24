@@ -1,0 +1,47 @@
+# Local Junifer config for testing - ONE marker only for speed
+# Uses /Volumes paths for local execution
+
+with:
+  - junifer_eeg
+
+workdir: .
+
+datagrabber:
+  kind: PatternDataGrabber
+  patterns:
+    EEG:
+      pattern: '{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif'
+      space: native
+  replacements: [subject, task, desc]
+  types:
+    - EEG
+  # Local path with /Volumes
+  datadir: /Volumes/cenir/analyse/meeg/CYBERSART/BIDS/derivatives
+
+datareader:
+  kind: SARTDataReader
+  preserve_annotations: true
+  extract_behavioral_params: true
+  channel_selection: eeg
+  types:
+    - EEG
+
+storage:
+  kind: HDF5FeatureStorage
+  uri: /Volumes/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/BIDS/features/junifer/markers.h5
+  single_output: false
+
+markers:
+  # Just ONE simple marker for testing
+  - kind: SpectralPower
+    name: psd_bands
+    bands:
+      theta: [4.0, 8.0]
+      alpha: [8.0, 12.0]
+    normalize: false
+    dB: true
+    n_fft: 1024
+    n_per_seg: 512
+    n_overlap: 256
+    trial_aggregation_method: null
+    on: EEG

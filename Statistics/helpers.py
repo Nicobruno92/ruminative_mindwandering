@@ -10,7 +10,7 @@ This module provides utility functions for data preprocessing, including:
 
 import numpy as np
 import pandas as pd
-from typing import Tuple, Optional, Literal
+from typing import Tuple, Optional, Literal, List, Union
 from pathlib import Path
 import warnings
 import re
@@ -371,6 +371,112 @@ def normalize_by_subject(
         print(f"    Range: [{np.min(valid_normalized):.3f}, {np.max(valid_normalized):.3f}]")
     
     return normalized_data
+
+
+def normalize_predictors(
+    df: pd.DataFrame,
+    method: Literal['zscore', 'minmax'] = 'zscore',
+    subject_col: str = 'subject',
+    predictors: Union[List[str], str] = 'all',
+    verbose: bool = True
+) -> pd.DataFrame:
+    """
+    Normalize predictor columns within each subject.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing behavioral data
+    method : {'zscore', 'minmax'}
+        Normalization method
+    subject_col : str
+        Column name containing subject identifiers
+    predictors : list of str or 'all'
+        List of column names to normalize. If 'all', will attempt to normalize
+        all numeric columns except subject_col and known metadata.
+    verbose : bool
+        Whether to print progress
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with normalized predictors (new columns created if needed, 
+        or inplace modification - currently returns modified copy)
+    """
+    if subject_col not in df.columns:
+        raise ValueError(f"Subject column '{subject_col}' not found in DataFrame")
+    
+    df_norm = df.copy()
+    
+    # Determine which columns to normalize
+    if predictors == 'all':
+        # Auto-detect numeric columns
+        numeric_cols = df_norm.select_dtypes(include=[np.number]).columns.tolist()
+        # Exclude common non-predictor columns
+        exclude_cols = [subject_col, 'trial', 'epoch', 'probe_number', 'marker_type', 'passed']
+        cols_to_norm = [c for c in numeric_cols if c not in exclude_cols]
+    else:
+        # Use specified columns
+        cols_to_norm = [c for c in predictors if c in df.columns]
+        missing = [c for c in predictors if c not in df.columns]
+        if missing and verbose:
+            print(f"Warning: Predictors not found in data: {missing}")
+            
+    if not cols_to_norm:
+        if verbose:
+            print("No predictors to normalize found.")
+        return df_norm
+        
+    n_subjects = df_norm[subject_col].nunique()
+    if verbose:
+        print(f"Normalizing predictors ({method}) by subject...")
+        print(f"  Predictors: {cols_to_norm}")
+        print(f"  Subjects: {n_subjects}")
+        
+    # Ensure columns are float type to avoid FutureWarning when assigning normalized values
+    for col in cols_to_norm:
+        if not np.issubdtype(df_norm[col].dtype, np.floating):
+             df_norm[col] = df_norm[col].astype(float)
+        
+    # Process each subject
+    for subject in df_norm[subject_col].unique():
+        subj_mask = df_norm[subject_col] == subject
+        
+        # Skip if insufficient data
+        if subj_mask.sum() < 2:
+            continue
+            
+        for col in cols_to_norm:
+            vals = df_norm.loc[subj_mask, col].values.astype(float) # Ensure float
+            
+            # Handle NaN
+            valid_mask = ~np.isnan(vals)
+            if valid_mask.sum() < 2:
+                continue
+                
+            valid_vals = vals[valid_mask]
+            
+            if method == 'zscore':
+                mean = np.mean(valid_vals)
+                std = np.std(valid_vals, ddof=1)
+                if std > 1e-10:
+                    vals[valid_mask] = (valid_vals - mean) / std
+                else:
+                    # Zero variance - center only
+                    vals[valid_mask] = valid_vals - mean
+            
+            elif method == 'minmax':
+                min_val = np.min(valid_vals)
+                max_val = np.max(valid_vals)
+                if max_val > min_val:
+                    vals[valid_mask] = (valid_vals - min_val) / (max_val - min_val)
+                else:
+                    # Constant value - map to 0.5 or 0
+                    vals[valid_mask] = 0.5
+            
+            df_norm.loc[subj_mask, col] = vals
+
+    return df_norm
 
 
 def check_normalization_assumptions(

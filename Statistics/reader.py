@@ -333,8 +333,9 @@ def filter_subjects_by_class_balance(df: pd.DataFrame,
     unique_vals = df[predictor_column].dropna().unique()
     if len(unique_vals) > 10:
         if verbose:
-            print(f"  Warning: Predictor '{predictor_column}' has {len(unique_vals)} unique values. "
-                  f"Class balance filtering is intended for discrete/binary variables.")
+            print(f"  Skipping class balance filter: '{predictor_column}' has {len(unique_vals)} unique values. "
+                  f"Class balance filtering only applies to discrete/binary variables (<=10 unique values).")
+        return df  # Skip filtering for continuous variables
                   
     n_subjects_before = df[subject_column].nunique()
     subjects_to_remove = []

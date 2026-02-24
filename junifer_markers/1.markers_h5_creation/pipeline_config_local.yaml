@@ -1,0 +1,8 @@
+datadir: /Volumes/cenir/analyse/meeg/CYBERSART/BIDS/derivatives
+pattern: "{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif"
+subjects: []
+tasks: []
+descriptions:
+  - evoked
+  - state
+  - sleep

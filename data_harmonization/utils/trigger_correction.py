@@ -1,5 +1,6 @@
 import numpy as np
 import mne
+import pandas as pd
 import random
 import os
 try:
@@ -963,6 +964,73 @@ class TriggerCorrector:
         self.append_binary_labels()
         # 7) Harmonize annotations to standardized format (probe-N, trial-N, distance-N, ONTASK/OFFTASK)
         self.harmonize_annotations()
+        
+        # CRITICAL FIX: Write the modified DataFrame back to self.raw.annotations
+        # before generating events.
+        
+        # 1. Prepare onsets (convert from datetime if needed)
+        onsets = self.df['onset'].values
+        
+        # Check if onsets are datetime-like and need conversion to float seconds
+        needs_conversion = False
+        if len(onsets) > 0:
+            first_val = onsets[0]
+            if hasattr(first_val, 'total_seconds'):
+                needs_conversion = True
+            elif np.issubdtype(type(first_val), np.datetime64):
+                needs_conversion = True
+            elif hasattr(first_val, 'timestamp'):  # pandas Timestamp
+                needs_conversion = True
+        
+        if needs_conversion:
+            orig_time = self.raw.annotations.orig_time
+            
+            # Convert to float seconds relative to start of recording
+            onsets_list = []
+            for t in self.df['onset']:
+                try:
+                    # If t is a pandas Timestamp or datetime
+                    if hasattr(t, 'timestamp'):
+                        # Get Unix timestamp in seconds
+                        t_seconds = t.timestamp()
+                        
+                        if orig_time is not None and hasattr(orig_time, 'timestamp'):
+                            # Subtract orig_time to get relative offset
+                            orig_seconds = orig_time.timestamp()
+                            onsets_list.append(t_seconds - orig_seconds)
+                        else:
+                            # No orig_time, assume t is already a reasonable timestamp
+                            # MNE may use Unix epoch, so subtract epoch
+                            epoch = pd.Timestamp("1970-01-01", tz='UTC').timestamp()
+                            onsets_list.append(t_seconds - epoch)
+                    elif hasattr(t, 'total_seconds'):
+                        # It's a timedelta
+                        onsets_list.append(t.total_seconds())
+                    elif np.issubdtype(type(t), np.datetime64):
+                        # numpy datetime64 - convert to float seconds from epoch
+                        t_ns = np.datetime64(t, 'ns').astype(float)
+                        t_seconds = t_ns / 1e9
+                        onsets_list.append(t_seconds)
+                    else:
+                        # Already a float or int
+                        onsets_list.append(float(t))
+                except Exception:
+                    # If all else fails, try to directly cast
+                    onsets_list.append(float(t) if isinstance(t, (int, float)) else 0.0)
+            
+            onsets = np.array(onsets_list)
+        
+        # 2. Create new Annotations object
+        new_annots = mne.Annotations(
+            onset=onsets,
+            duration=self.df['duration'].values,
+            description=self.df['recoded'].values, # Use the RECODED description
+            orig_time=self.raw.annotations.orig_time
+        )
+        
+        # 3. Update raw
+        self.raw.set_annotations(new_annots)
+        
         # Build events directly from annotations to avoid length mismatch issues
         events, event_id = mne.events_from_annotations(self.raw, event_id='auto')
         return events, event_id

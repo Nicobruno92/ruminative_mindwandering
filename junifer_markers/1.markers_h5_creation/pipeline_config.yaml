@@ -1,0 +1,45 @@
+# =============================================================================
+# Wandering Mind Pipeline Configuration
+# =============================================================================
+# This file configures the automatic element discovery for the Junifer pipeline.
+# Elements are discovered by scanning the datadir for files matching the pattern.
+
+# Data directory containing preprocessed epoch files
+datadir: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives
+
+# File pattern to match (BIDS-style with placeholders)
+# Available placeholders: {subject}, {task}, {desc}
+pattern: "{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif"
+
+# =============================================================================
+# Element Filters
+# =============================================================================
+# Leave empty [] to auto-discover all available values from the data directory.
+# Or specify exact values to process only those.
+
+# Subjects to process (empty = all available)
+# Example: ["sub-02", "sub-03", "sub-04"]
+subjects: []
+
+# Sessions to process (not used in this project)
+# sessions: []
+
+# Tasks to process (empty = all available)
+# Example: ["sartauditiva", "sartvisual"]
+tasks: []
+
+# Description/epoch types to process (required)
+# These determine which config_*.yaml files are used
+descriptions:
+  - evoked
+  - state
+  - sleep
+
+# =============================================================================
+# SLURM Settings
+# =============================================================================
+slurm:
+  max_concurrent: 20
+  time: "08:00:00"
+  memory: "8G"
+  cpus: 4

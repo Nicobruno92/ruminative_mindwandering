@@ -1,14 +1,17 @@
 #!/bin/bash
 
 # =============================================================================
-# Full Junifer Pipeline Orchestrator
+# Full Junifer Pipeline Orchestrator - Wandering Mind Project
 # =============================================================================
-# This script runs the complete 3-step Junifer pipeline with job dependencies:
-#   Step 1: Create H5 markers (submit_slurm_array.sh)
-#   Step 2: Convert H5 to PKL (launch_parallel.sh)
-#   Step 3: Aggregate markers by probe (run_aggregate_slurm.sh)
+# This script runs the complete 2-step Junifer pipeline with job dependencies:
+#   Step 1: Create H5 markers (slurm_array_junifer.sh)
+#   Step 2: Aggregate markers by probe (run_aggregate_slurm.sh)
 #
-# Each step waits for all jobs from the previous step to complete successfully.
+# The aggregation step reads directly from H5 files using JuniferHDF5Reader,
+# bypassing the intermediate PKL conversion step for efficiency.
+#
+# Elements are discovered dynamically by scanning the derivatives directory.
+# No elements CSV files needed - everything is generated in memory.
 #
 # Usage:
 #   ./run_full_pipeline.sh                    # Run standalone
@@ -46,12 +49,12 @@ done
 WORKDIR=${WORKDIR:-/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering}
 cd "$WORKDIR"
 
-# Create logs directory for this orchestrator
+# Create logs directory
 LOGS_DIR="junifer_markers/logs"
 mkdir -p "$LOGS_DIR"
 
 echo "=========================================="
-echo "Junifer Pipeline Orchestrator"
+echo "Junifer Pipeline Orchestrator - Wandering Mind"
 echo "=========================================="
 echo "Working directory: $WORKDIR"
 echo "Start time: $(date)"
@@ -69,75 +72,87 @@ echo "=========================================="
 
 cd "$WORKDIR/junifer_markers/1.markers_h5_creation"
 
-# Check if we need to modify the submit script to include dependency
-if [ -n "$DEPENDENCY_JOB_ID" ]; then
-    echo "Adding dependency on Job ${DEPENDENCY_JOB_ID} to Step 1"
-    # Create a temporary modified submit script with dependency
-    TEMP_SUBMIT_SCRIPT="submit_slurm_array_with_dependency.sh"
-    cp submit_slurm_array.sh "$TEMP_SUBMIT_SCRIPT"
-    
-    # Add dependency to SBATCH_ARGS array in the submit script
-    # We need to add it before the script path argument (line 88)
-    # Add dependency flag after the partition check but before the script path
-    # Use afterany to handle jobs that may have already completed
-    sed -i "/SBATCH_ARGS+=(\"junifer_markers/i SBATCH_ARGS+=(\"--dependency=afterany:${DEPENDENCY_JOB_ID}\")" "$TEMP_SUBMIT_SCRIPT"
-    
-    # The submit_slurm_array.sh script already calls sbatch internally
-    # We need to capture its output to get the job ID
-    # Redirect stderr to avoid verbose output from set -x
-    STEP1_OUTPUT=$(./"$TEMP_SUBMIT_SCRIPT" 2>&1)
-    STEP1_JOB_ID=$(echo "$STEP1_OUTPUT" | grep "Submitted array job:" | awk '{print $NF}')
-    
-    # Clean up temporary script
-    rm -f "$TEMP_SUBMIT_SCRIPT"
-else
-    # The submit_slurm_array.sh script already calls sbatch internally
-    # We need to capture its output to get the job ID
-    # Redirect stderr to avoid verbose output from set -x
-    STEP1_OUTPUT=$(./submit_slurm_array.sh 2>&1)
-    STEP1_JOB_ID=$(echo "$STEP1_OUTPUT" | grep "Submitted array job:" | awk '{print $NF}')
-fi
-
-if [ -z "$STEP1_JOB_ID" ]; then
-    echo "❌ ERROR: Failed to extract Step 1 job ID"
-    echo "Output: $STEP1_OUTPUT"
+# Check config file exists
+if [ ! -f "pipeline_config.yaml" ]; then
+    echo "❌ ERROR: pipeline_config.yaml not found"
     exit 1
 fi
 
-echo "✓ Step 1 submitted: Job ID ${STEP1_JOB_ID}"
+# Read description types from config file
+CONFIG_TYPES=($(python -c "import yaml; print(' '.join(yaml.safe_load(open('pipeline_config.yaml'))['descriptions']))"))
+
+VALID_CONFIG_TYPES=()
+STEP1_JOB_IDS=()
+TOTAL_ELEMENTS=0
+
+echo "Discovering elements from derivatives directory..."
+
+for config_type in "${CONFIG_TYPES[@]}"; do
+    # Count elements dynamically using Python script
+    elements_count=$(python discover_elements.py --desc "${config_type}" --count 2>/dev/null || echo "0")
+    
+    if [ "${elements_count}" -gt 0 ]; then
+        VALID_CONFIG_TYPES+=("$config_type")
+        TOTAL_ELEMENTS=$((TOTAL_ELEMENTS + elements_count))
+        echo "  ✓ ${config_type}: ${elements_count} elements found"
+    else
+        echo "  ⚠ ${config_type}: no elements found, skipping"
+    fi
+done
+
+if [ ${#VALID_CONFIG_TYPES[@]} -eq 0 ]; then
+    echo "❌ ERROR: No elements found for any config type"
+    exit 1
+fi
+
+echo ""
+
+for config_type in "${VALID_CONFIG_TYPES[@]}"; do
+    # Get element count for array specification
+    elements_count=$(python discover_elements.py --desc "${config_type}" --count)
+    MAX_INDEX=$((elements_count - 1))
+    ARRAY_SPEC="0-${MAX_INDEX}%20"  # Limit to 20 concurrent jobs
+    
+    echo "Submitting Step 1 for ${config_type} markers (${elements_count} elements, array=${ARRAY_SPEC})..."
+    
+    if [ -n "$DEPENDENCY_JOB_ID" ]; then
+        STEP1_OUTPUT=$(CONFIG_TYPE=${config_type} sbatch --parsable --array="${ARRAY_SPEC}" --dependency=afterany:${DEPENDENCY_JOB_ID} slurm_array_junifer.sh 2>&1)
+    else
+        STEP1_OUTPUT=$(CONFIG_TYPE=${config_type} sbatch --parsable --array="${ARRAY_SPEC}" slurm_array_junifer.sh 2>&1)
+    fi
+    
+    STEP1_JOB_ID=$(echo "$STEP1_OUTPUT" | grep -E '^[0-9]+' | head -1)
+    if [ -z "$STEP1_JOB_ID" ]; then
+        echo "❌ ERROR: Failed to submit Step 1 for ${config_type}"
+        echo "Output: $STEP1_OUTPUT"
+        exit 1
+    fi
+    
+    STEP1_JOB_IDS+=("$STEP1_JOB_ID")
+    echo "✓ Step 1 (${config_type}) submitted: Job ID ${STEP1_JOB_ID}"
+done
+
+# Combine all Step 1 job IDs for dependency tracking
+STEP1_JOB_ID=$(IFS=','; echo "${STEP1_JOB_IDS[*]}")
+echo ""
+echo "✓ All Step 1 jobs submitted: ${STEP1_JOB_ID}"
 echo ""
 
 # =============================================================================
-# STEP 2: Convert H5 to PKL (depends on Step 1)
+# STEP 2: Aggregate markers by probe (depends on Step 1)
 # =============================================================================
 echo "=========================================="
-echo "STEP 2: Converting H5 to PKL"
+echo "STEP 2: Aggregating markers by probe"
 echo "=========================================="
-echo "Dependency: Waiting for Job ${STEP1_JOB_ID} to complete"
+echo "Dependency: Waiting for Jobs ${STEP1_JOB_ID} to complete"
+echo "Note: Reads directly from H5 files using JuniferHDF5Reader"
 
-cd "$WORKDIR/junifer_markers/2.h5_to_pkl"
+cd "$WORKDIR/junifer_markers/2.aggregate_probes"
+mkdir -p logs
 
-# Submit step 2 with dependency on step 1 completion
-# Step 1 is an array job, so we use afterany to wait for ALL array elements
-# afterany handles jobs that complete before dependency is registered
-ELEMENTS_FILE="$WORKDIR/junifer_markers/1.markers_h5_creation/elements.csv"
+echo "Submitting Step 2 launcher (it will auto-submit the aggregation array when it runs)..."
 
-if [ ! -f "${ELEMENTS_FILE}" ]; then
-    echo "❌ ERROR: Elements file not found for Step 2: ${ELEMENTS_FILE}"
-    exit 1
-fi
-
-total_elements=$(tail -n +2 "${ELEMENTS_FILE}" | wc -l)
-
-if [ "${total_elements}" -le 0 ]; then
-    echo "❌ ERROR: No elements found in ${ELEMENTS_FILE} for Step 2"
-    exit 1
-fi
-
-ARRAY_RANGE="1-${total_elements}%20"
-
-echo "Submitting Step 2 with dependency afterany:${STEP1_JOB_ID} and array range ${ARRAY_RANGE}..."
-STEP2_JOB_ID=$(sbatch --parsable --dependency=afterany:${STEP1_JOB_ID} --array=${ARRAY_RANGE} batch_convert_h5_to_pkl_parallel.sh)
+STEP2_JOB_ID=$(bash run_aggregate_slurm.sh --parsable --dependency=afterany:${STEP1_JOB_ID})
 
 if [ -z "$STEP2_JOB_ID" ]; then
     echo "❌ ERROR: Failed to submit Step 2"
@@ -145,34 +160,6 @@ if [ -z "$STEP2_JOB_ID" ]; then
 fi
 
 echo "✓ Step 2 submitted: Job ID ${STEP2_JOB_ID}"
-echo "  Will start after Job ${STEP1_JOB_ID} completes successfully"
-echo ""
-
-# =============================================================================
-# STEP 3: Aggregate markers by probe (depends on Step 2)
-# =============================================================================
-echo "=========================================="
-echo "STEP 3: Aggregating markers by probe"
-echo "=========================================="
-echo "Dependency: Waiting for Job ${STEP2_JOB_ID} to complete"
-
-cd "$WORKDIR/junifer_markers/3.aggregate_probes"
-
-# Create logs directory for step 3
-mkdir -p logs
-
-# Submit step 3 with dependency on step 2 completion
-# Step 2 is an array job, so we use afterany to wait for ALL array elements
-# afterany handles jobs that complete before dependency is registered
-STEP3_JOB_ID=$(sbatch --parsable --dependency=afterany:${STEP2_JOB_ID} run_aggregate_slurm.sh)
-
-if [ -z "$STEP3_JOB_ID" ]; then
-    echo "❌ ERROR: Failed to submit Step 3"
-    exit 1
-fi
-
-echo "✓ Step 3 submitted: Job ID ${STEP3_JOB_ID}"
-echo "  Will start after Job ${STEP2_JOB_ID} completes successfully"
 echo ""
 
 # =============================================================================
@@ -185,47 +172,15 @@ echo "Pipeline Submitted Successfully!"
 echo "=========================================="
 echo "Job Chain:"
 if [ -n "$DEPENDENCY_JOB_ID" ]; then
-    echo "  Dependency Job:         ${DEPENDENCY_JOB_ID} → must complete first"
+    echo "  Dependency:           ${DEPENDENCY_JOB_ID}"
 fi
-echo "  Step 1 (H5 creation):    ${STEP1_JOB_ID} (array job)"
-echo "  Step 2 (H5 to PKL):      ${STEP2_JOB_ID} (array job) → waits for Step 1 array"
-echo "  Step 3 (Aggregation):    ${STEP3_JOB_ID} → waits for Step 2 array"
+echo "  Step 1 (H5 creation): ${STEP1_JOB_ID} (${#VALID_CONFIG_TYPES[@]} types: ${VALID_CONFIG_TYPES[*]})"
+echo "  Step 2 (Aggregation): ${STEP2_JOB_ID}"
 echo ""
-echo "=========================================="
-echo "Monitoring Commands"
-echo "=========================================="
-if [ -n "$DEPENDENCY_JOB_ID" ]; then
-    echo "Check dependency job:"
-    echo "  squeue -j ${DEPENDENCY_JOB_ID}"
-    echo ""
-    echo "Check all jobs (dependency + pipeline):"
-    echo "  squeue -j ${DEPENDENCY_JOB_ID},${STEP1_JOB_ID},${STEP2_JOB_ID},${STEP3_JOB_ID}"
-    echo ""
-    echo "Monitor all jobs in real-time:"
-    echo "  watch -n 10 'squeue -j ${DEPENDENCY_JOB_ID},${STEP1_JOB_ID},${STEP2_JOB_ID},${STEP3_JOB_ID}'"
-    echo ""
-    echo "Cancel entire pipeline (dependency will continue):"
-    echo "  scancel ${STEP1_JOB_ID} ${STEP2_JOB_ID} ${STEP3_JOB_ID}"
-else
-    echo "Check all pipeline jobs:"
-    echo "  squeue -j ${STEP1_JOB_ID},${STEP2_JOB_ID},${STEP3_JOB_ID}"
-    echo ""
-    echo "Monitor all jobs in real-time:"
-    echo "  watch -n 10 'squeue -j ${STEP1_JOB_ID},${STEP2_JOB_ID},${STEP3_JOB_ID}'"
-    echo ""
-    echo "Cancel entire pipeline:"
-    echo "  scancel ${STEP1_JOB_ID} ${STEP2_JOB_ID} ${STEP3_JOB_ID}"
-fi
+echo "Total elements: ${TOTAL_ELEMENTS}"
 echo ""
-echo "Check Step 1 status:"
-echo "  squeue -j ${STEP1_JOB_ID}"
+echo "Monitor: squeue -j ${STEP1_JOB_ID},${STEP2_JOB_ID}"
+echo "Cancel:  scancel ${STEP1_JOB_ID//,/ } ${STEP2_JOB_ID}"
 echo ""
-echo "Check Step 2 status:"
-echo "  squeue -j ${STEP2_JOB_ID}"
-echo ""
-echo "Check Step 3 status:"
-echo "  squeue -j ${STEP3_JOB_ID}"
-echo ""
-echo "=========================================="
-echo "Pipeline started at: $(date)"
+echo "Started at: $(date)"
 echo "=========================================="

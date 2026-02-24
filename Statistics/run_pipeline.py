@@ -40,7 +40,8 @@ from helpers import (
     get_qa_exclusion_list,
     apply_preprocessing,
     load_pca_data,
-    summarize_clusters
+    summarize_clusters,
+    normalize_predictors
 )
 from generate_summary_report import generate_summary_report, generate_pipeline_qa_html_report
 
@@ -217,6 +218,25 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             config=config,
             verbose=True
         )
+        
+        # Apply predictor normalization if enabled
+        # This normalizes independent variables (like onoff, confidence) within subjects
+        predictor_norm_config = config['preprocessing'].get('predictor_normalization', {})
+        if predictor_norm_config.get('enabled', False):
+            # Apply normalization to the behavioral dataframe
+            # This is done INPLACE on the copy or returns a new df
+            df_behavioral = normalize_predictors(
+                df=df_behavioral,
+                method=predictor_norm_config.get('method', 'zscore'),
+                subject_col='subject',
+                predictors=predictor_norm_config.get('predictors', 'all'),
+                verbose=True
+            )
+            
+            # Log this step
+            preprocessing_info['steps_applied'].append(
+                f"normalize_predictors_{predictor_norm_config.get('method', 'zscore')}"
+            )
         
         # Create output directory structure: base / model_folder / marker_folder
         base_output_dir = Path(output_path)

@@ -30,12 +30,12 @@ project:
   # Data filtering (optional)
   subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
   tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
-  marker_types: ["state"]  # Processed independently
+  marker_types: ["evoked"]  # Processed independently
   
   # Filter probes by onoff value (optional)
   # Only include probes where onoff <= onoff_max_value
   # Set to null or comment out to include all probes
-  onoff_max_value: 50  # e.g., only probes with onoff <= 50
+  onoff_max_value: 100  # e.g., only probes with onoff <= 50
   
   # Filter subjects by predictor variability (optional)
   # Removes subjects with insufficient within-subject variance in the predictor
@@ -46,7 +46,7 @@ project:
   #   - number (e.g., 5): Minimum Range (Max - Min) required
   #   - "quantile_X" (e.g., "quantile_10"): Remove bottom X% of subjects by range
   # Note: Uses predictor_of_interest from lmm section
-  min_predictor_variability: 30  # "auto", null, number, or "quantile_X"
+  min_predictor_variability: 50  # "auto", null, number, or "quantile_X"
 
   # Filter subjects by minority class balance (optional)
   # Removes subjects where the proportion of the minority class is below this threshold
@@ -65,7 +65,7 @@ project:
 preprocessing:
   # Subject-level normalization to account for individual baseline differences
   # Recommended when focusing on within-subject effects (e.g., on-task vs off-task)
-  normalize_by_subject: true  # Set to true to enable normalization
+  normalize_by_subject: false  # Set to true to enable normalization
   # Column name containing subject identifiers (usually "subject")
   subject_column: "subject"
 
@@ -84,6 +84,17 @@ preprocessing:
   #   Pros: Preserves relationships and relative power between channels
   #   Cons: Channels with higher power dominate the normalization
   channel_wise: false  # Global normalization more stable for complex models
+
+  # Predictor normalization (within-subject)
+  # Normalize independent variables (e.g., onoff, confidence) within each subject
+  # - "zscore": Mean=0, Std=1 per subject
+  # - "minmax": Range 0-1 per subject
+  # - false: Use raw values
+  predictor_normalization:
+    enabled: true
+    method: "zscore"  # "zscore" or "minmax"
+    # List of predictors to normalize, or "all" to normalize all continuous predictors
+    predictors: ["onoff", "valence", "selfother", "confidence", "time"]
 
 # Linear mixed model parameters
 # ================================
@@ -115,10 +126,10 @@ preprocessing:
 #   Example: "onoff * valence" -> test "onoff" or "valence" or "onoff:valence"
 #
 lmm:
-  formula: "power ~ onoff + valence + selfother + time + time_on_task + confidence + (1|subject)"
-  predictor_of_interest: "valence"  # specify predictor name (e.g., "onoff") for clustering analysis
+  formula: "power ~ onoff + valence + selfother + time  + confidence +  time_on_task + (1|subject)"
+  predictor_of_interest: "onoff"  # specify predictor name (e.g., "onoff") for clustering analysis
   method: "powell"  # Powell: gradient-free, more robust for complex models with numerical issues
-  maxiter: 5000     # High value to ensure convergence in difficult cases
+  maxiter: 500     # High value to ensure convergence in difficult cases
   random_state: 42
 
 # Spatial cluster permutation parameters

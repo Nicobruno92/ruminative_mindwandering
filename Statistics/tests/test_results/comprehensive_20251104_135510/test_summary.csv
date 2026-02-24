@@ -1,6 +1,0 @@
-test,expected,actual,n_sig_clusters,min_p_value,max_cluster_size,convergence_rate,passed,error
-Test 1: NULL (No Effect),null,null,0,1.0,0,0.0,True,
-Test 2: SMALL Effect (d=0.3),null,significant,1,0.009900990099009901,33,0.0,False,
-Test 3: MEDIUM Effect (d=0.5),significant,significant,1,0.009900990099009901,45,0.0,True,
-Test 4: LARGE Effect (d=0.8),significant,significant,2,0.009900990099009901,31,0.0,True,
-Test 5: DISTRIBUTED Effect,significant,significant,3,0.009900990099009901,30,0.0,True,

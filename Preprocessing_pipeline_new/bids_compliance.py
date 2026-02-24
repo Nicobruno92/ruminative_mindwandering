@@ -1,0 +1,545 @@
+import os
+import json
+from datetime import datetime
+
+import mne
+import numpy as np
+import pandas as pd
+from mne_bids import BIDSPath, write_raw_bids, read_raw_bids
+
+
+class BIDSCompliance:
+    """Utility class to handle BIDS-compliant I/O for EEG raw data."""
+
+    def __init__(self, bids_root: str, dataset_name: str | None = None) -> None:
+        self.bids_root = os.path.abspath(bids_root)
+        self.dataset_name = dataset_name or "EEG Multicenter Harmonized Dataset"
+        self._ensure_dataset_description()
+
+    def _ensure_dataset_description(self) -> None:
+        os.makedirs(self.bids_root, exist_ok=True)
+        desc_path = os.path.join(self.bids_root, "dataset_description.json")
+        if os.path.exists(desc_path):
+            return
+        content = {
+            "Name": self.dataset_name,
+            "BIDSVersion": "1.8.0",
+            "DatasetType": "raw",
+            "GeneratedBy": [
+                {
+                    "Name": "Custom EEG data harmonization pipeline",
+                    "Version": "1.0",
+                    "Description": "Loads raw EEG, applies harmonization, and writes BIDS-compliant data.",
+                }
+            ],
+            "Date": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        with open(desc_path, "w") as f:
+            json.dump(content, f, indent=2)
+
+    def build_bids_path(self, subject: str, task: str, extension: str = ".fif") -> BIDSPath:
+        return BIDSPath(
+            subject=str(subject),
+            task=str(task),
+            datatype="eeg",
+            suffix="eeg",
+            extension=extension,
+            root=self.bids_root,
+            check=False,
+        )
+
+    def write_raw(self, raw: mne.io.BaseRaw, subject: str, task: str, overwrite: bool = True) -> str:
+        """
+        Write raw data in FIF format to preserve montage information.
+        
+        FIF format is used instead of BrainVision because it preserves
+        electrode positions (montage) which are lost in BrainVision format.
+        
+        Parameters
+        ----------
+        raw : mne.io.BaseRaw
+            Raw data object
+        subject : str
+            Subject identifier
+        task : str
+            Task name
+        overwrite : bool
+            Whether to overwrite existing files
+            
+        Returns
+        -------
+        str
+            Path to saved file
+        """
+        subject = str(subject).replace('sub-', '')
+        
+        # Build output directory path
+        out_dir = os.path.join(self.bids_root, f"sub-{subject}", "eeg")
+        os.makedirs(out_dir, exist_ok=True)
+        
+        # Build filename
+        fname = f"sub-{subject}_task-{task}_eeg.fif"
+        out_path = os.path.join(out_dir, fname)
+        
+        # Save in FIF format to preserve montage
+        raw.save(out_path, overwrite=overwrite)
+        print(f"[INFO] Saved raw FIF (preserves montage): {out_path}")
+        
+        # Write JSON sidecar with extended metadata
+        sidecar = self._build_extended_sidecar(
+            info=raw.info,
+            task=task,
+            recording_type="continuous",
+            recording_duration=raw.times[-1] if raw.times is not None else None,
+        )
+        
+        # Add montage info to sidecar
+        montage = raw.get_montage()
+        if montage is not None:
+            sidecar["MontagePreserved"] = True
+            sidecar["MontageName"] = getattr(montage, 'name', 'custom') or 'custom'
+        else:
+            sidecar["MontagePreserved"] = False
+        
+        json_path = out_path.replace(".fif", ".json")
+        with open(json_path, "w") as f:
+            json.dump(sidecar, f, indent=2)
+        
+        # Write channels.tsv
+        self._write_complete_channels_tsv(
+            out_path=out_path,
+            info=raw.info,
+            bads_set=set(raw.info.get("bads", [])),
+        )
+        
+        # Ensure events.tsv and events.json exist with full metadata
+        self._write_raw_events(
+            bids_root=self.bids_root, subject=subject, task=task, raw=raw
+        )
+        
+        return out_path
+
+    def read_raw(self, subject: str, task: str, preload: bool = False) -> mne.io.BaseRaw:
+        """
+        Read raw FIF data with preserved montage.
+        
+        Reads FIF format files which preserve electrode positions (montage).
+        Falls back to BrainVision format for backward compatibility.
+        
+        Parameters
+        ----------
+        subject : str
+            Subject identifier
+        task : str
+            Task name
+        preload : bool
+            Whether to preload data into memory
+            
+        Returns
+        -------
+        mne.io.BaseRaw
+            Loaded raw data with montage preserved
+        """
+        subject = str(subject).replace('sub-', '')
+        
+        # Build file paths
+        base_dir = os.path.join(self.bids_root, f"sub-{subject}", "eeg")
+        fif_path = os.path.join(base_dir, f"sub-{subject}_task-{task}_eeg.fif")
+        vhdr_path = os.path.join(base_dir, f"sub-{subject}_task-{task}_eeg.vhdr")
+        
+        # Try FIF first (preserves montage)
+        if os.path.exists(fif_path):
+            raw = mne.io.read_raw_fif(fif_path, preload=preload, verbose=False)
+            print(f"[INFO] Loaded raw FIF (montage preserved): {fif_path}")
+            return raw
+        
+        # Fallback to BrainVision format for backward compatibility
+        if os.path.exists(vhdr_path):
+            print(f"[WARN] Loading BrainVision format (montage may be lost): {vhdr_path}")
+            raw = mne.io.read_raw_brainvision(vhdr_path, preload=preload, verbose=False)
+            return raw
+        
+        # Try using mne-bids as last resort
+        try:
+            bids_path = self.build_bids_path(subject, task, extension=".vhdr")
+            raw = read_raw_bids(bids_path=bids_path, verbose=False)
+            if preload:
+                raw.load_data()
+            print(f"[WARN] Loaded via mne-bids (montage may be lost)")
+            return raw
+        except Exception as e:
+            raise FileNotFoundError(
+                f"Could not find raw data for sub-{subject}, task-{task}. "
+                f"Tried FIF ({fif_path}) and BrainVision ({vhdr_path}) formats. Error: {e}"
+            )
+
+    def _write_raw_events(self, bids_root: str, subject: str, task: str, raw: mne.io.BaseRaw) -> None:
+        """Write events.tsv and events.json for raw data from annotations.
+
+        The TSV will include onset, duration, sample, value, trial_type, and any
+        additional columns from TriggerCorrector (rt, timestamps, etc.).
+        The JSON will include the BIDS field descriptions and an event_id map.
+        """
+        try:
+            annotations = getattr(raw, "annotations", None)
+            if annotations is None or len(annotations) == 0:
+                return
+
+            sf = float(raw.info.get("sfreq", 0.0) or 0.0)
+            # Derive numeric codes using MNE's mapping
+            _, event_id = mne.events_from_annotations(raw)
+            id_map = {str(k): int(v) for k, v in event_id.items()} if event_id else {}
+
+            # Check if TriggerCorrector dataframe is available
+            tc_df = getattr(raw, '_trigger_corrector_df', None)
+            
+            rows = []
+            for idx, ann in enumerate(annotations):
+                desc = ann["description"]
+                onset = float(ann["onset"])  # seconds
+                duration = float(ann["duration"]) if ann["duration"] is not None else 0.0
+                sample = int(round(onset * sf)) if sf > 0 else 0
+                value = id_map.get(str(desc), None)
+                
+                row = {
+                    "onset": onset,
+                    "duration": duration,
+                    "sample": sample,
+                    "value": value if value is not None else "n/a",
+                    "trial_type": str(desc),
+                }
+                
+                # Add extra columns from TriggerCorrector dataframe if available
+                if tc_df is not None and idx < len(tc_df):
+                    # Add columns like rt, stim_timestamp, response_timestamp, rt_2nd, etc.
+                    extra_cols = ['rt', 'stim_timestamp', 'response_timestamp', 
+                                  'rt_2nd', 'stim_timestamp_2nd', 'response_timestamp_2nd',
+                                  'correctness']
+                    for col in extra_cols:
+                        if col in tc_df.columns:
+                            val = tc_df.iloc[idx][col]
+                            # Convert timestamps to strings for TSV compatibility
+                            if pd.notna(val):
+                                if hasattr(val, 'isoformat'):  # Timestamp
+                                    row[col] = val.isoformat()
+                                else:
+                                    row[col] = val
+                            else:
+                                row[col] = None
+                
+                rows.append(row)
+
+            df = pd.DataFrame(rows)
+            events_tsv = os.path.join(
+                os.path.abspath(bids_root), f"sub-{subject}", "eeg", f"sub-{subject}_task-{task}_events.tsv"
+            )
+            df.to_csv(events_tsv, sep="\t", index=False)
+
+            # JSON sidecar with standard descriptions plus event_id mapping
+            events_json = events_tsv.replace(".tsv", ".json")
+            meta = {
+                "onset": {
+                    "Description": (
+                        "Onset (in seconds) of the event from the beginning of the first datapoint. "
+                        "Negative onsets account for events before the first stored data point."
+                    ),
+                    "Units": "s",
+                },
+                "duration": {
+                    "Description": (
+                        "Duration of the event in seconds from onset. Must be zero, positive, or 'n/a' if unavailable. "
+                        "A zero value indicates an impulse event. "
+                    ),
+                    "Units": "s",
+                },
+                "sample": {
+                    "Description": "The event onset time in number of sampling points.First sample is 0.",
+                },
+                "value": {
+                    "Description": "The event code (also known as trigger code or event ID) associated with the event.",
+                },
+                "trial_type": {
+                    "Description": "The type, category, or name of the event.",
+                },
+            }
+            if id_map:
+                meta["event_id"] = id_map
+            with open(events_json, "w") as f:
+                json.dump(meta, f, indent=2)
+        except Exception:
+            pass
+
+    def _write_complete_channels_tsv(self, out_path: str, info: mne.Info, bads_set: set[str] | None = None) -> None:
+        """Write a complete channels.tsv alongside a derivative file.
+
+        Columns: name, type, units, low_cutoff, high_cutoff, description,
+        sampling_frequency, status, status_description
+
+        Parameters
+        ----------
+        out_path : str
+            Base path to the saved derivative file ('.fif'). The TSV will use
+            the same base name with suffix '_channels.tsv'.
+        info : mne.Info
+            MNE info containing channel metadata.
+        bads_set : set[str] | None
+            Set of channel names considered bad at save time.
+        """
+        try:
+            channel_names = list(info.get("ch_names", []))
+            if not channel_names:
+                return
+
+            sampling_frequency = float(info.get("sfreq", 0.0) or 0.0)
+            low_cutoff = info.get("highpass", None)
+            high_cutoff = info.get("lowpass", None)
+
+            def _describe_and_units(channel_type: str) -> tuple[str, str]:
+                ch = (channel_type or "").upper()
+                if ch == "EEG":
+                    return "ElectroEncephaloGram", "µV"
+                if ch == "EOG":
+                    return "ElectroOculoGram", "µV"
+                if ch == "EMG":
+                    return "ElectroMyoGram", "µV"
+                if ch == "ECG":
+                    return "ElectroCardioGram", "µV"
+                return ch if ch else "unknown", "µV"
+
+            rows = []
+            bads = set(bads_set or [])
+            for idx, name in enumerate(channel_names):
+                ch_type = mne.io.pick.channel_type(info, idx)
+                desc, units = _describe_and_units(ch_type)
+                status = "bad" if name in bads else "good"
+                status_desc = "pre-interpolation bad" if status == "bad" else "n/a"
+                rows.append({
+                    "name": name,
+                    "type": ch_type.upper() if isinstance(ch_type, str) else str(ch_type),
+                    "units": units,
+                    "low_cutoff": float(low_cutoff) if low_cutoff is not None else None,
+                    "high_cutoff": float(high_cutoff) if high_cutoff is not None else None,
+                    "description": desc,
+                    "sampling_frequency": sampling_frequency,
+                    "status": status,
+                    "status_description": status_desc,
+                })
+
+            df = pd.DataFrame(rows)
+            tsv_path = out_path.replace(".fif", "_channels.tsv")
+            df.to_csv(tsv_path, sep="\t", index=False)
+        except Exception:
+            pass
+
+    def _compute_channel_type_counts(self, info: mne.Info) -> dict[str, int]:
+        """Compute counts per channel type from MNE info."""
+        counts: dict[str, int] = {}
+        for idx, _ in enumerate(info.get("chs", [])):
+            try:
+                t = mne.channel_type(info, idx)
+            except Exception:
+                t = "unknown"
+            t_u = t.upper() if isinstance(t, str) else str(t)
+            counts[t_u] = counts.get(t_u, 0) + 1
+        return counts
+
+    def _build_extended_sidecar(self, info: mne.Info, task: str, recording_type: str, recording_duration: float | None) -> dict:
+        """Build extended JSON sidecar fields shared across derivatives."""
+        counts = self._compute_channel_type_counts(info)
+        sidecar = {
+            "TaskName": task,
+            "Manufacturer": info.get("manufacturer", "n/a") or "n/a",
+            "PowerLineFrequency": info.get("line_freq", None),
+            "SamplingFrequency": info.get("sfreq", None),
+            "SoftwareFilters": "n/a",
+            "RecordingDuration": float(recording_duration) if recording_duration is not None else None,
+            "RecordingType": recording_type,
+            "EEGReference": "n/a",
+            "EEGGround": info.get("custom_ref_applied", "n/a") if isinstance(info.get("custom_ref_applied", None), str) else "n/a",
+            "EEGPlacementScheme": "based on the extended 10/20 system",
+            "EEGChannelCount": counts.get("EEG", 0),
+            "EOGChannelCount": counts.get("EOG", 0),
+            "ECGChannelCount": counts.get("ECG", 0),
+            "EMGChannelCount": counts.get("EMG", 0),
+            "MiscChannelCount": counts.get("MISC", 0),
+            "TriggerChannelCount": counts.get("STIM", 0) + counts.get("TRIG", 0),
+        }
+        return sidecar
+
+    # ------------- Derivatives I/O -------------
+    def _deriv_dir(self, derivatives_root: str, subject: str, datatype: str = "eeg") -> str:
+        out_dir = os.path.join(os.path.abspath(derivatives_root), f"sub-{subject}", datatype)
+        os.makedirs(out_dir, exist_ok=True)
+        return out_dir
+
+    def _make_deriv_fname(self, subject: str, task: str, suffix: str, desc: str | None, extension: str) -> str:
+        if desc:
+            return f"sub-{subject}_task-{task}_desc-{desc}_{suffix}{extension}"
+        return f"sub-{subject}_task-{task}_{suffix}{extension}"
+
+    def write_derivative_raw(
+        self,
+        raw: mne.io.BaseRaw,
+        derivatives_root: str,
+        subject: str,
+        task: str,
+        desc: str | None = None,
+        overwrite: bool = True,
+        bad_channels_pre_interp: list[str] | None = None,
+    ) -> str:
+        out_dir = self._deriv_dir(derivatives_root, subject, datatype="eeg")
+        fname = self._make_deriv_fname(subject, task, suffix="eeg", desc=desc, extension=".fif")
+        out_path = os.path.join(out_dir, fname)
+        raw.save(out_path, overwrite=overwrite)
+        # Extended sidecar metadata for continuous data
+        duration = (float(raw.n_times) / float(raw.info.get("sfreq", 1.0))) if raw.n_times and raw.info.get("sfreq", None) else None
+        sidecar = self._build_extended_sidecar(
+            info=raw.info,
+            task=task,
+            recording_type="continuous",
+            recording_duration=duration,
+        )
+        # Reference information (if average projector applied)
+        sidecar["EEGReference"] = (
+            "average (applied)" if any(p.get("desc", "") == "Average" for p in raw.info.get("projs", [])) else sidecar.get("EEGReference", "n/a")
+        )
+        with open(out_path.replace(".fif", ".json"), "w") as f:
+            json.dump(sidecar, f, indent=2)
+
+        # Write comprehensive channels.tsv
+        self._write_complete_channels_tsv(
+            out_path=out_path,
+            info=raw.info,
+            bads_set=set(bad_channels_pre_interp or []),
+        )
+        return out_path
+
+    def write_derivative_ica(
+        self,
+        ica: mne.preprocessing.ICA,
+        derivatives_root: str,
+        subject: str,
+        task: str,
+        desc: str | None = None,
+        overwrite: bool = True,
+    ) -> str:
+        out_dir = self._deriv_dir(derivatives_root, subject, datatype="eeg")
+        if desc is None:
+            desc = "ica"
+        fname = self._make_deriv_fname(subject, task, suffix="ica", desc=desc, extension=".fif")
+        out_path = os.path.join(out_dir, fname)
+        ica.save(out_path, overwrite=overwrite)
+        # Ensure JSON-serializable types (avoid numpy.int64)
+        try:
+            excl = [int(x) for x in (getattr(ica, "exclude", []) or [])]
+        except Exception:
+            excl = []
+        meta = {
+            "n_components": int(getattr(ica, "n_components_", 0)),
+            "exclude": excl,
+        }
+        with open(out_path.replace(".fif", ".json"), "w") as f:
+            json.dump(meta, f, indent=2)
+        return out_path
+
+    def write_derivative_epochs(
+        self,
+        epochs: mne.Epochs,
+        derivatives_root: str,
+        subject: str,
+        task: str,
+        desc: str | None = None,
+        overwrite: bool = True,
+    ) -> str:
+        out_dir = self._deriv_dir(derivatives_root, subject, datatype="eeg")
+        fname = self._make_deriv_fname(subject, task, suffix="epo", desc=desc, extension=".fif")
+        out_path = os.path.join(out_dir, fname)
+        epochs.save(out_path, overwrite=overwrite)
+        # Extended sidecar for epoched data
+        epoch_len = float(epochs.tmax - epochs.tmin) if epochs.tmax is not None and epochs.tmin is not None else None
+        total_duration = float(len(epochs)) * epoch_len if (epoch_len is not None) else None
+        sidecar = self._build_extended_sidecar(
+            info=epochs.info,
+            task=task,
+            recording_type="epoched",
+            recording_duration=total_duration,
+        )
+        # Add epoch-specific fields
+        sidecar.update({
+            "EpochCount": int(len(epochs)),
+            "Tmin": float(epochs.tmin),
+            "Tmax": float(epochs.tmax),
+        })
+        with open(out_path.replace(".fif", ".json"), "w") as f:
+            json.dump(sidecar, f, indent=2)
+
+        # Write channels.tsv for epochs using epochs.info
+        self._write_complete_channels_tsv(
+            out_path=out_path,
+            info=epochs.info,
+            bads_set=set(epochs.info.get("bads", [])),
+        )
+
+        # Write an events.tsv alongside, mapping sample-based events to onsets
+        try:
+            ev = np.array(epochs.events)
+            if ev.size:
+                sf = float(epochs.info["sfreq"])
+                onsets = ev[:, 0] / sf
+                durations = np.zeros(len(onsets))
+                ids = ev[:, 2]
+                # reverse map to strings if available
+                id_to_desc = {v: k for k, v in (epochs.event_id or {}).items()}
+                descriptions = [id_to_desc.get(int(i), str(int(i))) for i in ids]
+                df = pd.DataFrame({
+                    "onset": onsets,
+                    "duration": durations,
+                    "description": descriptions,
+                    "event_id": ids.astype(int),
+                })
+                tsv_path = out_path.replace(".fif", "_events.tsv")
+                df.to_csv(tsv_path, sep="\t", index=False)
+                # Save mapping JSON
+                meta_path = tsv_path.replace(".tsv", ".json")
+                with open(meta_path, "w") as f:
+                    json.dump({"event_id": {str(k): int(v) for k, v in (epochs.event_id or {}).items()}}, f, indent=2)
+        except Exception:
+            pass
+        return out_path
+
+    # --------- Public helpers for reading derivative epochs ---------
+    def build_derivative_epochs_path(
+        self,
+        derivatives_root: str,
+        subject: str,
+        task: str,
+        desc: str | None = None,
+    ) -> str:
+        out_dir = self._deriv_dir(derivatives_root, subject, datatype="eeg")
+        fname = self._make_deriv_fname(subject, task, suffix="epo", desc=desc, extension=".fif")
+        return os.path.join(out_dir, fname)
+
+    def read_derivative_epochs(
+        self,
+        derivatives_root: str,
+        subject: str,
+        task: str,
+        desc: str | None = None,
+        preload: bool = False,
+        proj: bool | str = True,
+    ) -> mne.Epochs:
+        path = self.build_derivative_epochs_path(
+            derivatives_root=derivatives_root, subject=subject, task=task, desc=desc
+        )
+        if not os.path.exists(path):
+            raise FileNotFoundError(path)
+        # proj can be True, False or 'delayed' (MNE behavior)
+        try:
+            epochs = mne.read_epochs(path, proj=proj, preload=preload, verbose=False)
+        except TypeError:
+            # Older MNE versions may not support proj kwarg in read_epochs
+            epochs = mne.read_epochs(path, preload=preload, verbose=False)
+        return epochs
+
+
+

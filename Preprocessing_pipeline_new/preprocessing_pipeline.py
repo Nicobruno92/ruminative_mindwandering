@@ -44,14 +44,20 @@ os.environ.setdefault("TORCH_NUM_THREADS", "1")
 # =============================================================================
 # CORE IMPORTS
 # =============================================================================
+import yaml
 import numpy as np
 import mne
 
 # =============================================================================
 # LOCAL MODULE IMPORTS
 # =============================================================================
+# Add current directory to path to ensure local modules are found
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
 from bids_compliance import BIDSCompliance
-from data_harmonization import load_config
+# from data_harmonization import load_config  # Removed to avoid dependency on external folder
 from steps_asr import apply_asr_if_configured
 from steps_bads import run_pyprep_noisychannels
 from steps_ica import fit_ica_deterministic, auto_select_ica_components
@@ -146,6 +152,24 @@ def _get_cfg_required(cfg: Dict[str, Any], key_path: List[str]):
             raise KeyError(f"Missing required config key: {joined}")
         cur = cur[key]
     return cur
+
+
+def load_config(config_path: str) -> Dict[str, Any]:
+    """
+    Load configuration from YAML file.
+    
+    Parameters
+    ----------
+    config_path : str
+        Path to YAML configuration file
+        
+    Returns
+    -------
+    Dict[str, Any]
+        Configuration dictionary
+    """
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def _ensure_report_dir(derivatives_root: str, subject: str) -> str:

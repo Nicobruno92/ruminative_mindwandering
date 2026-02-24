@@ -1,5 +1,6 @@
-# CYBERSART State Epochs Pipeline - No Baseline Correction
+# Wandering Mind State Epochs Pipeline - No Baseline Correction
 # Processes state epochs (desc-state) which start at t=0 without baseline period
+# Supports sessions (a, b) and tasks (sartauditiva, sartvisual)
 # Outputs features to BIDS-structured features directory
 
 with:
@@ -10,12 +11,13 @@ datagrabber:
   kind: PatternDataGrabber
   patterns:
     EEG:
+      # Pattern includes session: sub-XX/ses-X/eeg/sub-XX_ses-X_task-X_desc-X_epo.fif
       pattern: '{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif'
       space: native
   replacements: [subject, task, desc]
   types:
     - EEG
-  # Use the base derivatives directory to find all combinations
+  # CYBERSART derivatives directory
   datadir: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives
 
 datareader:
@@ -29,8 +31,8 @@ datareader:
 storage:
   kind: HDF5FeatureStorage
   # With single_output: false, creates individual files per element
-  # Pattern: element_{subject}_{task}_state_markers.h5
-  uri: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/junifer/markers.h5
+  # Pattern: element_{subject}_{session}_{task}_state_markers.h5
+  uri: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/BIDS/features/junifer/markers.h5
   single_output: false
   
 markers:
@@ -44,7 +46,7 @@ markers:
       theta: [4.0, 8.0]
       alpha: [8.0, 12.0]
       beta: [12.0, 25.0]
-      jota: [25.0, 35.0]
+      iota: [25.0, 35.0]
       gamma: [35.0, 45.0]
     normalize: false
     dB: true
@@ -64,7 +66,7 @@ markers:
       theta: [4.0, 8.0]
       alpha: [8.0, 12.0]
       beta: [12.0, 25.0]
-      jota: [25.0, 35.0]
+      iota: [25.0, 35.0]
       gamma: [35.0, 45.0]
     normalize: true
     dB: false
@@ -162,4 +164,47 @@ markers:
   - kind: KolmogorovComplexity
     name: kolmogorov_complexity
     trial_aggregation_method: null
+    on: EEG
+
+   # ========================================
+  # PSD SUMMARY MARKERS (3 total: #12-14)
+  # ========================================
+  # Per-channel spectral summaries
+  - kind: PowerSpectralDensitySummary
+    name: per_channel_msf
+    percentile: 0.5
+    tmin: null
+    tmax: 0.6
+    fmin: 1.0
+    fmax: 45.0
+    n_fft: 4096
+    n_overlap: 100
+    n_per_seg: 128
+    channel_aggregation_method: null  # No ROI aggregation
+    on: EEG
+
+  - kind: PowerSpectralDensitySummary
+    name: per_channel_sef90
+    percentile: 0.9
+    tmin: null
+    tmax: 0.6
+    fmin: 1.0
+    fmax: 45.0
+    n_fft: 4096
+    n_overlap: 100
+    n_per_seg: 128
+    channel_aggregation_method: null
+    on: EEG
+
+  - kind: PowerSpectralDensitySummary
+    name: per_channel_sef95
+    percentile: 0.95
+    tmin: null
+    tmax: 0.6
+    fmin: 1.0
+    fmax: 45.0
+    n_fft: 4096
+    n_overlap: 100
+    n_per_seg: 128
+    channel_aggregation_method: null
     on: EEG
