@@ -175,3 +175,5 @@ results/Behavior/probe_data/all_extracted_event_components.csv
 # Test outputs
 Statistics/tests/test_results/
 **tests/**
+
+.DS_Store
