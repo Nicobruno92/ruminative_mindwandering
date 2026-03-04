@@ -1006,6 +1006,60 @@ def page_objective_markers() -> None:
     )
 
     # ------------------------------------------------------------------
+    # Total Errors
+    # ------------------------------------------------------------------
+    st.subheader("Total Errors (omission + commission)", divider=True)
+    safe_image(
+        obj_plots_dir / "total_errors_comprehensive_analysis.png",
+        "Total errors: group, inclusion/exclusion and time-on-task effects",
+    )
+
+    bic_group_tot = load_bic_from_metrics(
+        obj_lmm_dir / "group_effect_total_errors_metrics.csv"
+    )
+    bic_time_tot = load_bic_from_metrics(
+        obj_lmm_dir / "group_time_interaction_total_errors_metrics.csv"
+    )
+    bic_ie_tot = load_bic_from_metrics(
+        obj_lmm_dir / "inclusion_exclusion_effect_total_errors_normalized_metrics.csv"
+    )
+    bic_ie_int_tot = load_bic_from_metrics(
+        obj_lmm_dir / "group_ie_interaction_total_errors_normalized_metrics.csv"
+    )
+
+    st.markdown("### LMM results – Group and time-on-task (all probes)")
+    safe_table(
+        obj_lmm_dir / "group_effect_total_errors_results.csv",
+        title=(
+            "LMM results – Total errors (Group model across all probes; "
+            f"BIC≈{bic_group_tot})"
+        ),
+    )
+    safe_table(
+        obj_lmm_dir / "group_time_interaction_total_errors_results.csv",
+        title=(
+            "LMM results – Total errors (Group × Time-on-Task model; "
+            f"BIC≈{bic_time_tot})"
+        ),
+    )
+
+    st.markdown("### LMM results – Cyberball Inclusion/Exclusion (baseline-corrected)")
+    safe_table(
+        obj_lmm_dir / "inclusion_exclusion_effect_total_errors_normalized_results.csv",
+        title=(
+            "LMM results – Total errors (Inclusion/Exclusion model, baseline-corrected; "
+            f"BIC≈{bic_ie_tot})"
+        ),
+    )
+    safe_table(
+        obj_lmm_dir / "group_ie_interaction_total_errors_normalized_results.csv",
+        title=(
+            "LMM results – Total errors (Group × Inclusion/Exclusion interaction, baseline-corrected; "
+            f"BIC≈{bic_ie_int_tot})"
+        ),
+    )
+
+    # ------------------------------------------------------------------
     # RTCV – only IE-block, baseline-corrected models are available
     # ------------------------------------------------------------------
     st.subheader("RTCV (RT variability)", divider=True)
@@ -1562,6 +1616,9 @@ def page_bdi_split() -> None:
     bic_bdi_onoff = load_bic_from_metrics(
         bdi_onoff_lmm_dir / "onoff" / "group_effect_onoff_metrics.csv"
     )
+    bic_bdi_onoff_time_int = load_bic_from_metrics(
+        bdi_onoff_lmm_dir / "onoff" / "group_time_interaction_onoff_metrics.csv"
+    )
     bic_bdi_onoff_ie = load_bic_from_metrics(
         bdi_onoff_lmm_dir / "onoff" / "inclusion_exclusion_effect_onoff_normalized_metrics.csv"
     )
@@ -1587,6 +1644,15 @@ def page_bdi_split() -> None:
         bdi_onoff_lmm_dir / "onoff" / "group_effect_onoff_results.csv",
         bdi_onoff_lmm_dir / "onoff" / "pairwise_group_comparisons_onoff_overall.csv",
         title="Pairwise group comparisons – ON/OFF (BDI-split groups)",
+    )
+
+    st.markdown("#### Best model: Group × Time-on-Task interaction (full range)")
+    safe_table(
+        bdi_onoff_lmm_dir / "onoff" / "group_time_interaction_onoff_results.csv",
+        title=(
+            "LMM results – ON/OFF (full-range Group × Time-on-Task interaction, "
+            f"BIC≈{bic_bdi_onoff_time_int})"
+        ),
     )
 
     st.markdown("### ON/OFF – Inclusion/Exclusion models (baseline-corrected IE blocks)")

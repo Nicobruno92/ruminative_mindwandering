@@ -1,36 +1,36 @@
                          Mixed Linear Model Regression Results
 ========================================================================================
 Model:                       MixedLM            Dependent Variable:            PC2      
-No. Observations:            561                Method:                        REML     
-No. Groups:                  30                 Scale:                         0.8600   
-Min. group size:             2                  Log-Likelihood:                -787.5415
+No. Observations:            460                Method:                        REML     
+No. Groups:                  24                 Scale:                         0.8476   
+Min. group size:             3                  Log-Likelihood:                -645.2542
 Max. group size:             30                 Converged:                     Yes      
-Mean group size:             18.7                                                       
+Mean group size:             19.2                                                       
 ----------------------------------------------------------------------------------------
                                               Coef.  Std.Err.   z    P>|z| [0.025 0.975]
 ----------------------------------------------------------------------------------------
-Intercept                                      0.257    0.239  1.074 0.283 -0.212  0.726
-inclusion_exclusion[T.inclusion]              -0.308    0.410 -0.752 0.452 -1.112  0.496
-time_on_task                                  -0.008    0.006 -1.308 0.191 -0.019  0.004
-inclusion_exclusion[T.inclusion]:time_on_task  0.009    0.011  0.863 0.388 -0.012  0.030
-subject_id Var                                 0.212    0.076                           
+Intercept                                      0.310    0.267  1.161 0.246 -0.214  0.835
+inclusion_exclusion[T.inclusion]              -0.451    0.472 -0.955 0.339 -1.377  0.475
+time_on_task                                  -0.011    0.007 -1.662 0.097 -0.025  0.002
+inclusion_exclusion[T.inclusion]:time_on_task  0.014    0.012  1.170 0.242 -0.010  0.038
+subject_id Var                                 0.240    0.096                           
 ========================================================================================
 
 
 ============================================================
 MODEL FIT METRICS
 ============================================================
-AIC: 1585.082939
-BIC: 1606.731544
-LOG_LIKELIHOOD: -787.541470
+AIC: 1300.508486
+BIC: 1321.164618
+LOG_LIKELIHOOD: -645.254243
 LOG_LIKELIHOOD_RESTRICTED: Not available
-N_OBSERVATIONS: 561
-N_GROUPS: 30
+N_OBSERVATIONS: 460
+N_GROUPS: 24
 N_PARAMETERS: 5
 N_FIXED_EFFECTS: 4
 N_RANDOM_EFFECTS: 1
 CONVERGED: True
-SCALE: 0.859993
-DEVIANCE: 1575.082939
+SCALE: 0.847590
+DEVIANCE: 1290.508486
 RSQUARED_WITHIN: Not available
 RSQUARED_BETWEEN: Not available

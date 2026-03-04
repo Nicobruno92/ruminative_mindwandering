@@ -65,7 +65,7 @@ print("="*60)
 
 before_n = len(df_full)
 before_s = df_full['subject_id'].nunique()
-df = df_full[df_full['onoff'] <= 62].copy()
+df = df_full[df_full['onoff'] <= 50].copy()
 after_n = len(df)
 after_s = df['subject_id'].nunique()
 print(f"Filtered: {before_n} rows/{before_s} subjects -> {after_n} rows/{after_s} subjects")

@@ -1,0 +1,30 @@
+                                 Mixed Linear Model Regression Results
+=======================================================================================================
+Model:                        MixedLM            Dependent Variable:            total_errors_normalized
+No. Observations:             1197               Method:                        REML                   
+No. Groups:                   42                 Scale:                         0.9998                 
+Min. group size:              15                 Log-Likelihood:                -1704.4469             
+Max. group size:              30                 Converged:                     No                     
+Mean group size:              28.5                                                                     
+-------------------------------------------------------------------------------------------------------
+                                                             Coef.  Std.Err.   z    P>|z| [0.025 0.975]
+-------------------------------------------------------------------------------------------------------
+Intercept                                                     0.063    0.047  1.320 0.187 -0.030  0.156
+group[T.Risk of Depression]                                  -0.101    0.092 -1.101 0.271 -0.281  0.079
+inclusion_exclusion[T.inclusion]                             -0.133    0.069 -1.936 0.053 -0.267  0.002
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]  0.206    0.128  1.613 0.107 -0.044  0.457
+subject Var                                                   0.001                                    
+=======================================================================================================
+
+
+============================================================
+MODEL FIT METRICS
+============================================================
+AIC: 3418.893771
+BIC: 3444.331640
+LOG_LIKELIHOOD: -1704.446886
+N_OBSERVATIONS: 1197
+N_GROUPS: 42
+N_PARAMETERS: 5
+CONVERGED: False
+SCALE: 0.999825

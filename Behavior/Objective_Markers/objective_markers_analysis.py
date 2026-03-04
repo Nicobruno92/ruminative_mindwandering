@@ -24,7 +24,13 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
-import ptitprince as pt
+
+import seaborn as sns
+class _PT:
+    def RainCloud(self, x, y, data, palette, order=None, ax=None, **kwargs):
+        sns.violinplot(x=x, y=y, data=data, palette=palette, order=order, ax=ax, inner=None)
+        sns.stripplot(x=x, y=y, data=data, palette=palette, order=order, ax=ax, dodge=True, alpha=0.7, size=4, jitter=0.2)
+pt = _PT()
 import statsmodels.formula.api as smf
 from scipy import stats
 from scipy.stats import linregress
@@ -45,11 +51,12 @@ LMM_OUTPUT_DIR = '../../results/Behavior/objective_markers/lmm_analysis'
 PLOTS_OUTPUT_DIR = '../../results/Behavior/objective_markers/lmm_plots'
 
 # Objective markers to analyze
-OBJECTIVE_MARKERS = ['omission_rate', 'commission_rate', 'rtcv']
+OBJECTIVE_MARKERS = ['omission_rate', 'commission_rate', 'rtcv', 'total_errors']
 MARKER_LABELS = {
     'omission_rate': 'Omission Rate',
     'commission_rate': 'Commission Rate',
-    'rtcv': 'RTCV (RT Variability)'
+    'rtcv': 'RTCV (RT Variability)',
+    'total_errors': 'Total Errors'
 }
 
 # N trials back from probe onset to include (set to None for all trials in window)
@@ -66,6 +73,7 @@ APPLY_WITHIN_SUBJECT_Z = True
 #%%
 print("Loading objective markers data...")
 df_markers = pd.read_csv(OBJECTIVE_MARKERS_PATH)
+df_markers['total_errors'] = df_markers['omission_rate'] + df_markers['commission_rate']
 print(f"Loaded {len(df_markers)} probe-level observations")
 
 print("\nLoading probe metadata...")

@@ -2,15 +2,15 @@
 ======================================================================
 Model:                  MixedLM     Dependent Variable:     rtcv      
 No. Observations:       2445        Method:                 REML      
-No. Groups:             42          Scale:                  1.0008    
-Min. group size:        45          Log-Likelihood:         -3474.4972
+No. Groups:             42          Scale:                  1.0060    
+Min. group size:        45          Log-Likelihood:         -3480.7500
 Max. group size:        60          Converged:              Yes       
 Mean group size:        58.2                                          
 ----------------------------------------------------------------------
                             Coef.  Std.Err.   z    P>|z| [0.025 0.975]
 ----------------------------------------------------------------------
-Intercept                    0.005    0.024  0.201 0.841 -0.042  0.052
-group[T.Risk of Depression] -0.006    0.045 -0.139 0.889 -0.094  0.081
+Intercept                    0.005    0.024  0.222 0.824 -0.042  0.052
+group[T.Risk of Depression] -0.139    0.032 -4.342 0.000 -0.201 -0.076
 subject Var                  0.000                                    
 ======================================================================
 
@@ -18,11 +18,11 @@ subject Var                  0.000
 ============================================================
 MODEL FIT METRICS
 ============================================================
-AIC: 6954.994396
-BIC: 6972.399797
-LOG_LIKELIHOOD: -3474.497198
+AIC: 6967.500028
+BIC: 6984.905429
+LOG_LIKELIHOOD: -3480.750014
 N_OBSERVATIONS: 2445
 N_GROUPS: 42
 N_PARAMETERS: 3
 CONVERGED: True
-SCALE: 1.000836
+SCALE: 1.005972

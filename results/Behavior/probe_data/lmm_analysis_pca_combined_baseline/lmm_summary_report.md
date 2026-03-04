@@ -1,38 +1,38 @@
 # Linear Mixed Model Analysis of PCA Components - Summary Report
 
-**Analysis Date:** 2025-12-29 19:39:32
-**Sample:** 1082 observations from 35 subjects
+**Analysis Date:** 2026-03-03 18:39:35
+**Sample:** 888 observations from 33 subjects
 
 ## PCA Information
 **Variables used:** valence, selfother, time
-**PC1 explained variance:** 0.426 (42.6%)
-**PC2 explained variance:** 0.334 (33.4%)
-**PC3 explained variance:** 0.240 (24.0%)
+**PC1 explained variance:** 0.421 (42.1%)
+**PC2 explained variance:** 0.336 (33.6%)
+**PC3 explained variance:** 0.244 (24.4%)
 **Total explained variance (PC1-3):** 1.000 (100.0%)
 
 ## Component Loadings
 ### PC1 Loadings:
-- Valence: 0.708
-- Self-Other: 0.522
-- Time: 0.475
+- Valence: 0.712
+- Self-Other: 0.505
+- Time: 0.489
 
 ### PC2 Loadings:
 - Valence: 0.001
-- Self-Other: -0.673
-- Time: 0.739
+- Self-Other: -0.696
+- Time: 0.718
 
 ### PC3 Loadings:
-- Valence: 0.706
-- Self-Other: -0.523
-- Time: -0.477
+- Valence: 0.703
+- Self-Other: -0.511
+- Time: -0.495
 
 ## Group Distribution
-- **Controls:** 644 (59.5%)
-- **Risk of Depression:** 438 (40.5%)
+- **Controls:** 484 (54.5%)
+- **Risk of Depression:** 404 (45.5%)
 
 ## Inclusion/Exclusion Distribution
-- **Inclusion:** 280 (25.9%)
-- **Exclusion:** 319 (29.5%)
+- **Inclusion:** 225 (25.3%)
+- **Exclusion:** 262 (29.5%)
 
 ## Models Tested
 1. **Group Effect:** PC ~ Group (Controls vs Risk of Depression)
@@ -50,17 +50,18 @@
 **PC1:** 0 significant fixed effects (uncorrected), 0 significant fixed effects (corrected)
 **PC2:** 0 significant fixed effects (uncorrected), 0 significant fixed effects (corrected)
 **PC3:** 1 significant fixed effects (uncorrected), 1 significant fixed effects (corrected)
-  - group[T.Risk of Depression]: β = -0.318, p = 0.0249
+  - group[T.Risk of Depression]: β = -0.351, p = 0.0243
 
 ### Inclusion/Exclusion Effect
 - **No significant effects after correction**
 
 ### Group × Inclusion/Exclusion Interaction
 **PC1:** 2 significant fixed effects (uncorrected), 2 significant fixed effects (corrected)
-  - group[T.Risk of Depression]: β = -0.794, p = 0.0265
-  - group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]: β = 0.674, p = 0.0000
+  - group[T.Risk of Depression]: β = -0.765, p = 0.0402
+  - group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]: β = 0.680, p = 0.0001
 **PC2:** 0 significant fixed effects (uncorrected), 0 significant fixed effects (corrected)
-**PC3:** 1 significant fixed effects (uncorrected), 0 significant fixed effects (corrected)
+**PC3:** 1 significant fixed effects (uncorrected), 1 significant fixed effects (corrected)
+  - group[T.Risk of Depression]: β = -0.472, p = 0.0303
 
 ## Interpretation
 - **PC1:** Captures the primary dimension of mind-wandering variation

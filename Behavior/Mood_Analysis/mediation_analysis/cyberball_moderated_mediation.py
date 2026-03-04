@@ -502,6 +502,7 @@ def run_path_a_delta_diagnostic(data: pd.DataFrame) -> pd.DataFrame:
         plt.tight_layout()
         out_path = os.path.join(RESULTS_DIR, "plots", "path_a_delta_EVAaverage.png")
         plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
         print(f"Path A delta diagnostic plot saved: {out_path}")
         plt.close()
 
@@ -777,8 +778,439 @@ def plot_moderated_mediation_figure(results: pd.DataFrame) -> None:
     plt.tight_layout()
     out_path = os.path.join(RESULTS_DIR, "plots", "cyberball_moderated_mediation_combined.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
     print(f"\nCombined figure saved: {out_path}")
     plt.close()
+
+
+def plot_individual_moderated_mediation_figures(results: pd.DataFrame, output_dir: str) -> None:
+    """
+    Create individual figures for each thought dimension.
+    """
+    print("\n" + "=" * 70)
+    print("CREATING INDIVIDUAL MODERATED MEDIATION FIGURES")
+    print("=" * 70)
+    
+    import os
+    from matplotlib.lines import Line2D
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    sns.set_theme(style="white", context="talk")
+    COLOR_CONTROL = "#2E86AB"
+    COLOR_RISK = "#F24236"
+    
+    for dim in THOUGHT_DIMENSIONS:
+        dim_data = results[results["thought_dim"] == dim].copy()
+        if dim_data.empty:
+            continue
+            
+        fig = plt.figure(figsize=(20, 16))
+        gs = fig.add_gridspec(
+            3, 2,
+            height_ratios=[1.3, 1.0, 0.8],
+            width_ratios=[1, 1],
+            hspace=0.4,
+            wspace=0.3,
+        )
+        
+        moods = MOOD_SCALES
+        y_positions = np.arange(len(moods))
+        
+        # ========== PANEL 1: FOREST PLOT CROSS-GROUP ==========
+        ax_forest = fig.add_subplot(gs[0, :])
+        
+        for y in y_positions:
+            if y % 2 == 0:
+                ax_forest.axhspan(y - 0.5, y + 0.5, color='gray', alpha=0.1, zorder=0, linewidth=0)
+                
+        dim_data_indexed = dim_data.set_index("mood_scale").reindex(moods)
+        bar_height = 0.35
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+                
+            row = dim_data_indexed.loc[mood]
+            if pd.isna(row["ie_controls"]):
+                continue
+                
+            # Controls
+            y_ctrl = idx - bar_height/2
+            ie_ctrl = row["ie_controls"]
+            ci_low_ctrl = row["ie_controls_ci_low"]
+            ci_high_ctrl = row["ie_controls_ci_high"]
+            sig_ctrl = row["ie_controls_sig"]
+            
+            alpha_ctrl = 1.0 if sig_ctrl else 0.4
+            linestyle_ctrl = '-' if sig_ctrl else ':'
+            
+            ax_forest.plot([ci_low_ctrl, ci_high_ctrl], [y_ctrl, y_ctrl],
+                          color=COLOR_CONTROL, alpha=alpha_ctrl, linestyle=linestyle_ctrl, linewidth=2, zorder=2)
+            ax_forest.plot(ie_ctrl, y_ctrl, marker='o', markersize=8,
+                          markeredgecolor=COLOR_CONTROL, 
+                          markerfacecolor=COLOR_CONTROL if sig_ctrl else 'white',
+                          markeredgewidth=2, alpha=alpha_ctrl, zorder=3)
+                          
+            # Risk
+            y_risk = idx + bar_height/2
+            ie_risk = row["ie_risk"]
+            ci_low_risk = row["ie_risk_ci_low"]
+            ci_high_risk = row["ie_risk_ci_high"]
+            sig_risk = row["ie_risk_sig"]
+            
+            alpha_risk = 1.0 if sig_risk else 0.4
+            linestyle_risk = '-' if sig_risk else ':'
+            
+            ax_forest.plot([ci_low_risk, ci_high_risk], [y_risk, y_risk],
+                          color=COLOR_RISK, alpha=alpha_risk, linestyle=linestyle_risk, linewidth=2, zorder=2)
+            ax_forest.plot(ie_risk, y_risk, marker='s', markersize=8,
+                          markeredgecolor=COLOR_RISK,
+                          markerfacecolor=COLOR_RISK if sig_risk else 'white',
+                          markeredgewidth=2, alpha=alpha_risk, zorder=3)
+                          
+        ax_forest.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.3, zorder=1)
+        ax_forest.set_yticks(y_positions)
+        ax_forest.set_yticklabels(moods, fontweight='bold', fontsize=12)
+        ax_forest.set_xlabel("Indirect Effect (a × b)", fontweight='bold', fontsize=13)
+        ax_forest.set_title(
+            f"Moderated Mediation via {dim.upper()}: Condition → Mood → {dim.upper()}\n"
+            "(Indirect Effects by Group)",
+            pad=20, fontweight='bold', fontsize=14
+        )
+        ax_forest.invert_yaxis()
+        
+        legend_elements = [
+            Line2D([0], [0], marker='o', color=COLOR_CONTROL, label='Controls',
+                   markerfacecolor=COLOR_CONTROL, markersize=10, linestyle='-'),
+            Line2D([0], [0], marker='s', color=COLOR_RISK, label='Risk of Depression',
+                   markerfacecolor=COLOR_RISK, markersize=10, linestyle='-'),
+        ]
+        ax_forest.legend(handles=legend_elements, loc='upper right', frameon=True, fontsize=10)
+        
+        # ========== PANEL 2: PATH A ==========
+        ax_path_a = fig.add_subplot(gs[1, 0])
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+            row = dim_data_indexed.loc[mood]
+            
+            a_base = row["a_base"]
+            a_base_se = row["a_base_se"]
+            sig_base = abs(a_base / a_base_se) > 1.96
+            
+            ax_path_a.plot([a_base - 1.96*a_base_se, a_base + 1.96*a_base_se], [idx - 0.15, idx - 0.15],
+                          color=COLOR_CONTROL, lw=2, alpha=1.0 if sig_base else 0.4,
+                          linestyle='-' if sig_base else ':')
+            ax_path_a.plot(a_base, idx - 0.15, 'o', color=COLOR_CONTROL, markersize=10,
+                          markerfacecolor=COLOR_CONTROL if sig_base else 'white',
+                          markeredgewidth=2, alpha=1.0 if sig_base else 0.4)
+            
+            a_risk = a_base + row["a_int"]
+            a_int_se = row["a_int_se"]
+            a_risk_se = np.sqrt(a_base_se**2 + a_int_se**2)
+            sig_risk = abs(a_risk / a_risk_se) > 1.96
+            
+            ax_path_a.plot([a_risk - 1.96*a_risk_se, a_risk + 1.96*a_risk_se], [idx + 0.15, idx + 0.15],
+                          color=COLOR_RISK, lw=2, alpha=1.0 if sig_risk else 0.4,
+                          linestyle='-' if sig_risk else ':')
+            ax_path_a.plot(a_risk, idx + 0.15, 's', color=COLOR_RISK, markersize=10,
+                          markerfacecolor=COLOR_RISK if sig_risk else 'white',
+                          markeredgewidth=2, alpha=1.0 if sig_risk else 0.4)
+        
+        ax_path_a.set_yticks(y_positions)
+        ax_path_a.set_yticklabels(moods, fontweight='bold')
+        ax_path_a.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_a.set_xlabel("Path A Coefficient (Exclusion Effect on Mood)", fontweight='bold', fontsize=11)
+        ax_path_a.set_title("Path A: Condition → Mood\n(Moderated by Group)", fontweight='bold', pad=12, fontsize=12)
+        ax_path_a.invert_yaxis()
+        
+        # ========== PANEL 3: PATH B ==========
+        ax_path_b = fig.add_subplot(gs[1, 1])
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+            row = dim_data_indexed.loc[mood]
+            val = row["b"]
+            err = row["b_se"] * 1.96
+            is_sig = np.abs(val / row["b_se"]) > 1.96
+            
+            color = "#8e44ad"
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face = color if is_sig else 'white'
+            
+            ax_path_b.plot([val - err, val + err], [idx, idx], 
+                           color=color, lw=2, linestyle=linestyle, alpha=alpha)
+            ax_path_b.plot(val, idx, 'o', color=color, markersize=10,
+                           markerfacecolor=marker_face, markeredgecolor=color,
+                           markeredgewidth=2, alpha=alpha)
+            ax_path_b.text(val, idx + 0.18, f"β={val:.2f}", ha='center', va='bottom',
+                           fontsize=12, color=color, fontweight='bold', alpha=alpha)
+        
+        ax_path_b.set_yticks(y_positions)
+        ax_path_b.set_yticklabels(moods, fontweight='bold')
+        ax_path_b.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_b.set_xlabel(f"Path B Coef (Mood → {dim.upper()})", fontweight='bold', fontsize=11)
+        ax_path_b.set_title(f"Path B: Mood → {dim.upper()}", fontweight='bold', pad=12, fontsize=12)
+        ax_path_b.invert_yaxis()
+        
+        # ========== PANEL 4: INDEX OF MODERATED MEDIATION ==========
+        ax_index = fig.add_subplot(gs[2, :])
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+            row = dim_data_indexed.loc[mood]
+            val = row["index_mm"]
+            ci_low = row["index_mm_ci_low"]
+            ci_high = row["index_mm_ci_high"]
+            is_sig = row["index_mm_sig"]
+            
+            color = "#f39c12"
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face = color if is_sig else 'white'
+             
+            ax_index.plot([ci_low, ci_high], [idx, idx], 
+                           color=color, lw=2, linestyle=linestyle, alpha=alpha)
+            ax_index.plot(val, idx, 'p', color=color, markersize=12,
+                           markerfacecolor=marker_face, markeredgecolor=color,
+                           markeredgewidth=2, alpha=alpha)
+            ax_index.text(val, idx + 0.18, f"{val:.2f}", ha='center', va='bottom',
+                           fontsize=12, color=color, fontweight='bold', alpha=alpha)
+                           
+        ax_index.set_yticks(y_positions)
+        ax_index.set_yticklabels(moods, fontweight='bold')
+        ax_index.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_index.set_xlabel(f"Index of Moderated Mediation", fontweight='bold', fontsize=11)
+        ax_index.set_title(f"Index of Moderated Mediation\nPositive = Risk Group has STRONGER indirect effect than Controls", fontweight='bold', pad=12, fontsize=12)
+        ax_index.invert_yaxis()
+        
+        plt.tight_layout()
+        out_path = os.path.join(output_dir, f"mod_mediation_{dim}.png")
+        plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
+        plt.close()
+        
+    print(f"Individual moderated mediation figures saved in: {output_dir}")
+
+
+def plot_individual_moderated_mediation_figures(results: pd.DataFrame, output_dir: str) -> None:
+    """
+    Create individual figures for each thought dimension.
+    """
+    print("\n" + "=" * 70)
+    print("CREATING INDIVIDUAL MODERATED MEDIATION FIGURES")
+    print("=" * 70)
+    
+    import os
+    from matplotlib.lines import Line2D
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    sns.set_theme(style="white", context="talk")
+    COLOR_CONTROL = "#2E86AB"
+    COLOR_RISK = "#F24236"
+    
+    for dim in THOUGHT_DIMENSIONS:
+        dim_data = results[results["thought_dim"] == dim].copy()
+        if dim_data.empty:
+            continue
+            
+        fig = plt.figure(figsize=(20, 16))
+        gs = fig.add_gridspec(
+            3, 2,
+            height_ratios=[1.3, 1.0, 0.8],
+            width_ratios=[1, 1],
+            hspace=0.4,
+            wspace=0.3,
+        )
+        
+        moods = MOOD_SCALES
+        y_positions = np.arange(len(moods))
+        
+        # ========== PANEL 1: FOREST PLOT CROSS-GROUP ==========
+        ax_forest = fig.add_subplot(gs[0, :])
+        
+        for y in y_positions:
+            if y % 2 == 0:
+                ax_forest.axhspan(y - 0.5, y + 0.5, color='gray', alpha=0.1, zorder=0, linewidth=0)
+                
+        dim_data_indexed = dim_data.set_index("mood_scale").reindex(moods)
+        bar_height = 0.35
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+                
+            row = dim_data_indexed.loc[mood]
+            if pd.isna(row["ie_controls"]):
+                continue
+                
+            # Controls
+            y_ctrl = idx - bar_height/2
+            ie_ctrl = row["ie_controls"]
+            ci_low_ctrl = row["ie_controls_ci_low"]
+            ci_high_ctrl = row["ie_controls_ci_high"]
+            sig_ctrl = row["ie_controls_sig"]
+            
+            alpha_ctrl = 1.0 if sig_ctrl else 0.4
+            linestyle_ctrl = '-' if sig_ctrl else ':'
+            
+            ax_forest.plot([ci_low_ctrl, ci_high_ctrl], [y_ctrl, y_ctrl],
+                          color=COLOR_CONTROL, alpha=alpha_ctrl, linestyle=linestyle_ctrl, linewidth=2, zorder=2)
+            ax_forest.plot(ie_ctrl, y_ctrl, marker='o', markersize=8,
+                          markeredgecolor=COLOR_CONTROL, 
+                          markerfacecolor=COLOR_CONTROL if sig_ctrl else 'white',
+                          markeredgewidth=2, alpha=alpha_ctrl, zorder=3)
+                          
+            # Risk
+            y_risk = idx + bar_height/2
+            ie_risk = row["ie_risk"]
+            ci_low_risk = row["ie_risk_ci_low"]
+            ci_high_risk = row["ie_risk_ci_high"]
+            sig_risk = row["ie_risk_sig"]
+            
+            alpha_risk = 1.0 if sig_risk else 0.4
+            linestyle_risk = '-' if sig_risk else ':'
+            
+            ax_forest.plot([ci_low_risk, ci_high_risk], [y_risk, y_risk],
+                          color=COLOR_RISK, alpha=alpha_risk, linestyle=linestyle_risk, linewidth=2, zorder=2)
+            ax_forest.plot(ie_risk, y_risk, marker='s', markersize=8,
+                          markeredgecolor=COLOR_RISK,
+                          markerfacecolor=COLOR_RISK if sig_risk else 'white',
+                          markeredgewidth=2, alpha=alpha_risk, zorder=3)
+                          
+        ax_forest.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.3, zorder=1)
+        ax_forest.set_yticks(y_positions)
+        ax_forest.set_yticklabels(moods, fontweight='bold', fontsize=12)
+        ax_forest.set_xlabel("Indirect Effect (a × b)", fontweight='bold', fontsize=13)
+        ax_forest.set_title(
+            f"Moderated Mediation via {dim.upper()}: Condition → Mood → {dim.upper()}\n"
+            "(Indirect Effects by Group)",
+            pad=20, fontweight='bold', fontsize=14
+        )
+        ax_forest.invert_yaxis()
+        
+        legend_elements = [
+            Line2D([0], [0], marker='o', color=COLOR_CONTROL, label='Controls',
+                   markerfacecolor=COLOR_CONTROL, markersize=10, linestyle='-'),
+            Line2D([0], [0], marker='s', color=COLOR_RISK, label='Risk of Depression',
+                   markerfacecolor=COLOR_RISK, markersize=10, linestyle='-'),
+        ]
+        ax_forest.legend(handles=legend_elements, loc='upper right', frameon=True, fontsize=10)
+        
+        # ========== PANEL 2: PATH A ==========
+        ax_path_a = fig.add_subplot(gs[1, 0])
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+            row = dim_data_indexed.loc[mood]
+            
+            a_base = row["a_base"]
+            a_base_se = row["a_base_se"]
+            sig_base = abs(a_base / a_base_se) > 1.96
+            
+            ax_path_a.plot([a_base - 1.96*a_base_se, a_base + 1.96*a_base_se], [idx - 0.15, idx - 0.15],
+                          color=COLOR_CONTROL, lw=2, alpha=1.0 if sig_base else 0.4,
+                          linestyle='-' if sig_base else ':')
+            ax_path_a.plot(a_base, idx - 0.15, 'o', color=COLOR_CONTROL, markersize=10,
+                          markerfacecolor=COLOR_CONTROL if sig_base else 'white',
+                          markeredgewidth=2, alpha=1.0 if sig_base else 0.4)
+            
+            a_risk = a_base + row["a_int"]
+            a_int_se = row["a_int_se"]
+            a_risk_se = np.sqrt(a_base_se**2 + a_int_se**2)
+            sig_risk = abs(a_risk / a_risk_se) > 1.96
+            
+            ax_path_a.plot([a_risk - 1.96*a_risk_se, a_risk + 1.96*a_risk_se], [idx + 0.15, idx + 0.15],
+                          color=COLOR_RISK, lw=2, alpha=1.0 if sig_risk else 0.4,
+                          linestyle='-' if sig_risk else ':')
+            ax_path_a.plot(a_risk, idx + 0.15, 's', color=COLOR_RISK, markersize=10,
+                          markerfacecolor=COLOR_RISK if sig_risk else 'white',
+                          markeredgewidth=2, alpha=1.0 if sig_risk else 0.4)
+        
+        ax_path_a.set_yticks(y_positions)
+        ax_path_a.set_yticklabels(moods, fontweight='bold')
+        ax_path_a.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_a.set_xlabel("Path A Coefficient (Exclusion Effect on Mood)", fontweight='bold', fontsize=11)
+        ax_path_a.set_title("Path A: Condition → Mood\n(Moderated by Group)", fontweight='bold', pad=12, fontsize=12)
+        ax_path_a.invert_yaxis()
+        
+        # ========== PANEL 3: PATH B ==========
+        ax_path_b = fig.add_subplot(gs[1, 1])
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+            row = dim_data_indexed.loc[mood]
+            val = row["b"]
+            err = row["b_se"] * 1.96
+            is_sig = np.abs(val / row["b_se"]) > 1.96
+            
+            color = "#8e44ad"
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face = color if is_sig else 'white'
+            
+            ax_path_b.plot([val - err, val + err], [idx, idx], 
+                           color=color, lw=2, linestyle=linestyle, alpha=alpha)
+            ax_path_b.plot(val, idx, 'o', color=color, markersize=10,
+                           markerfacecolor=marker_face, markeredgecolor=color,
+                           markeredgewidth=2, alpha=alpha)
+            ax_path_b.text(val, idx + 0.18, f"β={val:.2f}", ha='center', va='bottom',
+                           fontsize=12, color=color, fontweight='bold', alpha=alpha)
+        
+        ax_path_b.set_yticks(y_positions)
+        ax_path_b.set_yticklabels(moods, fontweight='bold')
+        ax_path_b.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_b.set_xlabel(f"Path B Coef (Mood → {dim.upper()})", fontweight='bold', fontsize=11)
+        ax_path_b.set_title(f"Path B: Mood → {dim.upper()}", fontweight='bold', pad=12, fontsize=12)
+        ax_path_b.invert_yaxis()
+        
+        # ========== PANEL 4: INDEX OF MODERATED MEDIATION ==========
+        ax_index = fig.add_subplot(gs[2, :])
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+            row = dim_data_indexed.loc[mood]
+            val = row["index_mm"]
+            ci_low = row["index_mm_ci_low"]
+            ci_high = row["index_mm_ci_high"]
+            is_sig = row["index_mm_sig"]
+            
+            color = "#f39c12"
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face = color if is_sig else 'white'
+             
+            ax_index.plot([ci_low, ci_high], [idx, idx], 
+                           color=color, lw=2, linestyle=linestyle, alpha=alpha)
+            ax_index.plot(val, idx, 'p', color=color, markersize=12,
+                           markerfacecolor=marker_face, markeredgecolor=color,
+                           markeredgewidth=2, alpha=alpha)
+            ax_index.text(val, idx + 0.18, f"{val:.2f}", ha='center', va='bottom',
+                           fontsize=12, color=color, fontweight='bold', alpha=alpha)
+                           
+        ax_index.set_yticks(y_positions)
+        ax_index.set_yticklabels(moods, fontweight='bold')
+        ax_index.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_index.set_xlabel(f"Index of Moderated Mediation", fontweight='bold', fontsize=11)
+        ax_index.set_title(f"Index of Moderated Mediation\nPositive = Risk Group has STRONGER indirect effect than Controls", fontweight='bold', pad=12, fontsize=12)
+        ax_index.invert_yaxis()
+        
+        plt.tight_layout()
+        out_path = os.path.join(output_dir, f"mod_mediation_{dim}.png")
+        plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
+        plt.close()
+        
+    print(f"Individual moderated mediation figures saved in: {output_dir}")
 
 
 def save_detailed_results(results: pd.DataFrame, data: pd.DataFrame) -> None:
@@ -893,6 +1325,10 @@ def main():
     
     # 6. Generate visualization
     plot_moderated_mediation_figure(results_df)
+
+    # 7. Generate individual figures
+    individual_dir = os.path.join(RESULTS_DIR, "plots", "individual_dimensions")
+    plot_individual_moderated_mediation_figures(results_df, individual_dir)
     
     print("\n" + "=" * 70)
     print("CYBERBALL MODERATED MEDIATION ANALYSIS COMPLETE")

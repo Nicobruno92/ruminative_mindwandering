@@ -1,40 +1,40 @@
                                        Mixed Linear Model Regression Results
 ====================================================================================================================
 Model:                                 MixedLM                     Dependent Variable:                     PC2      
-No. Observations:                      561                         Method:                                 REML     
-No. Groups:                            30                          Scale:                                  0.8335   
-Min. group size:                       2                           Log-Likelihood:                         -787.7919
+No. Observations:                      460                         Method:                                 REML     
+No. Groups:                            24                          Scale:                                  0.8040   
+Min. group size:                       3                           Log-Likelihood:                         -642.8614
 Max. group size:                       30                          Converged:                              Yes      
-Mean group size:                       18.7                                                                         
+Mean group size:                       19.2                                                                         
 --------------------------------------------------------------------------------------------------------------------
                                                                           Coef.  Std.Err.   z    P>|z| [0.025 0.975]
 --------------------------------------------------------------------------------------------------------------------
-Intercept                                                                  0.343    0.315  1.087 0.277 -0.275  0.960
-group[T.Risk of Depression]                                               -0.283    0.531 -0.533 0.594 -1.324  0.758
-inclusion_exclusion[T.inclusion]                                          -0.858    0.544 -1.578 0.115 -1.925  0.208
-group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]               1.448    0.938  1.543 0.123 -0.391  3.286
-time_on_task                                                              -0.007    0.008 -0.976 0.329 -0.022  0.007
-group[T.Risk of Depression]:time_on_task                                  -0.002    0.013 -0.140 0.888 -0.028  0.024
-inclusion_exclusion[T.inclusion]:time_on_task                              0.023    0.014  1.656 0.098 -0.004  0.050
-group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]:time_on_task -0.035    0.024 -1.434 0.152 -0.082  0.013
-subject_id Var                                                             0.253    0.097                           
+Intercept                                                                  0.409    0.385  1.061 0.289 -0.346  1.164
+group[T.Risk of Depression]                                               -0.231    0.606 -0.381 0.703 -1.418  0.957
+inclusion_exclusion[T.inclusion]                                          -1.343    0.712 -1.886 0.059 -2.739  0.053
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]               1.828    1.107  1.651 0.099 -0.342  3.999
+time_on_task                                                              -0.011    0.010 -1.150 0.250 -0.030  0.008
+group[T.Risk of Depression]:time_on_task                                  -0.003    0.015 -0.227 0.820 -0.033  0.026
+inclusion_exclusion[T.inclusion]:time_on_task                              0.036    0.018  1.975 0.048  0.000  0.072
+group[T.Risk of Depression]:inclusion_exclusion[T.inclusion]:time_on_task -0.043    0.028 -1.502 0.133 -0.098  0.013
+subject_id Var                                                             0.329    0.147                           
 ====================================================================================================================
 
 
 ============================================================
 MODEL FIT METRICS
 ============================================================
-AIC: 1593.583710
-BIC: 1632.551198
-LOG_LIKELIHOOD: -787.791855
+AIC: 1303.722867
+BIC: 1340.903906
+LOG_LIKELIHOOD: -642.861434
 LOG_LIKELIHOOD_RESTRICTED: Not available
-N_OBSERVATIONS: 561
-N_GROUPS: 30
+N_OBSERVATIONS: 460
+N_GROUPS: 24
 N_PARAMETERS: 9
 N_FIXED_EFFECTS: 8
 N_RANDOM_EFFECTS: 1
 CONVERGED: True
-SCALE: 0.833524
-DEVIANCE: 1575.583710
+SCALE: 0.804048
+DEVIANCE: 1285.722867
 RSQUARED_WITHIN: Not available
 RSQUARED_BETWEEN: Not available

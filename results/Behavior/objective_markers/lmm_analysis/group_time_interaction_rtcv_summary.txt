@@ -4,7 +4,7 @@ Model:                     MixedLM          Dependent Variable:          rtcv
 No. Observations:          2445             Method:                      REML      
 No. Groups:                42               Scale:                       0.9756    
 Min. group size:           45               Log-Likelihood:              -3453.2566
-Max. group size:           60               Converged:                   Yes       
+Max. group size:           60               Converged:                   No        
 Mean group size:           58.2                                                    
 -----------------------------------------------------------------------------------
                                          Coef.  Std.Err.   z    P>|z| [0.025 0.975]
@@ -26,5 +26,5 @@ LOG_LIKELIHOOD: -3453.256572
 N_OBSERVATIONS: 2445
 N_GROUPS: 42
 N_PARAMETERS: 5
-CONVERGED: True
+CONVERGED: False
 SCALE: 0.975608

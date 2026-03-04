@@ -369,6 +369,8 @@ def run_lmm_analysis(
 
     results_df = pd.DataFrame(
         {
+            "model_name": model_name,
+            "dependent_var": dependent_var,
             "predictor": model.params.index,
             "estimate": model.params.values,
             "std_error": model.bse.values,
@@ -1030,7 +1032,7 @@ def analyze_mood_dimension(
     df_group: pd.DataFrame,
     df_ie: pd.DataFrame,
     dep: str,
-) -> None:
+) -> List[pd.DataFrame]:
     """Run the full pipeline (LMMs + plots + descriptives) for one mood variable.
 
     Parameters
@@ -1051,28 +1053,33 @@ def analyze_mood_dimension(
     os.makedirs(dim_results_dir, exist_ok=True)
     os.makedirs(dim_plots_dir, exist_ok=True)
 
+    all_results = []
+
     # Model 1: Group effect (raw mood, all blocks)
-    run_lmm_analysis(df_group, dep, "group", "group_effect", dim_results_dir)
+    res_group, _ = run_lmm_analysis(df_group, dep, "group", "group_effect", dim_results_dir)
+    all_results.append(res_group)
 
     # Model 2: Inclusion/Exclusion effect (normalized, post-manip blocks)
     dep_normalized = f"{dep}_normalized"
     if dep_normalized in df_ie.columns:
-        run_lmm_analysis(
+        res_ie, _ = run_lmm_analysis(
             df_ie,
             dep_normalized,
             "inclusion_exclusion",
             "inclusion_exclusion_effect",
             dim_results_dir,
         )
+        all_results.append(res_ie)
 
         # Model 3: Group × Inclusion/Exclusion interaction (normalized)
-        run_lmm_analysis(
+        res_int, _ = run_lmm_analysis(
             df_ie,
             dep_normalized,
             "group * inclusion_exclusion",
             "group_ie_interaction",
             dim_results_dir,
         )
+        all_results.append(res_int)
     else:
         print(
             f"Skipping IE models for {dep} (no normalized column {dep_normalized})"
@@ -1093,6 +1100,8 @@ def analyze_mood_dimension(
     print(f"Results saved to: {dim_results_dir}")
     print(f"Plots saved to:   {dim_plots_dir}")
 
+    return all_results
+
 
 def main() -> None:
     """Entry point for the block-level mood LMM analysis."""
@@ -1109,9 +1118,12 @@ def main() -> None:
     group_significance: Dict[str, bool] = {}
     ie_significance: Dict[str, bool] = {}
 
+    all_models_results = []
+
     for dep in MOOD_DIMENSIONS:
         if dep in df_block.columns:
-            analyze_mood_dimension(df_group, df_ie, dep)
+            dim_results = analyze_mood_dimension(df_group, df_ie, dep)
+            all_models_results.extend(dim_results)
             
             # Load LMM results to determine significance
             dim_results_dir = os.path.join(RESULTS_DIR, dep)
@@ -1167,6 +1179,13 @@ def main() -> None:
     plot_combined_lineplot_ie(
         df_ie, combined_dims, ie_significance, PLOTS_DIR
     )
+
+    # Save summary table with all models
+    if all_models_results:
+        all_models_df = pd.concat(all_models_results, ignore_index=True)
+        summary_file = os.path.join(RESULTS_DIR, "all_models_results.csv")
+        all_models_df.to_csv(summary_file, index=False)
+        print(f"\nSaved all models summary table to: {summary_file}")
 
     print("\n" + "=" * 60)
     print("MOOD ANALYSIS COMPLETE")

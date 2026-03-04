@@ -1,37 +1,37 @@
                        Mixed Linear Model Regression Results
 ===================================================================================
 Model:                      MixedLM          Dependent Variable:          PC3      
-No. Observations:           561              Method:                      REML     
-No. Groups:                 30               Scale:                       0.5005   
-Min. group size:            2                Log-Likelihood:              -639.6770
+No. Observations:           460              Method:                      REML     
+No. Groups:                 24               Scale:                       0.5156   
+Min. group size:            3                Log-Likelihood:              -532.0944
 Max. group size:            30               Converged:                   Yes      
-Mean group size:            18.7                                                   
+Mean group size:            19.2                                                   
 -----------------------------------------------------------------------------------
                                          Coef.  Std.Err.   z    P>|z| [0.025 0.975]
 -----------------------------------------------------------------------------------
-Intercept                                 0.219    0.140  1.566 0.117 -0.055  0.494
-group[T.Risk of Depression]              -0.712    0.225 -3.161 0.002 -1.154 -0.271
-inclusion_exclusion[T.inclusion]          0.181    0.063  2.865 0.004  0.057  0.304
-time_on_task                             -0.006    0.003 -2.520 0.012 -0.011 -0.001
-group[T.Risk of Depression]:time_on_task  0.011    0.004  2.839 0.005  0.004  0.019
-subject_id Var                            0.146    0.068                           
+Intercept                                 0.344    0.161  2.143 0.032  0.029  0.659
+group[T.Risk of Depression]              -0.797    0.239 -3.335 0.001 -1.266 -0.329
+inclusion_exclusion[T.inclusion]          0.249    0.072  3.455 0.001  0.108  0.391
+time_on_task                             -0.007    0.003 -2.381 0.017 -0.013 -0.001
+group[T.Risk of Depression]:time_on_task  0.011    0.004  2.548 0.011  0.003  0.020
+subject_id Var                            0.133    0.070                           
 ===================================================================================
 
 
 ============================================================
 MODEL FIT METRICS
 ============================================================
-AIC: 1291.354008
-BIC: 1317.332333
-LOG_LIKELIHOOD: -639.677004
+AIC: 1076.188829
+BIC: 1100.976188
+LOG_LIKELIHOOD: -532.094415
 LOG_LIKELIHOOD_RESTRICTED: Not available
-N_OBSERVATIONS: 561
-N_GROUPS: 30
+N_OBSERVATIONS: 460
+N_GROUPS: 24
 N_PARAMETERS: 6
 N_FIXED_EFFECTS: 5
 N_RANDOM_EFFECTS: 1
 CONVERGED: True
-SCALE: 0.500464
-DEVIANCE: 1279.354008
+SCALE: 0.515583
+DEVIANCE: 1064.188829
 RSQUARED_WITHIN: Not available
 RSQUARED_BETWEEN: Not available

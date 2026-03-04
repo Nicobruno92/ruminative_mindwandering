@@ -1,28 +1,28 @@
-                Mixed Linear Model Regression Results
-======================================================================
-Model:               MixedLM    Dependent Variable:    commission_rate
-No. Observations:    2460       Method:                REML           
-No. Groups:          42         Scale:                 1.0010         
-Min. group size:     45         Log-Likelihood:        -3495.9375     
-Max. group size:     60         Converged:             Yes            
-Mean group size:     58.6                                             
-----------------------------------------------------------------------
-                            Coef.  Std.Err.   z    P>|z| [0.025 0.975]
-----------------------------------------------------------------------
-Intercept                    0.014    0.024  0.589 0.556 -0.032  0.060
-group[T.Risk of Depression] -0.016    0.044 -0.369 0.712 -0.104  0.071
-subject Var                  0.000                                    
-======================================================================
+              Mixed Linear Model Regression Results
+=================================================================
+Model:              MixedLM  Dependent Variable:  commission_rate
+No. Observations:   2460     Method:              REML           
+No. Groups:         42       Scale:               1.0468         
+Min. group size:    45       Log-Likelihood:      -3550.9446     
+Max. group size:    60       Converged:           Yes            
+Mean group size:    58.6                                         
+-----------------------------------------------------------------
+                            Coef.  Std.Err. z P>|z| [0.025 0.975]
+-----------------------------------------------------------------
+Intercept                   -0.127                               
+group[T.Risk of Depression]  0.474                               
+subject Var                  0.000                               
+=================================================================
 
 
 ============================================================
 MODEL FIT METRICS
 ============================================================
-AIC: 6997.875006
-BIC: 7015.298756
-LOG_LIKELIHOOD: -3495.937503
+AIC: 7107.889146
+BIC: 7125.312896
+LOG_LIKELIHOOD: -3550.944573
 N_OBSERVATIONS: 2460
 N_GROUPS: 42
 N_PARAMETERS: 3
 CONVERGED: True
-SCALE: 1.000954
+SCALE: 1.046772

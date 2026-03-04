@@ -1,0 +1,2 @@
+aic,bic,log_likelihood,n_observations,n_groups,n_parameters,converged,scale
+7000.571840760014,7017.995590646794,-3497.285920380007,2460,42,3,True,1.0020531991503467

@@ -660,9 +660,167 @@ def plot_mediation_forest(results: pd.DataFrame, output_path: str) -> None:
     # Save
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.savefig(str(output_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
     plt.close()
     
     print(f"Combined figure saved: {output_path}")
+
+
+def plot_individual_mediation_figures(results: pd.DataFrame, output_dir: str) -> None:
+    """
+    Create individual figures for each thought dimension.
+    """
+    print("\n" + "=" * 70)
+    print("CREATING INDIVIDUAL MEDIATION FIGURES")
+    print("=" * 70)
+    
+    import os
+    from matplotlib.lines import Line2D
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    plot_data = results[results["ab_effect"].notna()].copy()
+    if plot_data.empty:
+        print("No valid results to plot individually.")
+        return
+        
+    sns.set_theme(style="white", context="talk")
+    palette = sns.color_palette("husl", n_colors=len(MOOD_COLUMNS))
+    mood_colors = dict(zip(MOOD_COLUMNS, palette))
+    
+    for dim in THOUGHT_DIMENSIONS:
+        dim_data = plot_data[plot_data["dimension"] == dim].copy()
+        if dim_data.empty:
+            continue
+            
+        fig = plt.figure(figsize=(16, 12))
+        gs = fig.add_gridspec(2, 2, height_ratios=[1.2, 1.0], hspace=0.35, wspace=0.3)
+        
+        # ========== PANEL 1: FOREST PLOT ==========
+        ax_forest = fig.add_subplot(gs[0, :])
+        
+        moods = MOOD_COLUMNS
+        y_positions = np.arange(len(moods))
+        
+        for y in y_positions:
+            if y % 2 == 0:
+                ax_forest.axhspan(y - 0.5, y + 0.5, color='gray', alpha=0.1, zorder=0, linewidth=0)
+                
+        dim_data_indexed = dim_data.set_index("mood").reindex(moods)
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+                
+            row = dim_data_indexed.loc[mood]
+            if pd.isna(row["ab_effect"]):
+                continue
+                
+            x = row["ab_effect"]
+            ci_low = row["ci_lower"]
+            ci_high = row["ci_upper"]
+            is_sig = row["is_significant"]
+            
+            color = mood_colors[mood]
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face_color = color if is_sig else 'white'
+            
+            ax_forest.plot([ci_low, ci_high], [idx, idx], 
+                    color=color, alpha=alpha, linestyle=linestyle, linewidth=2, zorder=2)
+            ax_forest.plot(x, idx, 
+                    marker='o', markersize=10, 
+                    markeredgecolor=color, markerfacecolor=marker_face_color,
+                    markeredgewidth=2, alpha=alpha, zorder=3)
+                    
+        ax_forest.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.3, zorder=1)
+        ax_forest.set_yticks(y_positions)
+        ax_forest.set_yticklabels(moods, fontweight='bold', fontsize=12)
+        ax_forest.set_ylim(-0.5, len(moods) - 0.5)
+        
+        ax_forest.set_xlabel("Indirect Effect (a × b)", fontweight='bold', fontsize=13)
+        ax_forest.set_title(
+            f"Mediation via {dim.upper()}: Group → Mood → {dim.upper()}\n"
+            f"(Monte Carlo: {N_SIMULATIONS:,} simulations, {CONFIDENCE_LEVEL*100:.0f}% CI)",
+            pad=20, fontweight='bold', fontsize=13
+        )
+        ax_forest.invert_yaxis()
+        
+        # ========== PANEL 2: PATH A (Group -> Mood) ==========
+        ax_path_a = fig.add_subplot(gs[1, 0])
+        
+        path_a_data = dim_data_indexed.reset_index().dropna(subset=["a_coeff", "a_se"]).copy()
+        path_a_data["a_significant"] = np.abs(path_a_data["a_coeff"] / path_a_data["a_se"]) > 1.96
+        
+        for idx, (_, row) in enumerate(path_a_data.iterrows()):
+            val = row["a_coeff"]
+            err = row["a_se"] * 1.96
+            is_sig = row["a_significant"]
+            
+            COLOR_RISK = "#F24236"
+            COLOR_CONTROL = "#2E86AB"
+            color = COLOR_RISK if val < 0 else COLOR_CONTROL
+            
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face = color if is_sig else 'white'
+            
+            ax_path_a.plot([val - err, val + err], [idx, idx], 
+                           color=color, lw=2, linestyle=linestyle, alpha=alpha)
+            ax_path_a.plot(val, idx, 'o', color=color, markersize=10,
+                           markerfacecolor=marker_face, markeredgecolor=color,
+                           markeredgewidth=2, alpha=alpha)
+            ax_path_a.text(val, idx + 0.18, f"β={val:.2f}", ha='center', va='bottom',
+                           fontsize=12, color=color, fontweight='bold', alpha=alpha)
+                           
+        ax_path_a.set_yticks(y_positions)
+        ax_path_a.set_yticklabels(moods, fontweight='bold')
+        ax_path_a.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_a.set_xlabel("Path A Coef (Group → Mood)", fontweight='bold', fontsize=11)
+        ax_path_a.set_title("Path A: Group → Mood", fontweight='bold', pad=12, fontsize=12)
+        ax_path_a.grid(True, axis='x', alpha=0.2, linestyle=':')
+        ax_path_a.invert_yaxis()
+        
+        # ========== PANEL 3: PATH B (Mood -> Thought) ==========
+        ax_path_b = fig.add_subplot(gs[1, 1])
+        
+        path_b_data = dim_data_indexed.reset_index().dropna(subset=["b_coeff", "b_se"]).copy()
+        path_b_data["b_significant"] = np.abs(path_b_data["b_coeff"] / path_b_data["b_se"]) > 1.96
+        
+        for idx, (_, row) in enumerate(path_b_data.iterrows()):
+            val = row["b_coeff"]
+            err = row["b_se"] * 1.96
+            is_sig = row["b_significant"]
+            mood = row["mood"]
+            
+            color = mood_colors[mood]
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face = color if is_sig else 'white'
+            
+            ax_path_b.plot([val - err, val + err], [idx, idx], 
+                           color=color, lw=2, linestyle=linestyle, alpha=alpha)
+            ax_path_b.plot(val, idx, 'o', color=color, markersize=10,
+                           markerfacecolor=marker_face, markeredgecolor=color,
+                           markeredgewidth=2, alpha=alpha)
+            ax_path_b.text(val, idx + 0.18, f"β={val:.2f}", ha='center', va='bottom',
+                           fontsize=12, color=color, fontweight='bold', alpha=alpha)
+                           
+        ax_path_b.set_yticks(y_positions)
+        ax_path_b.set_yticklabels(moods, fontweight='bold')
+        ax_path_b.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_b.set_xlabel(f"Path B Coef (Mood → {dim.upper()})", fontweight='bold', fontsize=11)
+        ax_path_b.set_title(f"Path B: Mood → {dim.upper()}", fontweight='bold', pad=12, fontsize=12)
+        ax_path_b.grid(True, axis='x', alpha=0.2, linestyle=':')
+        ax_path_b.invert_yaxis()
+        
+        plt.tight_layout()
+        out_path = os.path.join(output_dir, f"mediation_{dim}.png")
+        plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
+        plt.close()
+        
+    print(f"Individual figures saved in: {output_dir}")
 
 
 def create_summary_table(results: pd.DataFrame, output_path: str) -> None:
@@ -749,6 +907,10 @@ def main() -> None:
     # Create forest plot
     forest_plot = os.path.join(RESULTS_DIR, "plots", "mediation_forest_plot.png")
     plot_mediation_forest(results, forest_plot)
+    
+    # Create individual figures per thought dimension
+    individual_dir = os.path.join(RESULTS_DIR, "plots", "individual_dimensions")
+    plot_individual_mediation_figures(results, individual_dir)
     
     # Print summary
     print("\n" + "=" * 70)

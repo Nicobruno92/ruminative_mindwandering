@@ -4,7 +4,7 @@ Model:                            MixedLM                Dependent Variable:    
 No. Observations:                 1197                   Method:                            REML                    
 No. Groups:                       42                     Scale:                             0.9897                  
 Min. group size:                  15                     Log-Likelihood:                    -1709.7854              
-Max. group size:                  30                     Converged:                         No                      
+Max. group size:                  30                     Converged:                         Yes                     
 Mean group size:                  28.5                                                                              
 --------------------------------------------------------------------------------------------------------------------
                                                                           Coef.  Std.Err.   z    P>|z| [0.025 0.975]
@@ -30,5 +30,5 @@ LOG_LIKELIHOOD: -1709.785354
 N_OBSERVATIONS: 1197
 N_GROUPS: 42
 N_PARAMETERS: 9
-CONVERGED: False
+CONVERGED: True
 SCALE: 0.989713

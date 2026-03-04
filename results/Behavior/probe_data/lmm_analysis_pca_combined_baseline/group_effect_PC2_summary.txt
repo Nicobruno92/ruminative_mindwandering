@@ -1,34 +1,34 @@
                 Mixed Linear Model Regression Results
 ======================================================================
 Model:                  MixedLM     Dependent Variable:     PC2       
-No. Observations:       1082        Method:                 REML      
-No. Groups:             35          Scale:                  0.7865    
-Min. group size:        3           Log-Likelihood:         -1440.3808
+No. Observations:       888         Method:                 REML      
+No. Groups:             33          Scale:                  0.7854    
+Min. group size:        1           Log-Likelihood:         -1182.3164
 Max. group size:        58          Converged:              Yes       
-Mean group size:        30.9                                          
+Mean group size:        26.9                                          
 ----------------------------------------------------------------------
                             Coef.  Std.Err.   z    P>|z| [0.025 0.975]
 ----------------------------------------------------------------------
-Intercept                    0.106    0.102  1.047 0.295 -0.093  0.306
-group[T.Risk of Depression] -0.273    0.172 -1.585 0.113 -0.611  0.065
-subject_id Var               0.190    0.063                           
+Intercept                    0.110    0.110  0.997 0.319 -0.106  0.326
+group[T.Risk of Depression] -0.284    0.184 -1.545 0.122 -0.644  0.076
+subject_id Var               0.188    0.070                           
 ======================================================================
 
 
 ============================================================
 MODEL FIT METRICS
 ============================================================
-AIC: 2886.761564
-BIC: 2901.721263
-LOG_LIKELIHOOD: -1440.380782
+AIC: 2370.632762
+BIC: 2384.999677
+LOG_LIKELIHOOD: -1182.316381
 LOG_LIKELIHOOD_RESTRICTED: Not available
-N_OBSERVATIONS: 1082
-N_GROUPS: 35
+N_OBSERVATIONS: 888
+N_GROUPS: 33
 N_PARAMETERS: 3
 N_FIXED_EFFECTS: 2
 N_RANDOM_EFFECTS: 1
 CONVERGED: True
-SCALE: 0.786465
-DEVIANCE: 2880.761564
+SCALE: 0.785397
+DEVIANCE: 2364.632762
 RSQUARED_WITHIN: Not available
 RSQUARED_BETWEEN: Not available

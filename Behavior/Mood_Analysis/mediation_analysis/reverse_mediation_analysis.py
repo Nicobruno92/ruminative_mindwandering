@@ -532,6 +532,7 @@ def plot_reverse_covariates(results: pd.DataFrame):
     plt.tight_layout()
     out_path = os.path.join(RESULTS_DIR, "reverse_covariates_dashboard.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
     print(f"Saved covariates plot: {out_path}")
     plt.close()
 
@@ -539,6 +540,414 @@ def plot_reverse_covariates(results: pd.DataFrame):
 # =============================================================================
 # VISUALIZATION
 # =============================================================================
+
+def plot_individual_reverse_mediation_figures(results: pd.DataFrame, output_dir: str) -> None:
+    """
+    Create individual figures for each thought dimension.
+    """
+    print("\n" + "=" * 70)
+    print("CREATING INDIVIDUAL REVERSE MEDIATION FIGURES")
+    print("=" * 70)
+    
+    import os
+    from matplotlib.lines import Line2D
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Setup Plot
+    sns.set_theme(style="white", context="talk")
+    COLOR_CONTROL = "#2E86AB"
+    COLOR_RISK = "#F24236"
+    COLOR_COV = "#7f8c8d"
+    
+    palette = sns.color_palette("husl", n_colors=len(MOOD_SCALES))
+    mood_colors = dict(zip(MOOD_SCALES, palette))
+    
+    for dim in THOUGHT_DIMENSIONS:
+        dim_data = results[results["thought_dim"] == dim].copy()
+        if dim_data.empty:
+            continue
+            
+        fig = plt.figure(figsize=(24, 18))
+        gs = fig.add_gridspec(
+            3,
+            3,
+            height_ratios=[1.3, 1.0, 1.1],
+            width_ratios=[1, 1, 0.8],
+            hspace=0.45,
+            wspace=0.3,
+        )
+        
+        moods = MOOD_SCALES
+        y_positions = np.arange(len(moods))
+        
+        # ========== PANEL 1: FOREST PLOT ==========
+        ax_forest = fig.add_subplot(gs[0, :])
+        
+        for y in y_positions:
+            if y % 2 == 0:
+                ax_forest.axhspan(y - 0.5, y + 0.5, color='gray', alpha=0.1, zorder=0, linewidth=0)
+                
+        dim_data_indexed = dim_data.set_index("mood_scale").reindex(moods)
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+                
+            row = dim_data_indexed.loc[mood]
+            if pd.isna(row["ab_effect"]):
+                continue
+                
+            x = row["ab_effect"]
+            ci_low = row["ci_lower"]
+            ci_high = row["ci_upper"]
+            is_sig = row["is_significant"]
+            
+            color = mood_colors[mood]
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face_color = color if is_sig else 'white'
+            
+            ax_forest.plot([ci_low, ci_high], [idx, idx], 
+                    color=color, alpha=alpha, linestyle=linestyle, linewidth=2, zorder=2)
+            ax_forest.plot(x, idx, 
+                    marker='o', markersize=10, 
+                    markeredgecolor=color, markerfacecolor=marker_face_color,
+                    markeredgewidth=2, alpha=alpha, zorder=3)
+                    
+        ax_forest.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.3, zorder=1)
+        ax_forest.set_yticks(y_positions)
+        ax_forest.set_yticklabels(moods, fontweight='bold', fontsize=12)
+        ax_forest.set_ylim(-0.5, len(moods) - 0.5)
+        
+        ax_forest.set_xlabel("Indirect Effect (a × b)", fontweight='bold', fontsize=13)
+        ax_forest.set_title(
+            f"Reverse Mediation via {dim.upper()}: Group → {dim.upper()} → Mood Change\n"
+            f"(Controlled for Baseline Mood + Time-on-Task)",
+            pad=20, fontweight='bold', fontsize=13
+        )
+        ax_forest.invert_yaxis()
+        
+        # ========== PANEL 2: PATH A ==========
+        ax_path_a = fig.add_subplot(gs[1, 0])
+        
+        row = dim_data.iloc[0]
+        val = row["a_coef"]
+        err = row["a_se"] * 1.96
+        is_sig = np.abs(val / row["a_se"]) > 1.96
+        
+        color = COLOR_RISK if val < 0 else COLOR_CONTROL
+        alpha = 1.0 if is_sig else 0.4
+        linestyle = '-' if is_sig else ':'
+        marker_face = color if is_sig else 'white'
+        
+        ax_path_a.plot([val - err, val + err], [0, 0], 
+                       color=color, lw=2, linestyle=linestyle, alpha=alpha)
+        ax_path_a.plot(val, 0, 'o', color=color, markersize=12,
+                       markerfacecolor=marker_face, markeredgecolor=color,
+                       markeredgewidth=2, alpha=alpha)
+        ax_path_a.text(val, 0 + 0.1, f"β={val:.2f}", ha='center', va='bottom',
+                       fontsize=15, color=color, fontweight='bold', alpha=alpha)
+                       
+        ax_path_a.set_yticks([0])
+        ax_path_a.set_yticklabels([dim], fontweight='bold')
+        ax_path_a.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_a.set_xlabel("Path A Coef (Group → Thoughts)", fontweight='bold', fontsize=11)
+        ax_path_a.set_title("Path A: Group → Thoughts", fontweight='bold', pad=12, fontsize=12)
+        ax_path_a.set_ylim(-0.5, 0.5)
+        
+        # ========== PANEL 3: PATH B ==========
+        ax_path_b = fig.add_subplot(gs[1, 1])
+        
+        path_b_data = dim_data_indexed.reset_index().dropna(subset=["b_coef", "b_se"]).copy()
+        path_b_data["b_significant"] = np.abs(path_b_data["b_coef"] / path_b_data["b_se"]) > 1.96
+        
+        for idx, (_, row) in enumerate(path_b_data.iterrows()):
+            val = row["b_coef"]
+            err = row["b_se"] * 1.96
+            is_sig = row["b_significant"]
+            mood = row["mood_scale"]
+            
+            color = mood_colors[mood]
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face = color if is_sig else 'white'
+            
+            ax_path_b.plot([val - err, val + err], [idx, idx], 
+                           color=color, lw=2, linestyle=linestyle, alpha=alpha)
+            ax_path_b.plot(val, idx, 'o', color=color, markersize=10,
+                           markerfacecolor=marker_face, markeredgecolor=color,
+                           markeredgewidth=2, alpha=alpha)
+            ax_path_b.text(val, idx + 0.18, f"β={val:.2f}", ha='center', va='bottom',
+                           fontsize=12, color=color, fontweight='bold', alpha=alpha)
+                           
+        ax_path_b.set_yticks(y_positions)
+        ax_path_b.set_yticklabels(moods, fontweight='bold')
+        ax_path_b.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_b.set_xlabel(f"Path B Coef ({dim.upper()} → Mood Change)", fontweight='bold', fontsize=11)
+        ax_path_b.set_title(f"Path B: {dim.upper()} → Mood Change", fontweight='bold', pad=12, fontsize=12)
+        ax_path_b.grid(True, axis='x', alpha=0.2, linestyle=':')
+        ax_path_b.invert_yaxis()
+        
+        # ========== PANEL 4: COVARIATES ==========
+        ax_time_thought = fig.add_subplot(gs[2, 0])
+        val = dim_data.iloc[0]["time_on_thought"]
+        se_val = dim_data.iloc[0]["time_on_thought_se"]
+        err = se_val * 1.96
+        is_sig = abs(val) > 1.96 * se_val
+        alpha = 1.0 if is_sig else 0.4
+        linestyle = '-' if is_sig else ':'
+        
+        ax_time_thought.plot([val-err, val+err], [0, 0], color=COLOR_COV, lw=2, alpha=alpha, linestyle=linestyle)
+        ax_time_thought.plot(val, 0, 'o', color=COLOR_COV, markersize=10, alpha=alpha)
+        ax_time_thought.set_yticks([0])
+        ax_time_thought.set_yticklabels([dim], fontweight='bold')
+        ax_time_thought.axvline(0, color='k', linestyle=':', alpha=0.3)
+        ax_time_thought.set_title("Effect of Time on Thoughts", fontweight='bold')
+        ax_time_thought.set_xlabel("Beta (Time → Thought)")
+        
+        ax_time_mood = fig.add_subplot(gs[2, 1])
+        for idx, (_, row) in enumerate(path_b_data.iterrows()):
+            val = row["time_on_mood"]
+            se_val = row["time_on_mood_se"]
+            err = se_val * 1.96
+            is_sig = abs(val) > 1.96 * se_val
+            alpha = 1.0 if is_sig else 0.4
+            ax_time_mood.plot([val-err, val+err], [idx, idx], color=COLOR_COV, lw=2, alpha=alpha)
+            ax_time_mood.plot(val, idx, 'o', color=COLOR_COV, markersize=8, alpha=alpha)
+        ax_time_mood.set_yticks(y_positions)
+        ax_time_mood.set_yticklabels(moods, fontweight='bold')
+        ax_time_mood.axvline(0, color='k', linestyle=':', alpha=0.3)
+        ax_time_mood.set_title("Effect of Time on Mood Change", fontweight='bold')
+        ax_time_mood.set_xlabel("Beta (Time → Mood Post)")
+        ax_time_mood.invert_yaxis()
+        
+        ax_baseline = fig.add_subplot(gs[2, 2])
+        for idx, (_, row) in enumerate(path_b_data.iterrows()):
+            val = row["baseline_effect"]
+            se_val = row["baseline_se"]
+            err = se_val * 1.96
+            ax_baseline.plot([val-err, val+err], [idx, idx], color="#34495e", lw=3)
+            ax_baseline.plot(val, idx, 'D', color="#34495e", markersize=8)
+            ax_baseline.text(val, idx+0.1, f"{val:.2f}", ha='center', fontsize=9, color="#34495e")
+        ax_baseline.set_yticks(y_positions)
+        ax_baseline.set_yticklabels(moods, fontweight='bold')
+        ax_baseline.set_title("Emotional Inertia\n(Pre → Post)", fontweight='bold')
+        ax_baseline.set_xlabel("Beta (Autocorrelation)")
+        ax_baseline.invert_yaxis()
+        
+        plt.tight_layout()
+        out_path = os.path.join(output_dir, f"reverse_mediation_{dim}.png")
+        plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
+        plt.close()
+        
+    print(f"Individual reverse mediation figures saved in: {output_dir}")
+
+
+def plot_individual_reverse_mediation_figures(results: pd.DataFrame, output_dir: str) -> None:
+    """
+    Create individual figures for each thought dimension.
+    """
+    print("\n" + "=" * 70)
+    print("CREATING INDIVIDUAL REVERSE MEDIATION FIGURES")
+    print("=" * 70)
+    
+    import os
+    from matplotlib.lines import Line2D
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Setup Plot
+    sns.set_theme(style="white", context="talk")
+    COLOR_CONTROL = "#2E86AB"
+    COLOR_RISK = "#F24236"
+    COLOR_COV = "#7f8c8d"
+    
+    palette = sns.color_palette("husl", n_colors=len(MOOD_SCALES))
+    mood_colors = dict(zip(MOOD_SCALES, palette))
+    
+    for dim in THOUGHT_DIMENSIONS:
+        dim_data = results[results["thought_dim"] == dim].copy()
+        if dim_data.empty:
+            continue
+            
+        fig = plt.figure(figsize=(24, 18))
+        gs = fig.add_gridspec(
+            3,
+            3,
+            height_ratios=[1.3, 1.0, 1.1],
+            width_ratios=[1, 1, 0.8],
+            hspace=0.45,
+            wspace=0.3,
+        )
+        
+        moods = MOOD_SCALES
+        y_positions = np.arange(len(moods))
+        
+        # ========== PANEL 1: FOREST PLOT ==========
+        ax_forest = fig.add_subplot(gs[0, :])
+        
+        for y in y_positions:
+            if y % 2 == 0:
+                ax_forest.axhspan(y - 0.5, y + 0.5, color='gray', alpha=0.1, zorder=0, linewidth=0)
+                
+        dim_data_indexed = dim_data.set_index("mood_scale").reindex(moods)
+        
+        for idx, mood in enumerate(moods):
+            if mood not in dim_data_indexed.index:
+                continue
+                
+            row = dim_data_indexed.loc[mood]
+            if pd.isna(row["ab_effect"]):
+                continue
+                
+            x = row["ab_effect"]
+            ci_low = row["ci_lower"]
+            ci_high = row["ci_upper"]
+            is_sig = row["is_significant"]
+            
+            color = mood_colors[mood]
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face_color = color if is_sig else 'white'
+            
+            ax_forest.plot([ci_low, ci_high], [idx, idx], 
+                    color=color, alpha=alpha, linestyle=linestyle, linewidth=2, zorder=2)
+            ax_forest.plot(x, idx, 
+                    marker='o', markersize=10, 
+                    markeredgecolor=color, markerfacecolor=marker_face_color,
+                    markeredgewidth=2, alpha=alpha, zorder=3)
+                    
+        ax_forest.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.3, zorder=1)
+        ax_forest.set_yticks(y_positions)
+        ax_forest.set_yticklabels(moods, fontweight='bold', fontsize=12)
+        ax_forest.set_ylim(-0.5, len(moods) - 0.5)
+        
+        ax_forest.set_xlabel("Indirect Effect (a × b)", fontweight='bold', fontsize=13)
+        ax_forest.set_title(
+            f"Reverse Mediation via {dim.upper()}: Group → {dim.upper()} → Mood Change\n"
+            f"(Controlled for Baseline Mood + Time-on-Task)",
+            pad=20, fontweight='bold', fontsize=13
+        )
+        ax_forest.invert_yaxis()
+        
+        # ========== PANEL 2: PATH A ==========
+        ax_path_a = fig.add_subplot(gs[1, 0])
+        
+        row = dim_data.iloc[0]
+        val = row["a_coef"]
+        err = row["a_se"] * 1.96
+        is_sig = np.abs(val / row["a_se"]) > 1.96
+        
+        color = COLOR_RISK if val < 0 else COLOR_CONTROL
+        alpha = 1.0 if is_sig else 0.4
+        linestyle = '-' if is_sig else ':'
+        marker_face = color if is_sig else 'white'
+        
+        ax_path_a.plot([val - err, val + err], [0, 0], 
+                       color=color, lw=2, linestyle=linestyle, alpha=alpha)
+        ax_path_a.plot(val, 0, 'o', color=color, markersize=12,
+                       markerfacecolor=marker_face, markeredgecolor=color,
+                       markeredgewidth=2, alpha=alpha)
+        ax_path_a.text(val, 0 + 0.1, f"β={val:.2f}", ha='center', va='bottom',
+                       fontsize=15, color=color, fontweight='bold', alpha=alpha)
+                       
+        ax_path_a.set_yticks([0])
+        ax_path_a.set_yticklabels([dim], fontweight='bold')
+        ax_path_a.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_a.set_xlabel("Path A Coef (Group → Thoughts)", fontweight='bold', fontsize=11)
+        ax_path_a.set_title("Path A: Group → Thoughts", fontweight='bold', pad=12, fontsize=12)
+        ax_path_a.set_ylim(-0.5, 0.5)
+        
+        # ========== PANEL 3: PATH B ==========
+        ax_path_b = fig.add_subplot(gs[1, 1])
+        
+        path_b_data = dim_data_indexed.reset_index().dropna(subset=["b_coef", "b_se"]).copy()
+        path_b_data["b_significant"] = np.abs(path_b_data["b_coef"] / path_b_data["b_se"]) > 1.96
+        
+        for idx, (_, row) in enumerate(path_b_data.iterrows()):
+            val = row["b_coef"]
+            err = row["b_se"] * 1.96
+            is_sig = row["b_significant"]
+            mood = row["mood_scale"]
+            
+            color = mood_colors[mood]
+            alpha = 1.0 if is_sig else 0.4
+            linestyle = '-' if is_sig else ':'
+            marker_face = color if is_sig else 'white'
+            
+            ax_path_b.plot([val - err, val + err], [idx, idx], 
+                           color=color, lw=2, linestyle=linestyle, alpha=alpha)
+            ax_path_b.plot(val, idx, 'o', color=color, markersize=10,
+                           markerfacecolor=marker_face, markeredgecolor=color,
+                           markeredgewidth=2, alpha=alpha)
+            ax_path_b.text(val, idx + 0.18, f"β={val:.2f}", ha='center', va='bottom',
+                           fontsize=12, color=color, fontweight='bold', alpha=alpha)
+                           
+        ax_path_b.set_yticks(y_positions)
+        ax_path_b.set_yticklabels(moods, fontweight='bold')
+        ax_path_b.axvline(0, color='gray', linestyle='--', alpha=0.5)
+        ax_path_b.set_xlabel(f"Path B Coef ({dim.upper()} → Mood Change)", fontweight='bold', fontsize=11)
+        ax_path_b.set_title(f"Path B: {dim.upper()} → Mood Change", fontweight='bold', pad=12, fontsize=12)
+        ax_path_b.grid(True, axis='x', alpha=0.2, linestyle=':')
+        ax_path_b.invert_yaxis()
+        
+        # ========== PANEL 4: COVARIATES ==========
+        ax_time_thought = fig.add_subplot(gs[2, 0])
+        val = dim_data.iloc[0]["time_on_thought"]
+        se_val = dim_data.iloc[0]["time_on_thought_se"]
+        err = se_val * 1.96
+        is_sig = abs(val) > 1.96 * se_val
+        alpha = 1.0 if is_sig else 0.4
+        linestyle = '-' if is_sig else ':'
+        
+        ax_time_thought.plot([val-err, val+err], [0, 0], color=COLOR_COV, lw=2, alpha=alpha, linestyle=linestyle)
+        ax_time_thought.plot(val, 0, 'o', color=COLOR_COV, markersize=10, alpha=alpha)
+        ax_time_thought.set_yticks([0])
+        ax_time_thought.set_yticklabels([dim], fontweight='bold')
+        ax_time_thought.axvline(0, color='k', linestyle=':', alpha=0.3)
+        ax_time_thought.set_title("Effect of Time on Thoughts", fontweight='bold')
+        ax_time_thought.set_xlabel("Beta (Time → Thought)")
+        
+        ax_time_mood = fig.add_subplot(gs[2, 1])
+        for idx, (_, row) in enumerate(path_b_data.iterrows()):
+            val = row["time_on_mood"]
+            se_val = row["time_on_mood_se"]
+            err = se_val * 1.96
+            is_sig = abs(val) > 1.96 * se_val
+            alpha = 1.0 if is_sig else 0.4
+            ax_time_mood.plot([val-err, val+err], [idx, idx], color=COLOR_COV, lw=2, alpha=alpha)
+            ax_time_mood.plot(val, idx, 'o', color=COLOR_COV, markersize=8, alpha=alpha)
+        ax_time_mood.set_yticks(y_positions)
+        ax_time_mood.set_yticklabels(moods, fontweight='bold')
+        ax_time_mood.axvline(0, color='k', linestyle=':', alpha=0.3)
+        ax_time_mood.set_title("Effect of Time on Mood Change", fontweight='bold')
+        ax_time_mood.set_xlabel("Beta (Time → Mood Post)")
+        ax_time_mood.invert_yaxis()
+        
+        ax_baseline = fig.add_subplot(gs[2, 2])
+        for idx, (_, row) in enumerate(path_b_data.iterrows()):
+            val = row["baseline_effect"]
+            se_val = row["baseline_se"]
+            err = se_val * 1.96
+            ax_baseline.plot([val-err, val+err], [idx, idx], color="#34495e", lw=3)
+            ax_baseline.plot(val, idx, 'D', color="#34495e", markersize=8)
+            ax_baseline.text(val, idx+0.1, f"{val:.2f}", ha='center', fontsize=9, color="#34495e")
+        ax_baseline.set_yticks(y_positions)
+        ax_baseline.set_yticklabels(moods, fontweight='bold')
+        ax_baseline.set_title("Emotional Inertia\n(Pre → Post)", fontweight='bold')
+        ax_baseline.set_xlabel("Beta (Autocorrelation)")
+        ax_baseline.invert_yaxis()
+        
+        plt.tight_layout()
+        out_path = os.path.join(output_dir, f"reverse_mediation_{dim}.png")
+        plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
+        plt.close()
+        
+    print(f"Individual reverse mediation figures saved in: {output_dir}")
+
 
 def plot_combined_reverse_mediation_figure(results: pd.DataFrame):
     """
@@ -902,6 +1311,7 @@ def plot_combined_reverse_mediation_figure(results: pd.DataFrame):
     plt.tight_layout()
     out_path = os.path.join(RESULTS_DIR, "reverse_mediation_combined.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
     print(f"\nCombined figure saved: {out_path}")
     plt.close()
 
@@ -934,6 +1344,10 @@ def main():
     
     # 6. Generate combined visualization (now includes covariates)
     plot_combined_reverse_mediation_figure(results_df)
+
+    # 7. Generate individual figures
+    individual_dir = os.path.join(RESULTS_DIR, "plots", "individual_dimensions")
+    plot_individual_reverse_mediation_figures(results_df, individual_dir)
     
     print("\n" + "=" * 70)
     print("REVERSE MEDIATION ANALYSIS COMPLETE")

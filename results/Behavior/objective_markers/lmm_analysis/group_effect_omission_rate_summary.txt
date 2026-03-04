@@ -2,15 +2,15 @@
 ======================================================================
 Model:                 MixedLM    Dependent Variable:    omission_rate
 No. Observations:      2460       Method:                REML         
-No. Groups:            42         Scale:                 1.0010       
-Min. group size:       45         Log-Likelihood:        -3496.0318   
+No. Groups:            42         Scale:                 1.0325       
+Min. group size:       45         Log-Likelihood:        -3534.0169   
 Max. group size:       60         Converged:             Yes          
 Mean group size:       58.6                                           
 ----------------------------------------------------------------------
                             Coef.  Std.Err.   z    P>|z| [0.025 0.975]
 ----------------------------------------------------------------------
-Intercept                   -0.008    0.024 -0.321 0.748 -0.054  0.039
-group[T.Risk of Depression] -0.017    0.044 -0.385 0.700 -0.104  0.070
+Intercept                   -0.075    0.018 -4.243 0.000 -0.110 -0.041
+group[T.Risk of Depression]  0.385                                    
 subject Var                  0.000                                    
 ======================================================================
 
@@ -18,11 +18,11 @@ subject Var                  0.000
 ============================================================
 MODEL FIT METRICS
 ============================================================
-AIC: 6998.063511
-BIC: 7015.487261
-LOG_LIKELIHOOD: -3496.031756
+AIC: 7074.033706
+BIC: 7091.457455
+LOG_LIKELIHOOD: -3534.016853
 N_OBSERVATIONS: 2460
 N_GROUPS: 42
 N_PARAMETERS: 3
 CONVERGED: True
-SCALE: 1.001031
+SCALE: 1.032453

@@ -97,6 +97,7 @@ def draw_dag(model_type="forward"):
     
     out_path = os.path.join(OUTPUT_DIR, f"DAG_{model_type}.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
     print(f"DAG saved: {out_path}")
     plt.close()
 
@@ -164,6 +165,7 @@ def draw_cyberball_dag():
     
     out_path = os.path.join(OUTPUT_DIR, "DAG_cyberball_moderated.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
     print(f"DAG saved: {out_path}")
     plt.close()
 
@@ -235,6 +237,7 @@ def draw_cyberball_delayed_mood_dag():
     
     out_path = os.path.join(OUTPUT_DIR, "DAG_cyberball_delayed_mood.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.savefig(str(out_path).replace('.png', '.svg'), format='svg', bbox_inches="tight")
     print(f"DAG saved: {out_path}")
     plt.close()
 

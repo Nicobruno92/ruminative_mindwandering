@@ -362,65 +362,65 @@ MEDIATOR: pca1
 
 PATH A: Group → Thought
   Model: pca1 ~ group_bin + block_z + (1|subject_id)
-  Coefficient (a): -0.425259
-  Standard Error: 0.389090
-  t-value: -1.093
+  Coefficient (a): -0.436516
+  Standard Error: 0.389236
+  t-value: -1.121
 
 PATH B: Thought → Mood Change (controlling for Baseline Mood, Group, Time)
 --------------------------------------------------------------------------------
 
   Outcome: EVAaverage_post
     Model: EVAaverage_post ~ pca1 + group_bin + EVAaverage_pre + block_z + (1|subject_id)
-    Coefficient (b): 0.343040
-    Standard Error: 0.186386
-    t-value: 1.840
+    Coefficient (b): 0.336231
+    Standard Error: 0.186942
+    t-value: 1.799
 
-    INDIRECT EFFECT (a × b): -0.147864
-    95% CI: [-0.560654, 0.125796]
+    INDIRECT EFFECT (a × b): -0.148781
+    95% CI: [-0.562015, 0.120765]
     Significant: NO
     ----------------------------------------------------------------------
 
   Outcome: EVAmood_post
     Model: EVAmood_post ~ pca1 + group_bin + EVAmood_pre + block_z + (1|subject_id)
-    Coefficient (b): 0.137288
-    Standard Error: 0.142153
-    t-value: 0.966
+    Coefficient (b): 0.138351
+    Standard Error: 0.142044
+    t-value: 0.974
 
-    INDIRECT EFFECT (a × b): -0.059792
-    95% CI: [-0.308667, 0.093128]
+    INDIRECT EFFECT (a × b): -0.061823
+    95% CI: [-0.313242, 0.092183]
     Significant: NO
     ----------------------------------------------------------------------
 
   Outcome: EVAfeel_post
     Model: EVAfeel_post ~ pca1 + group_bin + EVAfeel_pre + block_z + (1|subject_id)
-    Coefficient (b): 0.338775
-    Standard Error: 0.212423
-    t-value: 1.595
+    Coefficient (b): 0.334439
+    Standard Error: 0.213377
+    t-value: 1.567
 
-    INDIRECT EFFECT (a × b): -0.146284
-    95% CI: [-0.586621, 0.133014]
+    INDIRECT EFFECT (a × b): -0.148242
+    95% CI: [-0.591321, 0.130179]
     Significant: NO
     ----------------------------------------------------------------------
 
   Outcome: EVAtense_post
     Model: EVAtense_post ~ pca1 + group_bin + EVAtense_pre + block_z + (1|subject_id)
-    Coefficient (b): 0.302223
-    Standard Error: 0.269039
-    t-value: 1.123
+    Coefficient (b): 0.287201
+    Standard Error: 0.267516
+    t-value: 1.074
 
-    INDIRECT EFFECT (a × b): -0.131225
-    95% CI: [-0.624227, 0.170598]
+    INDIRECT EFFECT (a × b): -0.128084
+    95% CI: [-0.615238, 0.171844]
     Significant: NO
     ----------------------------------------------------------------------
 
   Outcome: EVAhurt_post
     Model: EVAhurt_post ~ pca1 + group_bin + EVAhurt_pre + block_z + (1|subject_id)
-    Coefficient (b): 0.375945
-    Standard Error: 0.237692
-    t-value: 1.582
+    Coefficient (b): 0.372679
+    Standard Error: 0.238699
+    t-value: 1.561
 
-    INDIRECT EFFECT (a × b): -0.162352
-    95% CI: [-0.653284, 0.148793]
+    INDIRECT EFFECT (a × b): -0.165201
+    95% CI: [-0.660163, 0.146093]
     Significant: NO
     ----------------------------------------------------------------------
 
