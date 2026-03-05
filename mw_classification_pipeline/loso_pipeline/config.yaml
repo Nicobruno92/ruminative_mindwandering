@@ -1,0 +1,265 @@
+# =============================================================================
+# MIND-WANDERING CLASSIFICATION PIPELINE - CONFIG
+# =============================================================================
+#
+# ALL run parameters live here. Bash scripts read from this file.
+# No redundant configuration in run_local.sh or run_cluster.sh.
+#
+# USAGE:
+#   Local:   bash run_local.sh [config.yaml]
+#   Cluster: bash run_cluster.sh [config.yaml]   (then sbatch run_cluster_worker.sh)
+#   Direct:  python run_mw_classification.py --config config.yaml
+#
+# Cross-validation: Leave-One-Subject-Out (LOSO) only.
+# =============================================================================
+
+
+# =============================================================================
+# DATA PATHS
+# =============================================================================
+
+data_paths:
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features"
+  results_root: "results/MW_Classification"
+
+
+# =============================================================================
+# SUBJECTS AND TASKS
+# =============================================================================
+
+subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+           "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+           "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34",
+           "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+
+tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+
+# Subject filters
+min_samples: 10           # Min samples per subject
+min_minority_ratio: 0.2   # Min minority class fraction per subject (0 = disabled)
+
+# =============================================================================
+# LABEL CONTRASTS
+# =============================================================================
+
+label_source: onoff
+
+label_contrasts:
+  ON_vs_OFF:
+    label_source: onoff
+    threshold: 50
+    positive_above: true
+
+  ON_vs_OFF_extreme:
+    label_source: onoff
+    threshold_low: 30
+    threshold_high: 70
+
+# Which contrast to run (overridable with --contrast)
+contrast: ON_vs_OFF
+
+# =============================================================================
+# EPOCH TYPES
+# =============================================================================
+# Which epoch type to use for features:
+#   state  = temporal bins before probe (-3 to -10s) — best for mind-wandering
+#   evoked = trial-locked epochs (go stimulus onset) — for ERP features
+#   sleep  = single epoch per probe
+
+epoch_types:
+  - state
+  # - evoked
+  # - sleep
+
+# =============================================================================
+# MARKER DATA FORMAT
+# =============================================================================
+# How the feature matrix is structured (set by the junifer aggregation step):
+#
+#   per_channel  →  one column per channel per marker (wide format, default)
+#                   Example: power_alpha_Fz, power_alpha_Cz, wsmi_theta_Fz-Cz
+#
+#   per_roi      →  channels collapsed into ROI averages by junifer aggregation
+#                   Example: power_alpha_frontal_left, wsmi_theta_midline
+#
+# This should match the aggregation.channel_methods setting used when running
+# junifer_markers/2.aggregate_probes/aggregate_markers_by_probe.py.
+# With channel_methods: null (default) → use per_channel.
+
+data_format: per_channel
+
+# =============================================================================
+# FEATURE FAMILIES
+# =============================================================================
+# Families let you run classification on a specific subset of features.
+# Each family maps to a list of column-name prefixes. A column belongs to a
+# family if its name starts with any of those prefixes.
+#
+# Column names come from junifer aggregation (aggregate_markers_by_probe.py):
+#   {marker_shortname}_{band_or_subtype}_{channel}
+#
+#   Marker short names are defined in junifer_markers/2.aggregate_probes/config.yaml
+#   under marker_name_mapping. Examples:
+#     power_alpha_Fz          (EEG_psd_bands_spectralpower → power, band=alpha, ch=Fz)
+#     power_normalized_theta_Cz
+#     wsmi_theta_Fz           (EEG_wsmi_theta_... → wsmi_theta)
+#     PE_alpha_Pz             (EEG_PE_alpha_... → PE_alpha)
+#     kolmogorov_complexity_Cz
+#     P3b_posterior_left      (ERP, ROI-aggregated if per_roi)
+#     P3b_Pz                  (ERP, per_channel)
+
+feature_families:
+  all: null                    # All available features (no filtering)
+
+  spectral:                    # Absolute and relative band power
+    - "power_delta"
+    - "power_theta"
+    - "power_alpha"
+    - "power_beta"
+    - "power_gamma"
+    - "power_normalized_"
+
+  connectivity:                # Weighted Symbolic Mutual Information (wSMI)
+    - "wsmi_theta"
+    - "wsmi_alpha"
+    - "wsmi_beta"
+    - "wsmi_gamma"
+
+  information_theory:          # Permutation Entropy + Kolmogorov Complexity
+    - "PE_theta"
+    - "PE_alpha"
+    - "PE_beta"
+    - "PE_gamma"
+    - "kolmogorov_complexity"
+
+  erp:                         # ERP components (evoked epoch type only)
+    - "P1_"
+    - "N1_"
+    - "P2_"
+    - "P3a_"
+    - "P3b_"
+
+
+# Which families to run.
+# bash scripts (run_local.sh, run_cluster.sh) submit one job per family.
+# Use ["all"] to run once on all features.
+# Use multiple entries to get parallel independent runs per family.
+run_families: ["all", "spectral", "connectivity", "information_theory"]
+
+
+# =============================================================================
+# EXPERIMENT SETUP
+# =============================================================================
+
+model_type: lr            # rf, xgb, lr
+
+n_runs: 20                # LOSO runs with different seeds
+permutation_runs: 100     # Label permutations for null distribution
+
+random_seed: 42
+
+# =============================================================================
+# PREPROCESSING
+# =============================================================================
+
+k: 50
+feature_selection_method: mrmr   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
+
+scaler: standard
+scale_by_participant: within     # 'none', 'global', or 'within'
+permutation_scope: within        # 'global' or 'within_subject'
+
+use_smote: true
+oversampling_method: SVMSMOTE    # SMOTE, SVMSMOTE, ADASYN, SMOTETomek
+oversampling_scope: within       # 'global' or 'within'
+
+use_pca: false
+pca_n_components: 20
+pca_type: standard
+pca_kernel: rbf
+
+
+# =============================================================================
+# MODEL PARAMETERS — RANDOM FOREST
+# =============================================================================
+
+rf_n_estimators: 500
+rf_max_depth: 8
+rf_min_samples_split: 10
+rf_min_samples_leaf: 5
+rf_max_features: sqrt
+rf_bootstrap: true
+rf_n_jobs: 1
+rf_class_weight: balanced_subsample
+
+
+# =============================================================================
+# MODEL PARAMETERS — XGBOOST
+# =============================================================================
+
+xgb_n_estimators: 200
+xgb_max_depth: 6
+xgb_learning_rate: 0.1
+xgb_objective: binary:logistic
+xgb_seed: 42
+xgb_n_jobs: -1
+xgb_subsample: 0.8
+xgb_colsample_bytree: 0.8
+xgb_min_child_weight: 1
+xgb_gamma: 0
+xgb_scale_pos_weight: auto
+
+
+# =============================================================================
+# MODEL PARAMETERS — LOGISTIC REGRESSION
+# =============================================================================
+
+lr_penalty: elasticnet
+lr_solver: saga
+lr_class_weight: balanced
+lr_C: 0.5
+lr_l1_ratio: 0.1
+lr_max_iter: 2000
+
+
+# =============================================================================
+# SCORING METRICS
+# =============================================================================
+# Metrics to report and save. Options: auc, balanced_accuracy, auprc, mcc, etc.
+# Set to null or leave empty to use all metrics: [auc, balanced_accuracy, auprc, mcc]
+scoring_metrics: ["auc", "balanced_accuracy", "auprc", "mcc"]
+
+
+# =============================================================================
+# OUTPUT
+# =============================================================================
+
+save_csv: true
+save_probabilities: true
+save_pickle: false
+save_plots: true
+save_shap: false
+
+verbose: true
+
+# =============================================================================
+# PLOTTING
+# =============================================================================
+
+top_n_features_plot: 20
+plot_style: seaborn
+
+
+# =============================================================================
+# SLURM CLUSTER SETTINGS
+# =============================================================================
+# Used by run_cluster.sh to configure the SLURM submission.
+# No need to edit run_cluster.sh — change these values instead.
+
+slurm:
+  time: "24:00:00"
+  mem: "32G"
+  cpus_per_task: 8
+  partition: "normal"
+  job_name: "mw_class"
+  conda_env: "ML"

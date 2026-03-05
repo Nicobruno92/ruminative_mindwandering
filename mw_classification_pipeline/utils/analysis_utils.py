@@ -1,0 +1,1018 @@
+#!/usr/bin/env python
+"""
+Classification Distribution Analysis — LOSO Mode.
+
+Run multiple LOSO passes with different random seeds to build a distribution
+of classification performance. Includes permutation testing.
+
+Project: depressed_mindwandering
+"""
+
+import os
+import pickle
+import time
+import warnings
+from contextlib import nullcontext
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
+
+from utils.data_utils import get_model_results_folder
+from utils.ml_utils import run_model_pipeline_cv, compute_shap_values_for_pipeline
+from utils.plotting_utils import (
+    plot_confusion_matrix,
+    plot_roc_curve,
+    plot_feature_importances,
+    plot_shap_beeswarm,
+    plot_shap_feature_importance,
+    plot_metric_distribution_with_stats,
+    empirical_mean_permutation_pvalue,
+)
+
+warnings.filterwarnings("ignore", message="resource_tracker:.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+
+# =============================================================================
+# DIRECTORY HELPERS
+# =============================================================================
+
+def get_run_dir(dimension_results_path: str, run_idx: int, n_runs: int) -> str:
+    """
+    Return per-run output directory.
+
+    For single-run LOSO: uses dimension_results_path directly.
+    For multi-run: uses runs/runN subdirectory.
+    """
+    if n_runs == 1:
+        run_dir = dimension_results_path
+    else:
+        run_dir = os.path.join(dimension_results_path, "runs", f"run{run_idx}")
+    Path(run_dir).mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
+def get_permutation_run_dir(dimension_results_path: str, run_idx: int) -> str:
+    """Return per-permutation output directory (inside permutation/ subfolder)."""
+    perm_dir = os.path.join(dimension_results_path, "permutation", f"run{run_idx}")
+    Path(perm_dir).mkdir(parents=True, exist_ok=True)
+    return perm_dir
+
+
+def _build_filename_base(model_type: str, n_runs: int) -> str:
+    """Build base filename for results files."""
+    if n_runs > 1:
+        return f"{model_type}_loso_{n_runs}runs"
+    return f"{model_type}_loso"
+
+
+# =============================================================================
+# FEATURE CORRELATION
+# =============================================================================
+
+def _compute_feature_correlations(X: pd.DataFrame, y: pd.Series) -> list:
+    """
+    Compute absolute correlations between each feature and the target.
+
+    Returns
+    -------
+    list
+        Sorted list of (feature_name, abs_correlation) tuples, descending.
+    """
+    correlations = []
+    for col in X.columns:
+        x_vals = pd.to_numeric(X[col], errors="coerce")
+        valid = x_vals.notna()
+        if valid.sum() < 10:
+            continue
+        corr = np.abs(np.corrcoef(x_vals[valid], y[valid])[0, 1])
+        if np.isfinite(corr):
+            correlations.append((col, corr))
+    correlations.sort(key=lambda x: x[1], reverse=True)
+    return correlations
+
+
+# =============================================================================
+# RESULT EXTRACTION
+# =============================================================================
+
+def _extract_run_summary(
+    run_results: pd.DataFrame,
+    run_idx: int,
+    random_state: int,
+    dimension: str,
+    n_folds: int,
+    feature_names,
+    feature_importances: np.ndarray,
+    positive_class_name: str,
+    negative_class_name: str,
+) -> dict:
+    """
+    Extract a summary dict from a single run's results DataFrame.
+
+    Parameters
+    ----------
+    run_results : pd.DataFrame
+        Single-row DataFrame from run_model_pipeline_cv.
+    run_idx : int
+        Run index (for tracking).
+    random_state : int
+        Seed used for this run.
+    dimension : str
+        Contrast name.
+    n_folds : int
+        Number of folds (= number of subjects for LOSO).
+    feature_names : Index
+        Full feature names.
+    feature_importances : np.ndarray
+        Mean feature importances across folds.
+    positive_class_name, negative_class_name : str
+        Human-readable class names.
+
+    Returns
+    -------
+    dict
+        Run summary.
+    """
+    def _get(col, default=None):
+        if col in run_results.columns:
+            return run_results[col].values[0]
+        return default
+
+    return {
+        "run_idx": run_idx,
+        "random_state": int(random_state),
+        "dimension": dimension,
+        "n_folds": n_folds,
+        "mean_auc": _get("mean_auc"),
+        "std_auc": _get("std_auc"),
+        "mean_auprc": _get("mean_auprc"),
+        "std_auprc": _get("std_auprc"),
+        "mean_mcc": _get("mean_mcc"),
+        "std_mcc": _get("std_mcc"),
+        "mean_balanced_accuracy": _get("mean_balanced_accuracy"),
+        "std_balanced_accuracy": _get("std_balanced_accuracy"),
+        "mean_precision": _get("mean_precision"),
+        "mean_recall": _get("mean_recall"),
+        "mean_f1": _get("mean_f1"),
+        "fold_aucs": _get("fold_aucs", []),
+        "fold_auprcs": _get("fold_auprcs", []),
+        "fold_mccs": _get("fold_mccs", []),
+        "fold_bal_accs": _get("fold_bal_accs", []),
+        "fold_cms": _get("fold_cms", []),
+        "fold_tprs": _get("fold_tprs", []),
+        "fold_fprs": _get("fold_fprs", []),
+        "fold_precisions_curve": _get("fold_precisions_curve", []),
+        "fold_recalls_curve": _get("fold_recalls_curve", []),
+        "feature_importances": (
+            feature_importances.tolist()
+            if hasattr(feature_importances, "tolist")
+            else list(feature_importances)
+        ),
+        "loso_subject_metrics": _get("loso_subject_metrics"),
+        "fold_details": _get("fold_details", []),
+        "positive_class_name": positive_class_name,
+        "negative_class_name": negative_class_name,
+    }
+
+
+# =============================================================================
+# SAVING
+# =============================================================================
+
+def _save_run_results(
+    run_results: pd.DataFrame,
+    run_dir: str,
+    filename_base: str,
+    feature_names,
+    feature_importances: np.ndarray,
+    save_pickle: bool,
+) -> None:
+    """Save per-run summary CSV and feature importances."""
+    run_results.to_csv(os.path.join(run_dir, f"{filename_base}_summary.csv"), index=False)
+
+    pd.DataFrame({
+        "feature": feature_names,
+        "importance": feature_importances,
+    }).to_csv(
+        os.path.join(run_dir, f"{filename_base}_feature_importances.csv"), index=False
+    )
+
+    if save_pickle:
+        with open(os.path.join(run_dir, f"{filename_base}_detailed.pkl"), "wb") as f:
+            pickle.dump(run_results.to_dict(), f)
+
+
+def _save_probabilities(
+    run_results: pd.DataFrame,
+    df: pd.DataFrame,
+    run_dir: str,
+    filename_base: str,
+    run_idx: int,
+) -> None:
+    """
+    Save predicted probabilities (per fold and per sample).
+
+    Saves two files:
+    - fold_predictions.csv: one row per fold with lists of y_true, y_pred, y_proba
+    - sample_predictions.csv: one row per sample with probe metadata
+    """
+    fold_details = run_results["fold_details"].values[0] if "fold_details" in run_results.columns else []
+    if not fold_details:
+        return
+
+    per_fold_rows = []
+    sample_rows = []
+
+    for fold in fold_details:
+        # Fold-level row
+        per_fold_rows.append({
+            "run_idx": run_idx,
+            "fold_idx": fold.get("fold_idx"),
+            "subject": fold.get("subject"),
+            "y_true": fold.get("y_true"),
+            "y_pred": fold.get("y_pred"),
+            "y_proba": fold.get("y_proba", []),
+            **{f"label_{k}_pct": v for k, v in fold.get("label_percentages", {}).items()},
+        })
+
+        # Sample-level rows
+        test_indices = fold.get("test_indices", [])
+        y_true_list = fold.get("y_true", [])
+        y_pred_list = fold.get("y_pred", [])
+        y_proba_list = fold.get("y_proba", [])
+
+        for i, idx in enumerate(test_indices):
+            if idx < len(df):
+                row_data = df.iloc[idx]
+                sample_rows.append({
+                    "run_idx": run_idx,
+                    "fold_idx": fold.get("fold_idx"),
+                    "subject": fold.get("subject"),
+                    "sample_idx": idx,
+                    "task": row_data.get("task", ""),
+                    "probe_number": row_data.get("probe_number", ""),
+                    "onoff": row_data.get("onoff", ""),
+                    "y_true": y_true_list[i] if i < len(y_true_list) else None,
+                    "y_pred": y_pred_list[i] if i < len(y_pred_list) else None,
+                    "y_proba": y_proba_list[i] if i < len(y_proba_list) else None,
+                })
+
+    if per_fold_rows:
+        pd.DataFrame(per_fold_rows).to_csv(
+            os.path.join(run_dir, f"{filename_base}_fold_predictions.csv"), index=False
+        )
+    if sample_rows:
+        pd.DataFrame(sample_rows).to_csv(
+            os.path.join(run_dir, f"{filename_base}_sample_predictions.csv"), index=False
+        )
+
+
+def _save_shap_values(
+    run_results: pd.DataFrame,
+    X: pd.DataFrame,
+    feature_names,
+    run_dir: str,
+    filename_base: str,
+    model_type: str,
+) -> np.ndarray:
+    """
+    Compute and save SHAP values for a single run.
+
+    Only supported for 'rf' and 'xgb' models.
+
+    Returns
+    -------
+    np.ndarray or None
+        SHAP values array for this run, or None if computation failed.
+    """
+    if model_type not in ("rf", "xgb"):
+        return None
+
+    cv_splits = run_results["cv_splits"].values[0] if "cv_splits" in run_results.columns else []
+    estimators = run_results["estimators"].values[0] if "estimators" in run_results.columns else []
+
+    if not estimators or not cv_splits:
+        return None
+
+    fold_shap_list = []
+    for (_, test_idx), estimator in zip(cv_splits, estimators):
+        X_test = X.iloc[test_idx]
+        fold_shap = compute_shap_values_for_pipeline(estimator, X_test, feature_names)
+        fold_shap_list.append(fold_shap)
+
+    shap_values = np.concatenate(fold_shap_list, axis=0)
+
+    with open(os.path.join(run_dir, f"{filename_base}_shap_values.pkl"), "wb") as f:
+        pickle.dump({"shap_values": shap_values, "feature_names": list(feature_names)}, f)
+
+    return shap_values
+
+
+def _consolidate_sample_predictions(
+    dimension_results_path: str,
+    filename_base: str,
+) -> None:
+    """
+    Merge sample-level predictions across all runs and compute per-probe statistics.
+
+    Saves two files:
+    - all_sample_predictions.csv: raw stack of all runs
+    - consolidated_sample_predictions.csv: averaged per probe
+    """
+    runs_dir = os.path.join(dimension_results_path, "runs")
+    if not os.path.exists(runs_dir):
+        return
+
+    all_preds = []
+    for run_folder in sorted(os.listdir(runs_dir)):
+        sample_file = os.path.join(runs_dir, run_folder, f"{filename_base}_sample_predictions.csv")
+        if os.path.exists(sample_file):
+            all_preds.append(pd.read_csv(sample_file))
+
+    if not all_preds:
+        return
+
+    all_df = pd.concat(all_preds, ignore_index=True)
+    group_cols = [c for c in ["subject", "task", "probe_number"] if c in all_df.columns]
+
+    agg_dict = {"y_true": "first", "y_pred": "mean", "run_idx": "count"}
+    if "y_proba" in all_df.columns:
+        agg_dict["y_proba"] = ["mean", "std"]
+    if "onoff" in all_df.columns:
+        agg_dict["onoff"] = "first"
+
+    summary = all_df.groupby(group_cols).agg(agg_dict).reset_index()
+    summary.columns = ["_".join(str(c) for c in col).strip("_") for col in summary.columns]
+    summary = summary.rename(columns={
+        "y_proba_mean": "proba_mean",
+        "y_proba_std": "proba_std",
+        "y_pred_mean": "pred_proportion",
+        "run_idx_count": "n_runs",
+    })
+    if "proba_mean" in summary.columns:
+        summary["y_pred_avg"] = (summary["proba_mean"] >= 0.5).astype(int)
+
+    all_df.to_csv(
+        os.path.join(dimension_results_path, f"{filename_base}_all_sample_predictions.csv"),
+        index=False
+    )
+    summary.to_csv(
+        os.path.join(dimension_results_path, f"{filename_base}_consolidated_sample_predictions.csv"),
+        index=False
+    )
+    print(f"Consolidated predictions: {len(summary)} unique probes across {len(all_preds)} runs")
+
+
+# =============================================================================
+# PLOTTING
+# =============================================================================
+
+def _generate_plots(
+    all_results: list,
+    results_df: pd.DataFrame,
+    feature_names,
+    dimension: str,
+    dimension_results_path: str,
+    filename_base: str,
+    top_n_features_plot: int,
+    positive_class_name: str,
+    negative_class_name: str,
+    loso_subject_df: pd.DataFrame,
+    shap_values_all_runs: list,
+    X: pd.DataFrame,
+) -> None:
+    """Generate all visualizations for distribution analysis results."""
+    print(f"Generating plots for {dimension}...")
+
+    # Confusion matrix (averaged across all folds)
+    cms_list = [cm for r in all_results for cm in r.get("fold_cms", [])]
+    if cms_list:
+        avg_cm = np.mean(cms_list, axis=0)
+        cell_stats = pd.DataFrame({
+            "cell": ["TN", "FP", "FN", "TP"],
+            "mean": avg_cm.flatten(),
+            "std": np.std(cms_list, axis=0).flatten(),
+        })
+        plot_confusion_matrix(
+            avg_cm, negative_class_name, positive_class_name,
+            cell_stats, dimension_results_path, filename_base,
+        )
+        print("  ✓ Confusion matrix")
+
+    # ROC curve (interpolated, averaged)
+    all_tprs = [tpr for r in all_results for tpr in r.get("fold_tprs", [])]
+    all_fprs = [fpr for r in all_results for fpr in r.get("fold_fprs", [])]
+    if all_tprs and all_fprs:
+        mean_fpr = np.linspace(0, 1, 100)
+        tprs_interp = []
+        aucs_interp = []
+        for fpr, tpr in zip(all_fprs, all_tprs):
+            if len(fpr) > 1:
+                interp_tpr = np.interp(mean_fpr, fpr, tpr)
+                interp_tpr[0] = 0.0
+                tprs_interp.append(interp_tpr)
+                aucs_interp.append(np.trapz(interp_tpr, mean_fpr))
+        if tprs_interp:
+            mean_tpr = np.mean(tprs_interp, axis=0)
+            mean_tpr[-1] = 1.0
+            plot_roc_curve(
+                mean_fpr, mean_tpr, np.std(tprs_interp, axis=0),
+                dimension_results_path, filename_base, np.mean(aucs_interp), len(tprs_interp),
+            )
+            print("  ✓ ROC curve")
+
+    # Feature importances
+    fi_cols = [c for c in results_df.columns if c.startswith("importance_")]
+    if fi_cols:
+        fnames = [c.replace("importance_", "") for c in fi_cols]
+        mean_imp = results_df[fi_cols].mean().values
+        std_imp = results_df[fi_cols].std().values
+        plot_feature_importances(
+            fnames, mean_imp, std_imp,
+            dimension_results_path, filename_base, top_n=top_n_features_plot,
+        )
+        print("  ✓ Feature importances")
+
+    # LOSO per-subject barplot
+    if loso_subject_df is not None:
+        from plotting_utils import plot_loso_subject_metrics
+        plot_loso_subject_metrics(loso_subject_df, dimension_results_path, filename_base)
+        print("  ✓ LOSO per-subject metrics")
+
+    # SHAP plots
+    if shap_values_all_runs:
+        valid_shap = [s for s in shap_values_all_runs if s is not None]
+        if valid_shap:
+            combined_shap = np.concatenate(valid_shap, axis=0)
+            combined_X_vals = np.tile(X.values, (len(valid_shap), 1))
+            plot_shap_beeswarm(
+                combined_shap, combined_X_vals, feature_names,
+                dimension, dimension_results_path, filename_base,
+                max_display=top_n_features_plot,
+            )
+            plot_shap_feature_importance(
+                combined_shap, combined_X_vals, feature_names,
+                dimension_results_path, filename_base,
+                max_display=top_n_features_plot,
+            )
+            print("  ✓ SHAP plots")
+
+    print(f"  All plots saved to: {dimension_results_path}")
+
+
+# =============================================================================
+# MAIN ANALYSIS — LOSO
+# =============================================================================
+
+def run_distribution_analysis(
+    dimension: str,
+    df: pd.DataFrame,
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: pd.Series,
+    feature_cols: list,
+    config: dict,
+    positive_class_name: str = "ON-task",
+    negative_class_name: str = "OFF-task",
+    n_runs: int = 20,
+    results_path: str = "results/MW_Classification/",
+    model_type: str = "lr",
+    class_weight=None,
+    scale_pos_weight=None,
+    use_smote: bool = False,
+    oversampling_method: str = "SMOTE",
+    oversampling_scope: str = "global",
+    k: int = 20,
+    rf_params: dict = None,
+    xgb_params: dict = None,
+    lr_params: dict = None,
+    top_n_features_plot: int = 20,
+    save_pickle: bool = False,
+    save_csv: bool = True,
+    save_probabilities: bool = True,
+    save_plots: bool = True,
+    save_shap: bool = False,
+    plot_style: str = "seaborn",
+    verbose: bool = True,
+    feature_selection_method: str = "mrmr",
+    scaler: str = "standard",
+    use_pca: bool = False,
+    pca_n_components: int = None,
+    pca_type: str = "standard",
+    pca_kernel: str = "rbf",
+    logger=None,
+) -> pd.DataFrame:
+    """
+    Run n_runs LOSO classifications with different random seeds.
+
+    Each run uses the same data split (LOSO = fixed by subject membership) but
+    a different random seed for model initialization, feature selection, and
+    SMOTE (if enabled). The distribution of metrics across runs quantifies
+    variance due to non-deterministic components.
+
+    Parameters
+    ----------
+    dimension : str
+        Contrast name (e.g., "ON_vs_OFF").
+    df : pd.DataFrame
+        Prepared data with probe-level metadata (subject, task, probe_number, onoff).
+    X : pd.DataFrame
+        Feature matrix (n_samples × n_features).
+    y : pd.Series
+        Binary classification target.
+    groups : pd.Series
+        Subject ID per sample — defines LOSO folds.
+    feature_cols : list
+        Feature column names.
+    config : dict
+        Full pipeline configuration.
+    positive_class_name, negative_class_name : str
+        Human-readable class label names for plots.
+    n_runs : int
+        Number of LOSO passes (each with a different seed).
+    results_path : str
+        Root results directory.
+    model_type : str
+        Classifier type: 'rf', 'xgb', or 'lr'.
+    class_weight : str or None
+        Class weight for RF/LR classifiers.
+    scale_pos_weight : float or 'auto'
+        Class weight for XGBoost.
+    use_smote : bool
+        Whether to apply SMOTE oversampling.
+    oversampling_method : str
+        SMOTE variant.
+    oversampling_scope : str
+        'global' (in pipeline) or 'within' (per subject).
+    k : int
+        Number of features to select.
+    rf_params, xgb_params, lr_params : dict
+        Model-specific hyperparameter overrides.
+    top_n_features_plot : int
+        How many top features to show in importance plots.
+    save_pickle : bool
+        Save full results dict as .pkl.
+    save_csv : bool
+        Save per-subject and summary CSV files.
+    save_probabilities : bool
+        Save per-probe predicted probabilities.
+    save_plots : bool
+        Generate and save visualizations.
+    save_shap : bool
+        Compute and save SHAP values (RF/XGB only, slow).
+    plot_style : str
+        Matplotlib style name.
+    verbose : bool
+        Print detailed progress.
+    feature_selection_method : str
+        Feature ranking method.
+    scaler : str
+        Scaler type.
+    use_pca, pca_n_components, pca_type, pca_kernel
+        PCA configuration.
+    logger : AnalysisLogger, optional
+        Logger for warning capture.
+
+    Returns
+    -------
+    pd.DataFrame
+        Per-subject (LOSO fold) results from the last/only run, with one
+        row per subject and columns: mean_auc, mean_balanced_accuracy,
+        mean_auprc, mean_mcc, etc.
+    """
+    n_subjects = len(np.unique(groups))
+    model_name = config.get("current_model", "default")
+    model_folder = get_model_results_folder(config, model_name, model_type)
+    model_results_path = os.path.join(results_path, model_folder)
+
+    # LOSO directory structure: results_path/model_folder/LOSO/{dimension}/
+    dimension_results_path = os.path.join(model_results_path, "LOSO", dimension)
+    Path(dimension_results_path).mkdir(parents=True, exist_ok=True)
+
+    filename_base = _build_filename_base(model_type, n_runs)
+    random_states = np.random.default_rng(config.get("random_seed", 42)).integers(
+        1, 10000, size=n_runs
+    )
+
+    print(f"\n*** LOSO: {n_runs} run(s) × {n_subjects} subjects ***")
+    print(f"Class mapping: 1={positive_class_name}, 0={negative_class_name}")
+
+    # Show top feature-target correlations as a sanity check
+    correlations = _compute_feature_correlations(X, y)
+    if verbose and correlations:
+        print("\nTop 10 feature-target correlations:")
+        for col, corr in correlations[:10]:
+            print(f"  {col}: {corr:.3f}")
+    if not correlations or all(c < 0.1 for _, c in correlations[:10]):
+        print("WARNING: No strong feature-target correlations — model may struggle.")
+
+    feature_names = X.columns
+    shap_values_all_runs = []
+    all_results = []
+    start_time = time.time()
+
+    for run_idx, random_state in enumerate(
+        tqdm(random_states, desc=f"LOSO {model_type} [{dimension}]")
+    ):
+        run_start = time.time()
+        run_dir = get_run_dir(dimension_results_path, run_idx, n_runs)
+
+        ctx = logger.capture_warnings(f"Run {run_idx}") if logger else nullcontext()
+        with ctx:
+            run_results = run_model_pipeline_cv(
+                X=X,
+                y=y,
+                groups=groups,
+                model_type=model_type,
+                fixed_random_state=int(random_state),
+                class_weight=class_weight,
+                scale_pos_weight=scale_pos_weight,
+                use_smote=use_smote,
+                oversampling_method=oversampling_method,
+                oversampling_scope=oversampling_scope,
+                k=k,
+                rf_params=rf_params,
+                xgb_params=xgb_params,
+                lr_params=lr_params,
+                feature_selection_method=feature_selection_method,
+                scaler=scaler,
+                scale_by_participant=config.get("scale_by_participant", "none"),
+                use_pca=use_pca,
+                pca_n_components=pca_n_components,
+                pca_type=pca_type,
+                pca_kernel=pca_kernel,
+            )
+
+        if run_results.empty:
+            print(f"  Skipping run {run_idx}: empty results")
+            continue
+
+        feature_importances = run_results["feature_importances"].values[0]
+
+        # SHAP computation (RF/XGB only, opt-in)
+        if save_shap and model_type in ("rf", "xgb"):
+            shap_vals = _save_shap_values(
+                run_results, X, feature_names, run_dir, filename_base, model_type
+            )
+            if shap_vals is not None:
+                shap_values_all_runs.append(shap_vals)
+
+        # Save per-run files
+        if save_csv:
+            _save_run_results(
+                run_results, run_dir, filename_base,
+                feature_names, feature_importances, save_pickle,
+            )
+
+        if save_probabilities:
+            _save_probabilities(run_results, df, run_dir, filename_base, run_idx)
+
+        all_results.append(_extract_run_summary(
+            run_results, run_idx, int(random_state), dimension, n_subjects,
+            feature_names, feature_importances,
+            positive_class_name, negative_class_name,
+        ))
+
+        print(f"  [Run {run_idx+1}/{n_runs}] {time.time()-run_start:.1f}s "
+              f"| AUC={run_results['mean_auc'].values[0]:.3f} "
+              f"| MCC={run_results['mean_mcc'].values[0]:.3f}")
+
+    total_time = time.time() - start_time
+    print(f"\nTotal: {total_time:.1f}s ({total_time/60:.1f}min)")
+    if logger:
+        logger.log(f"Done in {total_time:.1f}s")
+
+    if not all_results:
+        print("No successful runs.")
+        return pd.DataFrame()
+
+    # Save aggregated SHAP across all runs
+    if shap_values_all_runs and save_shap:
+        with open(os.path.join(dimension_results_path,
+                               f"{filename_base}_all_shap_values.pkl"), "wb") as f:
+            pickle.dump(shap_values_all_runs, f)
+
+    # Consolidate sample-level predictions across runs
+    if save_probabilities and n_runs > 1:
+        _consolidate_sample_predictions(dimension_results_path, filename_base)
+
+    # LOSO per-subject metrics (from the last completed run)
+    loso_subject_df = None
+    last_result = all_results[-1]
+    if last_result.get("loso_subject_metrics"):
+        loso_subject_df = pd.DataFrame(last_result["loso_subject_metrics"])
+        if save_csv:
+            loso_subject_df.to_csv(
+                os.path.join(dimension_results_path, f"{filename_base}_loso_subject_metrics.csv"),
+                index=False,
+            )
+        print(f"\nPer-subject LOSO summary ({len(loso_subject_df)} subjects):")
+        for metric in ["auc", "auprc", "mcc", "balanced_accuracy"]:
+            if metric in loso_subject_df.columns:
+                vals = loso_subject_df[metric]
+                print(f"  {metric.upper()}: {vals.mean():.4f} ± {vals.std():.4f}")
+
+    # Build final results DataFrame (one row per LOSO fold/subject)
+    fold_metrics = []
+    if last_result.get("fold_aucs"):
+        for fi, subject_metrics in enumerate(last_result.get("loso_subject_metrics", [])):
+            fold_metrics.append({
+                "subject": subject_metrics.get("subject"),
+                "fold_idx": fi,
+                "mean_auc": last_result["fold_aucs"][fi],
+                "mean_auprc": last_result["fold_auprcs"][fi] if fi < len(last_result.get("fold_auprcs", [])) else np.nan,
+                "mean_mcc": last_result["fold_mccs"][fi] if fi < len(last_result.get("fold_mccs", [])) else np.nan,
+                "mean_balanced_accuracy": last_result["fold_bal_accs"][fi] if fi < len(last_result.get("fold_bal_accs", [])) else np.nan,
+            })
+    results_df = pd.DataFrame(fold_metrics)
+
+    # Add feature importances as columns
+    if last_result.get("feature_importances"):
+        for i, feat in enumerate(feature_names):
+            results_df[f"importance_{feat}"] = last_result["feature_importances"][i]
+
+    if save_csv:
+        results_df.to_csv(
+            os.path.join(dimension_results_path, f"{filename_base}_summary.csv"), index=False
+        )
+
+    if save_pickle:
+        with open(os.path.join(dimension_results_path, f"{filename_base}_detailed.pkl"), "wb") as f:
+            pickle.dump(all_results, f)
+
+    if save_plots and all_results:
+        _generate_plots(
+            all_results, results_df, feature_names, dimension,
+            dimension_results_path, filename_base, top_n_features_plot,
+            positive_class_name, negative_class_name,
+            loso_subject_df, shap_values_all_runs, X,
+        )
+
+    print(f"\nDone. Results → {dimension_results_path}")
+    return results_df
+
+
+# =============================================================================
+# PERMUTATION TESTING
+# =============================================================================
+
+def run_permutation_distribution_analysis(
+    dimension: str,
+    df: pd.DataFrame,
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: pd.Series,
+    feature_cols: list,
+    config: dict,
+    positive_class_name: str = "ON-task",
+    negative_class_name: str = "OFF-task",
+    n_permutations: int = 100,
+    results_path: str = "results/MW_Classification/",
+    model_type: str = "lr",
+    class_weight=None,
+    scale_pos_weight=None,
+    use_smote: bool = False,
+    oversampling_method: str = "SMOTE",
+    oversampling_scope: str = "global",
+    k: int = 20,
+    rf_params: dict = None,
+    xgb_params: dict = None,
+    lr_params: dict = None,
+    top_n_features_plot: int = 20,
+    save_pickle: bool = False,
+    save_csv: bool = True,
+    save_probabilities: bool = True,
+    save_plots: bool = True,
+    save_shap: bool = False,
+    plot_style: str = "seaborn",
+    verbose: bool = True,
+    feature_selection_method: str = "mrmr",
+    scaler: str = "standard",
+    use_pca: bool = False,
+    pca_n_components: int = None,
+    pca_type: str = "standard",
+    pca_kernel: str = "rbf",
+    true_auc_list=None,
+    true_bal_acc_list=None,
+    true_auprc_list=None,
+    true_mcc_list=None,
+    permutation_scope: str = "global",
+    logger=None,
+    n_runs: int = 1,
+):
+    """
+    Run permutation test for LOSO classification.
+
+    Labels are shuffled n_permutations times and the full LOSO pipeline is
+    re-run each time. The resulting null distribution is compared to the true
+    classification metrics to estimate empirical p-values.
+
+    Parameters
+    ----------
+    Same as run_distribution_analysis, plus:
+    n_permutations : int
+        Number of label permutations.
+    true_auc_list, true_bal_acc_list, true_auprc_list, true_mcc_list
+        True metric values from the real analysis (for p-value computation).
+    permutation_scope : str
+        'global': shuffle all labels together.
+        'within_subject': shuffle independently per subject (preserves class
+        proportions per subject — tighter null distribution).
+
+    Returns
+    -------
+    tuple
+        (results_df, perm_summary):
+        - results_df: one row per permutation with mean metrics
+        - perm_summary: dict with empirical p-values
+    """
+    if n_permutations < 1:
+        print("No permutation runs requested.")
+        return pd.DataFrame(), {}
+
+    true_auc_list = np.asarray(true_auc_list or [])
+    true_bal_acc_list = np.asarray(true_bal_acc_list or [])
+    true_auprc_list = np.asarray(true_auprc_list or [])
+    true_mcc_list = np.asarray(true_mcc_list or [])
+
+    model_name = config.get("current_model", "default")
+    model_folder = get_model_results_folder(config, model_name, model_type)
+    model_results_path = os.path.join(results_path, model_folder)
+
+    # Save permutation results inside permutation/ subfolder of the LOSO results
+    perm_base_path = os.path.join(model_results_path, "LOSO", dimension, "permutation")
+    Path(perm_base_path).mkdir(parents=True, exist_ok=True)
+
+    filename_base = f"{model_type}_permutation_{n_permutations}perms"
+    feature_names = X.columns
+    n_subjects = len(np.unique(groups))
+    rng = np.random.default_rng(config.get("random_seed", 42))
+    all_results = []
+
+    start_time = time.time()
+    print(f"\n*** LOSO Permutation: {n_permutations} runs × {n_subjects} subjects ***")
+    print(f"Permutation scope: {permutation_scope}")
+
+    for run_idx in tqdm(
+        range(n_permutations), desc=f"Permutation [{model_type}] {dimension}"
+    ):
+        run_start = time.time()
+        perm_run_dir = get_permutation_run_dir(perm_base_path, run_idx)
+
+        # Shuffle labels
+        if permutation_scope == "within_subject":
+            y_perm = y.groupby(groups, group_keys=False).transform(
+                lambda x: rng.permutation(x.values)
+            )
+        else:
+            y_perm = pd.Series(rng.permutation(y.values), index=y.index)
+
+        random_state = int(rng.integers(1, 10000))
+
+        ctx = logger.capture_warnings(f"Perm {run_idx}") if logger else nullcontext()
+        with ctx:
+            run_results = run_model_pipeline_cv(
+                X=X,
+                y=y_perm,
+                groups=groups,
+                model_type=model_type,
+                fixed_random_state=random_state,
+                class_weight=class_weight,
+                scale_pos_weight=scale_pos_weight,
+                use_smote=use_smote,
+                oversampling_method=oversampling_method,
+                oversampling_scope=oversampling_scope,
+                k=k,
+                rf_params=rf_params,
+                xgb_params=xgb_params,
+                lr_params=lr_params,
+                feature_selection_method=feature_selection_method,
+                scaler=scaler,
+                scale_by_participant=config.get("scale_by_participant", "none"),
+                use_pca=use_pca,
+                pca_n_components=pca_n_components,
+                pca_type=pca_type,
+                pca_kernel=pca_kernel,
+            )
+
+        if run_results.empty:
+            continue
+
+        feature_importances = run_results["feature_importances"].values[0]
+
+        # Save per-permutation summaries
+        if save_csv:
+            run_results.to_csv(
+                os.path.join(perm_run_dir, f"{filename_base}_summary.csv"), index=False
+            )
+            pd.DataFrame({
+                "feature": feature_names,
+                "importance": feature_importances,
+            }).to_csv(
+                os.path.join(perm_run_dir, f"{filename_base}_feature_importances.csv"),
+                index=False
+            )
+
+        # Save sample-level probabilities (useful to verify label shuffling worked)
+        if save_probabilities:
+            _save_probabilities(run_results, df, perm_run_dir, filename_base, run_idx)
+
+        all_results.append(_extract_run_summary(
+            run_results, run_idx, random_state, dimension, n_subjects,
+            feature_names, feature_importances,
+            positive_class_name, negative_class_name,
+        ))
+
+        print(f"  [Perm {run_idx+1}/{n_permutations}] {time.time()-run_start:.1f}s "
+              f"| AUC={run_results['mean_auc'].values[0]:.3f}")
+
+    total_time = time.time() - start_time
+    print(f"\nPermutation total: {total_time:.1f}s ({total_time/60:.1f}min)")
+
+    if not all_results:
+        print("No successful permutation runs.")
+        return pd.DataFrame(), {}
+
+    # Build results DataFrame
+    exclude_keys = {
+        "fold_aucs", "fold_auprcs", "fold_mccs", "fold_bal_accs",
+        "feature_importances", "fold_cms", "fold_tprs", "fold_fprs",
+        "fold_precisions_curve", "fold_recalls_curve",
+        "loso_subject_metrics", "fold_details",
+    }
+    results_df = pd.DataFrame([
+        {k: v for k, v in r.items() if k not in exclude_keys}
+        for r in all_results
+    ])
+    for i, feat in enumerate(feature_names):
+        results_df[f"importance_{feat}"] = [r["feature_importances"][i] for r in all_results]
+
+    if save_csv:
+        results_df.to_csv(
+            os.path.join(perm_base_path, f"{filename_base}_summary.csv"), index=False
+        )
+
+    if save_pickle:
+        with open(os.path.join(perm_base_path, f"{filename_base}_detailed.pkl"), "wb") as f:
+            pickle.dump(all_results, f)
+
+    # P-value computation
+    metrics_to_check = [
+        ("AUC", "mean_auc", true_auc_list),
+        ("Balanced Accuracy", "mean_balanced_accuracy", true_bal_acc_list),
+        ("AUPRC", "mean_auprc", true_auprc_list),
+        ("MCC", "mean_mcc", true_mcc_list),
+    ]
+    perm_summary = {}
+    print(f"\nPermutation test results for {dimension}:")
+
+    for metric_name, col_name, true_scores in metrics_to_check:
+        if col_name not in results_df.columns or len(true_scores) == 0:
+            continue
+        perm_scores = results_df[col_name].values
+        true_mean = np.mean(true_scores)
+        perm_mean = np.mean(perm_scores)
+        perm_std = np.std(perm_scores)
+        p_value = np.mean(perm_scores >= true_mean)
+        print(f"  {metric_name}: null={perm_mean:.4f}±{perm_std:.4f}, "
+              f"true={true_mean:.4f}, p={p_value:.4f}")
+        perm_summary[f"perm_{col_name}"] = perm_mean
+        perm_summary[f"perm_{col_name}_std"] = perm_std
+        perm_summary[f"p_{col_name}"] = p_value
+
+    # Plot permutation distributions
+    if save_plots:
+        from scipy import stats as scipy_stats
+        results_for_plotting = {}
+        for metric_name, col_name, true_scores in metrics_to_check:
+            if col_name not in results_df.columns or len(true_scores) == 0:
+                continue
+            perm_scores = results_df[col_name].values
+            _, mwu_p = scipy_stats.mannwhitneyu(true_scores, perm_scores, alternative="greater")
+            empirical_p = np.mean(perm_scores >= np.mean(true_scores))
+            results_for_plotting[metric_name] = {
+                "true_values": true_scores,
+                "perm_values": perm_scores,
+                "p_value": mwu_p,
+                "empirical_p": empirical_p,
+            }
+
+        if results_for_plotting:
+            from plotting_utils import plot_consolidated_permutation_results
+            plot_consolidated_permutation_results(
+                results_dict=results_for_plotting,
+                dimension=dimension,
+                model_type=model_type,
+                save_path=perm_base_path,
+                filename_base=filename_base,
+            )
+            print("  ✓ Permutation distribution plots")
+
+    return results_df, perm_summary

@@ -1,0 +1,1035 @@
+"""
+Mind-Wandering Classification Pipeline — ML Utilities.
+
+Cross-validation, feature selection, model building, and metric computation.
+Supports LOSO (Leave-One-Subject-Out) cross-validation only.
+Models: RandomForest, XGBoost, LogisticRegression.
+
+Project: depressed_mindwandering
+"""
+
+import warnings
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message="resource_tracker: There appear to be .* leaked")
+warnings.filterwarnings("ignore", message="resource_tracker:.*FileNotFoundError.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+import numpy as np
+import pandas as pd
+from scipy.special import expit
+from scipy.stats import trim_mean
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_selection import (
+    SelectKBest, f_classif, mutual_info_classif, chi2
+)
+from sklearn.decomposition import PCA, KernelPCA
+from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.metrics import (
+    roc_auc_score, balanced_accuracy_score, f1_score,
+    confusion_matrix, roc_curve, recall_score, precision_score,
+    average_precision_score, matthews_corrcoef, precision_recall_curve
+)
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.base import BaseEstimator, ClassifierMixin, clone
+from sklearn.feature_selection import SelectorMixin
+
+try:
+    from imblearn.over_sampling import SMOTE, SVMSMOTE, ADASYN
+    from imblearn.combine import SMOTETomek
+    from imblearn.pipeline import Pipeline as ImbPipeline
+    HAS_IMBLEARN = True
+except ImportError:
+    HAS_IMBLEARN = False
+    SMOTE = SVMSMOTE = ADASYN = SMOTETomek = ImbPipeline = None
+
+try:
+    from mrmr import mrmr_classif
+    HAS_MRMR = True
+except ImportError:
+    HAS_MRMR = False
+    mrmr_classif = None
+
+try:
+    import xgboost as xgb
+    HAS_XGBOOST = True
+except ImportError:
+    HAS_XGBOOST = False
+    xgb = None
+
+try:
+    import shap
+    HAS_SHAP = True
+except ImportError:
+    HAS_SHAP = False
+    shap = None
+
+
+# =============================================================================
+# LMM FEATURE SELECTION
+# =============================================================================
+
+def _fit_single_lmm_feature_decoding(
+    feat_idx: int, feature_col: np.ndarray,
+    y_arr: np.ndarray, groups_arr: np.ndarray
+) -> float:
+    """
+    Fit LMM decoding model: Label ~ Feature + (1|Subject).
+
+    Uses Linear Probability Model approximation (binary outcome as continuous).
+
+    Parameters
+    ----------
+    feat_idx : int
+        Index of the feature (used for parallelization).
+    feature_col : np.ndarray
+        Feature values for all samples.
+    y_arr : np.ndarray
+        Binary target variable.
+    groups_arr : np.ndarray
+        Subject group labels.
+
+    Returns
+    -------
+    float
+        P-value for the feature effect, or 1.0 if model fails to converge.
+    """
+    import statsmodels.api as sm
+    from statsmodels.regression.mixed_linear_model import MixedLM
+
+    if np.std(feature_col) == 0:
+        return 1.0
+
+    exog = sm.add_constant(feature_col)
+    mlm = MixedLM(endog=y_arr, exog=exog, groups=groups_arr)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=RuntimeWarning)
+        warnings.filterwarnings('ignore', message='.*Covariance.*')
+        warnings.filterwarnings('ignore', message='.*convergence.*')
+        result = mlm.fit(reml=False, method='powell', maxiter=500, disp=False)
+
+    return result.pvalues[1]
+
+
+def _fit_single_lmm_feature_encoding(
+    feat_idx: int, feature_col: np.ndarray,
+    y_arr: np.ndarray, groups_arr: np.ndarray
+) -> float:
+    """
+    Fit LMM encoding model: Feature ~ Label + (1|Subject).
+
+    Uses Gaussian family (continuous feature as outcome). Better convergence
+    than the decoding model because the outcome is continuous.
+
+    Parameters
+    ----------
+    feat_idx : int
+        Index of the feature (used for parallelization).
+    feature_col : np.ndarray
+        Feature values for all samples (dependent variable).
+    y_arr : np.ndarray
+        Binary label (independent variable).
+    groups_arr : np.ndarray
+        Subject group labels.
+
+    Returns
+    -------
+    float
+        P-value for the label effect, or 1.0 if model fails to converge.
+    """
+    import statsmodels.api as sm
+    from statsmodels.regression.mixed_linear_model import MixedLM
+
+    if np.std(feature_col) == 0:
+        return 1.0
+
+    exog = sm.add_constant(y_arr)
+    mlm = MixedLM(endog=feature_col, exog=exog, groups=groups_arr)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=RuntimeWarning)
+        warnings.filterwarnings('ignore', message='.*Covariance.*')
+        warnings.filterwarnings('ignore', message='.*convergence.*')
+        result = mlm.fit(reml=False, method='powell', maxiter=500, disp=False)
+
+    return result.pvalues[1]
+
+
+class LMMDecodingFeatureSelector(BaseEstimator, SelectorMixin):
+    """
+    Feature selector using LMM decoding model: Label ~ Feature + (1|Subject).
+
+    Parameters
+    ----------
+    k : int
+        Number of top features to select (lowest p-values).
+    n_jobs : int
+        Number of parallel jobs.
+    """
+
+    def __init__(self, k: int = 20, n_jobs: int = -1):
+        self.k = k
+        self.n_jobs = n_jobs
+        self.pvalues_ = None
+        self.selected_features_mask_ = None
+        self.n_features_in_ = None
+
+    def fit(self, X, y, groups=None):
+        """Fit the LMM decoding feature selector."""
+        from joblib import Parallel, delayed
+
+        if groups is None:
+            raise ValueError(
+                "LMMDecodingFeatureSelector requires 'groups' for mixed-effects modeling. "
+                "Pass groups via fit_params: {'feature_selection__groups': groups}"
+            )
+
+        if isinstance(X, pd.DataFrame):
+            X_arr = X.values
+            self.feature_names_ = X.columns.tolist()
+        else:
+            X_arr = np.asarray(X)
+            self.feature_names_ = [f"feature_{i}" for i in range(X_arr.shape[1])]
+
+        y_arr = np.asarray(y).ravel()
+        groups_arr = np.asarray(groups).ravel()
+        self.n_features_in_ = X_arr.shape[1]
+        n_features = X_arr.shape[1]
+
+        pvalues = Parallel(n_jobs=self.n_jobs, backend='loky')(
+            delayed(_fit_single_lmm_feature_decoding)(
+                feat_idx, X_arr[:, feat_idx], y_arr, groups_arr
+            )
+            for feat_idx in range(n_features)
+        )
+
+        self.pvalues_ = np.array(pvalues)
+        actual_k = min(self.k, n_features)
+        top_k_indices = np.argsort(self.pvalues_)[:actual_k]
+        self.selected_features_mask_ = np.zeros(n_features, dtype=bool)
+        self.selected_features_mask_[top_k_indices] = True
+        return self
+
+    def _get_support_mask(self):
+        if self.selected_features_mask_ is None:
+            raise ValueError("LMMDecodingFeatureSelector has not been fitted yet.")
+        return self.selected_features_mask_
+
+
+class LMMEncodingFeatureSelector(BaseEstimator, SelectorMixin):
+    """
+    Feature selector using LMM encoding model: Feature ~ Label + (1|Subject).
+
+    Better convergence than decoding because the outcome is continuous.
+
+    Parameters
+    ----------
+    k : int
+        Number of top features to select (lowest p-values).
+    n_jobs : int
+        Number of parallel jobs.
+    """
+
+    def __init__(self, k: int = 20, n_jobs: int = -1):
+        self.k = k
+        self.n_jobs = n_jobs
+        self.pvalues_ = None
+        self.selected_features_mask_ = None
+        self.n_features_in_ = None
+
+    def fit(self, X, y, groups=None):
+        """Fit the LMM encoding feature selector."""
+        from joblib import Parallel, delayed
+
+        if groups is None:
+            raise ValueError(
+                "LMMEncodingFeatureSelector requires 'groups' for mixed-effects modeling. "
+                "Pass groups via fit_params: {'feature_selection__groups': groups}"
+            )
+
+        if isinstance(X, pd.DataFrame):
+            X_arr = X.values
+            self.feature_names_ = X.columns.tolist()
+        else:
+            X_arr = np.asarray(X)
+            self.feature_names_ = [f"feature_{i}" for i in range(X_arr.shape[1])]
+
+        y_arr = np.asarray(y).ravel()
+        groups_arr = np.asarray(groups).ravel()
+        self.n_features_in_ = X_arr.shape[1]
+        n_features = X_arr.shape[1]
+
+        pvalues = Parallel(n_jobs=self.n_jobs, backend='loky')(
+            delayed(_fit_single_lmm_feature_encoding)(
+                feat_idx, X_arr[:, feat_idx], y_arr, groups_arr
+            )
+            for feat_idx in range(n_features)
+        )
+
+        self.pvalues_ = np.array(pvalues)
+        actual_k = min(self.k, n_features)
+        top_k_indices = np.argsort(self.pvalues_)[:actual_k]
+        self.selected_features_mask_ = np.zeros(n_features, dtype=bool)
+        self.selected_features_mask_[top_k_indices] = True
+        return self
+
+    def _get_support_mask(self):
+        if self.selected_features_mask_ is None:
+            raise ValueError("LMMEncodingFeatureSelector has not been fitted yet.")
+        return self.selected_features_mask_
+
+
+# Alias for backwards compatibility
+LMMFeatureSelector = LMMDecodingFeatureSelector
+
+
+class MRMRFeatureSelector(BaseEstimator, SelectorMixin):
+    """
+    Feature selector using MRMR (Minimum Redundancy Maximum Relevance).
+
+    Parameters
+    ----------
+    k : int
+        Number of features to select.
+    """
+
+    def __init__(self, k: int = 20):
+        self.k = k
+        self.selected_features_ = None
+        self.support_mask_ = None
+
+    def fit(self, X, y, groups=None):
+        """Fit MRMR feature selector."""
+        if not HAS_MRMR:
+            raise ImportError("mrmr is required. Install with: pip install mrmr_selection")
+
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
+
+        # mrmr_classif uses boolean Series indexing internally, which fails when
+        # X and y have non-contiguous indices (always the case after LOSO slicing).
+        X = X.reset_index(drop=True)
+        if isinstance(y, pd.Series):
+            y = y.reset_index(drop=True)
+
+        y_int = y.astype(int)
+        k_actual = min(self.k, X.shape[1])
+        selected_features = mrmr_classif(X=X, y=y_int, K=k_actual)
+        self.selected_features_ = selected_features
+        self.support_mask_ = np.array([col in selected_features for col in X.columns])
+        return self
+
+    def _get_support_mask(self):
+        return self.support_mask_
+
+
+
+# =============================================================================
+# OVERSAMPLING
+# =============================================================================
+
+def get_oversampler(method: str, k_neighbors: int = 5, random_state: int = 42):
+    """
+    Instantiate an oversampler by method name.
+
+    Parameters
+    ----------
+    method : str
+        One of "SMOTE", "SVMSMOTE", "ADASYN", "SMOTETomek".
+    k_neighbors : int
+        Number of neighbors for SMOTE-based methods.
+    random_state : int
+        Random seed.
+
+    Returns
+    -------
+    Configured oversampler instance.
+    """
+    if not HAS_IMBLEARN:
+        raise ImportError("imbalanced-learn is required. Install with: pip install imbalanced-learn")
+
+    if method == "SMOTE":
+        return SMOTE(random_state=random_state, k_neighbors=k_neighbors)
+    elif method == "SVMSMOTE":
+        return SVMSMOTE(random_state=random_state, k_neighbors=k_neighbors)
+    elif method == "ADASYN":
+        return ADASYN(random_state=random_state, n_neighbors=k_neighbors)
+    elif method == "SMOTETomek":
+        return SMOTETomek(
+            random_state=random_state,
+            smote=SMOTE(random_state=random_state, k_neighbors=k_neighbors)
+        )
+    else:
+        raise ValueError(f"Unknown oversampling method: {method}. "
+                         f"Choose from: SMOTE, SVMSMOTE, ADASYN, SMOTETomek")
+
+
+def apply_within_subject_oversampling(
+    X, y, groups,
+    method: str = "SMOTE", k_neighbors: int = 5, random_state: int = 42
+):
+    """
+    Apply oversampling within each subject in the training set.
+
+    Each subject's samples are independently balanced, then concatenated.
+    Subjects with too few minority samples for SMOTE use a reduced k_neighbors.
+
+    Parameters
+    ----------
+    X : pd.DataFrame or np.ndarray
+        Feature matrix.
+    y : np.ndarray
+        Target array.
+    groups : np.ndarray
+        Subject IDs.
+    method : str
+        Oversampling method.
+    k_neighbors : int
+        Number of neighbors for SMOTE-based methods.
+    random_state : int
+        Random seed.
+
+    Returns
+    -------
+    tuple
+        (X_balanced, y_balanced) as concatenated arrays.
+    """
+    unique_subjects = np.unique(groups)
+    balanced_X_list = []
+    balanced_y_list = []
+
+    for subj in unique_subjects:
+        subj_mask = groups == subj
+        X_subj = X.loc[subj_mask].copy() if isinstance(X, pd.DataFrame) else X[subj_mask].copy()
+        y_subj = y[subj_mask] if isinstance(y, np.ndarray) else y.loc[subj_mask].values
+
+        unique_classes, counts = np.unique(y_subj, return_counts=True)
+
+        # Skip resampling if only one class
+        if len(unique_classes) < 2:
+            balanced_X_list.append(X_subj)
+            balanced_y_list.append(y_subj)
+            continue
+
+        min_count = min(counts)
+
+        # Use smaller k if minority class is tiny
+        actual_k = min(k_neighbors, min_count - 1) if min_count <= k_neighbors else k_neighbors
+        if actual_k < 1:
+            balanced_X_list.append(X_subj)
+            balanced_y_list.append(y_subj)
+            continue
+
+        oversampler = get_oversampler(method, k_neighbors=actual_k, random_state=random_state)
+        X_subj_balanced, y_subj_balanced = oversampler.fit_resample(X_subj, y_subj)
+        balanced_X_list.append(X_subj_balanced)
+        balanced_y_list.append(y_subj_balanced)
+
+    X_balanced = (pd.concat(balanced_X_list, ignore_index=True)
+                  if isinstance(X, pd.DataFrame)
+                  else np.vstack(balanced_X_list))
+    y_balanced = np.concatenate(balanced_y_list)
+    return X_balanced, y_balanced
+
+
+# =============================================================================
+# SCALING
+# =============================================================================
+
+def _apply_fold_scaling(
+    X_train: pd.DataFrame, X_test: pd.DataFrame,
+    groups_train: pd.Series, groups_test: pd.Series,
+    mode: str, scaler_type: str = 'standard'
+) -> tuple:
+    """
+    Apply scaling inside a CV fold.
+
+    Parameters
+    ----------
+    X_train, X_test : pd.DataFrame
+        Train and test feature matrices.
+    groups_train, groups_test : pd.Series
+        Subject labels for train and test.
+    mode : str
+        'global': fit scaler on train, transform both.
+        'within': scale each participant independently.
+    scaler_type : str
+        'standard' or 'robust'.
+
+    Returns
+    -------
+    tuple
+        (X_train_scaled, X_test_scaled)
+    """
+    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    if not numeric_cols:
+        return X_train, X_test
+
+    ScalerClass = RobustScaler if scaler_type == 'robust' else StandardScaler
+    X_train_scaled = X_train.copy()
+    X_test_scaled = X_test.copy()
+
+    if mode == 'global':
+        scaler = ScalerClass()
+        X_train_scaled.loc[:, numeric_cols] = scaler.fit_transform(X_train[numeric_cols])
+        X_test_scaled.loc[:, numeric_cols] = scaler.transform(X_test[numeric_cols])
+
+    elif mode == 'within':
+        # Scale each participant by their own stats — valid with LOSO because
+        # train and test participants never overlap.
+        for participant in groups_train.unique():
+            mask = groups_train == participant
+            scaler = ScalerClass()
+            X_train_scaled.loc[mask, numeric_cols] = scaler.fit_transform(
+                X_train.loc[mask, numeric_cols]
+            )
+        for participant in groups_test.unique():
+            mask = groups_test == participant
+            scaler = ScalerClass()
+            X_test_scaled.loc[mask, numeric_cols] = scaler.fit_transform(
+                X_test.loc[mask, numeric_cols]
+            )
+
+    return X_train_scaled, X_test_scaled
+
+
+# =============================================================================
+# PIPELINE BUILDING
+# =============================================================================
+
+def build_model_pipeline(
+    X,
+    model_type: str = 'rf',
+    use_smote: bool = True,
+    oversampling_method: str = 'SMOTE',
+    random_state: int = None,
+    class_weight=None,
+    scale_pos_weight=None,
+    k: int = 20,
+    rf_params: dict = None,
+    xgb_params: dict = None,
+    lr_params: dict = None,
+    feature_selection_method: str = 'f_classif',
+    scaler: str = 'none',
+    y=None,
+    lmm_n_jobs: int = -1,
+    use_pca: bool = False,
+    pca_n_components: int = None,
+    pca_type: str = 'standard',
+    pca_kernel: str = 'rbf',
+):
+    """
+    Build an sklearn Pipeline for RF, XGBoost, or LogisticRegression.
+
+    Pipeline order: preprocessor → scaler → feature_selection → pca → smote → clf.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Feature matrix (used for column inspection only).
+    model_type : str
+        One of 'rf', 'xgb', 'lr'.
+    use_smote : bool
+        Whether to add oversampling step.
+    oversampling_method : str
+        SMOTE variant name.
+    random_state : int
+        Random seed.
+    class_weight : str or dict
+        Class weight specification for the classifier.
+    scale_pos_weight : float or 'auto'
+        For XGBoost imbalance handling.
+    k : int
+        Number of features to select.
+    rf_params, xgb_params, lr_params : dict
+        Model-specific hyperparameter overrides.
+    feature_selection_method : str
+        One of 'mrmr', 'lmm', 'lmm_encoding', 'lmm_decoding', 'f_classif',
+        'mutual_info_classif', 'chi2', 'none'.
+    scaler : str
+        One of 'standard', 'minmax', 'robust', 'none'.
+    y : array-like, optional
+        Needed for dynamic XGBoost weighting and MRMR.
+    lmm_n_jobs : int
+        Parallel jobs for LMM feature selection.
+    use_pca : bool
+        Whether to apply PCA after feature selection.
+    pca_n_components : int, optional
+        PCA components.
+    pca_type : str
+        'standard' or 'kernel'.
+    pca_kernel : str
+        Kernel for KernelPCA.
+
+    Returns
+    -------
+    Pipeline or ImbPipeline
+    """
+    numeric_features = X.select_dtypes(include=[np.number]).columns.tolist()
+    preprocessor = ColumnTransformer(
+        transformers=[('num', 'passthrough', numeric_features)]
+    )
+    steps = [('preprocessor', preprocessor)]
+
+    # Scaling (before feature selection)
+    if scaler == 'standard':
+        steps.append(('scaler', StandardScaler()))
+    elif scaler == 'minmax':
+        steps.append(('scaler', MinMaxScaler()))
+    elif scaler == 'robust':
+        steps.append(('scaler', RobustScaler()))
+
+    # Feature selection
+    if feature_selection_method != 'none':
+        actual_k = len(numeric_features) if k == 'all' else min(int(k), len(numeric_features))
+
+        if feature_selection_method in ('lmm', 'lmm_decoding'):
+            feature_selector = LMMDecodingFeatureSelector(k=actual_k, n_jobs=lmm_n_jobs)
+        elif feature_selection_method == 'lmm_encoding':
+            feature_selector = LMMEncodingFeatureSelector(k=actual_k, n_jobs=lmm_n_jobs)
+        elif feature_selection_method == 'mrmr':
+            feature_selector = MRMRFeatureSelector(k=actual_k)
+        elif feature_selection_method == 'f_classif':
+            feature_selector = SelectKBest(f_classif, k=actual_k)
+        elif feature_selection_method == 'mutual_info_classif':
+            feature_selector = SelectKBest(mutual_info_classif, k=actual_k)
+        elif feature_selection_method == 'chi2':
+            feature_selector = SelectKBest(chi2, k=actual_k)
+        else:
+            feature_selector = SelectKBest(f_classif, k=actual_k)
+
+        steps.append(('feature_selection', feature_selector))
+
+    # PCA (optional, after feature selection)
+    if use_pca:
+        pca_transformer = (
+            KernelPCA(n_components=pca_n_components, kernel=pca_kernel, random_state=random_state)
+            if pca_type == 'kernel'
+            else PCA(n_components=pca_n_components, random_state=random_state)
+        )
+        steps.append(('pca', pca_transformer))
+
+    # Oversampling (after feature selection — important for LMM compatibility)
+    if use_smote:
+        if not HAS_IMBLEARN:
+            raise ImportError("imbalanced-learn is required. Install with: pip install imbalanced-learn")
+        steps.append(('smote', get_oversampler(oversampling_method, k_neighbors=5,
+                                               random_state=random_state)))
+
+    # Classifier
+    if model_type == 'rf':
+        rf_defaults = {
+            'n_estimators': 100,
+            'max_depth': 40,
+            'min_samples_split': 15,
+            'min_samples_leaf': 15,
+            'max_features': 0.5,
+            'random_state': random_state,
+            'class_weight': class_weight if class_weight is not None else 'balanced',
+            'n_jobs': -1,
+            'bootstrap': True,
+        }
+        if rf_params:
+            rf_defaults.update({k: v for k, v in rf_params.items() if v is not None})
+        steps.append(('clf', RandomForestClassifier(**rf_defaults)))
+
+    elif model_type == 'xgb':
+        if not HAS_XGBOOST:
+            raise ImportError("model_type='xgb' requires 'xgboost'. Install with: pip install xgboost")
+
+        # Dynamic class weight
+        if scale_pos_weight in ('auto', None) and y is not None:
+            y_temp = pd.Series(y)
+            n_neg = (y_temp == 0).sum()
+            n_pos = (y_temp == 1).sum()
+            xgb_scale_pos_weight = n_neg / n_pos if n_pos > 0 else 1.0
+        elif isinstance(scale_pos_weight, (int, float)):
+            xgb_scale_pos_weight = float(scale_pos_weight)
+        else:
+            xgb_scale_pos_weight = 1.0
+
+        xgb_defaults = {
+            'n_estimators': 1000,
+            'learning_rate': 0.01,
+            'max_depth': 4,
+            'min_child_weight': 5,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'objective': 'binary:logistic',
+            'scale_pos_weight': xgb_scale_pos_weight,
+            'gamma': 1,
+            'seed': random_state,
+            'n_jobs': -1,
+        }
+        if xgb_params:
+            cleaned = {k: v for k, v in xgb_params.items()
+                       if v is not None and not (k == 'scale_pos_weight' and v == 'auto')}
+            xgb_defaults.update(cleaned)
+        steps.append(('clf', xgb.XGBClassifier(**xgb_defaults)))
+
+    elif model_type == 'lr':
+        lr_defaults = {
+            'penalty': 'elasticnet',
+            'solver': 'saga',
+            'class_weight': 'balanced',
+            'C': 0.1,
+            'l1_ratio': 0.5,
+            'max_iter': 2000,
+            'random_state': random_state,
+            'n_jobs': -1,
+        }
+        if lr_params:
+            cleaned = {k: v for k, v in lr_params.items() if v is not None}
+            lr_defaults.update(cleaned)
+        steps.append(('clf', LogisticRegression(**lr_defaults)))
+
+    else:
+        raise ValueError(f"Unknown model_type: '{model_type}'. Choose from: 'rf', 'xgb', 'lr'")
+
+    return ImbPipeline(steps) if use_smote else Pipeline(steps)
+
+
+# =============================================================================
+# CROSS-VALIDATION (LOSO ONLY)
+# =============================================================================
+
+def run_model_pipeline_cv(
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: pd.Series,
+    model_type: str = 'rf',
+    use_smote: bool = True,
+    oversampling_method: str = 'SMOTE',
+    oversampling_scope: str = 'global',
+    fixed_random_state: int = None,
+    class_weight=None,
+    scale_pos_weight=None,
+    k: int = 20,
+    rf_params: dict = None,
+    xgb_params: dict = None,
+    lr_params: dict = None,
+    feature_selection_method: str = 'mrmr',
+    scaler: str = 'standard',
+    scale_by_participant: str = 'none',
+    lmm_n_jobs: int = -1,
+    use_pca: bool = False,
+    pca_n_components: int = None,
+    pca_type: str = 'standard',
+    pca_kernel: str = 'rbf',
+) -> pd.DataFrame:
+    """
+    Run Leave-One-Subject-Out cross-validation.
+
+    One fold per subject: train on all others, test on the held-out subject.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Feature matrix (n_samples × n_features).
+    y : pd.Series
+        Binary target.
+    groups : pd.Series
+        Subject ID for each sample (defines LOSO splits).
+    model_type : str
+        Classifier: 'rf', 'xgb', 'lr'.
+    use_smote : bool
+        Whether to apply oversampling.
+    oversampling_method : str
+        SMOTE variant.
+    oversampling_scope : str
+        'global' (in pipeline) or 'within' (per subject before fitting).
+    fixed_random_state : int
+        Seed for reproducibility.
+    class_weight : str or dict
+        Class weight for RF/LR.
+    scale_pos_weight : float or 'auto'
+        XGBoost class weight.
+    k : int
+        Number of features to select. Use 'all' to skip selection.
+    rf_params, xgb_params, lr_params : dict
+        Model hyperparameter overrides.
+    feature_selection_method : str
+        Feature ranking method.
+    scaler : str
+        Scaler type.
+    scale_by_participant : str
+        'none', 'global', or 'within' — participant-level scaling mode.
+    lmm_n_jobs : int
+        Parallel jobs for LMM selector.
+    use_pca, pca_n_components, pca_type, pca_kernel
+        PCA configuration.
+
+    Returns
+    -------
+    pd.DataFrame
+        Single-row DataFrame with aggregated metrics and fold-level details.
+    """
+    random_state = fixed_random_state if fixed_random_state is not None else 42
+
+    # If scaling by participant manually, skip pipeline-level scaling to avoid double-scaling
+    pipeline_scaler = 'none' if (scale_by_participant and scale_by_participant != 'none') else scaler
+
+    pipeline = build_model_pipeline(
+        X,
+        model_type=model_type,
+        use_smote=(use_smote and oversampling_scope == 'global'),
+        oversampling_method=oversampling_method,
+        y=y,
+        random_state=random_state,
+        class_weight=class_weight,
+        scale_pos_weight=scale_pos_weight,
+        k=k,
+        rf_params=rf_params,
+        xgb_params=xgb_params,
+        lr_params=lr_params,
+        feature_selection_method=feature_selection_method,
+        scaler=pipeline_scaler,
+        lmm_n_jobs=lmm_n_jobs,
+        use_pca=use_pca,
+        pca_n_components=pca_n_components,
+        pca_type=pca_type,
+        pca_kernel=pca_kernel,
+    )
+
+    cv = LeaveOneGroupOut()
+    cv_splits = list(cv.split(X, y, groups))
+
+    fold_aucs = []
+    fold_auprcs = []
+    fold_mccs = []
+    fold_bal_accs = []
+    fold_precisions = []
+    fold_recalls = []
+    fold_f1s = []
+    fold_cms = []
+    fold_fprs = []
+    fold_tprs = []
+    fold_precisions_curve = []
+    fold_recalls_curve = []
+    feature_importances_dict = {feat: [] for feat in X.columns}
+    all_selected_features = set()
+    fold_details = []
+    estimators = []
+    loso_subject_metrics = []
+
+    for fold_idx, (train_idx, test_idx) in enumerate(cv_splits):
+        # Validate no subject leakage
+        train_subjects = set(groups.iloc[train_idx])
+        test_subjects = set(groups.iloc[test_idx])
+        overlap = train_subjects.intersection(test_subjects)
+        if overlap:
+            raise ValueError(
+                f"CRITICAL: Subject leakage in fold {fold_idx}: {overlap}"
+            )
+
+        held_out_subject = list(test_subjects)[0]  # Always exactly one subject per LOSO fold
+
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        groups_train, groups_test = groups.iloc[train_idx], groups.iloc[test_idx]
+
+        # Participant-level scaling (no data leakage with LOSO)
+        if scale_by_participant and scale_by_participant != 'none':
+            X_train, X_test = _apply_fold_scaling(
+                X_train, X_test, groups_train, groups_test, scale_by_participant, scaler
+            )
+
+        # Within-subject oversampling (on training set only)
+        if use_smote and oversampling_scope == 'within':
+            X_train, y_train = apply_within_subject_oversampling(
+                X_train, y_train, groups_train.values,
+                method=oversampling_method, k_neighbors=5, random_state=random_state
+            )
+
+        # Clone and fit pipeline
+        fold_pipeline = clone(pipeline)
+        fit_params = {}
+        feature_selector_step = fold_pipeline.named_steps.get('feature_selection', None)
+        if isinstance(feature_selector_step, (LMMDecodingFeatureSelector, LMMEncodingFeatureSelector)):
+            fit_params['feature_selection__groups'] = groups_train
+
+        fold_pipeline.fit(X_train, y_train, **fit_params)
+        estimators.append(fold_pipeline)
+
+        # Predictions
+        y_pred = fold_pipeline.predict(X_test)
+        y_score = None
+        auc = 0.5
+
+        if hasattr(fold_pipeline, 'predict_proba'):
+            proba = fold_pipeline.predict_proba(X_test)
+            y_score = proba[:, 1]
+            if len(np.unique(y_test)) > 1:
+                auc = roc_auc_score(y_test, y_score)
+                fpr, tpr, _ = roc_curve(y_test, y_score)
+                fold_fprs.append(fpr)
+                fold_tprs.append(tpr)
+
+        fold_aucs.append(auc)
+
+        # AUPRC and PR curve
+        if y_score is not None and len(np.unique(y_test)) > 1:
+            auprc = average_precision_score(y_test, y_score)
+            precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_score)
+            fold_precisions_curve.append(precision_curve)
+            fold_recalls_curve.append(recall_curve)
+        else:
+            auprc = 0.0
+        fold_auprcs.append(auprc)
+
+        # Other metrics
+        mcc = matthews_corrcoef(y_test, y_pred)
+        fold_mccs.append(mcc)
+        fold_bal_accs.append(balanced_accuracy_score(y_test, y_pred))
+        fold_precisions.append(precision_score(y_test, y_pred, zero_division=0))
+        fold_recalls.append(recall_score(y_test, y_pred, zero_division=0))
+        fold_f1s.append(f1_score(y_test, y_pred, zero_division=0))
+        fold_cms.append(confusion_matrix(y_test, y_pred))
+
+        # Per-subject metrics (LOSO = one subject per fold)
+        loso_subject_metrics.append({
+            'subject': held_out_subject,
+            'fold_idx': fold_idx,
+            'auc': auc,
+            'auprc': auprc,
+            'mcc': mcc,
+            'balanced_accuracy': balanced_accuracy_score(y_test, y_pred),
+            'precision': precision_score(y_test, y_pred, zero_division=0),
+            'recall': recall_score(y_test, y_pred, zero_division=0),
+            'f1': f1_score(y_test, y_pred, zero_division=0),
+            'n_samples': len(y_test),
+            'n_positive': int(y_test.sum()),
+            'n_negative': int(len(y_test) - y_test.sum()),
+        })
+
+        # Sample-level predictions (for probability-based saving)
+        label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
+        fold_details.append({
+            'fold_idx': fold_idx,
+            'subject': held_out_subject,
+            'y_true': y_test.tolist(),
+            'y_pred': y_pred.tolist(),
+            'y_proba': y_score.tolist() if y_score is not None else [],
+            'test_indices': test_idx.tolist(),
+            'label_percentages': label_counts,
+        })
+
+        # Feature importances (accumulated across folds)
+        fs_step = fold_pipeline.named_steps.get('feature_selection', None)
+        clf_step = fold_pipeline.named_steps.get('clf', None)
+        if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
+            selected_indices = fs_step.get_support(indices=True)
+            selected_feats = [X.columns[i] for i in selected_indices]
+            all_selected_features.update(selected_feats)
+            importances = clf_step.feature_importances_
+            for idx, feat in enumerate(selected_feats):
+                feature_importances_dict[feat].append(importances[idx])
+            for feat in X.columns:
+                if feat not in selected_feats:
+                    feature_importances_dict[feat].append(0.0)
+
+    # Aggregate feature importances
+    mean_feature_importances = np.zeros(len(X.columns))
+    for i, feat in enumerate(X.columns):
+        if feature_importances_dict[feat]:
+            mean_feature_importances[i] = np.mean(feature_importances_dict[feat])
+
+    result = {
+        'mean_auc': np.mean(fold_aucs),
+        'std_auc': np.std(fold_aucs),
+        'mean_auprc': np.mean(fold_auprcs),
+        'std_auprc': np.std(fold_auprcs),
+        'mean_mcc': np.mean(fold_mccs),
+        'std_mcc': np.std(fold_mccs),
+        'mean_balanced_accuracy': np.mean(fold_bal_accs),
+        'std_balanced_accuracy': np.std(fold_bal_accs),
+        'mean_precision': np.mean(fold_precisions),
+        'std_precision': np.std(fold_precisions),
+        'mean_recall': np.mean(fold_recalls),
+        'std_recall': np.std(fold_recalls),
+        'mean_f1': np.mean(fold_f1s),
+        'std_f1': np.std(fold_f1s),
+        'fold_aucs': fold_aucs,
+        'fold_auprcs': fold_auprcs,
+        'fold_mccs': fold_mccs,
+        'fold_bal_accs': fold_bal_accs,
+        'fold_cms': fold_cms,
+        'fold_fprs': fold_fprs,
+        'fold_tprs': fold_tprs,
+        'fold_precisions_curve': fold_precisions_curve,
+        'fold_recalls_curve': fold_recalls_curve,
+        'feature_importances': mean_feature_importances,
+        'fold_details': fold_details,
+        'cv_splits': cv_splits,
+        'estimators': estimators,
+        'loso_subject_metrics': loso_subject_metrics,
+    }
+    return pd.DataFrame([result])
+
+
+# =============================================================================
+# SHAP
+# =============================================================================
+
+def compute_shap_values_for_pipeline(
+    pipeline, X: pd.DataFrame, feature_names
+) -> np.ndarray:
+    """
+    Compute SHAP values for a fitted pipeline (RF or XGB).
+
+    Unselected features are assigned SHAP value of zero so the output
+    shape always matches the full feature set.
+
+    Parameters
+    ----------
+    pipeline : sklearn Pipeline
+        Fitted pipeline with optional 'feature_selection' and 'clf' steps.
+    X : pd.DataFrame
+        Feature matrix for the test fold.
+    feature_names : Index
+        Full list of feature names (before selection).
+
+    Returns
+    -------
+    np.ndarray
+        SHAP values of shape (n_samples, n_features).
+    """
+    if not HAS_SHAP:
+        raise ImportError("shap is required. Install with: pip install shap")
+
+    feature_selector = pipeline.named_steps.get('feature_selection', None)
+    clf = pipeline.named_steps.get('clf', None)
+
+    if feature_selector is not None:
+        selected_mask = feature_selector.get_support()
+        selected_features = [f for f, sel in zip(feature_names, selected_mask) if sel]
+        X_selected = X[selected_features]
+    else:
+        selected_mask = np.ones(len(feature_names), dtype=bool)
+        X_selected = X
+
+    if clf is None or not hasattr(clf, 'predict_proba'):
+        raise ValueError("SHAP computation requires a classifier with predict_proba (RF or XGB).")
+
+    explainer = shap.Explainer(clf, X_selected)
+    shap_vals = explainer(X_selected).values
+
+    # Handle 3D output (n_samples, n_features, 2) — take positive class
+    if shap_vals.ndim == 3 and shap_vals.shape[2] == 2:
+        shap_vals = shap_vals[..., 1]
+
+    # Map back to full feature space
+    if feature_selector is not None:
+        full_shap = np.zeros((X.shape[0], len(feature_names)))
+        full_shap[:, selected_mask] = shap_vals
+        return full_shap
+
+    return shap_vals
