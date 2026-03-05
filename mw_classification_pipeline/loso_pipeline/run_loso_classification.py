@@ -132,9 +132,13 @@ def filter_features_by_family(
     if prefixes is None:
         return X  # No filtering — use all features
 
+    # Columns are formatted as {channel}_{marker}_{band} (e.g. AF3_power_theta).
+    # Prefixes describe the marker portion, so we match against the substring
+    # after the first separator: `_{prefix}` must appear in the column name.
+    # `col.startswith(prefix)` is kept as a fallback for marker-first formats.
     selected_cols = [
         col for col in X.columns
-        if any(col.startswith(prefix) for prefix in prefixes)
+        if any(f"_{prefix}" in col or col.startswith(prefix) for prefix in prefixes)
     ]
 
     if not selected_cols:

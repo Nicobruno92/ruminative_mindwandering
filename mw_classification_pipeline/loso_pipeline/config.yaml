@@ -47,13 +47,13 @@ label_source: onoff
 label_contrasts:
   ON_vs_OFF:
     label_source: onoff
-    threshold: 50
+    threshold: 60
     positive_above: true
 
-  ON_vs_OFF_extreme:
-    label_source: onoff
-    threshold_low: 30
-    threshold_high: 70
+  # ON_vs_OFF_extreme:
+  #   label_source: onoff
+  #   threshold_low: 30
+  #   threshold_high: 70
 
 # Which contrast to run (overridable with --contrast)
 contrast: ON_vs_OFF
@@ -92,21 +92,21 @@ data_format: per_channel
 # FEATURE FAMILIES
 # =============================================================================
 # Families let you run classification on a specific subset of features.
-# Each family maps to a list of column-name prefixes. A column belongs to a
-# family if its name starts with any of those prefixes.
+# Each family maps to a list of marker-name fragments. A column belongs to a
+# family if the fragment appears after the channel separator in its name
+# (i.e. `_{prefix}` is a substring of the column name).
 #
 # Column names come from junifer aggregation (aggregate_markers_by_probe.py):
-#   {marker_shortname}_{band_or_subtype}_{channel}
+#   {channel}_{marker_shortname}_{band_or_subtype}
 #
 #   Marker short names are defined in junifer_markers/2.aggregate_probes/config.yaml
 #   under marker_name_mapping. Examples:
-#     power_alpha_Fz          (EEG_psd_bands_spectralpower → power, band=alpha, ch=Fz)
-#     power_normalized_theta_Cz
-#     wsmi_theta_Fz           (EEG_wsmi_theta_... → wsmi_theta)
-#     PE_alpha_Pz             (EEG_PE_alpha_... → PE_alpha)
-#     kolmogorov_complexity_Cz
-#     P3b_posterior_left      (ERP, ROI-aggregated if per_roi)
-#     P3b_Pz                  (ERP, per_channel)
+#     AF3_power_alpha         (EEG_psd_bands_spectralpower → power, band=alpha, ch=AF3)
+#     Cz_power_normalized_theta
+#     Fz_wsmi_theta           (EEG_wsmi_theta_... → wsmi_theta)
+#     Pz_PE_alpha             (EEG_PE_alpha_... → PE_alpha)
+#     Cz_kolmogorov_complexity
+#     Pz_P3b                  (ERP, per_channel)
 
 feature_families:
   all: null                    # All available features (no filtering)
@@ -260,6 +260,5 @@ slurm:
   time: "24:00:00"
   mem: "32G"
   cpus_per_task: 8
-  partition: "normal"
   job_name: "mw_class"
   conda_env: "ML"

@@ -8,13 +8,21 @@
 #
 # DO NOT submit this script directly — use run_cluster.sh instead.
 # =============================================================================
-#SBATCH --chdir=.
+# Note: --chdir is passed explicitly by run_cluster.sh as an absolute path.
+# SLURM_SUBMIT_DIR is used as a fallback to guarantee the correct working directory
+# even if the script is copied to a temp location before execution.
 
 set -euo pipefail
 
-CONFIG="${1:-config.yaml}"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Use SLURM_SUBMIT_DIR (set by SLURM at submission time) as the authoritative
+# working directory — reliable even when SLURM copies the script to a tmpdir.
+SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 cd "$SCRIPT_DIR"
+
+CONFIG="${1:-config.yaml}"
+# If CONFIG was passed as an absolute path (by run_cluster.sh), use it as-is;
+# otherwise resolve relative to SCRIPT_DIR.
+[[ "$CONFIG" != /* ]] && CONFIG="$SCRIPT_DIR/$CONFIG"
 
 # ---------------------------------------------------------------------------
 # Resolve this array task's (model, contrast, family) combination

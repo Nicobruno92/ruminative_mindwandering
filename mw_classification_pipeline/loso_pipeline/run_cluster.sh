@@ -31,14 +31,18 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 
-module load proxy 2>/dev/null || true  # required for cluster network
+# NOTE: `module load proxy` is intentionally NOT called here — the launcher
+# only reads a YAML and calls sbatch (no internet-dependent operations).
+# The worker (run_cluster_worker.sh) loads proxy before conda activation.
 
 mkdir -p logs
 
 # ---------------------------------------------------------------------------
-# Read SLURM params + combination count from config
+# Parse config once: print summary, write combinations, emit SLURM params
 # ---------------------------------------------------------------------------
-python3 -c "
+# All values are extracted in a single Python call to avoid spawning the
+# interpreter twice and to keep the launcher fast.
+eval "$(python3 -c "
 import yaml, sys
 
 with open('$CONFIG') as f:
@@ -52,42 +56,32 @@ families = cfg.get('run_families', ['all'])
 combos = [f'{model}:{c}:{fam}' for c in contrasts for fam in families]
 n = len(combos)
 
-print(f'Model     : {model}')
-print(f'Contrasts : {contrasts}')
-print(f'Families  : {families}')
-print(f'Combos    : {n}')
-print(f'Time      : {slurm.get(\"time\", \"24:00:00\")}')
-print(f'Memory    : {slurm.get(\"mem\", \"32G\")}')
-print(f'CPUs      : {slurm.get(\"cpus_per_task\", 8)}')
-print(f'Partition : {slurm.get(\"partition\", \"normal\")}')
-print(f'Conda env : {slurm.get(\"conda_env\", \"ML\")}')
-
-# Write combos to a temp file for the worker
+# Write combinations file (trailing newline so wc -l returns correct count)
 with open('logs/.combinations.txt', 'w') as out:
-    out.write('\n'.join(combos))
+    out.write('\n'.join(combos) + '\n')
 
-print(f'Array range: 0-{n-1}')
-" || exit 1
+# Print human-readable summary to stderr so it reaches the terminal
+import sys
+print(f'Model     : {model}', file=sys.stderr)
+print(f'Contrasts : {contrasts}', file=sys.stderr)
+print(f'Families  : {families}', file=sys.stderr)
+print(f'Combos    : {n}', file=sys.stderr)
+print(f'Time      : {slurm.get(\"time\", \"24:00:00\")}', file=sys.stderr)
+print(f'Memory    : {slurm.get(\"mem\", \"32G\")}', file=sys.stderr)
+print(f'CPUs      : {slurm.get(\"cpus_per_task\", 8)}', file=sys.stderr)
+print(f'Conda env : {slurm.get(\"conda_env\", \"ML\")}', file=sys.stderr)
+print(f'Array range: 0-{n-1}', file=sys.stderr)
 
-# Count combinations
-N_COMBOS=$(wc -l < logs/.combinations.txt)
+# Emit shell variable assignments captured by eval
+print(f'SLURM_TIME={slurm.get(\"time\", \"24:00:00\")}')
+print(f'SLURM_MEM={slurm.get(\"mem\", \"32G\")}')
+print(f'SLURM_CPUS={slurm.get(\"cpus_per_task\", 8)}')
+print(f'SLURM_ENV={slurm.get(\"conda_env\", \"ML\")}')
+print(f'SLURM_JOBNAME={slurm.get(\"job_name\", \"mw_class\")}')
+print(f'N_COMBOS={n}')
+")" || exit 1
+
 ARRAY_RANGE="0-$((N_COMBOS-1))"
-
-# Read SLURM params from config
-read SLURM_TIME SLURM_MEM SLURM_CPUS SLURM_PARTITION SLURM_ENV SLURM_JOBNAME <<< "$(python3 -c "
-import yaml
-with open('$CONFIG') as f:
-    cfg = yaml.safe_load(f)
-s = cfg.get('slurm', {})
-print(
-    s.get('time', '24:00:00'),
-    s.get('mem', '32G'),
-    s.get('cpus_per_task', 8),
-    s.get('partition', 'normal'),
-    s.get('conda_env', 'ML'),
-    s.get('job_name', 'mw_class'),
-)
-")"
 
 echo ""
 echo "Submitting SLURM array: $ARRAY_RANGE"
@@ -96,11 +90,11 @@ sbatch \
     --time="$SLURM_TIME" \
     --mem="$SLURM_MEM" \
     --cpus-per-task="$SLURM_CPUS" \
-    --partition="$SLURM_PARTITION" \
     --array="$ARRAY_RANGE" \
+    --chdir="$SCRIPT_DIR" \
     --output="logs/slurm_%A_%a.out" \
     --error="logs/slurm_%A_%a.err" \
-    run_cluster_worker.sh "$CONFIG"
+    "$SCRIPT_DIR/run_cluster_worker.sh" "$SCRIPT_DIR/$CONFIG"
 
 echo ""
 echo "Submitted $N_COMBOS jobs."
