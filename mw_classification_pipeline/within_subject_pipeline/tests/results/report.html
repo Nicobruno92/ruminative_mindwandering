@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title id="head-title">report.html</title>
+      <link href="assets/style.css" rel="stylesheet" type="text/css"/>
+  </head>
+  <body>
+    <h1 id="title">report.html</h1>
+    <p>Report generated on 05-Mar-2026 at 00:41:59 by <a href="https://pypi.python.org/pypi/pytest-html">pytest-html</a>
+        v4.2.0</p>
+    <div id="environment-header">
+      <h2>Environment</h2>
+    </div>
+    <table id="environment"></table>
+    <!-- TEMPLATES -->
+      <template id="template_environment_row">
+      <tr>
+        <td></td>
+        <td></td>
+      </tr>
+    </template>
+    <template id="template_results-table__body--empty">
+      <tbody class="results-table-row">
+        <tr id="not-found-message">
+          <td colspan="4">No results found. Check the filters.</td>
+        </tr>
+      </tbody>
+    </template>
+    <template id="template_results-table__tbody">
+      <tbody class="results-table-row">
+        <tr class="collapsible">
+        </tr>
+        <tr class="extras-row">
+          <td class="extra" colspan="4">
+            <div class="extraHTML"></div>
+            <div class="media">
+              <div class="media-container">
+                  <div class="media-container__nav--left">&lt;</div>
+                  <div class="media-container__viewport">
+                    <img src="" />
+                    <video controls>
+                      <source src="" type="video/mp4">
+                    </video>
+                  </div>
+                  <div class="media-container__nav--right">&gt;</div>
+                </div>
+                <div class="media__name"></div>
+                <div class="media__counter"></div>
+            </div>
+            <div class="logwrapper">
+              <div class="logexpander"></div>
+              <div class="log"></div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </template>
+    <!-- END TEMPLATES -->
+    <div class="summary">
+      <div class="summary__data">
+        <h2>Summary</h2>
+        <div class="additional-summary prefix">
+        </div>
+        <p class="run-count">11 tests took 00:27:26.</p>
+        <p class="filter">(Un)check the boxes to filter the results.</p>
+        <div class="summary__reload">
+          <div class="summary__reload__button hidden" onclick="location.reload()">
+            <div>There are still tests running. <br />Reload this page to get the latest results!</div>
+          </div>
+        </div>
+        <div class="summary__spacer"></div>
+        <div class="controls">
+          <div class="filters">
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="failed" >
+            <span class="failed">1 Failed,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="passed" >
+            <span class="passed">10 Passed,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="skipped" disabled>
+            <span class="skipped">0 Skipped,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="xfailed" disabled>
+            <span class="xfailed">0 Expected failures,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="xpassed" disabled>
+            <span class="xpassed">0 Unexpected passes,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="error" disabled>
+            <span class="error">0 Errors,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="rerun" disabled>
+            <span class="rerun">0 Reruns</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="retried" disabled>
+            <span class="retried">0 Retried,</span>
+          </div>
+          <div class="collapse">
+            <button id="show_all_details">Show all details</button>&nbsp;/&nbsp;<button id="hide_all_details">Hide all details</button>
+          </div>
+        </div>
+      </div>
+      <div class="additional-summary summary">
+      </div>
+      <div class="additional-summary postfix">
+      </div>
+    </div>
+    <table id="results-table">
+      <thead id="results-table-head">
+        <tr>
+          <th class="sortable" data-column-type="result">Result</th>
+          <th class="sortable" data-column-type="testId">Test</th>
+          <th class="sortable" data-column-type="duration">Duration</th>
+          <th>Links</th>
+        </tr>
+      </thead>
+    </table>
+  <footer>
+    <div id="data-container" data-jsonblob="{&#34;environment&#34;: {&#34;Python&#34;: &#34;3.10.0&#34;, &#34;Platform&#34;: &#34;macOS-15.7.4-arm64-arm-64bit&#34;, &#34;Packages&#34;: {&#34;pytest&#34;: &#34;9.0.2&#34;, &#34;pluggy&#34;: &#34;1.6.0&#34;}, &#34;Plugins&#34;: {&#34;metadata&#34;: &#34;3.1.1&#34;, &#34;html&#34;: &#34;4.2.0&#34;}}, &#34;tests&#34;: {&#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_returns_nonempty_list&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_returns_nonempty_list&#34;, &#34;duration&#34;: &#34;00:03:16&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_returns_nonempty_list&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:03:16&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stdout call -----------------------------\n\n======================================================================\nWithin-Subject Analysis: ON_vs_OFF (LR)\n======================================================================\nAlgorithm: LR\nFeatures: 10\nSubjects config: 4 total\nCV Strategy: stratified_kfold (5 folds)\nRuns: 1\nResults Path: /private/var/folders/12/vc8ry6qs78n5ks6ypt4cpx580000gq/T/pytest-of-nicolas.bruno/pytest-12/test_returns_nonempty_list0/results_ws/WithinSubject/ON_vs_OFF\n----------------------------------------------------------------------\n  [Run 1/1] 196.1s | Avg AUC=0.667 | Valid Subs: 4\n\n----------------------------- Captured stderr call -----------------------------\n\rRun 1/1 Subjects:   0%|          | 0/4 [00:00&amp;lt;?, ?it/s]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 16.40it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.09it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:02&amp;lt;00:01,  2.28it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.99it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.24it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 14.51it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 12.05it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:02&amp;lt;00:01,  2.53it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.72it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.41it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.26it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.47it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 14.39it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.77it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.19it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.66it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.19it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.62it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.05it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.96it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.48it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.47it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.99it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.93it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.73it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.82it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.42it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.33it/s]\n\rRun 1/1 Subjects:  25%|\u2588\u2588\u258c       | 1/4 [00:47&amp;lt;02:23, 47.92s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 11.95it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.22it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.52it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.02it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.29it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.84it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.00it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.04it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.95it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.46it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.44it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 14.90it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.50it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.59it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.02it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.30it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.44it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.74it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.39it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.06it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.26it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.85it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.54it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.35it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.99it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.55it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.29it/s]\n\rRun 1/1 Subjects:  50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [01:36&amp;lt;01:37, 48.59s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.57it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.47it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:02&amp;lt;00:01,  2.13it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.81it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.43it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.11it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.11it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.69it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.02it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.44it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.40it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.92it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.92it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.05it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.98it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.53it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.56it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.70it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.60it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.15it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.59it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.39it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 17.95it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.79it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:02&amp;lt;00:01,  2.23it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.97it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.21it/s]\n\rRun 1/1 Subjects:  75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [02:26&amp;lt;00:48, 48.79s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.71it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.85it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.49it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  2.00it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.45it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.20it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 17.24it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  9.98it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:02&amp;lt;00:01,  2.25it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.93it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.47it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.17it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.97it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.64it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.42it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.09it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.63it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.39it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.30it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 11.90it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.67it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.77it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.39it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.28it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 17.82it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.68it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:02&amp;lt;00:02,  1.99it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.79it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.40it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.05it/s]\n\rRun 1/1 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:16&amp;lt;00:00, 49.29s/it]\rRun 1/1 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:16&amp;lt;00:00, 49.02s/it]\n&#34;}], &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_result_has_one_row_per_valid_subject&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_result_has_one_row_per_valid_subject&#34;, &#34;duration&#34;: &#34;00:03:12&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_result_has_one_row_per_valid_subject&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:03:12&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stdout call -----------------------------\n\n======================================================================\nWithin-Subject Analysis: ON_vs_OFF (LR)\n======================================================================\nAlgorithm: LR\nFeatures: 10\nSubjects config: 4 total\nCV Strategy: stratified_kfold (5 folds)\nRuns: 1\nResults Path: /private/var/folders/12/vc8ry6qs78n5ks6ypt4cpx580000gq/T/pytest-of-nicolas.bruno/pytest-12/test_result_has_one_row_per_va0/results_ws/WithinSubject/ON_vs_OFF\n----------------------------------------------------------------------\n  [Run 1/1] 192.4s | Avg AUC=0.667 | Valid Subs: 4\n\n----------------------------- Captured stderr call -----------------------------\n\rRun 1/1 Subjects:   0%|          | 0/4 [00:00&amp;lt;?, ?it/s]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 16.24it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.87it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.51it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.09it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.59it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.36it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 15.31it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.41it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:02&amp;lt;00:01,  2.08it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.83it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.42it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.09it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 17.87it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.27it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.51it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.08it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.55it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.32it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.18it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.46it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.96it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.87it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.44it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.39it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.77it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 13.76it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.54it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.08it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.56it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.35it/s]\n\rRun 1/1 Subjects:  25%|\u2588\u2588\u258c       | 1/4 [00:48&amp;lt;02:25, 48.62s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.22it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.04it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.84it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.87it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.43it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.37it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 13.66it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 10.33it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:02&amp;lt;00:02,  1.56it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:04&amp;lt;00:01,  1.45it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:05&amp;lt;00:00,  1.27it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:05&amp;lt;00:00,  1.78it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.16it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.27it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.09it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  2.00it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.55it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.92it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 13.98it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.46it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.97it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.30it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.29it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.85it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:02&amp;lt;00:01,  2.57it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.73it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.36it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.23it/s]\n\rRun 1/1 Subjects:  50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [01:38&amp;lt;01:38, 49.26s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.20it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.90it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.74it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.77it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.41it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.32it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.74it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 12.72it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.93it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.91it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.45it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.40it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.43it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 13.67it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.66it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.17it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.62it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.43it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.85it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 13.13it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.52it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.13it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.64it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.42it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.30it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.68it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.03it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.97it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.51it/s]\n\rRun 1/1 Subjects:  75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [02:25&amp;lt;00:48, 48.38s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.27it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 12.72it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.78it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.86it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.44it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.37it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.96it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.19it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.01it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.97it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.20it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.40it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.74it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.85it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.46it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.39it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 18.05it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 15.26it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.10it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.98it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.52it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.26it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.06it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.03it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.49it/s]\n\rRun 1/1 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:12&amp;lt;00:00, 47.74s/it]\rRun 1/1 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:12&amp;lt;00:00, 48.10s/it]\n&#34;}], &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_result_skips_invalid_subjects&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Failed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_result_skips_invalid_subjects&#34;, &#34;duration&#34;: &#34;00:03:09&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Failed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_result_skips_invalid_subjects&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:03:09&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;self = &amp;lt;test_analysis_pipeline.TestRunWithinSubjectDistributionAnalysis object at 0x12391cb50&amp;gt;\nsetup = {&amp;#x27;X&amp;#x27;:       feat_0  ...    feat_9\n0   0.367895  ... -0.623274\n1   0.541326  ... -0.128535\n2  -0.665195  ... -0.209176\n...063859\n\n[80 rows x 15 columns], &amp;#x27;feature_cols&amp;#x27;: [&amp;#x27;feat_0&amp;#x27;, &amp;#x27;feat_1&amp;#x27;, &amp;#x27;feat_2&amp;#x27;, &amp;#x27;feat_3&amp;#x27;, &amp;#x27;feat_4&amp;#x27;, &amp;#x27;feat_5&amp;#x27;, ...], ...}\n\n    def test_result_skips_invalid_subjects(self, setup):\n        # Setup: artificially make Subject-00 have entirely Class 0\n        y_mod = setup[&amp;quot;y&amp;quot;].copy()\n        sub0_mask = setup[&amp;quot;groups&amp;quot;] == &amp;quot;sub-00&amp;quot;\n        y_mod[sub0_mask] = 0\n    \n        metrics_list, _ = run_within_subject_distribution_analysis(\n            dimension=&amp;quot;ON_vs_OFF&amp;quot;, df=setup[&amp;quot;df&amp;quot;], X=setup[&amp;quot;X&amp;quot;], y=y_mod,\n            subjects=setup[&amp;quot;groups&amp;quot;], tasks=setup[&amp;quot;tasks&amp;quot;], feature_cols=setup[&amp;quot;feature_cols&amp;quot;], config=setup[&amp;quot;config&amp;quot;],\n            model_type=&amp;quot;lr&amp;quot;, n_runs=1, results_path=setup[&amp;quot;results_path&amp;quot;],\n            min_samples_per_class=2, # sub-00 has 0 of class 1\n            **_NO_PLOTS,\n        )\n&amp;gt;       assert len(metrics_list) == 3 # 1 skipped\nE       AssertionError: assert 4 == 3\nE        +  where 4 = len([{&amp;#x27;mean_auc&amp;#x27;: np.float64(0.8), &amp;#x27;mean_auprc&amp;#x27;: np.float64(0.8666666666666666), &amp;#x27;mean_balanced_accuracy&amp;#x27;: np.float64(0.7333333333333333), &amp;#x27;mean_f1&amp;#x27;: np.float64(0.7914285714285715), ...}, {&amp;#x27;mean_auc&amp;#x27;: np.float64(0.8666666666666668), &amp;#x27;mean_auprc&amp;#x27;: np.float64(0.8666666666666668), &amp;#x27;mean_balanced_accuracy&amp;#x27;: np.float64(0.8), &amp;#x27;mean_f1&amp;#x27;: np.float64(0.6), ...}, {&amp;#x27;mean_auc&amp;#x27;: np.float64(0.5), &amp;#x27;mean_auprc&amp;#x27;: np.float64(0.45), &amp;#x27;mean_balanced_accuracy&amp;#x27;: np.float64(0.5), &amp;#x27;mean_f1&amp;#x27;: np.float64(0.21333333333333332), ...}, {&amp;#x27;mean_auc&amp;#x27;: np.float64(0.5), &amp;#x27;mean_auprc&amp;#x27;: np.float64(0.5), &amp;#x27;mean_balanced_accuracy&amp;#x27;: np.float64(0.5), &amp;#x27;mean_f1&amp;#x27;: np.float64(0.6666666666666666), ...}])\n\nwithin_subject_pipeline/tests/test_analysis_pipeline.py:85: AssertionError\n\n----------------------------- Captured stdout call -----------------------------\n\n======================================================================\nWithin-Subject Analysis: ON_vs_OFF (LR)\n======================================================================\nAlgorithm: LR\nFeatures: 10\nSubjects config: 4 total\nCV Strategy: stratified_kfold (5 folds)\nRuns: 1\nResults Path: /private/var/folders/12/vc8ry6qs78n5ks6ypt4cpx580000gq/T/pytest-of-nicolas.bruno/pytest-12/test_result_skips_invalid_subj0/results_ws/WithinSubject/ON_vs_OFF\n----------------------------------------------------------------------\n  [Run 1/1] 189.3s | Avg AUC=0.667 | Valid Subs: 4\n\n----------------------------- Captured stderr call -----------------------------\n\rRun 1/1 Subjects:   0%|          | 0/4 [00:00&amp;lt;?, ?it/s]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.16it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.90it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.05it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.98it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.49it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.87it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 12.51it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.01it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.96it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.47it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.79it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.30it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  3.00it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.90it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.45it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.41it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.99it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 15.05it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.74it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.21it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.64it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.47it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.90it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 13.87it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.64it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.17it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.66it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.47it/s]\n\rRun 1/1 Subjects:  25%|\u2588\u2588\u258c       | 1/4 [00:46&amp;lt;02:20, 46.67s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.95it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 14.49it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.64it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.18it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.67it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.49it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.99it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.43it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  3.00it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.48it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.46it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.57it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.33it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.11it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.00it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.53it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.67it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 15.07it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.81it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.87it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.48it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.43it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.14it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.61it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.98it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.48it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.45it/s]\n\rRun 1/1 Subjects:  50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [01:32&amp;lt;01:32, 46.18s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.52it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.28it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  3.00it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.95it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.10it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.43it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.00it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.49it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.50it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.77it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.43it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.05it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.57it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.32it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.69it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.98it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.03it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.95it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.51it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.48it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 12.82it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.82it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.80it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.44it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.35it/s]\n\rRun 1/1 Subjects:  75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [02:20&amp;lt;00:46, 46.95s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.38it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.02it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.78it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.82it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.44it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.36it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 16.87it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.80it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:02&amp;lt;00:01,  2.03it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.80it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.45it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.10it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.49it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.33it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.45it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.08it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.60it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.36it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.32it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 11.40it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:02&amp;lt;00:01,  2.53it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.74it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.38it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.24it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 15.87it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.37it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.38it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.01it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.56it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.30it/s]\n\rRun 1/1 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:09&amp;lt;00:00, 47.75s/it]\rRun 1/1 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:09&amp;lt;00:00, 47.34s/it]\n&#34;}], &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_csv_saving&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_csv_saving&#34;, &#34;duration&#34;: &#34;00:05:22&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_csv_saving&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:05:22&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stdout call -----------------------------\n\n======================================================================\nWithin-Subject Analysis: ON_vs_OFF (LR)\n======================================================================\nAlgorithm: LR\nFeatures: 10\nSubjects config: 4 total\nCV Strategy: stratified_kfold (5 folds)\nRuns: 1\nResults Path: /private/var/folders/12/vc8ry6qs78n5ks6ypt4cpx580000gq/T/pytest-of-nicolas.bruno/pytest-12/test_csv_saving0/results_ws/WithinSubject/ON_vs_OFF\n----------------------------------------------------------------------\n  [Run 1/1] 321.7s | Avg AUC=0.667 | Valid Subs: 4\n\n----------------------------- Captured stderr call -----------------------------\n\rRun 1/1 Subjects:   0%|          | 0/4 [00:00&amp;lt;?, ?it/s]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.14it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 12.91it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.95it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.88it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.45it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.39it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.20it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.83it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.03it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.93it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.51it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.33it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.22it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.63it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.15it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.59it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.39it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.40it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 12.86it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:05&amp;lt;00:03,  1.10s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:07&amp;lt;00:02,  1.39s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:09&amp;lt;00:01,  1.47s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:09&amp;lt;00:00,  1.04it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.24it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.64it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:06,  1.56s/it]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:07&amp;lt;00:03,  1.21s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:09&amp;lt;00:02,  1.40s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.54s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.10s/it]\n\rRun 1/1 Subjects:  25%|\u2588\u2588\u258c       | 1/4 [01:00&amp;lt;03:00, 60.22s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 14.38it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00,  6.87it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:06,  1.56s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.30s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.47s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.02s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 10.63it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  7.44it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00,  6.47it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:07,  1.84s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.46s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.59s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.06s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 17.88it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  9.00it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.42s/it]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:06&amp;lt;00:03,  1.10s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.32s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.56s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.06s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 17.29it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  9.66it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.36s/it]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:06&amp;lt;00:03,  1.07s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.29s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.47s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.02s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.55it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  9.06it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.34s/it]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:06&amp;lt;00:03,  1.04s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:07&amp;lt;00:02,  1.25s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:09&amp;lt;00:01,  1.43s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:09&amp;lt;00:00,  1.01it/s]\n\rRun 1/1 Subjects:  50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [02:25&amp;lt;02:30, 75.19s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.26it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  9.93it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.39s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.23s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.41s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.02s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 16.63it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  7.54it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:05&amp;lt;00:05,  1.30s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:07&amp;lt;00:02,  1.18s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:09&amp;lt;00:01,  1.36s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:09&amp;lt;00:00,  1.02it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 17.33it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  8.68it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.36s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.21s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:09&amp;lt;00:01,  1.36s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:09&amp;lt;00:00,  1.01it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.09it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  7.37it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.39s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.23s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.46s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.05s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.88it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  9.27it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:06,  1.54s/it]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:07&amp;lt;00:03,  1.19s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.36s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.57s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.10s/it]\n\rRun 1/1 Subjects:  75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [03:51&amp;lt;01:20, 80.00s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 17.15it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  9.26it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.48s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.30s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.47s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.08s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.43it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 10.18it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:06,  1.55s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.34s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:11&amp;lt;00:01,  1.53s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:11&amp;lt;00:00,  1.12s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.69it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  8.30it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.49s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.30s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.51s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.09s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.22it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  8.94it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.45s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.26s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.48s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.07s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.27it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  8.76it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:06,  1.51s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.31s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:11&amp;lt;00:01,  1.53s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:11&amp;lt;00:00,  1.11s/it]\n\rRun 1/1 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [05:21&amp;lt;00:00, 83.99s/it]\rRun 1/1 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [05:21&amp;lt;00:00, 80.43s/it]\n&#34;}], &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_multi_run_outputs_correctly&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_multi_run_outputs_correctly&#34;, &#34;duration&#34;: &#34;00:06:31&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectDistributionAnalysis::test_multi_run_outputs_correctly&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:06:31&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stdout call -----------------------------\n\n======================================================================\nWithin-Subject Analysis: ON_vs_OFF (LR)\n======================================================================\nAlgorithm: LR\nFeatures: 10\nSubjects config: 4 total\nCV Strategy: stratified_kfold (5 folds)\nRuns: 2\nResults Path: /private/var/folders/12/vc8ry6qs78n5ks6ypt4cpx580000gq/T/pytest-of-nicolas.bruno/pytest-12/test_multi_run_outputs_correct0/results_ws/WithinSubject/ON_vs_OFF\n----------------------------------------------------------------------\n  [Run 1/2] 210.2s | Avg AUC=0.667 | Valid Subs: 4\n  [Run 2/2] 181.1s | Avg AUC=0.600 | Valid Subs: 4\nConsolidated predictions: 80 unique probes across 2 runs\n\n----------------------------- Captured stderr call -----------------------------\n\rRun 1/2 Subjects:   0%|          | 0/4 [00:00&amp;lt;?, ?it/s]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.00it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  8.21it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:05,  1.49s/it]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:06&amp;lt;00:03,  1.15s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.31s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.54s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.07s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.01it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 11.58it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:06,  1.53s/it]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:06&amp;lt;00:03,  1.18s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.36s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.57s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.09s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 16.71it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00,  9.59it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:06&amp;lt;00:06,  1.50s/it]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:06&amp;lt;00:03,  1.16s/it]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:08&amp;lt;00:02,  1.34s/it]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:10&amp;lt;00:01,  1.52s/it]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:10&amp;lt;00:00,  1.07s/it]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.27it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 12.14it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.39it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.07it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.63it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.38it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.46it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 13.78it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.58it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:00,  2.08it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.62it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.41it/s]\n\rRun 1/2 Subjects:  25%|\u2588\u2588\u258c       | 1/4 [01:13&amp;lt;03:41, 73.85s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.79it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.41it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.10it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.97it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.55it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.14it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.37it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.08it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.17it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.83it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.96it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.91it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.46it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 18.18it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 15.05it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.02it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 18.05it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.23it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.09it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.97it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.50it/s]\n\rRun 1/2 Subjects:  50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [01:59&amp;lt;01:54, 57.16s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.09it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.80it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.08it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.90it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.47it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.84it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.68it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.04it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.92it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.47it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.90it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.83it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.10it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.98it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.54it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.69it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 14.05it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.76it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.23it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.68it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.52it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.57it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.90it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.06it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.48it/s]\n\rRun 1/2 Subjects:  75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [02:44&amp;lt;00:51, 51.75s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.42it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.01it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.99it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.94it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.49it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 19.21it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 13.99it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.74it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.21it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.66it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.32it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.12it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.07it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.96it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.52it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.94it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.77it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.05it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.95it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.48it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 18.56it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.75it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.07it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.96it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.49it/s]\n\rRun 1/2 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:30&amp;lt;00:00, 49.31s/it]\rRun 1/2 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:30&amp;lt;00:00, 52.55s/it]\n\rRun 2/2 Subjects:   0%|          | 0/4 [00:00&amp;lt;?, ?it/s]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.69it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.15it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.11it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.99it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.53it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.05it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.44it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.10it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.98it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.56it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.57it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.91it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.12it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.05it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.97it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.51it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.07it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.38it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.08it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.98it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.54it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.29it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.94it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.04it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.96it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.51it/s]\n\rRun 2/2 Subjects:  25%|\u2588\u2588\u258c       | 1/4 [00:44&amp;lt;02:14, 44.99s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.06it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.71it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.06it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.96it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.52it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.42it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.99it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.06it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.95it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.51it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.40it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.41it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.06it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.93it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.47it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 15.64it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.13it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.02it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.96it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.45it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.67it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.00it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.93it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.48it/s]\n\rRun 2/2 Subjects:  50%|\u2588\u2588\u2588\u2588\u2588     | 2/4 [01:30&amp;lt;01:30, 45.31s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.88it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.92it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:01,  2.77it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:03&amp;lt;00:01,  1.87it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.43it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.37it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.96it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.09it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.99it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.53it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.25it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.72it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.05it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.92it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 20%|\u2588\u2588        | 2/10 [00:00&amp;lt;00:00, 18.63it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 4/10 [00:00&amp;lt;00:00, 13.64it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 6/10 [00:01&amp;lt;00:01,  2.72it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:00,  2.18it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.65it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.48it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.24it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.69it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.03it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.93it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.46it/s]\n\rRun 2/2 Subjects:  75%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258c  | 3/4 [02:15&amp;lt;00:45, 45.32s/it]\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.77it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.18it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.10it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.99it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.52it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.34it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.92it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.11it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.98it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.54it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 17.12it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.91it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.01it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.95it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:04&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:04&amp;lt;00:00,  2.50it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.08it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 13.49it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.05it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.98it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.52it/s]\n\n\r  0%|          | 0/10 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 30%|\u2588\u2588\u2588       | 3/10 [00:00&amp;lt;00:00, 16.91it/s]\u001b[A\n\r 50%|\u2588\u2588\u2588\u2588\u2588     | 5/10 [00:00&amp;lt;00:00, 14.09it/s]\u001b[A\n\r 70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588   | 7/10 [00:01&amp;lt;00:00,  3.03it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 8/10 [00:02&amp;lt;00:01,  1.96it/s]\u001b[A\n\r 90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 | 9/10 [00:03&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 10/10 [00:03&amp;lt;00:00,  2.53it/s]\n\rRun 2/2 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:01&amp;lt;00:00, 45.30s/it]\rRun 2/2 Subjects: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [03:01&amp;lt;00:00, 45.28s/it]\n&#34;}], &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_returns_dataframe_and_dict&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_returns_dataframe_and_dict&#34;, &#34;duration&#34;: &#34;00:02:19&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_returns_dataframe_and_dict&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:02:19&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stdout call -----------------------------\n\n*** Within-Subject Permutation: 2 runs ***\n\n----------------------------- Captured stderr call -----------------------------\n\rPermutation [lr] WS ON_vs_OFF:   0%|          | 0/2 [00:00&amp;lt;?, ?it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.28it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.23it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.20it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.03it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.31it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.31it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.26it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.16it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.02it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.28it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.01it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.28it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.03it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.31it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.25it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.07it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.07it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 2/5 [00:00&amp;lt;00:00, 13.93it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.38it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  1.99it/s]\n\rPermutation [lr] WS ON_vs_OFF:  50%|\u2588\u2588\u2588\u2588\u2588     | 1/2 [01:09&amp;lt;01:09, 69.54s/it]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.27it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.05it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 2/5 [00:00&amp;lt;00:00, 19.31it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.35it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  1.97it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 40%|\u2588\u2588\u2588\u2588      | 2/5 [00:00&amp;lt;00:00, 19.97it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.45it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.10it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.12it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.41it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  1.91it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.27it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.20it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.03it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.07it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.29it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.31it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.07it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.29it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.55it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.30it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.25it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.26it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.26it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\rPermutation [lr] WS ON_vs_OFF: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 2/2 [02:19&amp;lt;00:00, 69.57s/it]\rPermutation [lr] WS ON_vs_OFF: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 2/2 [02:19&amp;lt;00:00, 69.56s/it]\n&#34;}], &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_zero_permutations_returns_empty&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_zero_permutations_returns_empty&#34;, &#34;duration&#34;: &#34;2 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_zero_permutations_returns_empty&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;2 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_permutation_computes_p_value_with_true_df&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_permutation_computes_p_value_with_true_df&#34;, &#34;duration&#34;: &#34;00:02:18&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_analysis_pipeline.py::TestRunWithinSubjectPermutationAnalysis::test_permutation_computes_p_value_with_true_df&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:02:18&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stdout call -----------------------------\n\n*** Within-Subject Permutation: 2 runs ***\nWS Permutation Global AUC: Null=0.5000\u00b10.0000, True=0.8000, p=0.0000\n\n----------------------------- Captured stderr call -----------------------------\n\rPermutation [lr] WS ON_vs_OFF:   0%|          | 0/2 [00:00&amp;lt;?, ?it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.26it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.05it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.34it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.29it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.03it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.17it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.01it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.27it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.27it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.29it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.55it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.28it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.26it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.02it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.24it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.56it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.10it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.22it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.05it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.29it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.55it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.09it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.31it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.03it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.21it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.01it/s]\n\rPermutation [lr] WS ON_vs_OFF:  50%|\u2588\u2588\u2588\u2588\u2588     | 1/2 [01:09&amp;lt;01:09, 69.27s/it]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.35it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.20it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.50it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.01it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.34it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.24it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.30it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.07it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.55it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.10it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.05it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.29it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.30it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.25it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.05it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.32it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.51it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.05it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.30it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.26it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.07it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.25it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.48it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.01it/s]\n\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\u001b[A\n\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.15it/s]\u001b[A\n\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.49it/s]\u001b[A\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  1.99it/s]\n\rPermutation [lr] WS ON_vs_OFF: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 2/2 [02:18&amp;lt;00:00, 69.20s/it]\rPermutation [lr] WS ON_vs_OFF: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 2/2 [02:18&amp;lt;00:00, 69.21s/it]\n&#34;}], &#34;within_subject_pipeline/tests/test_performance.py::test_within_subject_learns_good_data&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_performance.py::test_within_subject_learns_good_data&#34;, &#34;duration&#34;: &#34;00:00:23&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_performance.py::test_within_subject_learns_good_data&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:00:23&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stderr call -----------------------------\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.28it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.06it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.23it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.48it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.00it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.30it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.50it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.27it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.24it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n&#34;}], &#34;within_subject_pipeline/tests/test_performance.py::test_within_subject_fails_on_random_noise&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_performance.py::test_within_subject_fails_on_random_noise&#34;, &#34;duration&#34;: &#34;00:00:23&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_performance.py::test_within_subject_fails_on_random_noise&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:00:23&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stderr call -----------------------------\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.28it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.07it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.27it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.05it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.30it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.55it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.09it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.30it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.53it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.07it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.28it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.05it/s]\n&#34;}], &#34;within_subject_pipeline/tests/test_performance.py::test_within_subject_group_kfold&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;within_subject_pipeline/tests/test_performance.py::test_within_subject_group_kfold&#34;, &#34;duration&#34;: &#34;00:00:18&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;within_subject_pipeline/tests/test_performance.py::test_within_subject_group_kfold&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;00:00:18&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;----------------------------- Captured stderr call -----------------------------\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.30it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.55it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.09it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.31it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.54it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.08it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.19it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.52it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.04it/s]\n\r  0%|          | 0/5 [00:00&amp;lt;?, ?it/s]\r 60%|\u2588\u2588\u2588\u2588\u2588\u2588    | 3/5 [00:01&amp;lt;00:00,  2.28it/s]\r 80%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588  | 4/5 [00:02&amp;lt;00:00,  1.50it/s]\r100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:02&amp;lt;00:00,  2.03it/s]\n&#34;}]}, &#34;renderCollapsed&#34;: [&#34;passed&#34;], &#34;initialSort&#34;: &#34;result&#34;, &#34;title&#34;: &#34;report.html&#34;}"></div>
+    <script>
+      (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+const { getCollapsedCategory, setCollapsedIds } = require('./storage.js')
+
+class DataManager {
+    setManager(data) {
+        const collapsedCategories = [...getCollapsedCategory(data.renderCollapsed)]
+        const collapsedIds = []
+        const tests = Object.values(data.tests).flat().map((test, index) => {
+            const collapsed = collapsedCategories.includes(test.result.toLowerCase())
+            const id = `test_${index}`
+            if (collapsed) {
+                collapsedIds.push(id)
+            }
+            return {
+                ...test,
+                id,
+                collapsed,
+            }
+        })
+        const dataBlob = { ...data, tests }
+        this.data = { ...dataBlob }
+        this.renderData = { ...dataBlob }
+        setCollapsedIds(collapsedIds)
+    }
+
+    get allData() {
+        return { ...this.data }
+    }
+
+    resetRender() {
+        this.renderData = { ...this.data }
+    }
+
+    setRender(data) {
+        this.renderData.tests = [...data]
+    }
+
+    toggleCollapsedItem(id) {
+        this.renderData.tests = this.renderData.tests.map((test) =>
+            test.id === id ? { ...test, collapsed: !test.collapsed } : test,
+        )
+    }
+
+    set allCollapsed(collapsed) {
+        this.renderData = { ...this.renderData, tests: [...this.renderData.tests.map((test) => (
+            { ...test, collapsed }
+        ))] }
+    }
+
+    get testSubset() {
+        return [...this.renderData.tests]
+    }
+
+    get environment() {
+        return this.renderData.environment
+    }
+
+    get initialSort() {
+        return this.data.initialSort
+    }
+}
+
+module.exports = {
+    manager: new DataManager(),
+}
+
+},{"./storage.js":8}],2:[function(require,module,exports){
+const mediaViewer = require('./mediaviewer.js')
+const templateEnvRow = document.getElementById('template_environment_row')
+const templateResult = document.getElementById('template_results-table__tbody')
+
+function htmlToElements(html) {
+    const temp = document.createElement('template')
+    temp.innerHTML = html
+    return temp.content.childNodes
+}
+
+const find = (selector, elem) => {
+    if (!elem) {
+        elem = document
+    }
+    return elem.querySelector(selector)
+}
+
+const findAll = (selector, elem) => {
+    if (!elem) {
+        elem = document
+    }
+    return [...elem.querySelectorAll(selector)]
+}
+
+const dom = {
+    getStaticRow: (key, value) => {
+        const envRow = templateEnvRow.content.cloneNode(true)
+        const isObj = typeof value === 'object' && value !== null
+        const values = isObj ? Object.keys(value).map((k) => `${k}: ${value[k]}`) : null
+
+        const valuesElement = htmlToElements(
+            values ? `<ul>${values.map((val) => `<li>${val}</li>`).join('')}<ul>` : `<div>${value}</div>`)[0]
+        const td = findAll('td', envRow)
+        td[0].textContent = key
+        td[1].appendChild(valuesElement)
+
+        return envRow
+    },
+    getResultTBody: ({ testId, id, log, extras, resultsTableRow, tableHtml, result, collapsed }) => {
+        const resultBody = templateResult.content.cloneNode(true)
+        resultBody.querySelector('tbody').classList.add(result.toLowerCase())
+        resultBody.querySelector('tbody').id = testId
+        resultBody.querySelector('.collapsible').dataset.id = id
+
+        resultsTableRow.forEach((html) => {
+            const t = document.createElement('template')
+            t.innerHTML = html
+            resultBody.querySelector('.collapsible').appendChild(t.content)
+        })
+
+        if (log) {
+            // Wrap lines starting with "E" with span.error to color those lines red
+            const wrappedLog = log.replace(/^E.*$/gm, (match) => `<span class="error">${match}</span>`)
+            resultBody.querySelector('.log').innerHTML = wrappedLog
+        } else {
+            resultBody.querySelector('.log').remove()
+        }
+
+        if (collapsed) {
+            resultBody.querySelector('.collapsible > .col-result')?.classList.add('collapsed')
+            resultBody.querySelector('.extras-row').classList.add('hidden')
+        } else {
+            resultBody.querySelector('.collapsible > .col-result')?.classList.remove('collapsed')
+        }
+
+        const media = []
+        extras?.forEach(({ name, format_type, content }) => {
+            if (['image', 'video'].includes(format_type)) {
+                media.push({ path: content, name, format_type })
+            }
+
+            if (format_type === 'html') {
+                resultBody.querySelector('.extraHTML').insertAdjacentHTML('beforeend', `<div>${content}</div>`)
+            }
+        })
+        mediaViewer.setup(resultBody, media)
+
+        // Add custom html from the pytest_html_results_table_html hook
+        tableHtml?.forEach((item) => {
+            resultBody.querySelector('td[class="extra"]').insertAdjacentHTML('beforeend', item)
+        })
+
+        return resultBody
+    },
+}
+
+module.exports = {
+    dom,
+    htmlToElements,
+    find,
+    findAll,
+}
+
+},{"./mediaviewer.js":6}],3:[function(require,module,exports){
+const { manager } = require('./datamanager.js')
+const { doSort } = require('./sort.js')
+const storageModule = require('./storage.js')
+
+const getFilteredSubSet = (filter) =>
+    manager.allData.tests.filter(({ result }) => filter.includes(result.toLowerCase()))
+
+const doInitFilter = () => {
+    const currentFilter = storageModule.getVisible()
+    const filteredSubset = getFilteredSubSet(currentFilter)
+    manager.setRender(filteredSubset)
+}
+
+const doFilter = (type, show) => {
+    if (show) {
+        storageModule.showCategory(type)
+    } else {
+        storageModule.hideCategory(type)
+    }
+
+    const currentFilter = storageModule.getVisible()
+    const filteredSubset = getFilteredSubSet(currentFilter)
+    manager.setRender(filteredSubset)
+
+    const sortColumn = storageModule.getSort()
+    doSort(sortColumn, true)
+}
+
+module.exports = {
+    doFilter,
+    doInitFilter,
+}
+
+},{"./datamanager.js":1,"./sort.js":7,"./storage.js":8}],4:[function(require,module,exports){
+const { redraw, bindEvents, renderStatic } = require('./main.js')
+const { doInitFilter } = require('./filter.js')
+const { doInitSort } = require('./sort.js')
+const { manager } = require('./datamanager.js')
+const data = JSON.parse(document.getElementById('data-container').dataset.jsonblob)
+
+function init() {
+    manager.setManager(data)
+    doInitFilter()
+    doInitSort()
+    renderStatic()
+    redraw()
+    bindEvents()
+}
+
+init()
+
+},{"./datamanager.js":1,"./filter.js":3,"./main.js":5,"./sort.js":7}],5:[function(require,module,exports){
+const { dom, find, findAll } = require('./dom.js')
+const { manager } = require('./datamanager.js')
+const { doSort } = require('./sort.js')
+const { doFilter } = require('./filter.js')
+const {
+    getVisible,
+    getCollapsedIds,
+    setCollapsedIds,
+    getSort,
+    getSortDirection,
+    possibleFilters,
+} = require('./storage.js')
+
+const removeChildren = (node) => {
+    while (node.firstChild) {
+        node.removeChild(node.firstChild)
+    }
+}
+
+const renderStatic = () => {
+    const renderEnvironmentTable = () => {
+        const environment = manager.environment
+        const rows = Object.keys(environment).map((key) => dom.getStaticRow(key, environment[key]))
+        const table = document.getElementById('environment')
+        removeChildren(table)
+        rows.forEach((row) => table.appendChild(row))
+    }
+    renderEnvironmentTable()
+}
+
+const addItemToggleListener = (elem) => {
+    elem.addEventListener('click', ({ target }) => {
+        const id = target.parentElement.dataset.id
+        manager.toggleCollapsedItem(id)
+
+        const collapsedIds = getCollapsedIds()
+        if (collapsedIds.includes(id)) {
+            const updated = collapsedIds.filter((item) => item !== id)
+            setCollapsedIds(updated)
+        } else {
+            collapsedIds.push(id)
+            setCollapsedIds(collapsedIds)
+        }
+        redraw()
+    })
+}
+
+const renderContent = (tests) => {
+    const sortAttr = getSort(manager.initialSort)
+    const sortAsc = JSON.parse(getSortDirection())
+    const rows = tests.map(dom.getResultTBody)
+    const table = document.getElementById('results-table')
+    const tableHeader = document.getElementById('results-table-head')
+
+    const newTable = document.createElement('table')
+    newTable.id = 'results-table'
+
+    // remove all sorting classes and set the relevant
+    findAll('.sortable', tableHeader).forEach((elem) => elem.classList.remove('asc', 'desc'))
+    tableHeader.querySelector(`.sortable[data-column-type="${sortAttr}"]`)?.classList.add(sortAsc ? 'desc' : 'asc')
+    newTable.appendChild(tableHeader)
+
+    if (!rows.length) {
+        const emptyTable = document.getElementById('template_results-table__body--empty').content.cloneNode(true)
+        newTable.appendChild(emptyTable)
+    } else {
+        rows.forEach((row) => {
+            if (!!row) {
+                findAll('.collapsible td:not(.col-links', row).forEach(addItemToggleListener)
+                find('.logexpander', row).addEventListener('click',
+                    (evt) => evt.target.parentNode.classList.toggle('expanded'),
+                )
+                newTable.appendChild(row)
+            }
+        })
+    }
+
+    table.replaceWith(newTable)
+}
+
+const renderDerived = () => {
+    const currentFilter = getVisible()
+    possibleFilters.forEach((result) => {
+        const input = document.querySelector(`input[data-test-result="${result}"]`)
+        input.checked = currentFilter.includes(result)
+    })
+}
+
+const bindEvents = () => {
+    const filterColumn = (evt) => {
+        const { target: element } = evt
+        const { testResult } = element.dataset
+
+        doFilter(testResult, element.checked)
+        const collapsedIds = getCollapsedIds()
+        const updated = manager.renderData.tests.map((test) => {
+            return {
+                ...test,
+                collapsed: collapsedIds.includes(test.id),
+            }
+        })
+        manager.setRender(updated)
+        redraw()
+    }
+
+    const header = document.getElementById('environment-header')
+    header.addEventListener('click', () => {
+        const table = document.getElementById('environment')
+        table.classList.toggle('hidden')
+        header.classList.toggle('collapsed')
+    })
+
+    findAll('input[name="filter_checkbox"]').forEach((elem) => {
+        elem.addEventListener('click', filterColumn)
+    })
+
+    findAll('.sortable').forEach((elem) => {
+        elem.addEventListener('click', (evt) => {
+            const { target: element } = evt
+            const { columnType } = element.dataset
+            doSort(columnType)
+            redraw()
+        })
+    })
+
+    document.getElementById('show_all_details').addEventListener('click', () => {
+        manager.allCollapsed = false
+        setCollapsedIds([])
+        redraw()
+    })
+    document.getElementById('hide_all_details').addEventListener('click', () => {
+        manager.allCollapsed = true
+        const allIds = manager.renderData.tests.map((test) => test.id)
+        setCollapsedIds(allIds)
+        redraw()
+    })
+}
+
+const redraw = () => {
+    const { testSubset } = manager
+
+    renderContent(testSubset)
+    renderDerived()
+}
+
+module.exports = {
+    redraw,
+    bindEvents,
+    renderStatic,
+}
+
+},{"./datamanager.js":1,"./dom.js":2,"./filter.js":3,"./sort.js":7,"./storage.js":8}],6:[function(require,module,exports){
+class MediaViewer {
+    constructor(assets) {
+        this.assets = assets
+        this.index = 0
+    }
+
+    nextActive() {
+        this.index = this.index === this.assets.length - 1 ? 0 : this.index + 1
+        return [this.activeFile, this.index]
+    }
+
+    prevActive() {
+        this.index = this.index === 0 ? this.assets.length - 1 : this.index -1
+        return [this.activeFile, this.index]
+    }
+
+    get currentIndex() {
+        return this.index
+    }
+
+    get activeFile() {
+        return this.assets[this.index]
+    }
+}
+
+
+const setup = (resultBody, assets) => {
+    if (!assets.length) {
+        resultBody.querySelector('.media').classList.add('hidden')
+        return
+    }
+
+    const mediaViewer = new MediaViewer(assets)
+    const container = resultBody.querySelector('.media-container')
+    const leftArrow = resultBody.querySelector('.media-container__nav--left')
+    const rightArrow = resultBody.querySelector('.media-container__nav--right')
+    const mediaName = resultBody.querySelector('.media__name')
+    const counter = resultBody.querySelector('.media__counter')
+    const imageEl = resultBody.querySelector('img')
+    const sourceEl = resultBody.querySelector('source')
+    const videoEl = resultBody.querySelector('video')
+
+    const setImg = (media, index) => {
+        if (media?.format_type === 'image') {
+            imageEl.src = media.path
+
+            imageEl.classList.remove('hidden')
+            videoEl.classList.add('hidden')
+        } else if (media?.format_type === 'video') {
+            sourceEl.src = media.path
+
+            videoEl.classList.remove('hidden')
+            imageEl.classList.add('hidden')
+        }
+
+        mediaName.innerText = media?.name
+        counter.innerText = `${index + 1} / ${assets.length}`
+    }
+    setImg(mediaViewer.activeFile, mediaViewer.currentIndex)
+
+    const moveLeft = () => {
+        const [media, index] = mediaViewer.prevActive()
+        setImg(media, index)
+    }
+    const doRight = () => {
+        const [media, index] = mediaViewer.nextActive()
+        setImg(media, index)
+    }
+    const openImg = () => {
+        window.open(mediaViewer.activeFile.path, '_blank')
+    }
+    if (assets.length === 1) {
+        container.classList.add('media-container--fullscreen')
+    } else {
+        leftArrow.addEventListener('click', moveLeft)
+        rightArrow.addEventListener('click', doRight)
+    }
+    imageEl.addEventListener('click', openImg)
+}
+
+module.exports = {
+    setup,
+}
+
+},{}],7:[function(require,module,exports){
+const { manager } = require('./datamanager.js')
+const storageModule = require('./storage.js')
+
+const genericSort = (list, key, ascending, customOrder) => {
+    let sorted
+    if (customOrder) {
+        sorted = list.sort((a, b) => {
+            const aValue = a.result.toLowerCase()
+            const bValue = b.result.toLowerCase()
+
+            const aIndex = customOrder.findIndex((item) => item.toLowerCase() === aValue)
+            const bIndex = customOrder.findIndex((item) => item.toLowerCase() === bValue)
+
+            // Compare the indices to determine the sort order
+            return aIndex - bIndex
+        })
+    } else {
+        sorted = list.sort((a, b) => a[key] === b[key] ? 0 : a[key] > b[key] ? 1 : -1)
+    }
+
+    if (ascending) {
+        sorted.reverse()
+    }
+    return sorted
+}
+
+const durationSort = (list, ascending) => {
+    const parseDuration = (duration) => {
+        if (duration.includes(':')) {
+            // If it's in the format "HH:mm:ss"
+            const [hours, minutes, seconds] = duration.split(':').map(Number)
+            return (hours * 3600 + minutes * 60 + seconds) * 1000
+        } else {
+            // If it's in the format "nnn ms"
+            return parseInt(duration)
+        }
+    }
+    const sorted = list.sort((a, b) => parseDuration(a['duration']) - parseDuration(b['duration']))
+    if (ascending) {
+        sorted.reverse()
+    }
+    return sorted
+}
+
+const doInitSort = () => {
+    const type = storageModule.getSort(manager.initialSort)
+    const ascending = storageModule.getSortDirection()
+    const list = manager.testSubset
+    const initialOrder = ['Error', 'Failed', 'Rerun', 'XFailed', 'XPassed', 'Skipped', 'Passed']
+
+    storageModule.setSort(type)
+    storageModule.setSortDirection(ascending)
+
+    if (type?.toLowerCase() === 'original') {
+        manager.setRender(list)
+    } else {
+        let sortedList
+        switch (type) {
+        case 'duration':
+            sortedList = durationSort(list, ascending)
+            break
+        case 'result':
+            sortedList = genericSort(list, type, ascending, initialOrder)
+            break
+        default:
+            sortedList = genericSort(list, type, ascending)
+            break
+        }
+        manager.setRender(sortedList)
+    }
+}
+
+const doSort = (type, skipDirection) => {
+    const newSortType = storageModule.getSort(manager.initialSort) !== type
+    const currentAsc = storageModule.getSortDirection()
+    let ascending
+    if (skipDirection) {
+        ascending = currentAsc
+    } else {
+        ascending = newSortType ? false : !currentAsc
+    }
+    storageModule.setSort(type)
+    storageModule.setSortDirection(ascending)
+
+    const list = manager.testSubset
+    const sortedList = type === 'duration' ? durationSort(list, ascending) : genericSort(list, type, ascending)
+    manager.setRender(sortedList)
+}
+
+module.exports = {
+    doInitSort,
+    doSort,
+}
+
+},{"./datamanager.js":1,"./storage.js":8}],8:[function(require,module,exports){
+const possibleFilters = [
+    'passed',
+    'skipped',
+    'failed',
+    'error',
+    'xfailed',
+    'xpassed',
+    'rerun',
+]
+
+const getVisible = () => {
+    const url = new URL(window.location.href)
+    const settings = new URLSearchParams(url.search).get('visible')
+    const lower = (item) => {
+        const lowerItem = item.toLowerCase()
+        if (possibleFilters.includes(lowerItem)) {
+            return lowerItem
+        }
+        return null
+    }
+    return settings === null ?
+        possibleFilters :
+        [...new Set(settings?.split(',').map(lower).filter((item) => item))]
+}
+
+const hideCategory = (categoryToHide) => {
+    const url = new URL(window.location.href)
+    const visibleParams = new URLSearchParams(url.search).get('visible')
+    const currentVisible = visibleParams ? visibleParams.split(',') : [...possibleFilters]
+    const settings = [...new Set(currentVisible)].filter((f) => f !== categoryToHide).join(',')
+
+    url.searchParams.set('visible', settings)
+    window.history.pushState({}, null, unescape(url.href))
+}
+
+const showCategory = (categoryToShow) => {
+    if (typeof window === 'undefined') {
+        return
+    }
+    const url = new URL(window.location.href)
+    const currentVisible = new URLSearchParams(url.search).get('visible')?.split(',').filter(Boolean) ||
+        [...possibleFilters]
+    const settings = [...new Set([categoryToShow, ...currentVisible])]
+    const noFilter = possibleFilters.length === settings.length || !settings.length
+
+    noFilter ? url.searchParams.delete('visible') : url.searchParams.set('visible', settings.join(','))
+    window.history.pushState({}, null, unescape(url.href))
+}
+
+const getSort = (initialSort) => {
+    const url = new URL(window.location.href)
+    let sort = new URLSearchParams(url.search).get('sort')
+    if (!sort) {
+        sort = initialSort || 'result'
+    }
+    return sort
+}
+
+const setSort = (type) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('sort', type)
+    window.history.pushState({}, null, unescape(url.href))
+}
+
+const getCollapsedCategory = (renderCollapsed) => {
+    let categories
+    if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        const collapsedItems = new URLSearchParams(url.search).get('collapsed')
+        switch (true) {
+        case !renderCollapsed && collapsedItems === null:
+            categories = ['passed']
+            break
+        case collapsedItems?.length === 0 || /^["']{2}$/.test(collapsedItems):
+            categories = []
+            break
+        case /^all$/.test(collapsedItems) || collapsedItems === null && /^all$/.test(renderCollapsed):
+            categories = [...possibleFilters]
+            break
+        default:
+            categories = collapsedItems?.split(',').map((item) => item.toLowerCase()) || renderCollapsed
+            break
+        }
+    } else {
+        categories = []
+    }
+    return categories
+}
+
+const getSortDirection = () => JSON.parse(sessionStorage.getItem('sortAsc')) || false
+const setSortDirection = (ascending) => sessionStorage.setItem('sortAsc', ascending)
+
+const getCollapsedIds = () => JSON.parse(sessionStorage.getItem('collapsedIds')) || []
+const setCollapsedIds = (list) => sessionStorage.setItem('collapsedIds', JSON.stringify(list))
+
+module.exports = {
+    getVisible,
+    hideCategory,
+    showCategory,
+    getCollapsedIds,
+    setCollapsedIds,
+    getSort,
+    setSort,
+    getSortDirection,
+    setSortDirection,
+    getCollapsedCategory,
+    possibleFilters,
+}
+
+},{}]},{},[4]);
+    </script>
+  </footer>
+  </body>
+</html>

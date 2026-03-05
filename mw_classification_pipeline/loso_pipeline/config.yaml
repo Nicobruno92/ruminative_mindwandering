@@ -47,16 +47,28 @@ label_source: onoff
 label_contrasts:
   ON_vs_OFF:
     label_source: onoff
-    threshold: 60
+    split_method: "threshold"
+    threshold: 50
     positive_above: true
 
-  # ON_vs_OFF_extreme:
-  #   label_source: onoff
-  #   threshold_low: 30
-  #   threshold_high: 70
+  ON_vs_OFF_within_median:
+    label_source: onoff
+    split_method: "within_subject_median"
+    positive_above: true
+
+  ON_vs_OFF_global_median:
+    label_source: onoff
+    split_method: "global_median"
+    positive_above: true
+
+  ON_vs_OFF_extreme:
+    label_source: onoff
+    split_method: "extreme_groups"
+    threshold_low: 30
+    threshold_high: 70
 
 # Which contrast to run (overridable with --contrast)
-contrast: ON_vs_OFF
+contrast: ON_vs_OFF_within_median
 
 # =============================================================================
 # EPOCH TYPES

@@ -23,7 +23,7 @@ import seaborn as sns
 from tqdm import tqdm
 
 from utils.data_utils import get_model_results_folder
-from utils.ml_utils import run_model_pipeline_cv, compute_shap_values_for_pipeline
+from utils.ml_utils import run_model_pipeline_cv, run_within_subject_cv, compute_shap_values_for_pipeline
 from utils.plotting_utils import (
     plot_confusion_matrix,
     plot_roc_curve,
@@ -1016,3 +1016,509 @@ def run_permutation_distribution_analysis(
             print("  ✓ Permutation distribution plots")
 
     return results_df, perm_summary
+
+
+# =============================================================================
+# MAIN ANALYSIS — WITHIN-SUBJECT
+# =============================================================================
+
+def run_within_subject_distribution_analysis(
+    dimension: str,
+    df: pd.DataFrame,
+    X: pd.DataFrame,
+    y: pd.Series,
+    subjects: pd.Series,
+    tasks: pd.Series,
+    feature_cols: list,
+    config: dict,
+    positive_class_name: str = "ON-task",
+    negative_class_name: str = "OFF-task",
+    n_runs: int = 1,
+    results_path: str = "results/MW_Classification/",
+    model_type: str = "lr",
+    class_weight=None,
+    scale_pos_weight=None,
+    use_smote: bool = False,
+    oversampling_method: str = "SMOTE",
+    oversampling_scope: str = "within",
+    cv_strategy: str = "stratified_kfold",
+    cv_folds: int = 5,
+    min_samples_per_class: int = 0,
+    min_minority_ratio: float = 0.0,
+    k: int = 20,
+    rf_params: dict = None,
+    xgb_params: dict = None,
+    lr_params: dict = None,
+    top_n_features_plot: int = 20,
+    save_pickle: bool = False,
+    save_csv: bool = True,
+    save_probabilities: bool = True,
+    save_plots: bool = True,
+    save_shap: bool = False,
+    plot_style: str = "seaborn",
+    verbose: bool = True,
+    feature_selection_method: str = "mrmr",
+    scaler: str = "standard",
+    use_pca: bool = False,
+    pca_n_components: int = None,
+    pca_type: str = "standard",
+    pca_kernel: str = "rbf",
+    logger=None,
+):
+    """
+    Run within-subject classification (independently per subject).
+    Generates a single comprehensive output matching the LOSO structure, 
+    where each row represents one subject's CV performance.
+    """
+    if plot_style and save_plots:
+        from utils.plotting_utils import set_plot_style
+        set_plot_style(plot_style)
+
+    model_name = config.get("current_model", "default")
+    model_folder = get_model_results_folder(config, model_name, model_type)
+    dimension_results_path = os.path.join(results_path, model_folder, "WithinSubject", dimension)
+    Path(dimension_results_path).mkdir(parents=True, exist_ok=True)
+
+    filename_base = _build_filename_base(model_type, n_runs)
+    feature_names = X.columns
+    unique_subjects = np.unique(subjects)
+    
+    rng = np.random.default_rng(config.get("random_seed", 42))
+    
+    # Store results aggregated across runs
+    all_runs_subject_metrics = []
+    shap_values_all_runs = []
+    
+    start_time = time.time()
+    if verbose:
+        print(f"\n{'='*70}\nWithin-Subject Analysis: {dimension} ({model_type.upper()})\n{'='*70}")
+        print(f"Algorithm: {model_type.upper()}")
+        print(f"Features: {len(feature_names)}")
+        print(f"Subjects config: {len(unique_subjects)} total")
+        print(f"CV Strategy: {cv_strategy} ({cv_folds} folds)")
+        print(f"Runs: {n_runs}")
+        print(f"Results Path: {dimension_results_path}")
+        print("-" * 70)
+
+    for run_idx in range(n_runs):
+        run_start = time.time()
+        random_state = int(rng.integers(1, 10000))
+        run_dir = get_run_dir(dimension_results_path, run_idx, n_runs)
+        
+        run_subject_results = []
+        run_fold_predictions = []
+        run_sample_predictions = []
+        importances_list = []
+        shap_list = []
+        
+        valid_subjects = 0
+        skipped_subjects = 0
+
+        for subject in tqdm(unique_subjects, desc=f"Run {run_idx+1}/{n_runs} Subjects", disable=not verbose):
+            sub_mask = (subjects == subject)
+            X_sub = X[sub_mask].reset_index(drop=True)
+            y_sub = y[sub_mask].reset_index(drop=True)
+            
+            # Groups only specifically applied to Group K-Fold
+            groups_sub = tasks[sub_mask].reset_index(drop=True) if cv_strategy == 'group_kfold' else None
+
+            # 1. Filter: Minimum samples per class
+            counts = y_sub.value_counts()
+            if len(counts) < 2 or counts.min() < min_samples_per_class:
+                skipped_subjects += 1
+                if logger: logger.warning(f"Skipping {subject}: insufficient class samples.")
+                continue
+                
+            # 2. Filter: Minority ratio
+            minority_ratio = counts.min() / len(y_sub)
+            if minority_ratio < min_minority_ratio:
+                skipped_subjects += 1
+                if logger: logger.warning(f"Skipping {subject}: minority ratio {minority_ratio:.2f} < {min_minority_ratio}")
+                continue
+
+            valid_subjects += 1
+
+            # Run cross-validation purely on this subject's data
+            sub_results = run_within_subject_cv(
+                X=X_sub,
+                y=y_sub,
+                groups=groups_sub,
+                cv_strategy=cv_strategy,
+                cv_folds=cv_folds,
+                model_type=model_type,
+                fixed_random_state=random_state,
+                use_smote=use_smote,
+                oversampling_method=oversampling_method,
+                oversampling_scope=oversampling_scope,
+                class_weight=class_weight,
+                scale_pos_weight=scale_pos_weight,
+                k=k,
+                rf_params=rf_params,
+                xgb_params=xgb_params,
+                lr_params=lr_params,
+                feature_selection_method=feature_selection_method,
+                scaler=scaler,
+                use_pca=use_pca,
+                pca_n_components=pca_n_components,
+                pca_type=pca_type,
+                pca_kernel=pca_kernel,
+            )
+
+            if sub_results.empty:
+                continue
+
+            # Extract metrics for this subject
+            auc = sub_results['mean_auc'].values[0]
+            sub_metrics = {
+                'run_idx': run_idx,
+                'subject': subject,
+                'mean_auc': auc,
+                'mean_auprc': sub_results['mean_auprc'].values[0],
+                'mean_mcc': sub_results['mean_mcc'].values[0],
+                'mean_balanced_accuracy': sub_results['mean_balanced_accuracy'].values[0],
+                'mean_precision': sub_results['mean_precision'].values[0],
+                'mean_recall': sub_results['mean_recall'].values[0],
+                'mean_f1': sub_results['mean_f1'].values[0],
+                'n_samples': len(y_sub),
+                'n_positive': int(y_sub.sum()),
+                'n_negative': int(len(y_sub) - y_sub.sum()),
+            }
+            run_subject_results.append(sub_metrics)
+            all_runs_subject_metrics.append(sub_metrics)
+            importances_list.append(sub_results['feature_importances'].values[0])
+
+            # SHAP purely for this subject natively (merging folds inside)
+            if save_shap and model_type in ("rf", "xgb"):
+                try:
+                    sub_shap = _save_shap_values(
+                        sub_results, X_sub, feature_names, run_dir, f"{filename_base}_{subject}", model_type
+                    )
+                    if sub_shap is not None:
+                        # Append the sample-aligned shap values corresponding precisely to X_sub
+                        shap_list.append(sub_shap)
+                except Exception as e:
+                    if logger: logger.warning(f"SHAP failed for {subject}: {str(e)}")
+
+            # Fold probabilities and sample mappings for this subject
+            if save_probabilities:
+                fold_details = sub_results['fold_details'].values[0]
+                df_sub = df[sub_mask].reset_index(drop=True)
+                for fold in fold_details:
+                    run_fold_predictions.append({
+                        "run_idx": run_idx,
+                        "subject": subject,
+                        "fold_idx": fold.get("fold_idx"),
+                        "y_true": fold.get("y_true"),
+                        "y_pred": fold.get("y_pred"),
+                        "y_proba": fold.get("y_proba", []),
+                        **{f"label_{k}_pct": v for k, v in fold.get("label_percentages", {}).items()},
+                    })
+
+                    test_indices = fold.get("test_indices", [])
+                    y_true_list = fold.get("y_true", [])
+                    y_pred_list = fold.get("y_pred", [])
+                    y_proba_list = fold.get("y_proba", [])
+
+                    for i, idx in enumerate(test_indices):
+                        if idx < len(df_sub):
+                            row_data = df_sub.iloc[idx]
+                            run_sample_predictions.append({
+                                "run_idx": run_idx,
+                                "subject": subject,
+                                "fold_idx": fold.get("fold_idx"),
+                                "sample_idx": idx, # Index relative to subject
+                                "task": row_data.get("task", ""),
+                                "probe_number": row_data.get("probe_number", ""),
+                                "onoff": row_data.get("onoff", ""),
+                                "y_true": y_true_list[i] if i < len(y_true_list) else None,
+                                "y_pred": y_pred_list[i] if i < len(y_pred_list) else None,
+                                "y_proba": y_proba_list[i] if i < len(y_proba_list) else None,
+                            })
+
+        # Save run-level outputs
+        if not run_subject_results:
+            continue
+            
+        run_df = pd.DataFrame(run_subject_results)
+        run_mean_importances = np.mean(importances_list, axis=0)
+        
+        if save_csv:
+            run_df.to_csv(os.path.join(run_dir, f"{filename_base}_ws_subject_metrics.csv"), index=False)
+            
+            # Aggregate to create a global LOSO-like "summary" CSV for the run
+            summary_metrics = run_df[[c for c in run_df.columns if c.startswith('mean_')]].mean().to_dict()
+            summary_metrics['run_idx'] = run_idx
+            summary_metrics['dimension'] = dimension
+            summary_metrics['valid_subjects'] = valid_subjects
+            pd.DataFrame([summary_metrics]).to_csv(
+                os.path.join(run_dir, f"{filename_base}_summary.csv"), index=False
+            )
+            
+            pd.DataFrame({
+                "feature": feature_names,
+                "importance": run_mean_importances,
+            }).to_csv(os.path.join(run_dir, f"{filename_base}_feature_importances.csv"), index=False)
+            
+        if save_probabilities and run_sample_predictions:
+            pd.DataFrame(run_fold_predictions).to_csv(
+                os.path.join(run_dir, f"{filename_base}_fold_predictions.csv"), index=False
+            )
+            pd.DataFrame(run_sample_predictions).to_csv(
+                os.path.join(run_dir, f"{filename_base}_sample_predictions.csv"), index=False
+            )
+            
+        if shap_list:
+            run_shap_stacked = np.concatenate(shap_list, axis=0) # Total samples shape
+            shap_values_all_runs.append(run_shap_stacked)
+            with open(os.path.join(run_dir, f"{filename_base}_shap_values_stacked.pkl"), "wb") as f:
+                pickle.dump({"shap_values": run_shap_stacked, "feature_names": list(feature_names)}, f)
+
+        if verbose:
+            print(f"  [Run {run_idx+1}/{n_runs}] {time.time()-run_start:.1f}s | "
+                  f"Avg AUC={run_df['mean_auc'].mean():.3f} | Valid Subs: {valid_subjects}")
+
+    # Compile entirely overall stats
+    if not all_runs_subject_metrics:
+        print("No subjects matched criteria for any run.")
+        return [], []
+        
+    all_runs_df = pd.DataFrame(all_runs_subject_metrics)
+    summary_df = all_runs_df.groupby('subject').mean(numeric_only=True).reset_index()
+    
+    if save_csv:
+        summary_df.to_csv(os.path.join(dimension_results_path, f"{filename_base}_ws_subject_metrics_averaged.csv"), index=False)
+        _consolidate_sample_predictions(dimension_results_path, filename_base)
+        
+    # TODO Plotting for within subject specific layout
+    # (Typically plotting is bypassed or modified for purely subject-level lists compared to LOSO folds)
+
+    return all_runs_subject_metrics, shap_values_all_runs
+
+
+# =============================================================================
+# PERMUTATION TESTING — WITHIN-SUBJECT
+# =============================================================================
+
+def run_within_subject_permutation_analysis(
+    dimension: str,
+    df: pd.DataFrame,
+    X: pd.DataFrame,
+    y: pd.Series,
+    subjects: pd.Series,
+    tasks: pd.Series,
+    feature_cols: list,
+    config: dict,
+    positive_class_name: str = "ON-task",
+    negative_class_name: str = "OFF-task",
+    n_permutations: int = 100,
+    results_path: str = "results/MW_Classification/",
+    model_type: str = "lr",
+    class_weight=None,
+    scale_pos_weight=None,
+    use_smote: bool = False,
+    oversampling_method: str = "SMOTE",
+    oversampling_scope: str = "within",
+    cv_strategy: str = "stratified_kfold",
+    cv_folds: int = 5,
+    min_samples_per_class: int = 0,
+    min_minority_ratio: float = 0.0,
+    k: int = 20,
+    rf_params: dict = None,
+    xgb_params: dict = None,
+    lr_params: dict = None,
+    top_n_features_plot: int = 20,
+    save_pickle: bool = False,
+    save_csv: bool = True,
+    save_probabilities: bool = True,
+    save_plots: bool = True,
+    save_shap: bool = False,
+    plot_style: str = "seaborn",
+    verbose: bool = True,
+    feature_selection_method: str = "mrmr",
+    scaler: str = "standard",
+    use_pca: bool = False,
+    pca_n_components: int = None,
+    pca_type: str = "standard",
+    pca_kernel: str = "rbf",
+    true_ws_metrics_df=None, # Passed from the real run to compute specific p-values
+    logger=None,
+):
+    """
+    Run permutation testing natively inside the within-subject level.
+    The y-labels are locally shuffled intra-subject independently, then evaluated.
+    """
+    if n_permutations < 1:
+        return pd.DataFrame(), {}
+
+    model_name = config.get("current_model", "default")
+    model_folder = get_model_results_folder(config, model_name, model_type)
+    model_results_path = os.path.join(results_path, model_folder)
+
+    # Save permutation results inside permutation/ subfolder of the WithinSubject results
+    perm_base_path = os.path.join(model_results_path, "WithinSubject", dimension, "permutation")
+    Path(perm_base_path).mkdir(parents=True, exist_ok=True)
+
+    filename_base = f"{model_type}_ws_permutation_{n_permutations}perms"
+    feature_names = X.columns
+    unique_subjects = np.unique(subjects)
+    rng = np.random.default_rng(config.get("random_seed", 42))
+    
+    start_time = time.time()
+    print(f"\n*** Within-Subject Permutation: {n_permutations} runs ***")
+
+    all_perm_results = []
+
+    for run_idx in tqdm(range(n_permutations), desc=f"Permutation [{model_type}] WS {dimension}"):
+        run_start = time.time()
+        random_state = int(rng.integers(1, 10000))
+        perm_run_dir = get_permutation_run_dir(perm_base_path, run_idx)
+
+        # Shuffle labels explicitly within each subject only
+        y_perm = y.groupby(subjects, group_keys=False).transform(
+            lambda x: rng.permutation(x.values)
+        )
+
+        valid_subjects = 0
+        run_subject_results = []
+        importances_list = []
+        run_fold_predictions = []
+        run_sample_predictions = []
+
+        ctx = logger.capture_warnings(f"Perm {run_idx}") if logger else nullcontext()
+        with ctx:
+            for subject in unique_subjects:
+                sub_mask = (subjects == subject)
+                X_sub = X[sub_mask].reset_index(drop=True)
+                y_sub = y_perm[sub_mask].reset_index(drop=True)
+                groups_sub = tasks[sub_mask].reset_index(drop=True) if cv_strategy == 'group_kfold' else None
+
+                counts = y_sub.value_counts()
+                if len(counts) < 2 or counts.min() < min_samples_per_class:
+                    continue
+                if counts.min() / len(y_sub) < min_minority_ratio:
+                    continue
+
+                valid_subjects += 1
+
+                sub_results = run_within_subject_cv(
+                    X=X_sub,
+                    y=y_sub,
+                    groups=groups_sub,
+                    cv_strategy=cv_strategy,
+                    cv_folds=cv_folds,
+                    model_type=model_type,
+                    fixed_random_state=random_state,
+                    use_smote=use_smote,
+                    oversampling_method=oversampling_method,
+                    oversampling_scope=oversampling_scope,
+                    class_weight=class_weight,
+                    scale_pos_weight=scale_pos_weight,
+                    k=k,
+                    rf_params=rf_params,
+                    xgb_params=xgb_params,
+                    lr_params=lr_params,
+                    feature_selection_method=feature_selection_method,
+                    scaler=scaler,
+                    use_pca=use_pca,
+                    pca_n_components=pca_n_components,
+                    pca_type=pca_type,
+                    pca_kernel=pca_kernel,
+                )
+
+                if sub_results.empty:
+                    continue
+
+                auc = sub_results['mean_auc'].values[0]
+                run_subject_results.append({
+                    'run_idx': run_idx,
+                    'subject': subject,
+                    'mean_auc': auc,
+                    'mean_auprc': sub_results['mean_auprc'].values[0],
+                    'mean_mcc': sub_results['mean_mcc'].values[0],
+                })
+                importances_list.append(sub_results['feature_importances'].values[0])
+                
+                if save_probabilities:
+                    # Simplify the prediction saving for permutations due to speed if requested
+                    fold_details = sub_results['fold_details'].values[0]
+                    for fold in fold_details:
+                        test_indices = fold.get("test_indices", [])
+                        y_true_list = fold.get("y_true", [])
+                        y_pred_list = fold.get("y_pred", [])
+                        y_proba_list = fold.get("y_proba", [])
+                        
+                        df_sub = df[sub_mask].reset_index(drop=True)
+
+                        for i, idx in enumerate(test_indices):
+                            if idx < len(df_sub):
+                                row_data = df_sub.iloc[idx]
+                                run_sample_predictions.append({
+                                    "run_idx": run_idx,
+                                    "subject": subject,
+                                    "fold_idx": fold.get("fold_idx"),
+                                    "sample_idx": idx,
+                                    "probe_number": row_data.get("probe_number", ""),
+                                    "y_true": y_true_list[i] if i < len(y_true_list) else None,
+                                    "y_pred": y_pred_list[i] if i < len(y_pred_list) else None,
+                                    "y_proba": y_proba_list[i] if i < len(y_proba_list) else None,
+                                })
+
+        if not run_subject_results:
+            continue
+
+        run_df = pd.DataFrame(run_subject_results)
+        run_mean_importances = np.mean(importances_list, axis=0)
+        
+        if save_csv:
+            run_df.to_csv(os.path.join(perm_run_dir, f"{filename_base}_ws_subject_metrics.csv"), index=False)
+            
+            # Aggregate to create a global LOSO-like "summary" CSV for the run
+            summary_metrics = run_df[[c for c in run_df.columns if c.startswith('mean_')]].mean().to_dict()
+            summary_metrics['run_idx'] = run_idx
+            summary_metrics['dimension'] = dimension
+            pd.DataFrame([summary_metrics]).to_csv(
+                os.path.join(perm_run_dir, f"{filename_base}_summary.csv"), index=False
+            )
+            pd.DataFrame({"feature": feature_names, "importance": run_mean_importances}).to_csv(
+                os.path.join(perm_run_dir, f"{filename_base}_feature_importances.csv"), index=False
+            )
+            if save_probabilities and run_sample_predictions:
+                pd.DataFrame(run_sample_predictions).to_csv(
+                    os.path.join(perm_run_dir, f"{filename_base}_sample_predictions.csv"), index=False
+                )
+
+        # Build one global summary representing this full permutation pass
+        global_summary = {
+            'run_idx': run_idx,
+            'mean_auc': run_df['mean_auc'].mean(),
+            'mean_auprc': run_df['mean_auprc'].mean(),
+            'mean_mcc': run_df['mean_mcc'].mean(),
+        }
+        all_perm_results.append(global_summary)
+
+    if not all_perm_results:
+        return pd.DataFrame(), {}
+
+    perm_df = pd.DataFrame(all_perm_results)
+    if save_csv:
+        perm_df.to_csv(os.path.join(perm_base_path, f"{filename_base}_summary_averaged.csv"), index=False)
+        _consolidate_sample_predictions(perm_base_path, f"{model_type}_ws_permutation")
+
+    # Compute p-values against actual real data if provided
+    perm_summary = {}
+    if true_ws_metrics_df is not None and not true_ws_metrics_df.empty:
+        # Group real runs by subject
+        true_summary = pd.DataFrame(true_ws_metrics_df).groupby('subject').mean(numeric_only=True)
+        # Global means of the real measurements across subjects
+        true_mean_auc = true_summary['mean_auc'].mean()
+        
+        perm_aucs = perm_df['mean_auc'].values
+        p_val = np.mean(perm_aucs >= true_mean_auc)
+        
+        print(f"WS Permutation Global AUC: Null={perm_aucs.mean():.4f}±{perm_aucs.std():.4f}, "
+              f"True={true_mean_auc:.4f}, p={p_val:.4f}")
+        
+        perm_summary['p_auc'] = p_val
+        perm_summary['perm_mean_auc'] = perm_aucs.mean()
+
+    return perm_df, perm_summary

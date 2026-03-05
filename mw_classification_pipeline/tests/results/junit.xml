@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="2" failures="0" skipped="0" tests="2" time="10.423" timestamp="2026-03-05T09:11:55.565419-03:00" hostname="ICM-LEVY-MP019"><testcase classname="" name="test_analysis_pipeline" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_analysis_pipeline' has this __file__ attribute:
+  /Users/nicolas.bruno/depressed_mindwandering/mw_classification_pipeline/loso_pipeline/tests/test_analysis_pipeline.py
+which is not the same as the test file we want to collect:
+  /Users/nicolas.bruno/depressed_mindwandering/mw_classification_pipeline/within_subject_pipeline/tests/test_analysis_pipeline.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="test_performance" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_performance' has this __file__ attribute:
+  /Users/nicolas.bruno/depressed_mindwandering/mw_classification_pipeline/loso_pipeline/tests/test_performance.py
+which is not the same as the test file we want to collect:
+  /Users/nicolas.bruno/depressed_mindwandering/mw_classification_pipeline/within_subject_pipeline/tests/test_performance.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase></testsuite></testsuites>

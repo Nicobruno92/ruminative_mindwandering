@@ -30,7 +30,7 @@ from sklearn.feature_selection import (
     SelectKBest, f_classif, mutual_info_classif, chi2
 )
 from sklearn.decomposition import PCA, KernelPCA
-from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.model_selection import LeaveOneGroupOut, StratifiedKFold, GroupKFold, RepeatedStratifiedKFold
 from sklearn.metrics import (
     roc_auc_score, balanced_accuracy_score, f1_score,
     confusion_matrix, roc_curve, recall_score, precision_score,
@@ -971,6 +971,225 @@ def run_model_pipeline_cv(
         'cv_splits': cv_splits,
         'estimators': estimators,
         'loso_subject_metrics': loso_subject_metrics,
+    }
+    return pd.DataFrame([result])
+
+
+# =============================================================================
+# CROSS-VALIDATION (WITHIN-SUBJECT)
+# =============================================================================
+
+def run_within_subject_cv(
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: pd.Series = None,  # Optional: used ONLY if cv_strategy == 'group_kfold'
+    cv_strategy: str = 'stratified_kfold',
+    cv_folds: int = 5,
+    model_type: str = 'rf',
+    use_smote: bool = True,
+    oversampling_method: str = 'SMOTE',
+    oversampling_scope: str = 'within',
+    fixed_random_state: int = None,
+    class_weight=None,
+    scale_pos_weight=None,
+    k: int = 20,
+    rf_params: dict = None,
+    xgb_params: dict = None,
+    lr_params: dict = None,
+    feature_selection_method: str = 'mrmr',
+    scaler: str = 'standard',
+    use_pca: bool = False,
+    pca_n_components: int = None,
+    pca_type: str = 'standard',
+    pca_kernel: str = 'rbf',
+) -> pd.DataFrame:
+    """
+    Run within-subject cross-validation for a SINGLE subject's data.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Feature matrix for one subject.
+    y : pd.Series
+        Binary target for one subject.
+    groups : pd.Series, optional
+        Used only if cv_strategy == 'group_kfold' (e.g., task identifiers like 'Sart1', 'Sart2').
+    cv_strategy : str
+        'stratified_kfold', 'group_kfold', or 'repeated_stratified_kfold'.
+    cv_folds : int
+        Number of CV folds.
+    model_type ... pca_kernel : 
+        Same hyperparameters as run_model_pipeline_cv.
+
+    Returns
+    -------
+    pd.DataFrame
+        Single-row DataFrame with aggregated metrics and fold-level details.
+    """
+    random_state = fixed_random_state if fixed_random_state is not None else 42
+    pipeline_scaler = scaler
+
+    # For within-subject, the oversampling "within" scope literally means applying it inside each CV fold.
+    # If set to global (pipeline), the SMOTE step lives inside the pipeline.
+    pipeline = build_model_pipeline(
+        X,
+        model_type=model_type,
+        use_smote=(use_smote and oversampling_scope == 'global'),
+        oversampling_method=oversampling_method,
+        y=y,
+        random_state=random_state,
+        class_weight=class_weight,
+        scale_pos_weight=scale_pos_weight,
+        k=k,
+        rf_params=rf_params,
+        xgb_params=xgb_params,
+        lr_params=lr_params,
+        feature_selection_method=feature_selection_method,
+        scaler=pipeline_scaler,
+        use_pca=use_pca,
+        pca_n_components=pca_n_components,
+        pca_type=pca_type,
+        pca_kernel=pca_kernel,
+    )
+
+    # Setup Cross-Validation
+    if cv_strategy == 'stratified_kfold':
+        cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+        cv_splits = list(cv.split(X, y))
+    elif cv_strategy == 'group_kfold':
+        if groups is None:
+            raise ValueError("groups array (e.g. task IDs) is required for group_kfold cv_strategy")
+        cv = GroupKFold(n_splits=cv_folds)
+        cv_splits = list(cv.split(X, y, groups))
+    elif cv_strategy == 'repeated_stratified_kfold':
+        cv = RepeatedStratifiedKFold(n_splits=cv_folds, n_repeats=3, random_state=random_state)
+        cv_splits = list(cv.split(X, y))
+    else:
+        raise ValueError(f"Unknown cv_strategy for within_subject: {cv_strategy}")
+
+    fold_aucs = []
+    fold_auprcs = []
+    fold_mccs = []
+    fold_bal_accs = []
+    fold_precisions = []
+    fold_recalls = []
+    fold_f1s = []
+    fold_cms = []
+    fold_fprs = []
+    fold_tprs = []
+    fold_precisions_curve = []
+    fold_recalls_curve = []
+    feature_importances_dict = {feat: [] for feat in X.columns}
+    all_selected_features = set()
+    fold_details = []
+    estimators = []
+
+    for fold_idx, (train_idx, test_idx) in enumerate(cv_splits):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        
+        # Manual within-fold oversampling (analogous to LOSO approach if used outside pipeline)
+        if use_smote and oversampling_scope == 'within':
+            # Groups are irrelevant for within-subject SMOTE
+            mock_groups = np.zeros(len(y_train))
+            X_train, y_train = apply_within_subject_oversampling(
+                X_train, y_train, mock_groups,
+                method=oversampling_method, k_neighbors=5, random_state=random_state
+            )
+
+        fold_pipeline = clone(pipeline)
+        fold_pipeline.fit(X_train, y_train)
+        estimators.append(fold_pipeline)
+
+        y_pred = fold_pipeline.predict(X_test)
+        y_score = None
+        auc = 0.5
+
+        if hasattr(fold_pipeline, 'predict_proba'):
+            proba = fold_pipeline.predict_proba(X_test)
+            y_score = proba[:, 1]
+            if len(np.unique(y_test)) > 1:
+                auc = roc_auc_score(y_test, y_score)
+                fpr, tpr, _ = roc_curve(y_test, y_score)
+                fold_fprs.append(fpr)
+                fold_tprs.append(tpr)
+
+        fold_aucs.append(auc)
+
+        if y_score is not None and len(np.unique(y_test)) > 1:
+            auprc = average_precision_score(y_test, y_score)
+            precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_score)
+            fold_precisions_curve.append(precision_curve)
+            fold_recalls_curve.append(recall_curve)
+        else:
+            auprc = 0.0
+        fold_auprcs.append(auprc)
+
+        mcc = matthews_corrcoef(y_test, y_pred)
+        fold_mccs.append(mcc)
+        fold_bal_accs.append(balanced_accuracy_score(y_test, y_pred))
+        fold_precisions.append(precision_score(y_test, y_pred, zero_division=0))
+        fold_recalls.append(recall_score(y_test, y_pred, zero_division=0))
+        fold_f1s.append(f1_score(y_test, y_pred, zero_division=0))
+        fold_cms.append(confusion_matrix(y_test, y_pred))
+
+        label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
+        fold_details.append({
+            'fold_idx': fold_idx,
+            'y_true': y_test.tolist(),
+            'y_pred': y_pred.tolist(),
+            'y_proba': y_score.tolist() if y_score is not None else [],
+            'test_indices': test_idx.tolist(),
+            'label_percentages': label_counts,
+        })
+
+        fs_step = fold_pipeline.named_steps.get('feature_selection', None)
+        clf_step = fold_pipeline.named_steps.get('clf', None)
+        if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
+            selected_indices = fs_step.get_support(indices=True)
+            selected_feats = [X.columns[i] for i in selected_indices]
+            all_selected_features.update(selected_feats)
+            importances = clf_step.feature_importances_
+            for idx, feat in enumerate(selected_feats):
+                feature_importances_dict[feat].append(importances[idx])
+            for feat in X.columns:
+                if feat not in selected_feats:
+                    feature_importances_dict[feat].append(0.0)
+
+    mean_feature_importances = np.zeros(len(X.columns))
+    for i, feat in enumerate(X.columns):
+        if feature_importances_dict[feat]:
+            mean_feature_importances[i] = np.mean(feature_importances_dict[feat])
+
+    result = {
+        'mean_auc': np.mean(fold_aucs),
+        'std_auc': np.std(fold_aucs),
+        'mean_auprc': np.mean(fold_auprcs),
+        'std_auprc': np.std(fold_auprcs),
+        'mean_mcc': np.mean(fold_mccs),
+        'std_mcc': np.std(fold_mccs),
+        'mean_balanced_accuracy': np.mean(fold_bal_accs),
+        'std_balanced_accuracy': np.std(fold_bal_accs),
+        'mean_precision': np.mean(fold_precisions),
+        'std_precision': np.std(fold_precisions),
+        'mean_recall': np.mean(fold_recalls),
+        'std_recall': np.std(fold_recalls),
+        'mean_f1': np.mean(fold_f1s),
+        'std_f1': np.std(fold_f1s),
+        'fold_aucs': fold_aucs,
+        'fold_auprcs': fold_auprcs,
+        'fold_mccs': fold_mccs,
+        'fold_bal_accs': fold_bal_accs,
+        'fold_cms': fold_cms,
+        'fold_fprs': fold_fprs,
+        'fold_tprs': fold_tprs,
+        'fold_precisions_curve': fold_precisions_curve,
+        'fold_recalls_curve': fold_recalls_curve,
+        'feature_importances': mean_feature_importances,
+        'fold_details': fold_details,
+        'cv_splits': cv_splits,
+        'estimators': estimators,
+        # Intentionally omitting loso_subject_metrics since this is a single subject
     }
     return pd.DataFrame([result])
 

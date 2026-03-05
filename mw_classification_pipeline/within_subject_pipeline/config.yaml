@@ -1,0 +1,212 @@
+# =============================================================================
+# WITHIN-SUBJECT CLASSIFICATION PIPELINE CONFIGURATION
+# =============================================================================
+# Strict rules:
+# 1. No CLI kwargs (only `--config`). Everything must be defined here.
+# 2. Hard failure if paths don't exist (no try-excepts).
+# 3. Determinism enforced via random keys.
+# =============================================================================
+
+project:
+  # Base project directory. Can be an absolute path or relative to the git root.
+  root_dir: "/Users/nicolas.bruno/depressed_mindwandering"
+  data_file: "BIDS/derivatives/dataset_classification.csv"   # The aggregated probes CSV
+  results_dir: "results/MW_Classification"
+
+# =============================================================================
+# EXPERIMENT PARAMS
+# =============================================================================
+random_seed: 42
+n_runs: 1                       # Base ML training passes (default 1)
+n_permutations: 100             # Runs per permutation pass (useful: 100 or 1000)
+
+# =============================================================================
+# EPOCH TYPES
+# =============================================================================
+# The column name that contains the prefix for markers.
+# By default, junifer writes power with no epoch prefix (e.g. power_alpha_Fz),
+# so this can just match the features strictly.
+# If your data is split by Evoked/State/Sleep, define it here:
+epoch_types:
+  - ""
+
+# =============================================================================
+# DATA FORMAT
+# =============================================================================
+# Either "per_channel" or "per_roi".
+# Determines if the pipeline expects channel-level columns (e.g., Fz, Cz) 
+# or spatial ROI-level columns (e.g., frontal, parietal).
+data_format: "per_channel"
+
+# =============================================================================
+# CROSS-VALIDATION SETTINGS (WITHIN-SUBJECT)
+# =============================================================================
+cv:
+  # Strategy: 'stratified_kfold', 'group_kfold', or 'repeated_stratified_kfold'
+  # 'group_kfold' forces all trials of a given Task ID (e.g. Sart1) into the same fold
+  strategy: "stratified_kfold"
+  folds: 5
+  
+  # Minimum ratio of the minority class to the total samples required to run the subject
+  # Examples: 0.0 runs all, 0.2 requires at least 20% of the minority class
+  min_minority_ratio: 0.2
+  
+  # Absolute minimum samples in the minority class to prevent 
+  # StratifiedKFold from throwing errors due to split size > class size.
+  # Must be >= cv.folds
+  min_samples_per_class: 5
+
+# =============================================================================
+# CLASSIFICATION TARGETS (CONTRASTS)
+# =============================================================================
+run_contrasts:
+  - on_vs_off_within_median
+
+# Mapping of what each contrast actually means for data extraction.
+# The keys correspond to run_contrasts. The values are dicts specifying the
+# dataframe queries or binarization logic.
+label_contrasts:
+  on_vs_off_threshold:
+    column_name: "onoff"
+    split_method: "threshold"
+    threshold: 50
+    positive_above: true
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+  on_vs_off_within_median:
+    column_name: "onoff"
+    split_method: "within_subject_median"
+    positive_above: true
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+  on_vs_off_extreme:
+    column_name: "onoff"
+    split_method: "extreme_groups"
+    threshold_low: 30
+    threshold_high: 70
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+# =============================================================================
+# FEATURE FAMILIES
+# =============================================================================
+# In Within-Subject classification, you may lack the statistical power to use
+# the entire feature block simultaneously without heavy overfitting.
+# Feature families allow separating blocks of features (e.g., spatial vs frequency).
+# Keys are arbitrary family names, values are lists of string prefixes to match.
+# If a value is null, ALL features are used.
+# The naming convention matches Junifer output (e.g., power_alpha_Fz, P1_Fz).
+
+feature_families:
+  all: null
+  spectral: 
+    - "power_"
+    - "aperiodic_"
+  connectivity: 
+    - "coherence_"
+    - "plv_"
+    - "pli_"
+    - "wpli_"
+    - "aec_"
+  erp:
+    - "P1_"
+    - "N1_"
+    - "P2_"
+    - "N2_"
+    - "P3_"
+    - "LPP_"
+  information_theory:
+    - "entropy_"
+    - "complexity_"
+
+# Which families to run automatically via local/cluster bash scripts.
+run_families:
+  - all
+  - spectral
+  - connectivity
+
+# =============================================================================
+# ML PIPELINE SETTINGS
+# =============================================================================
+
+classifiers:
+  run_models: ["rf", "xgb", "lr"]
+  rf:
+    n_estimators: 100
+    max_depth: 10
+    class_weight: "balanced"
+  xgb:
+    n_estimators: 100
+    max_depth: 3
+    learning_rate: 0.1
+    scale_pos_weight: "auto"
+  lr:
+    C: 1.0
+    penalty: "l2"
+    solver: "lbfgs"
+    class_weight: "balanced"
+
+preprocessing:
+  # Imputation strategy for NaNs: 'mean', 'median', 'knn', or 'none'
+  imputation: 'mean'
+  
+  # Standardize features (mean 0, std 1)
+  scaler: "standard"
+  
+  # Participant-level scaling ('none' because this IS a within-subject pipeline inherently)
+  scale_by_participant: "none"
+  
+  # Dimensionality reduction
+  pca:
+    use_pca: false
+    n_components: null
+    pca_type: "standard"
+    pca_kernel: "rbf"
+
+feature_selection:
+  # Algorithm: "mrmr", "lmm", "mutual_info", "f_classif", "chi2", or null
+  method: "mrmr"
+  
+  # Number of features to select. (Use "all" to skip selection completely).
+  # For within subject, 'k' may need to be strictly restricted 
+  # (e.g. k=10) due to low n_samples per subject
+  k: 10
+  
+  # For LMM:
+  lmm_n_jobs: -1
+
+oversampling:
+  # Use Synthetic Minority Over-sampling Technique
+  use_smote: true
+  
+  # "SMOTE", "SVMSMOTE", "ADASYN", "SMOTETomek"
+  method: "SMOTE"
+  
+  # "global" (within the sklearn Pipeline directly)
+  # "within" (manually applied solely inside the CV training fold before fitting)
+  # Note: The output is mathematically identical, "within" handles unique single-subject edge cases
+  scope: "within"
+
+# =============================================================================
+# OUTPUT CONFIGURATION
+# =============================================================================
+outputs:
+  # If true, computes permutation tests natively inside the subjects
+  run_permutations: false
+  
+  # Whether to save full models and data to disk
+  save_pickle: false
+  
+  # Whether to save sample-by-sample probabilities
+  save_probabilities: true
+  
+  # Metrics reported in the UI
+  scoring_metrics: ["auc", "balanced_accuracy", "f1", "mcc", "precision", "recall"]
+  
+  # Generate visual plots (ROC curves, confusion matrices) -> Note: single-subject average logic applies
+  save_plots: false
+
+  # Run SHAP explainer
+  save_shap: true

@@ -336,28 +336,28 @@ def create_label_contrast(
     contrast_config: Dict,
 ) -> pd.DataFrame:
     """
-    Create binary target column from onoff scores using threshold.
+    Create binary target column from a continuous label score (e.g., onoff).
 
-    Supports two modes:
-    1. Simple threshold: onoff > threshold → class 1, else class 0
-    2. Extreme groups: onoff >= high → class 1, onoff <= low → class 0,
-       middle range excluded
+    Supports several splitting methods driven by 'split_method' or legacy keys:
+    - 'global_median': Split by median across all subjects.
+    - 'within_subject_median': Split by median calculated per subject.
+    - 'threshold': Fixed threshold split (e.g. > 50).
+    - 'extreme_groups': Takes top and bottom groups, drops middle.
 
     Parameters
     ----------
     df : pd.DataFrame
-        Wide-format DataFrame with 'onoff' column.
+        Wide-format DataFrame with the target label column.
     contrast_config : Dict
-        Contrast configuration. Either:
-        - {label_source, threshold, positive_above}
-        - {label_source, threshold_low, threshold_high}
+        Contrast configuration from config.yaml.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with added 'target' column. Rows outside contrast are dropped.
     """
-    label_col = contrast_config.get("label_source", "onoff")
+    # Allow column_name as fallback to label_source for compatibility
+    label_col = contrast_config.get("label_source", contrast_config.get("column_name", "onoff"))
 
     if label_col not in df.columns:
         available = list(df.columns)
@@ -366,22 +366,43 @@ def create_label_contrast(
         )
 
     df = df.copy()
+    
+    split_method = contrast_config.get("split_method", None)
+    positive_above = contrast_config.get("positive_above", True)
 
-    # Mode 1: Simple threshold binarization
-    if "threshold" in contrast_config and "threshold_low" not in contrast_config:
-        threshold = contrast_config["threshold"]
-        positive_above = contrast_config.get("positive_above", True)
+    # Mode 1: Global Median
+    if split_method == "global_median" or split_method == "median":
+        median_val = df[label_col].median()
+        if positive_above:
+            df["target"] = (df[label_col] > median_val).astype(int)
+        else:
+            df["target"] = (df[label_col] <= median_val).astype(int)
+        print(f"  Global median split: {label_col} {'>' if positive_above else '<='} {median_val:.2f}")
 
+    # Mode 2: Within-Subject Median
+    elif split_method == "within_subject_median":
+        if "subject" not in df.columns:
+            raise ValueError(
+                "Cannot compute within-subject median because 'subject' column is missing."
+            )
+        subject_medians = df.groupby("subject")[label_col].transform("median")
+        if positive_above:
+            df["target"] = (df[label_col] > subject_medians).astype(int)
+        else:
+            df["target"] = (df[label_col] <= subject_medians).astype(int)
+        print(f"  Within-subject median split: {label_col} {'>' if positive_above else '<='} subject_median")
+
+    # Mode 3: Simple fixed threshold
+    elif split_method == "threshold" or ("threshold" in contrast_config and "threshold_low" not in contrast_config):
+        threshold = contrast_config.get("threshold", 50)
         if positive_above:
             df["target"] = (df[label_col] > threshold).astype(int)
         else:
             df["target"] = (df[label_col] <= threshold).astype(int)
+        print(f"  Threshold binarization: {label_col} {'>' if positive_above else '<='} {threshold}")
 
-        print(f"  Threshold binarization: {label_col} {'>' if positive_above else '<='} "
-              f"{threshold}")
-
-    # Mode 2: Extreme groups (exclude middle range)
-    elif "threshold_low" in contrast_config and "threshold_high" in contrast_config:
+    # Mode 4: Extreme groups (exclude middle range)
+    elif split_method == "extreme_groups" or ("threshold_low" in contrast_config and "threshold_high" in contrast_config):
         low = contrast_config["threshold_low"]
         high = contrast_config["threshold_high"]
 
@@ -401,8 +422,9 @@ def create_label_contrast(
 
     else:
         raise ValueError(
-            "Contrast config must have either 'threshold' or "
-            "'threshold_low'+'threshold_high'"
+            f"Invalid contrast config: {contrast_config}. "
+            f"Specify a valid 'split_method' (global_median, within_subject_median, "
+            f"threshold, extreme_groups) or legacy threshold parameters."
         )
 
     return df

@@ -1,5 +1,5 @@
 ---
-trigger: model_decision
+trigger: always_on
 description: AI Guardrails - Epistemología, BIDS y prevención de alucinaciones en proyectos de EEG
 ---
 

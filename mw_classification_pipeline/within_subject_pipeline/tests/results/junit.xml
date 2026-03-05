@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="11" time="1646.239" timestamp="2026-03-05T00:14:32.858516-03:00" hostname="ICM-LEVY-MP019"><testcase classname="within_subject_pipeline.tests.test_analysis_pipeline.TestRunWithinSubjectDistributionAnalysis" name="test_returns_nonempty_list" time="196.142" /><testcase classname="within_subject_pipeline.tests.test_analysis_pipeline.TestRunWithinSubjectDistributionAnalysis" name="test_result_has_one_row_per_valid_subject" time="192.424" /><testcase classname="within_subject_pipeline.tests.test_analysis_pipeline.TestRunWithinSubjectDistributionAnalysis" name="test_result_skips_invalid_subjects" time="189.347"><failure message="AssertionError: assert 4 == 3&#10; +  where 4 = len([{'mean_auc': np.float64(0.8), 'mean_auprc': np.float64(0.8666666666666666), 'mean_balanced_accuracy': np.float64(0.7333333333333333), 'mean_f1': np.float64(0.7914285714285715), ...}, {'mean_auc': np.float64(0.8666666666666668), 'mean_auprc': np.float64(0.8666666666666668), 'mean_balanced_accuracy': np.float64(0.8), 'mean_f1': np.float64(0.6), ...}, {'mean_auc': np.float64(0.5), 'mean_auprc': np.float64(0.45), 'mean_balanced_accuracy': np.float64(0.5), 'mean_f1': np.float64(0.21333333333333332), ...}, {'mean_auc': np.float64(0.5), 'mean_auprc': np.float64(0.5), 'mean_balanced_accuracy': np.float64(0.5), 'mean_f1': np.float64(0.6666666666666666), ...}])">self = &lt;test_analysis_pipeline.TestRunWithinSubjectDistributionAnalysis object at 0x12391cb50&gt;
+setup = {'X':       feat_0  ...    feat_9
+0   0.367895  ... -0.623274
+1   0.541326  ... -0.128535
+2  -0.665195  ... -0.209176
+...063859
+
+[80 rows x 15 columns], 'feature_cols': ['feat_0', 'feat_1', 'feat_2', 'feat_3', 'feat_4', 'feat_5', ...], ...}
+
+    def test_result_skips_invalid_subjects(self, setup):
+        # Setup: artificially make Subject-00 have entirely Class 0
+        y_mod = setup["y"].copy()
+        sub0_mask = setup["groups"] == "sub-00"
+        y_mod[sub0_mask] = 0
+    
+        metrics_list, _ = run_within_subject_distribution_analysis(
+            dimension="ON_vs_OFF", df=setup["df"], X=setup["X"], y=y_mod,
+            subjects=setup["groups"], tasks=setup["tasks"], feature_cols=setup["feature_cols"], config=setup["config"],
+            model_type="lr", n_runs=1, results_path=setup["results_path"],
+            min_samples_per_class=2, # sub-00 has 0 of class 1
+            **_NO_PLOTS,
+        )
+&gt;       assert len(metrics_list) == 3 # 1 skipped
+E       AssertionError: assert 4 == 3
+E        +  where 4 = len([{'mean_auc': np.float64(0.8), 'mean_auprc': np.float64(0.8666666666666666), 'mean_balanced_accuracy': np.float64(0.7333333333333333), 'mean_f1': np.float64(0.7914285714285715), ...}, {'mean_auc': np.float64(0.8666666666666668), 'mean_auprc': np.float64(0.8666666666666668), 'mean_balanced_accuracy': np.float64(0.8), 'mean_f1': np.float64(0.6), ...}, {'mean_auc': np.float64(0.5), 'mean_auprc': np.float64(0.45), 'mean_balanced_accuracy': np.float64(0.5), 'mean_f1': np.float64(0.21333333333333332), ...}, {'mean_auc': np.float64(0.5), 'mean_auprc': np.float64(0.5), 'mean_balanced_accuracy': np.float64(0.5), 'mean_f1': np.float64(0.6666666666666666), ...}])
+
+within_subject_pipeline/tests/test_analysis_pipeline.py:85: AssertionError</failure></testcase><testcase classname="within_subject_pipeline.tests.test_analysis_pipeline.TestRunWithinSubjectDistributionAnalysis" name="test_csv_saving" time="321.738" /><testcase classname="within_subject_pipeline.tests.test_analysis_pipeline.TestRunWithinSubjectDistributionAnalysis" name="test_multi_run_outputs_correctly" time="391.364" /><testcase classname="within_subject_pipeline.tests.test_analysis_pipeline.TestRunWithinSubjectPermutationAnalysis" name="test_returns_dataframe_and_dict" time="139.129" /><testcase classname="within_subject_pipeline.tests.test_analysis_pipeline.TestRunWithinSubjectPermutationAnalysis" name="test_zero_permutations_returns_empty" time="0.002" /><testcase classname="within_subject_pipeline.tests.test_analysis_pipeline.TestRunWithinSubjectPermutationAnalysis" name="test_permutation_computes_p_value_with_true_df" time="138.430" /><testcase classname="within_subject_pipeline.tests.test_performance" name="test_within_subject_learns_good_data" time="23.186" /><testcase classname="within_subject_pipeline.tests.test_performance" name="test_within_subject_fails_on_random_noise" time="22.945" /><testcase classname="within_subject_pipeline.tests.test_performance" name="test_within_subject_group_kfold" time="18.444" /></testsuite></testsuites>

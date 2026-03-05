@@ -1,5 +1,5 @@
 ---
-trigger: model_decision
+trigger: always_on
 description: Modularity - YAML Config, Pure Functions y Pipelines modulares
 ---
 
