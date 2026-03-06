@@ -53,7 +53,11 @@ def filter_features_by_family(X: pd.DataFrame, family_name: str, feature_familie
     if prefixes is None:
         return X
 
-    selected_cols = [col for col in X.columns if any(col.startswith(p) for p in prefixes)]
+    # Columns are formatted as {channel}_{marker}_{band} (e.g. AF3_power_theta).
+    # Prefixes describe the marker portion, so we match against the substring
+    # after the first separator: `_{prefix}` must appear in the column name.
+    # `col.startswith(prefix)` is kept as a fallback for marker-first formats.
+    selected_cols = [col for col in X.columns if any(f"_{p}" in col or col.startswith(p) for p in prefixes)]
     if not selected_cols:
         raise ValueError(f"Family '{family_name}' matched 0 columns out of {len(X.columns)}.")
 

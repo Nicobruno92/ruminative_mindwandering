@@ -1,89 +1,95 @@
-#!/bin/bash
-#SBATCH --job-name=mw_ws_clf
-#SBATCH --output=logs/ws_%a_%A.out
-#SBATCH --error=logs/ws_%a_%A.err
-#SBATCH --time=12:00:00
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=32GB
-
-# ==============================================================================
-# SLURM Within-Subject Mind-Wandering Classification Runner
-# ==============================================================================
-# This script submits a job array to run classification for each feature family.
-# It uses the ML conda environment.
+#!/usr/bin/env bash
+# =============================================================================
+# run_cluster.sh — Within-Subject MW Classification Pipeline (SLURM launcher)
+# =============================================================================
+# Reads config.yaml, builds all (model × contrast × family) combinations,
+# writes them to logs/.combinations.txt, then submits a SLURM array so each
+# element runs exactly one combination in run_cluster_worker.sh.
 #
-# USAGE:
-#   sbatch run_cluster.sh
-# ==============================================================================
+# USAGE (run interactively on the login node):
+#   bash run_cluster.sh                      # uses config.yaml
+#   bash run_cluster.sh path/to/config.yaml
+#
+# MONITOR:
+#   squeue -u $USER
+#   cat logs/slurm_<JOBID>_<ARRAYID>.out
+# =============================================================================
 
-source /opt/anaconda3/etc/profile.d/conda.sh
-conda activate ML
+set -euo pipefail
 
-PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "${PIPELINE_DIR}" || exit 1
+CONFIG="${1:-config.yaml}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 
-CONFIG_FILE="${PIPELINE_DIR}/config.yaml"
-
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "ERROR: Config file not found: $CONFIG_FILE"
+if [ ! -f "$CONFIG" ]; then
+    echo "ERROR: Config not found: $CONFIG"
     exit 1
 fi
+
+# NOTE: `module load proxy` is intentionally NOT called here — the launcher
+# only reads a YAML and calls sbatch (no internet-dependent operations).
+# The worker (run_cluster_worker.sh) loads proxy before conda activation.
 
 mkdir -p logs
 
-# Extract all run_families using python snippet
-FAMILIES=($(python -c "
-import yaml
-with open('$CONFIG_FILE', 'r') as f:
+# ---------------------------------------------------------------------------
+# Parse config once: print summary, write combinations, emit SLURM params
+# ---------------------------------------------------------------------------
+eval "$(python3 -c "
+import yaml, sys
+
+with open('$CONFIG') as f:
     cfg = yaml.safe_load(f)
-for fam in cfg.get('run_families', []):
-    print(fam)
-"))
 
-NUM_FAMILIES=${#FAMILIES[@]}
+slurm    = cfg.get('slurm', {})
+models   = cfg.get('classifiers', {}).get('run_models', ['rf'])
+contrasts = cfg.get('run_contrasts', ['on_vs_off_within_median'])
+families  = cfg.get('run_families', ['all'])
 
-if [ $NUM_FAMILIES -eq 0 ]; then
-    echo "ERROR: No families found in config.yaml under 'run_families'"
-    exit 1
-fi
+combos = [f'{m}:{c}:{fam}' for m in models for c in contrasts for fam in families]
+n = len(combos)
 
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+# Write combinations file (trailing newline so wc -l returns correct count)
+with open('logs/.combinations.txt', 'w') as out:
+    out.write('\n'.join(combos) + '\n')
 
-# Array syntax handling
-# SLURM_ARRAY_TASK_ID goes from 0 to N-1
-if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
-    echo "ERROR: SLURM_ARRAY_TASK_ID is not set. Run this script via sbatch:"
-    echo "sbatch --array=0-$((NUM_FAMILIES-1)) run_cluster.sh"
-    exit 1
-fi
+# Human-readable summary → stderr (visible on terminal)
+print(f'Models    : {models}',    file=sys.stderr)
+print(f'Contrasts : {contrasts}', file=sys.stderr)
+print(f'Families  : {families}',  file=sys.stderr)
+print(f'Combos    : {n}',         file=sys.stderr)
+print(f'Time      : {slurm.get(\"time\", \"12:00:00\")}',     file=sys.stderr)
+print(f'Memory    : {slurm.get(\"mem\", \"32G\")}',           file=sys.stderr)
+print(f'CPUs      : {slurm.get(\"cpus_per_task\", 16)}',     file=sys.stderr)
+print(f'Conda env : {slurm.get(\"conda_env\", \"ML\")}',     file=sys.stderr)
+print(f'Array range: 0-{n-1}',   file=sys.stderr)
 
-# Make sure array ID is within bounds
-if [ "$SLURM_ARRAY_TASK_ID" -ge "$NUM_FAMILIES" ]; then
-    echo "SLURM_ARRAY_TASK_ID ($SLURM_ARRAY_TASK_ID) is out of bounds (max: $((NUM_FAMILIES-1)))."
-    exit 0
-fi
+# Shell variable assignments captured by eval
+print(f'SLURM_TIME={slurm.get(\"time\", \"12:00:00\")}')
+print(f'SLURM_MEM={slurm.get(\"mem\", \"32G\")}')
+print(f'SLURM_CPUS={slurm.get(\"cpus_per_task\", 16)}')
+print(f'SLURM_ENV={slurm.get(\"conda_env\", \"ML\")}')
+print(f'SLURM_JOBNAME={slurm.get(\"job_name\", \"mw_ws_clf\")}')
+print(f'N_COMBOS={n}')
+")" || exit 1
 
-CURRENT_FAMILY=${FAMILIES[$SLURM_ARRAY_TASK_ID]}
+ARRAY_RANGE="0-$((N_COMBOS-1))"
 
-echo "============================================================================="
-echo " WITHIN-SUBJECT MIND-WANDERING CLASSIFICATION PIPELINE (CLUSTER)"
-echo "============================================================================="
-echo " Job ID       : $SLURM_ARRAY_JOB_ID"
-echo " Array ID     : $SLURM_ARRAY_TASK_ID"
-echo " Node         : $SLURMD_NODENAME"
-echo " CPUs         : $SLURM_CPUS_PER_TASK"
-echo " Start Time   : $(date)"
-echo "-----------------------------------------------------------------------------"
-echo " Processing Family: $CURRENT_FAMILY"
-echo "============================================================================="
+echo ""
+echo "Submitting SLURM array: $ARRAY_RANGE"
+sbatch \
+    --job-name="$SLURM_JOBNAME" \
+    --time="$SLURM_TIME" \
+    --mem="$SLURM_MEM" \
+    --cpus-per-task="$SLURM_CPUS" \
+    --ntasks=1 \
+    --array="$ARRAY_RANGE" \
+    --chdir="$SCRIPT_DIR" \
+    --output="logs/slurm_%A_%a.out" \
+    --error="logs/slurm_%A_%a.err" \
+    "$SCRIPT_DIR/run_cluster_worker.sh" "$SCRIPT_DIR/$CONFIG"
 
-# For cluster, enforcing deterministic output buffers
-PYTHONUNBUFFERED=1 python run_within_subject_classification.py \
-    --config config.yaml \
-    --family "${CURRENT_FAMILY}"
-
-echo "============================================================================="
-echo " CLUSTER JOB COMPLETED."
-echo " End Time     : $(date)"
-echo "============================================================================="
+echo ""
+echo "Submitted $N_COMBOS jobs."
+echo "Monitor with: squeue -u \$USER"
+echo "Logs in     : logs/"

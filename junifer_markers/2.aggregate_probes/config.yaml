@@ -27,13 +27,13 @@ project:
   derivatives_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives"
   
   # BIDS raw data location (reference only)
-  bids_root: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results"
+  bids_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS"
   
   # Junifer H5 files location (input) and aggregated output location
-  features_root: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/BIDS/features"
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features"
   
   # QA reports and figures output directory
-  results_root: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/junifer_markers"
+  results_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/results/features/junifer_markers"
   
   # H5 file descriptors for each epoch type
   input_evoked_desc: "evoked"   # Evoked epochs: trial-locked

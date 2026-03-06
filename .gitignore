@@ -177,3 +177,4 @@ Statistics/tests/test_results/
 **tests/**
 
 .DS_Store
+mw_classification_pipeline/results

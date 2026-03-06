@@ -8,10 +8,44 @@
 # =============================================================================
 
 project:
-  # Base project directory. Can be an absolute path or relative to the git root.
-  root_dir: "/Users/nicolas.bruno/depressed_mindwandering"
+  # Base project directory — absolute path to the project root on the cluster.
+  root_dir: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering"
   data_file: "BIDS/derivatives/dataset_classification.csv"   # The aggregated probes CSV
   results_dir: "results/MW_Classification"
+
+# =============================================================================
+# DATA PATHS
+# =============================================================================
+# Used by the shared data_utils.py loader. Must match the loso pipeline paths
+# since both pipelines read from the same BIDS features directory.
+data_paths:
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features"
+  results_root: "results/MW_Classification"
+
+# =============================================================================
+# SUBJECTS AND TASKS
+# =============================================================================
+subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+           "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+           "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34",
+           "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+
+tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+
+# Subject filters
+min_samples: 10
+min_minority_ratio: 0.2
+
+# =============================================================================
+# SLURM CONFIGURATION
+# =============================================================================
+# Read by run_cluster.sh to submit jobs. Nothing is hardcoded in the bash scripts.
+slurm:
+  job_name: "mw_ws_clf"
+  time: "12:00:00"
+  mem: "32G"
+  cpus_per_task: 16
+  conda_env: "ML"
 
 # =============================================================================
 # EXPERIMENT PARAMS
@@ -36,7 +70,7 @@ n_permutations: 100             # Runs per permutation pass (useful: 100 or 1000
 #   evoked: ["erp"]
 #   sleep: ["sleep"]
 epoch_types:
-  - ""
+  - "state"
 
 # =============================================================================
 # DATA FORMAT

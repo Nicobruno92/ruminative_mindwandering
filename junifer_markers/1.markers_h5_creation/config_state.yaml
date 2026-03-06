@@ -32,7 +32,7 @@ storage:
   kind: HDF5FeatureStorage
   # With single_output: false, creates individual files per element
   # Pattern: element_{subject}_{session}_{task}_state_markers.h5
-  uri: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/BIDS/features/junifer/markers.h5
+  uri: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/junifer/markers.h5
   single_output: false
   
 markers:
