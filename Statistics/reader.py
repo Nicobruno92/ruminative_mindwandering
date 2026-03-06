@@ -129,14 +129,11 @@ def load_all_probe_data(features_root: str,
     # Load all CSV files
     all_data = []
     for file_path in filtered_files:
-        try:
+        if True:
             df = pd.read_csv(file_path)
             all_data.append(df)
             if verbose and len(all_data) % 50 == 0:
                 print(f"  Loaded {len(all_data)} files...")
-        except Exception as e:
-            warnings.warn(f"Failed to load {file_path}: {e}")
-            continue
     
     if len(all_data) == 0:
         raise ValueError("No valid CSV files could be loaded")
@@ -702,36 +699,6 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         raise ValueError(f"Insufficient valid data: {valid_data}/{total_data} ({valid_data/total_data:.1%})")
     
     return power_data, df_behavioral, channels
-
-
-def load_data(data_path: str) -> Tuple[np.ndarray, pd.DataFrame]:
-    """
-    Legacy function for backward compatibility.
-    
-    This function now expects data_path to be a features root directory,
-    and loads all available probe data.
-    
-    Parameters
-    ----------
-    data_path : str
-        Path to the features root directory
-        
-    Returns
-    -------
-    power_data : np.ndarray
-        Placeholder - use prepare_data_for_lmm() instead
-    df_behavioral : pd.DataFrame
-        Combined dataframe with all probe data
-    """
-    warnings.warn("load_data() is deprecated. Use load_all_probe_data() and prepare_data_for_lmm() instead.")
-    
-    # Load all probe data
-    df_behavioral = load_all_probe_data(data_path, verbose=True)
-    
-    # Return placeholder power_data and the behavioral dataframe
-    power_data = np.array([])  # Placeholder
-    
-    return power_data, df_behavioral
 
 
 def validate_formula_variables(df_behavioral: pd.DataFrame, formula: str) -> None:

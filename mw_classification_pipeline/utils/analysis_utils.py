@@ -756,7 +756,7 @@ def run_distribution_analysis(
         )
 
     print(f"\nDone. Results → {dimension_results_path}")
-    return results_df
+    return results_df, all_results, shap_values_all_runs
 
 
 # =============================================================================
@@ -829,9 +829,11 @@ def run_permutation_distribution_analysis(
     Returns
     -------
     tuple
-        (results_df, perm_summary):
+        (results_df, perm_summary, all_results, shap_values_all_runs):
         - results_df: one row per permutation with mean metrics
         - perm_summary: dict with empirical p-values
+        - all_results: full list of per-permutation dicts
+        - shap_values_all_runs: list of SHAP matrices per permutation (if save_shap=True)
     """
     if n_permutations < 1:
         print("No permutation runs requested.")
@@ -855,6 +857,7 @@ def run_permutation_distribution_analysis(
     n_subjects = len(np.unique(groups))
     rng = np.random.default_rng(config.get("random_seed", 42))
     all_results = []
+    shap_values_all_runs = []
 
     start_time = time.time()
     print(f"\n*** LOSO Permutation: {n_permutations} runs × {n_subjects} subjects ***")
@@ -907,6 +910,14 @@ def run_permutation_distribution_analysis(
 
         feature_importances = run_results["feature_importances"].values[0]
 
+        # SHAP computation (RF/XGB only, opt-in)
+        if save_shap and model_type in ("rf", "xgb"):
+            shap_vals = _save_shap_values(
+                run_results, X, feature_names, perm_run_dir, f"{filename_base}_{run_idx}", model_type
+            )
+            if shap_vals is not None:
+                shap_values_all_runs.append(shap_vals)
+
         # Save per-permutation summaries
         if save_csv:
             run_results.to_csv(
@@ -938,7 +949,7 @@ def run_permutation_distribution_analysis(
 
     if not all_results:
         print("No successful permutation runs.")
-        return pd.DataFrame(), {}
+        return pd.DataFrame(), {}, [], []
 
     # Build results DataFrame
     exclude_keys = {
@@ -1015,7 +1026,7 @@ def run_permutation_distribution_analysis(
             )
             print("  ✓ Permutation distribution plots")
 
-    return results_df, perm_summary
+    return results_df, perm_summary, all_results, shap_values_all_runs
 
 
 # =============================================================================
@@ -1348,7 +1359,7 @@ def run_within_subject_permutation_analysis(
     The y-labels are locally shuffled intra-subject independently, then evaluated.
     """
     if n_permutations < 1:
-        return pd.DataFrame(), {}
+        return pd.DataFrame(), {}, [], []
 
     model_name = config.get("current_model", "default")
     model_folder = get_model_results_folder(config, model_name, model_type)
@@ -1367,6 +1378,8 @@ def run_within_subject_permutation_analysis(
     print(f"\n*** Within-Subject Permutation: {n_permutations} runs ***")
 
     all_perm_results = []
+    all_runs_subject_metrics = []
+    shap_values_all_runs = []
 
     for run_idx in tqdm(range(n_permutations), desc=f"Permutation [{model_type}] WS {dimension}"):
         run_start = time.time()
@@ -1429,14 +1442,27 @@ def run_within_subject_permutation_analysis(
                     continue
 
                 auc = sub_results['mean_auc'].values[0]
-                run_subject_results.append({
+                sub_metrics = {
                     'run_idx': run_idx,
                     'subject': subject,
                     'mean_auc': auc,
                     'mean_auprc': sub_results['mean_auprc'].values[0],
                     'mean_mcc': sub_results['mean_mcc'].values[0],
-                })
+                }
+                run_subject_results.append(sub_metrics)
+                all_runs_subject_metrics.append(sub_metrics)
                 importances_list.append(sub_results['feature_importances'].values[0])
+                
+                # SHAP computation
+                if save_shap and model_type in ("rf", "xgb"):
+                    try:
+                        sub_shap = _save_shap_values(
+                            sub_results, X_sub, feature_names, perm_run_dir, f"{filename_base}_{run_idx}_{subject}", model_type
+                        )
+                        if sub_shap is not None:
+                            shap_values_all_runs.append(sub_shap)
+                    except Exception as e:
+                        if logger: logger.warning(f"SHAP failed for {subject}: {str(e)}")
                 
                 if save_probabilities:
                     # Simplify the prediction saving for permutations due to speed if requested
@@ -1497,7 +1523,7 @@ def run_within_subject_permutation_analysis(
         all_perm_results.append(global_summary)
 
     if not all_perm_results:
-        return pd.DataFrame(), {}
+        return pd.DataFrame(), {}, [], []
 
     perm_df = pd.DataFrame(all_perm_results)
     if save_csv:
@@ -1521,4 +1547,4 @@ def run_within_subject_permutation_analysis(
         perm_summary['p_auc'] = p_val
         perm_summary['perm_mean_auc'] = perm_aucs.mean()
 
-    return perm_df, perm_summary
+    return perm_df, perm_summary, all_runs_subject_metrics, shap_values_all_runs

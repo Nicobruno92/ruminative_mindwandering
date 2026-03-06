@@ -248,7 +248,7 @@ def test_pipeline():
         test_marker = 'EEG_psd_bands_spectralpower_alpha'
         
         # Load existing config
-        config_path = script_dir / "config.yaml"
+        config_path = script_dir.parent / "config.yaml"
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
         
@@ -262,13 +262,13 @@ def test_pipeline():
         test_config['project']['montage_path'] = 'standard_1020'  # Use standard montage for testing
         test_config['project']['subjects'] = None  # Test all subjects
         test_config['project']['tasks'] = None  # Test all tasks
-        test_config['project']['marker_types'] = ['state']  # Only test state markers
-        test_config['project']['markers'] = [test_marker]  # Only test one marker
+        test_config['project']['selected_markers'] = {'state': [test_marker]}  # Only test one marker
         test_config['project']['qa_summary_path'] = None  # Disable QA filtering for test
         test_config['project']['pca_results_path'] = None  # Disable PCA data for test
         test_config['lmm']['method'] = 'powell'  # More robust method for convergence
         test_config['lmm']['maxiter'] = 2000  # More iterations for better convergence
         test_config['lmm']['predictor_of_interest'] = 'onoff'  # Explicitly set predictor for testing
+        test_config['lmm']['formula'] = 'power ~ onoff + (1|subject)'  # Use simple formula for testing
         test_config['clustering']['n_permutations'] = 100  # Small number for testing
         test_config['clustering']['n_jobs'] = 1  # Single-threaded for testing
         
@@ -285,8 +285,8 @@ def test_pipeline():
         
         # Add Statistics directory to path for imports
         import sys
-        if str(script_dir) not in sys.path:
-            sys.path.insert(0, str(script_dir))
+        if str(script_dir.parent) not in sys.path:
+            sys.path.insert(0, str(script_dir.parent))
         
         # Test reader
         print("\nTesting reader module...")

@@ -77,10 +77,20 @@ contrast: ON_vs_OFF_within_median
 #   state  = temporal bins before probe (-3 to -10s) — best for mind-wandering
 #   evoked = trial-locked epochs (go stimulus onset) — for ERP features
 #   sleep  = single epoch per probe
+#
+# You can specify this as a list to load all markers:
+# epoch_types:
+#   - state
+#   - evoked
+# Or as a dictionary to only load specific feature families for each epoch type:
+# epoch_types:
+#   state: ["spectral", "connectivity", "information_theory"]
+#   evoked: ["erp"]
+#   sleep: ["sleep"]
 
 epoch_types:
   - state
-  # - evoked
+  - evoked: ['erp']
   # - sleep
 
 # =============================================================================
@@ -150,6 +160,10 @@ feature_families:
     - "P2_"
     - "P3a_"
     - "P3b_"
+
+  sleep:                       # Sleep markers (sleep epoch type only)
+    - "slowwaves_"
+    - "spindles_"
 
 
 # Which families to run.
@@ -250,7 +264,7 @@ save_csv: true
 save_probabilities: true
 save_pickle: false
 save_plots: true
-save_shap: false
+save_shap: true
 
 verbose: true
 

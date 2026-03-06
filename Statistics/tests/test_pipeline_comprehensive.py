@@ -430,8 +430,7 @@ def create_test_config(base_config_path: Path, test_dir: Path,
     config['project']['pca_results_path'] = None  # Disable PCA
     config['project']['subjects'] = None  # Use all subjects in synthetic data
     config['project']['tasks'] = None  # Use all tasks in synthetic data
-    config['project']['marker_types'] = [marker_type]
-    config['project']['markers'] = [marker_name]
+    config['project']['selected_markers'] = {marker_type: [marker_name]}
     config['project']['onoff_max_value'] = None  # Include all probes
     
     # LMM settings optimized for convergence

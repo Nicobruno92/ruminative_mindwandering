@@ -27,6 +27,14 @@ n_permutations: 100             # Runs per permutation pass (useful: 100 or 1000
 # By default, junifer writes power with no epoch prefix (e.g. power_alpha_Fz),
 # so this can just match the features strictly.
 # If your data is split by Evoked/State/Sleep, define it here:
+# You can specify this as a list to load all markers for these epoch types:
+# epoch_types:
+#   - state
+# Or as a dictionary to load specific feature families per epoch type:
+# epoch_types:
+#   state: ["spectral", "connectivity"]
+#   evoked: ["erp"]
+#   sleep: ["sleep"]
 epoch_types:
   - ""
 
@@ -36,7 +44,7 @@ epoch_types:
 # Either "per_channel" or "per_roi".
 # Determines if the pipeline expects channel-level columns (e.g., Fz, Cz) 
 # or spatial ROI-level columns (e.g., frontal, parietal).
-data_format: "per_channel"
+data_format: "per_roi"
 
 # =============================================================================
 # CROSS-VALIDATION SETTINGS (WITHIN-SUBJECT)
@@ -81,13 +89,13 @@ label_contrasts:
     positive_class_name: "ON-task"
     negative_class_name: "OFF-task"
 
-  on_vs_off_extreme:
-    column_name: "onoff"
-    split_method: "extreme_groups"
-    threshold_low: 30
-    threshold_high: 70
-    positive_class_name: "ON-task"
-    negative_class_name: "OFF-task"
+  # on_vs_off_extreme:
+  #   column_name: "onoff"
+  #   split_method: "extreme_groups"
+  #   threshold_low: 30
+  #   threshold_high: 70
+  #   positive_class_name: "ON-task"
+  #   negative_class_name: "OFF-task"
 
 # =============================================================================
 # FEATURE FAMILIES
@@ -100,30 +108,45 @@ label_contrasts:
 # The naming convention matches Junifer output (e.g., power_alpha_Fz, P1_Fz).
 
 feature_families:
-  all: null
-  spectral: 
-    - "power_"
-    - "aperiodic_"
-  connectivity: 
-    - "coherence_"
-    - "plv_"
-    - "pli_"
-    - "wpli_"
-    - "aec_"
-  erp:
+  all: null                    # All available features (no filtering)
+
+  spectral:                    # Absolute and relative band power
+    - "power_delta"
+    - "power_theta"
+    - "power_alpha"
+    - "power_beta"
+    - "power_gamma"
+    - "power_normalized_"
+
+  connectivity:                # Weighted Symbolic Mutual Information (wSMI)
+    - "wsmi_theta"
+    - "wsmi_alpha"
+    - "wsmi_beta"
+    - "wsmi_gamma"
+
+  information_theory:          # Permutation Entropy + Kolmogorov Complexity
+    - "PE_theta"
+    - "PE_alpha"
+    - "PE_beta"
+    - "PE_gamma"
+    - "kolmogorov_complexity"
+
+  erp:                         # ERP components (evoked epoch type only)
     - "P1_"
     - "N1_"
     - "P2_"
-    - "N2_"
-    - "P3_"
-    - "LPP_"
-  information_theory:
-    - "entropy_"
-    - "complexity_"
+    - "P3a_"
+    - "P3b_"
+
+  sleep:                       # Sleep markers (sleep epoch type only)
+    - "slowwaves_"
+    - "spindles_"
+
 
 # Which families to run automatically via local/cluster bash scripts.
 run_families:
   - all
+  - evoked
   - spectral
   - connectivity
 

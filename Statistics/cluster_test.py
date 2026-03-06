@@ -52,17 +52,7 @@ from mne.stats.cluster_level import (
 )
 
 # Import MNE's helper functions for cluster statistics
-try:
-    from mne.stats.cluster_level import _masked_sum, _masked_sum_power
-except ImportError:
-    # Define MNE-compatible versions if not available
-    def _masked_sum(x, c):
-        """Sum values at indices (MNE-compatible)."""
-        return np.sum(x[c])
-    
-    def _masked_sum_power(x, c, t_power):
-        """Sum with power weighting (MNE-compatible)."""
-        return np.sum(np.sign(x[c]) * np.abs(x[c]) ** t_power)
+from mne.stats.cluster_level import _masked_sum, _masked_sum_power
 
 
 # Configure logging
@@ -565,14 +555,11 @@ def spatial_cluster_permutation_test(
         if verbose:
             print("  Checking for disjoint adjacency sets...")
         from mne.stats.cluster_level import _get_partitions_from_adjacency
-        try:
-            partitions = _get_partitions_from_adjacency(adjacency, n_times=1)
-            if partitions is not None and verbose:
-                n_partitions = len(np.unique(partitions))
-                print(f"  Found {n_partitions} disjoint adjacency sets")
-        except:
-            if verbose:
-                print("  Could not detect partitions, proceeding without")
+        from scipy.sparse import coo_matrix
+        partitions = _get_partitions_from_adjacency(coo_matrix(adjacency), n_times=1)
+        if partitions is not None and verbose:
+            n_partitions = len(np.unique(partitions))
+            print(f"  Found {n_partitions} disjoint adjacency sets")
     
     # Print analysis summary if verbose
     if verbose:

@@ -30,8 +30,7 @@ project:
   # Data filtering (optional)
   subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
   tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
-  marker_types: ["evoked"]  # Processed independently
-  
+
   # Filter probes by onoff value (optional)
   # Only include probes where onoff <= onoff_max_value
   # Set to null or comment out to include all probes
@@ -54,12 +53,19 @@ project:
   # e.g., 0.2 means exclude subjects with < 20% of trials in their minority class
   # Set to null to disable
   min_minority_ratio: 0.2  # e.g. 0.2
-  
-  # Markers to analyze
-  # Options:
-  #   - "all": Process all available markers (auto-discovered from data)
-  #   - List of specific marker names: ["EEG_psd_bands_spectralpower_alpha", "EEG_connectivity_wpli_alpha"]
-  markers: "all"  # or specify list of markers
+  # NEW: Per-type marker selection
+  # Each key is a marker_type (evoked, state, etc.)
+  # Each value is a list of specific marker names to use, or "all" for all markers of that type
+  selected_markers:
+    evoked:
+      - "EEG_evoked_P1"
+      - "EEG_evoked_N1"
+      - "EEG_evoked_P3b"
+    state:
+      - "EEG_psd_bands_spectralpower_alpha"
+      - "EEG_psd_bands_spectralpower_theta"
+    # sleep:
+    #   - "EEG_sleep_spindle_density"
 
 # Preprocessing parameters
 preprocessing:

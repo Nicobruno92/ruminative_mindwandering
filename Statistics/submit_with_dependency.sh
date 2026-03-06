@@ -95,24 +95,20 @@ with open('${CONFIG_FILE}', 'r') as f:
     config = yaml.safe_load(f)
 
 features_root = config['project']['features_root']
-marker_types = config['project'].get('marker_types', None)
-markers_config = config['project'].get('markers', 'all')
+selected_markers = config['project'].get('selected_markers', {})
 
 # Determine number of marker-type combinations
-if isinstance(markers_config, str) and markers_config.lower() == 'all':
-    # Get all markers, counting each (marker, type) combination separately
-    available_markers_dict = get_available_markers(features_root, marker_types)
-    n_markers = sum(len(markers) for markers in available_markers_dict.values())
-elif isinstance(markers_config, list):
-    # For each marker, count how many types it exists in
-    available_markers_dict = get_available_markers(features_root, marker_types)
-    n_markers = 0
-    for marker_name in markers_config:
-        for marker_type, type_markers in available_markers_dict.items():
-            if marker_name in type_markers:
-                n_markers += 1
-else:
-    n_markers = 0
+n_markers = 0
+if selected_markers:
+    available_markers_dict = get_available_markers(features_root)
+    for marker_type, configured_markers in selected_markers.items():
+        if marker_type in available_markers_dict:
+            if isinstance(configured_markers, str) and configured_markers.lower() == 'all':
+                n_markers += len(available_markers_dict[marker_type])
+            elif isinstance(configured_markers, list):
+                # Only count markers that actually exist
+                available_type_markers = available_markers_dict[marker_type]
+                n_markers += sum(1 for m in configured_markers if m in available_type_markers)
 
 print(n_markers)
 ")

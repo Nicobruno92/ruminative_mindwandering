@@ -396,6 +396,11 @@ def load_marker_dataframes(
     
     for marker_name in marker_names:
         info = reader.get_marker_info(marker_name)
+        
+        # Skip non-aggregated connectivity markers in standard pipeline
+        if getattr(info, "is_connectivity_pairs", False):
+            continue
+            
         clean_name = rename_marker_name(marker_name, marker_mapping)
         
         # Handle multi-band spectral markers
@@ -455,6 +460,77 @@ def load_marker_dataframes(
                         )
     
     print(f"  Successfully loaded {len(marker_columns)} marker columns")
+    return combined_df, marker_columns
+
+
+def load_connectivity_marker_dataframes(
+    reader: JuniferHDF5Reader,
+    events_tsv_path: str,
+    marker_mapping: Dict[str, str],
+    stats: Optional["AggregationStats"] = None,
+    context: str = "",
+) -> Tuple[pd.DataFrame, List[str]]:
+    """Load non-aggregated connectivity markers into long format (epochs × pairs)."""
+    reader.load_events(events_tsv_path)
+    events_df = reader.events.copy()
+    n_epochs = len(events_df)
+    
+    marker_names = reader.list_markers()
+    conn_markers = []
+    first_info = None
+    for mk in marker_names:
+        info = reader.get_marker_info(mk)
+        if getattr(info, "is_connectivity_pairs", False):
+            conn_markers.append(mk)
+            if first_info is None:
+                first_info = info
+                
+    if not conn_markers:
+        return pd.DataFrame(), []
+        
+    pair_names = first_info.col_names or []
+    if not pair_names:
+        print(f"  [WARN] No pair names found for {conn_markers[0]}")
+        return pd.DataFrame(), []
+        
+    # Filter out EOG pairs
+    valid_pair_names = []
+    for pair in pair_names:
+        if not any(eog in pair for eog in EOG_CHANNELS):
+            valid_pair_names.append(pair)
+            
+    n_valid_pairs = len(valid_pair_names)
+    epoch_indices = np.repeat(np.arange(n_epochs), n_valid_pairs)
+    pair_repeated = np.tile(valid_pair_names, n_epochs)
+    
+    combined_df = pd.DataFrame({
+        "epoch_idx": epoch_indices,
+        "channel": pair_repeated,  # Mapped to 'channel' for compatibility with aggregation
+    })
+    
+    for col in events_df.columns:
+        combined_df[col] = events_df[col].values[epoch_indices]
+        
+    marker_columns = []
+    expected_len = len(combined_df)
+    
+    for marker_name in conn_markers:
+        clean_name = rename_marker_name(marker_name, marker_mapping)
+        try:
+            df = reader.to_dataframe(marker_name)
+            if df is not None:
+                available = [p for p in valid_pair_names if p in df.columns]
+                df = df[available]
+                flat_vals = df.values.flatten(order="C")
+                if len(flat_vals) == expected_len:
+                    combined_df[clean_name] = flat_vals
+                    marker_columns.append(clean_name)
+                else:
+                    print(f"    [SKIP] {clean_name}: length {len(flat_vals)} != {expected_len}")
+        except Exception as e:
+            print(f"    [WARN] Failed to load connectivity {marker_name}: {e}")
+            
+    print(f"  Successfully loaded {len(marker_columns)} connectivity pair columns")
     return combined_df, marker_columns
 
 

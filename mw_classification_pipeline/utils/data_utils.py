@@ -157,8 +157,9 @@ def load_subject_data(
     features_root: str,
     subject: str,
     task: str,
-    marker_types: Union[str, List[str]],
+    marker_types: Union[str, List[str], Dict[str, List[str]]],
     verbose: bool = False,
+    feature_families_config: Optional[Dict] = None,
 ) -> pd.DataFrame:
     """
     Load all probe CSVs for a subject/task combination.
@@ -181,7 +182,13 @@ def load_subject_data(
     pd.DataFrame
         Combined long-format data for this subject/task.
     """
-    csv_files = find_probe_csvs(features_root, subject, task, marker_types)
+    # Determine which marker types (epoch types) to load files for
+    if isinstance(marker_types, dict):
+        mtypes_to_load = list(marker_types.keys())
+    else:
+        mtypes_to_load = marker_types
+
+    csv_files = find_probe_csvs(features_root, subject, task, mtypes_to_load)
 
     if not csv_files:
         return pd.DataFrame()
@@ -191,7 +198,22 @@ def load_subject_data(
         for f in files:
             df = load_probe_csv(f)
             if not df.empty:
-                all_dfs.append(df)
+                # If specific families are requested for this epoch type, filter markers
+                if isinstance(marker_types, dict) and feature_families_config:
+                    families = marker_types.get(mtype, [])
+                    if families and "all" not in families:
+                        allowed_prefixes = []
+                        for fam in families:
+                            fam_prefixes = feature_families_config.get(fam)
+                            if fam_prefixes:
+                                allowed_prefixes.extend(fam_prefixes)
+                        
+                        if allowed_prefixes:
+                            mask = df["marker"].apply(lambda x: any(str(p) in str(x) for p in allowed_prefixes))
+                            df = df[mask]
+                
+                if not df.empty:
+                    all_dfs.append(df)
 
     if not all_dfs:
         return pd.DataFrame()
@@ -209,8 +231,9 @@ def load_all_subjects(
     features_root: str,
     subjects: List[str],
     tasks: List[str],
-    marker_types: Union[str, List[str]],
+    marker_types: Union[str, List[str], Dict[str, List[str]]],
     verbose: bool = True,
+    feature_families_config: Optional[Dict] = None,
 ) -> pd.DataFrame:
     """
     Load and concatenate data across all subjects and tasks.
@@ -237,7 +260,9 @@ def load_all_subjects(
 
     for subject in subjects:
         for task in tasks:
-            df = load_subject_data(features_root, subject, task, marker_types, verbose)
+            df = load_subject_data(
+                features_root, subject, task, marker_types, verbose, feature_families_config
+            )
             if not df.empty:
                 all_dfs.append(df)
 
@@ -659,6 +684,7 @@ def prepare_data_for_contrast(
     subjects = config.get("subjects")
     tasks = config["tasks"]
     epoch_types = config.get("epoch_types", ["state"])
+    feature_families_config = config.get("feature_families", {})
     data_format = config.get("data_format", "per_channel")
     min_minority_ratio = config.get("min_minority_ratio", 0.15)
     min_samples = config.get("min_samples", 0)
@@ -701,7 +727,9 @@ def prepare_data_for_contrast(
     if verbose:
         print("Loading aggregated probe marker CSVs...")
 
-    df_long = load_all_subjects(features_root, subjects, tasks, epoch_types, verbose)
+    df_long = load_all_subjects(
+        features_root, subjects, tasks, epoch_types, verbose, feature_families_config
+    )
 
     if df_long.empty:
         raise ValueError("No data loaded! Check paths and file existence.")

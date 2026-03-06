@@ -70,9 +70,9 @@ class TestRunWithinSubjectDistributionAnalysis:
         assert len(metrics_list) == 4
 
     def test_result_skips_invalid_subjects(self, setup):
-        # Setup: artificially make Subject-00 have entirely Class 0
+        # Setup: artificially make Subject "02" have entirely Class 0
         y_mod = setup["y"].copy()
-        sub0_mask = setup["groups"] == "sub-00"
+        sub0_mask = setup["groups"] == "02"
         y_mod[sub0_mask] = 0
         
         metrics_list, _ = run_within_subject_distribution_analysis(
@@ -151,9 +151,9 @@ class TestRunWithinSubjectPermutationAnalysis:
     def test_permutation_computes_p_value_with_true_df(self, setup):
         # Fake a true metrics df representing 3 subjects
         true_df = pd.DataFrame([
-            {"subject": "sub-00", "mean_auc": 0.8},
-            {"subject": "sub-01", "mean_auc": 0.85},
-            {"subject": "sub-02", "mean_auc": 0.75},
+            {"subject": "02", "mean_auc": 0.8},
+            {"subject": "03", "mean_auc": 0.85},
+            {"subject": "04", "mean_auc": 0.75},
         ])
         
         results_df, perm_summary = run_within_subject_permutation_analysis(

@@ -60,9 +60,12 @@ try:
         config = yaml.safe_load(f)
 
     features_root = config['project']['features_root']
-    marker_types_filter = config['project'].get('marker_types', None)
-    markers_config = config['project'].get('markers', 'all')
+    selected_markers = config['project'].get('selected_markers', {})
     
+    if not selected_markers:
+        print('No selected_markers configured in config.yaml', file=sys.stderr)
+        sys.exit(1)
+        
     # Lightweight marker discovery logic
     features_path = Path(features_root)
     pattern = '**/sub-*_task-*_desc-probe-*_*_aggMarkers.csv'
@@ -82,7 +85,7 @@ try:
             else:
                 marker_type = 'mixed'
             
-            if marker_types_filter is None or marker_type in marker_types_filter:
+            if marker_type in selected_markers:
                 if marker_type not in sample_files_by_type:
                     sample_files_by_type[marker_type] = f
 
@@ -92,16 +95,18 @@ try:
         df = pd.read_csv(sample_file, usecols=['marker'])
         markers_by_type[marker_type] = sorted(df['marker'].unique().tolist())
     
-    if isinstance(markers_config, str) and markers_config.lower() == 'all':
-        n_markers = sum(len(markers) for markers in markers_by_type.values())
-    elif isinstance(markers_config, list):
-        n_markers = 0
-        for marker_name in markers_config:
-            for marker_type, type_markers in markers_by_type.items():
-                if marker_name in type_markers:
+    n_markers = 0
+    for marker_type, configured_markers in selected_markers.items():
+        if marker_type not in markers_by_type:
+            continue
+            
+        available_type_markers = markers_by_type[marker_type]
+        if isinstance(configured_markers, str) and configured_markers.lower() == 'all':
+            n_markers += len(available_type_markers)
+        elif isinstance(configured_markers, list):
+            for marker_name in configured_markers:
+                if marker_name in available_type_markers:
                     n_markers += 1
-    else:
-        n_markers = 0
     print(n_markers)
 except Exception as e:
     import traceback

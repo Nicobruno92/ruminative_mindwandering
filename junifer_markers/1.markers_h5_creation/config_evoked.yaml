@@ -126,6 +126,57 @@ markers:
     on: EEG
 
   # ========================================
+  # 4.b CONNECTIVITY: Non-Aggregated (Pairs)
+  # ========================================
+  - kind: SymbolicMutualInformation
+    name: wsmi_theta_pairs
+    tmin:
+    tmax:
+    kernel: 3
+    tau: 8
+    weighted: true
+    csd: true
+    connectivity_aggregation_method: null
+    trial_aggregation_method: null
+    on: EEG
+  
+  - kind: SymbolicMutualInformation
+    name: wsmi_alpha_pairs
+    tmin:
+    tmax:
+    kernel: 3
+    tau: 4
+    weighted: true
+    csd: true
+    connectivity_aggregation_method: null
+    trial_aggregation_method: null
+    on: EEG
+
+  - kind: SymbolicMutualInformation
+    name: wsmi_beta_pairs
+    tmin:
+    tmax:
+    kernel: 3
+    tau: 2
+    weighted: true
+    csd: true
+    connectivity_aggregation_method: null
+    trial_aggregation_method: null
+    on: EEG
+  
+  - kind: SymbolicMutualInformation
+    name: wsmi_gamma_pairs
+    tmin:
+    tmax:
+    kernel: 3
+    tau: 1
+    weighted: true
+    csd: true
+    connectivity_aggregation_method: null
+    trial_aggregation_method: null
+    on: EEG
+
+  # ========================================
   # 5. INFORMATION THEORY: Permutation Entropy
   # ========================================
   - kind: PermutationEntropy

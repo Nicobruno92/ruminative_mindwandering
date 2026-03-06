@@ -44,6 +44,7 @@ from utils.analysis_utils import (
     run_permutation_distribution_analysis,
 )
 from utils.logging_utils import AnalysisLogger
+from utils.plotting_utils import plot_subject_level_densities, plot_shap_comparative_boxplots
 
 
 # =============================================================================
@@ -330,7 +331,7 @@ def main():
     print(f"Running LOSO classification ({n_runs} runs)...")
     print(f"{'='*60}\n")
 
-    results_df = run_distribution_analysis(
+    results_df, true_all_results, true_shap_values = run_distribution_analysis(
         dimension=contrast_name,
         df=df_prepared,
         X=X,
@@ -398,7 +399,7 @@ def main():
         print(f"Running permutation test ({permutation_runs} permutations)...")
         print(f"{'='*60}\n")
 
-        run_permutation_distribution_analysis(
+        perm_results_df, perm_summary, perm_all_results, perm_shap_values = run_permutation_distribution_analysis(
             dimension=contrast_name,
             df=df_prepared,
             X=X,
@@ -425,7 +426,7 @@ def main():
             save_csv=config.get("save_csv", True),
             save_probabilities=config.get("save_probabilities", True),
             save_plots=config.get("save_plots", True),
-            save_shap=False,  # Never compute SHAP for permutations
+            save_shap=config.get("save_shap", False),
             plot_style=config.get("plot_style", "seaborn"),
             verbose=verbose,
             feature_selection_method=config.get("feature_selection_method", "mrmr"),
@@ -444,6 +445,27 @@ def main():
             logger=logger,
             n_runs=n_runs,
         )
+        
+        if config.get("save_plots", True):
+            print("\nGenerating advanced comparison plots...")
+            plot_subject_level_densities(
+                true_subject_metrics_list=true_all_results,
+                perm_subject_metrics_list=perm_all_results,
+                dimension_name=contrast_name,
+                save_path=results_path,
+                filename_base=f"{model_type}_loso",
+                metric='auc'
+            )
+            
+            if config.get("save_shap", False) and true_shap_values and perm_shap_values:
+                plot_shap_comparative_boxplots(
+                    true_shap_runs=true_shap_values,
+                    perm_shap_runs=perm_shap_values,
+                    feature_names=feature_cols,
+                    save_path=results_path,
+                    filename_base=f"{model_type}_loso",
+                    num_features=10
+                )
 
     print(f"\n{'='*60}")
     print(f"Done. Results → {results_path}")

@@ -44,295 +44,226 @@ def set_plot_style(style='seaborn-v0_8'):
 
 def plot_confusion_matrix(avg_conf_matrix, negative_class_name, positive_class_name, cell_stats_df, comparison_results_path, filename_base):
     """
-    Plot and save annotated and simple confusion matrices.
+    Plot and save normalized confusion matrix using Plotly.
     """
-    import shap
+    import plotly.figure_factory as ff
     
     # Save raw confusion matrix to CSV
-    raw_cm_df = pd.DataFrame(
-        avg_conf_matrix,
-        index=[negative_class_name, positive_class_name],
-        columns=[f"Predicted {negative_class_name}", f"Predicted {positive_class_name}"]
-    )
-    raw_cm_df.index.name = "True Class"
-    raw_cm_path = f"{comparison_results_path}/{filename_base}_raw_confusion_matrix.csv"
-    raw_cm_df.to_csv(raw_cm_path)
+    pd.DataFrame(avg_conf_matrix, index=[negative_class_name, positive_class_name], 
+                 columns=[f"Predicted {negative_class_name}", f"Predicted {positive_class_name}"]).to_csv(
+                     f"{comparison_results_path}/{filename_base}_raw_confusion_matrix.csv")
     
-    # Normalized confusion matrix
+    # Normalize
     row_sums = avg_conf_matrix.sum(axis=1, keepdims=True)
     row_sums = np.where(row_sums == 0, 1, row_sums)
     norm_conf_matrix = avg_conf_matrix / row_sums
-    norm_cm_df = pd.DataFrame(
-        norm_conf_matrix,
-        index=[negative_class_name, positive_class_name],
-        columns=[f"Predicted {negative_class_name}", f"Predicted {positive_class_name}"]
-    )
-    norm_cm_df.index.name = "True Class"
-    norm_cm_path = f"{comparison_results_path}/{filename_base}_normalized_confusion_matrix.csv"
-    norm_cm_df.to_csv(norm_cm_path)
+    pd.DataFrame(norm_conf_matrix, index=[negative_class_name, positive_class_name], 
+                 columns=[f"Predicted {negative_class_name}", f"Predicted {positive_class_name}"]).to_csv(
+                     f"{comparison_results_path}/{filename_base}_normalized_confusion_matrix.csv")
+
+    z = norm_conf_matrix
+    x = [negative_class_name, positive_class_name]
+    y = [negative_class_name, positive_class_name]
     
-    # Annotated heatmap
-    plt.figure(figsize=(10, 8))
-    ax = sns.heatmap(
-        norm_conf_matrix, 
-        annot=True, 
-        fmt='.2f', 
-        cmap='Blues', 
-        xticklabels=[negative_class_name, positive_class_name], 
-        yticklabels=[negative_class_name, positive_class_name],
-        linewidths=1,
-        linecolor='black',
-        cbar_kws={'label': 'Proportion of samples'}
-    )
-    for i in range(len(norm_conf_matrix)):
-        for j in range(len(norm_conf_matrix[i])):
-            count = avg_conf_matrix[i, j]
-            ax.text(j + 0.5, i + 0.7, f"n={count:.1f}", ha="center", va="center", color="gray", fontsize=9)
-    plt.xlabel('Predicted Label', fontsize=12, fontweight='bold')
-    plt.ylabel('True Label', fontsize=12, fontweight='bold')
-    plt.title(f'Confusion Matrix', fontsize=14, fontweight='bold')
-    plt.tight_layout(rect=[0, 0.06, 1, 0.98])
-    plt.savefig(f"{comparison_results_path}/{filename_base}_confusion_matrix.png", dpi=300)
-    plt.savefig(f"{comparison_results_path}/{filename_base}_confusion_matrix.pdf")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_confusion_matrix.svg")
-    plt.close()
+    z_text = [[f"{val:.2f}<br>(n={count:.1f})" for val, count in zip(row_norm, row_avg)] 
+              for row_norm, row_avg in zip(norm_conf_matrix, avg_conf_matrix)]
+
+    fig = ff.create_annotated_heatmap(z, x=x, y=y, annotation_text=z_text, colorscale='Viridis', showscale=True)
+    fig.update_layout(template='plotly_white', title='<b>Confusion Matrix (Normalized)</b>',
+                      xaxis_title='Predicted Label', yaxis_title='True Label', width=600, height=600)
     
-    # Simple version
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(norm_conf_matrix, annot=True, fmt='.2f', cmap='Blues', 
-                xticklabels=[negative_class_name, positive_class_name], 
-                yticklabels=[negative_class_name, positive_class_name])
-    plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.title(f'Confusion Matrix (Row-Normalized)')
-    plt.tight_layout()
-    plt.savefig(f"{comparison_results_path}/{filename_base}_confusion_matrix_simple.png")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_confusion_matrix_simple.pdf")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_confusion_matrix_simple.svg")
-    plt.close()
+    out_path = f"{comparison_results_path}/{filename_base}_confusion_matrix"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save Confusion Matrix plot: {e}")
     
-    # Save stats
     if cell_stats_df is not None:
-        stats_path = f"{comparison_results_path}/{filename_base}_confusion_matrix_stats.csv"
-        cell_stats_df.to_csv(stats_path, index=False)
+        cell_stats_df.to_csv(f"{comparison_results_path}/{filename_base}_confusion_matrix_stats.csv", index=False)
+        
+    return fig
 
 
 def plot_auc_distribution(mean_auc_list, comparison_results_path, filename_base, n_runs):
     """
-    Plot and save AUC distribution histogram.
+    Plot and save AUC distribution using Plotly.
     """
-    plt.figure(figsize=(10, 6))
-    plt.hist(mean_auc_list, bins=20, alpha=0.7)
-    plt.axvline(np.mean(mean_auc_list), color='red', linestyle='--', label=f"Mean AUC: {np.mean(mean_auc_list):.3f}")
-    plt.axvline(0.5, color='black', linestyle=':', label='Random chance (0.5)')
-    plt.xlabel('AUC')
-    plt.ylabel('Frequency')
-    plt.title(f'Distribution of AUC Scores ({n_runs} runs)')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f"{comparison_results_path}/{filename_base}_auc_distribution.png")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_auc_distribution.pdf")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_auc_distribution.svg")
-    plt.close()
-    
-    # Save data and summary
     auc_array = np.array(mean_auc_list)
-    data_df = pd.DataFrame({'auc_values': auc_array})
-    percentiles = [2.5, 5, 10, 25, 50, 75, 90, 95, 97.5]
-    percentile_values = np.percentile(auc_array, percentiles)
+    pd.DataFrame({'auc_values': auc_array}).to_csv(f"{comparison_results_path}/{filename_base}_auc_distribution_data.csv", index=False)
     
-    summary_stats = {
-        'statistic': ['mean', 'std', 'median', 'min', 'max', 'n_runs', 'sem', 'ci_95_lower', 'ci_95_upper'] + 
-                     [f'percentile_{p}' for p in percentiles],
-        'value': [np.mean(auc_array), np.std(auc_array), np.median(auc_array), np.min(auc_array), 
-                  np.max(auc_array), len(auc_array), np.std(auc_array) / np.sqrt(len(auc_array)),
-                  percentile_values[0], percentile_values[-1]] + list(percentile_values)
-    }
-    summary_df = pd.DataFrame(summary_stats)
-    data_df.to_csv(f"{comparison_results_path}/{filename_base}_auc_distribution_data.csv", index=False)
-    summary_df.to_csv(f"{comparison_results_path}/{filename_base}_auc_distribution_summary.csv", index=False)
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=auc_array, marker_color='#DE237B', opacity=0.7, nbinsx=20))
+    mean_val = np.mean(auc_array)
+    fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text=f"Mean: {mean_val:.3f}")
+    fig.add_vline(x=0.5, line_dash="dash", line_color="red", annotation_text="Chance (0.5)")
+    fig.update_layout(template='plotly_white', title=f"<b>AUC Distribution</b> ({n_runs} runs)",
+                      xaxis_title="AUC", yaxis_title="Frequency", width=800, height=600)
+    
+    out_path = f"{comparison_results_path}/{filename_base}_auc_distribution"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e: print(f"Warning: Could not save AUC plot: {e}")
+    return fig
 
 
 def plot_balanced_accuracy_distribution(mean_bal_acc_list, comparison_results_path, filename_base, n_runs):
     """
-    Plot and save balanced accuracy distribution histogram.
+    Plot and save balanced accuracy distribution using Plotly.
     """
-    plt.figure(figsize=(10, 6))
-    plt.hist(mean_bal_acc_list, bins=20, alpha=0.7)
-    plt.axvline(np.mean(mean_bal_acc_list), color='red', linestyle='--', label=f"Mean Bal Acc: {np.mean(mean_bal_acc_list):.3f}")
-    plt.axvline(0.5, color='black', linestyle=':', label='Random chance (0.5)')
-    plt.xlabel('Balanced Accuracy')
-    plt.ylabel('Frequency')
-    plt.title(f'Distribution of Balanced Accuracy Scores ({n_runs} runs)')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f"{comparison_results_path}/{filename_base}_balanced_acc_distribution.png")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_balanced_acc_distribution.pdf")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_balanced_acc_distribution.svg")
-    plt.close()
-    
-    # Save data and summary
     bal_acc_array = np.array(mean_bal_acc_list)
-    data_df = pd.DataFrame({'balanced_accuracy_values': bal_acc_array})
-    percentiles = [2.5, 5, 10, 25, 50, 75, 90, 95, 97.5]
-    percentile_values = np.percentile(bal_acc_array, percentiles)
+    pd.DataFrame({'balanced_accuracy_values': bal_acc_array}).to_csv(f"{comparison_results_path}/{filename_base}_balanced_acc_distribution_data.csv", index=False)
     
-    summary_stats = {
-        'statistic': ['mean', 'std', 'median', 'min', 'max', 'n_runs', 'sem', 'ci_95_lower', 'ci_95_upper'] + 
-                     [f'percentile_{p}' for p in percentiles],
-        'value': [np.mean(bal_acc_array), np.std(bal_acc_array), np.median(bal_acc_array), np.min(bal_acc_array),
-                  np.max(bal_acc_array), len(bal_acc_array), np.std(bal_acc_array) / np.sqrt(len(bal_acc_array)),
-                  percentile_values[0], percentile_values[-1]] + list(percentile_values)
-    }
-    summary_df = pd.DataFrame(summary_stats)
-    data_df.to_csv(f"{comparison_results_path}/{filename_base}_balanced_acc_distribution_data.csv", index=False)
-    summary_df.to_csv(f"{comparison_results_path}/{filename_base}_balanced_acc_distribution_summary.csv", index=False)
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=bal_acc_array, marker_color='#DE237B', opacity=0.7, nbinsx=20))
+    mean_val = np.mean(bal_acc_array)
+    fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text=f"Mean: {mean_val:.3f}")
+    fig.add_vline(x=0.5, line_dash="dash", line_color="red", annotation_text="Chance (0.5)")
+    fig.update_layout(template='plotly_white', title=f"<b>Balanced Accuracy Distribution</b> ({n_runs} runs)",
+                      xaxis_title="Balanced Accuracy", yaxis_title="Frequency", width=800, height=600)
+    
+    out_path = f"{comparison_results_path}/{filename_base}_balanced_acc_distribution"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e: print(f"Warning: Could not save BalAcc plot: {e}")
+    return fig
 
 
 def plot_auprc_distribution(mean_auprc_list, comparison_results_path, filename_base, n_runs):
     """
-    Plot and save AUPRC (Average Precision) distribution histogram.
-    AUPRC is better suited for imbalanced datasets than AUROC.
+    Plot and save AUPRC distribution using Plotly.
     """
-    plt.figure(figsize=(10, 6))
-    plt.hist(mean_auprc_list, bins=20, alpha=0.7, color='#9AC529')
-    mean_val = np.mean(mean_auprc_list)
-    plt.axvline(mean_val, color='red', linestyle='--', label=f"Mean AUPRC: {mean_val:.3f}")
-    plt.xlabel('AUPRC (Average Precision)')
-    plt.ylabel('Frequency')
-    plt.title(f'Distribution of AUPRC Scores ({n_runs} runs)')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f"{comparison_results_path}/{filename_base}_auprc_distribution.png")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_auprc_distribution.pdf")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_auprc_distribution.svg")
-    plt.close()
-    
-    # Save data and summary
     auprc_array = np.array(mean_auprc_list)
-    data_df = pd.DataFrame({'auprc_values': auprc_array})
-    percentiles = [2.5, 5, 10, 25, 50, 75, 90, 95, 97.5]
-    percentile_values = np.percentile(auprc_array, percentiles)
+    pd.DataFrame({'auprc_values': auprc_array}).to_csv(f"{comparison_results_path}/{filename_base}_auprc_distribution_data.csv", index=False)
     
-    summary_stats = {
-        'statistic': ['mean', 'std', 'median', 'min', 'max', 'n_runs', 'sem', 'ci_95_lower', 'ci_95_upper'] + 
-                     [f'percentile_{p}' for p in percentiles],
-        'value': [np.mean(auprc_array), np.std(auprc_array), np.median(auprc_array), np.min(auprc_array),
-                  np.max(auprc_array), len(auprc_array), np.std(auprc_array) / np.sqrt(len(auprc_array)),
-                  percentile_values[0], percentile_values[-1]] + list(percentile_values)
-    }
-    summary_df = pd.DataFrame(summary_stats)
-    data_df.to_csv(f"{comparison_results_path}/{filename_base}_auprc_distribution_data.csv", index=False)
-    summary_df.to_csv(f"{comparison_results_path}/{filename_base}_auprc_distribution_summary.csv", index=False)
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=auprc_array, marker_color='#DE237B', opacity=0.7, nbinsx=20))
+    mean_val = np.mean(auprc_array)
+    fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text=f"Mean: {mean_val:.3f}")
+    fig.update_layout(template='plotly_white', title=f"<b>AUPRC Distribution</b> ({n_runs} runs)",
+                      xaxis_title="AUPRC", yaxis_title="Frequency", width=800, height=600)
+    
+    out_path = f"{comparison_results_path}/{filename_base}_auprc_distribution"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e: print(f"Warning: Could not save AUPRC plot: {e}")
+    return fig
 
 
 def plot_mcc_distribution(mean_mcc_list, comparison_results_path, filename_base, n_runs):
     """
-    Plot and save MCC (Matthews Correlation Coefficient) distribution histogram.
-    MCC provides a balanced measure for imbalanced datasets, ranging from -1 to +1.
+    Plot and save MCC distribution using Plotly.
     """
-    plt.figure(figsize=(10, 6))
-    plt.hist(mean_mcc_list, bins=20, alpha=0.7, color='#F38A31')
-    mean_val = np.mean(mean_mcc_list)
-    plt.axvline(mean_val, color='red', linestyle='--', label=f"Mean MCC: {mean_val:.3f}")
-    plt.axvline(0.0, color='black', linestyle=':', label='Random chance (0.0)')
-    plt.xlabel('MCC (Matthews Correlation Coefficient)')
-    plt.ylabel('Frequency')
-    plt.title(f'Distribution of MCC Scores ({n_runs} runs)')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f"{comparison_results_path}/{filename_base}_mcc_distribution.png")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_mcc_distribution.pdf")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_mcc_distribution.svg")
-    plt.close()
-    
-    # Save data and summary
     mcc_array = np.array(mean_mcc_list)
-    data_df = pd.DataFrame({'mcc_values': mcc_array})
-    percentiles = [2.5, 5, 10, 25, 50, 75, 90, 95, 97.5]
-    percentile_values = np.percentile(mcc_array, percentiles)
+    pd.DataFrame({'mcc_values': mcc_array}).to_csv(f"{comparison_results_path}/{filename_base}_mcc_distribution_data.csv", index=False)
     
-    summary_stats = {
-        'statistic': ['mean', 'std', 'median', 'min', 'max', 'n_runs', 'sem', 'ci_95_lower', 'ci_95_upper'] + 
-                     [f'percentile_{p}' for p in percentiles],
-        'value': [np.mean(mcc_array), np.std(mcc_array), np.median(mcc_array), np.min(mcc_array),
-                  np.max(mcc_array), len(mcc_array), np.std(mcc_array) / np.sqrt(len(mcc_array)),
-                  percentile_values[0], percentile_values[-1]] + list(percentile_values)
-    }
-    summary_df = pd.DataFrame(summary_stats)
-    data_df.to_csv(f"{comparison_results_path}/{filename_base}_mcc_distribution_data.csv", index=False)
-    summary_df.to_csv(f"{comparison_results_path}/{filename_base}_mcc_distribution_summary.csv", index=False)
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=mcc_array, marker_color='#DE237B', opacity=0.7, nbinsx=20))
+    mean_val = np.mean(mcc_array)
+    fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text=f"Mean: {mean_val:.3f}")
+    fig.add_vline(x=0.0, line_dash="dash", line_color="red", annotation_text="Chance (0.0)")
+    fig.update_layout(template='plotly_white', title=f"<b>MCC Distribution</b> ({n_runs} runs)",
+                      xaxis_title="MCC", yaxis_title="Frequency", width=800, height=600)
+    
+    out_path = f"{comparison_results_path}/{filename_base}_mcc_distribution"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e: print(f"Warning: Could not save MCC plot: {e}")
+    return fig
 
 
 def plot_roc_curve(mean_fpr, mean_tpr, std_tpr, comparison_results_path, filename_base, mean_auc, n_curves, 
                    comparison=None, all_fprs=None, all_tprs=None, all_aucs=None):
     """
-    Plot and save mean ROC curve with confidence interval.
+    Plot and save ROC curve using Plotly.
     """
-    plt.figure(figsize=(10, 8))
-    color = get_comparison_color(comparison) if comparison else 'b'
-    label_name = COMPARISON_DISPLAY_NAMES.get(comparison, comparison) if comparison else None
+    fig = go.Figure()
+    color = '#DE237B'
     
-    # Plot individual ROC curves if provided
     if all_fprs is not None and all_tprs is not None:
         for fpr, tpr in zip(all_fprs, all_tprs):
-            if len(fpr) < 2 or len(tpr) < 2 or len(fpr) != len(tpr):
-                continue
-            plt.plot(fpr, tpr, lw=1, alpha=0.2, color=color)
+            fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', line=dict(color=color, width=1), opacity=0.1, showlegend=False))
+            
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1); tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+    fig.add_trace(go.Scatter(x=np.concatenate([mean_fpr, mean_fpr[::-1]]), y=np.concatenate([tprs_upper, tprs_lower[::-1]]),
+                             fill='toself', fillcolor='rgba(222,35,123,0.1)', line=dict(color='rgba(255,255,255,0)'), name='± 1 std. dev.'))
     
-    # Plot mean ROC curve
-    std_auc = np.std(all_aucs) if all_aucs is not None else 0
-    legend_label = f"Mean ROC (AUC = {mean_auc:.3f}"
-    legend_label += f" ± {std_auc:.3f})" if std_auc > 0 else ")"
+    fig.add_trace(go.Scatter(x=mean_fpr, y=mean_tpr, mode='lines', line=dict(color=color, width=3), name=f"Mean ROC (AUC={mean_auc:.3f})"))
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash', color='black'), name='Chance'))
     
-    plt.plot(mean_fpr, mean_tpr, color=color, lw=2, label=legend_label)
-    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
-    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
-    plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color=color, alpha=0.2, label='± 1 std. dev.')
-    plt.plot([0, 1], [0, 1], 'k--', lw=2, label='Chance level')
+    fig.update_layout(template='plotly_white', title=f"<b>ROC Curves ({n_curves} folds)</b>",
+                      xaxis_title="False Positive Rate", yaxis_title="True Positive Rate", width=800, height=800)
     
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    title = f"ROC Curves"
-    if label_name:
-        title += f" - {label_name}"
-    title += f" ({n_curves} valid curves)"
-    plt.title(title)
-    plt.legend(loc="lower right")
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(f"{comparison_results_path}/{filename_base}_roc_curve.png", dpi=300, bbox_inches='tight')
-    plt.savefig(f"{comparison_results_path}/{filename_base}_roc_curve.pdf", bbox_inches='tight')
-    plt.savefig(f"{comparison_results_path}/{filename_base}_roc_curve.svg", bbox_inches='tight')
-    plt.close()
+    out_path = f"{comparison_results_path}/{filename_base}_roc_curve"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e: print(f"Warning: Could not save ROC plot: {e}")
     
-    # Save ROC data
-    roc_data_df = pd.DataFrame({
-        'mean_fpr': mean_fpr, 'mean_tpr': mean_tpr, 'std_tpr': std_tpr,
-        'tprs_upper': tprs_upper, 'tprs_lower': tprs_lower
-    })
-    roc_data_df.to_csv(f"{comparison_results_path}/{filename_base}_roc_curve_data.csv", index=False)
+    pd.DataFrame({'mean_fpr': mean_fpr, 'mean_tpr': mean_tpr, 'std_tpr': std_tpr}).to_csv(f"{out_path}_data.csv", index=False)
+    return fig
 
 
 def plot_feature_importances(feature_names, mean_importances, std_importances, comparison_results_path, filename_base, top_n=20):
     """
-    Plot and save bar plot of top N feature importances.
+    Plot and save error-bar dot plot of top N feature importances using Plotly.
     """
-    indices = np.argsort(mean_importances)[::-1]
-    plt.figure(figsize=(12, 10))
-    plt.barh(range(top_n), mean_importances[indices][:top_n], xerr=std_importances[indices][:top_n], align='center')
-    plt.yticks(range(top_n), [feature_names[i] for i in indices][:top_n])
-    plt.xlabel('Mean Feature Importance')
-    plt.title(f'Top {top_n} Feature Importances')
-    plt.grid(True, axis='x', linestyle='--', alpha=0.7)
-    plt.tight_layout()
-    plt.savefig(f"{comparison_results_path}/{filename_base}_feature_importances.png")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_feature_importances.pdf")
-    plt.savefig(f"{comparison_results_path}/{filename_base}_feature_importances.svg")
-    plt.close()
+    indices = np.argsort(mean_importances)[::-1][:top_n]
+    # Reverse for Plotly (so the highest feature is at the top of the y-axis)
+    indices_plot = indices[::-1]
     
+    y_labels = [feature_names[i] for i in indices_plot]
+    x_means = mean_importances[indices_plot]
+    x_errs = std_importances[indices_plot]
+
+    fig = go.Figure()
+
+    # Add the points with error bars
+    fig.add_trace(go.Scatter(
+        x=x_means,
+        y=y_labels,
+        mode='markers',
+        marker=dict(color='#DE237B', size=8, symbol='circle'),
+        error_x=dict(
+            type='data',
+            array=x_errs,
+            color='#DE237B',
+            thickness=1.5,
+            width=3
+        ),
+        name='Importance'
+    ))
+
+    # Update layout to match modern aesthetic
+    fig.update_layout(
+        template='plotly_white',
+        title=dict(text=f'<b>Top {len(y_labels)} Feature Importances</b>', font=dict(size=16)),
+        xaxis_title=dict(text='Importance', font=dict(size=14)),
+        yaxis_title=dict(text='Feature', font=dict(size=14)),
+        height=max(400, len(y_labels) * 30),
+        width=800,
+        margin=dict(l=150, r=30, t=60, b=60),
+        yaxis=dict(
+            gridcolor='#F0F0F0',
+            showgrid=True,
+            showline=False,
+            zeroline=False
+        ),
+        xaxis=dict(
+            gridcolor='#F0F0F0',
+            showgrid=True,
+            zeroline=False
+        ),
+        showlegend=False
+    )
+
+    out_path = f"{comparison_results_path}/{filename_base}_feature_importances"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_image(f"{out_path}.svg")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save Plotly images: {e}")
+
     # Save feature importances data
     importances_data_df = pd.DataFrame({
         'feature_name': feature_names,
@@ -341,96 +272,147 @@ def plot_feature_importances(feature_names, mean_importances, std_importances, c
         'rank': np.argsort(np.argsort(mean_importances)[::-1]) + 1
     })
     importances_data_df = importances_data_df.sort_values('mean_importance', ascending=False).reset_index(drop=True)
-    importances_data_df.to_csv(f"{comparison_results_path}/{filename_base}_feature_importances_data.csv", index=False)
+    importances_data_df.to_csv(f"{out_path}_data.csv", index=False)
 
 
 def plot_shap_beeswarm(shap_values, x_test, feature_names, comparison, save_dir, save_prefix, max_display=20):
     """
-    Create a SHAP beeswarm plot showing top features.
-    
-    Parameters:
-    -----------
-    shap_values : array-like
-        SHAP values for each sample and feature
-    x_test : array-like
-        Feature values for coloring the plot
-    feature_names : list
-        Names of features
-    comparison : str
-        Title for the plot
-    save_dir : str
-        Directory to save the plot
-    save_prefix : str
-        Prefix for the saved file
-    max_display : int
-        Maximum number of features to display (default: 20)
+    Create a custom Plotly-based SHAP beeswarm plot.
+    Replicates the look of SHAP library but in Plotly.
     """
-    import shap
+    import numpy as np
+    import pandas as pd
     
-    plt.figure(figsize=(12, max(8, min(max_display, len(feature_names))/2)))
-    shap_values_to_plot = shap_values
-    
+    # Handle SHAP values structure
     if isinstance(shap_values, list) and len(shap_values) > 1:
-        shap_values_to_plot = shap_values[0]
+        shap_vals = shap_values[0] # Take first class for binary
     elif hasattr(shap_values, 'ndim') and shap_values.ndim == 3:
-        shap_values_to_plot = shap_values[..., 0]
-    
-    valid_x = False
-    if x_test is not None:
-        try:
-            arr = np.asarray(x_test)
-            if arr.shape == shap_values_to_plot.shape and not np.all(arr == 0):
-                valid_x = True
-        except Exception:
-            pass
-    
-    # Limit to max_display features
-    actual_max_display = min(max_display, len(feature_names))
-    
-    if valid_x:
-        shap.summary_plot(shap_values_to_plot, x_test, feature_names=feature_names, 
-                         plot_type="dot", show=False, max_display=actual_max_display)
+        shap_vals = shap_values[..., 0]
     else:
-        shap.summary_plot(shap_values_to_plot, feature_names=feature_names, 
-                         plot_type="dot", show=False, max_display=actual_max_display)
+        shap_vals = shap_values
+
+    # Calculate mean absolute SHAP to find top features
+    mean_abs_shap = np.mean(np.abs(shap_vals), axis=0)
+    top_indices = np.argsort(mean_abs_shap)[::-1][:max_display]
+    top_indices = top_indices[::-1] # Reverse for plotting (top features at top)
     
-    plt.title(f"SHAP Values (Top {actual_max_display} Features) - {comparison}", fontsize=14, fontweight='bold')
-    plt.tight_layout()
+    fig = go.Figure()
     
-    beeswarm_path = os.path.join(str(save_dir), f"{save_prefix}_shap_beeswarm.png")
-    plt.savefig(beeswarm_path, dpi=300, bbox_inches='tight')
-    plt.savefig(beeswarm_path.replace('.png', '.pdf'), dpi=300, bbox_inches='tight')
-    plt.savefig(beeswarm_path.replace('.png', '.svg'), dpi=300, bbox_inches='tight')
-    plt.close()
+    # We'll create one trace per feature for better legend/control, or one trace total
+    # For a beeswarm, we need to jitter the points on the Y-axis
+    for i, idx in enumerate(top_indices):
+        f_name = feature_names[idx]
+        f_shap = shap_vals[:, idx]
+        
+        # Jitter logic
+        # We can use Plotly's box/violin with points or just manual scatter
+        # Here we do manual scatter with jitter
+        y_center = i
+        jitter = np.random.normal(0, 0.05, size=len(f_shap))
+        y_positions = y_center + jitter
+        
+        f_values = None
+        if x_test is not None:
+            f_values = np.asarray(x_test)[:, idx]
+            # Normalize for color scale
+            if np.max(f_values) != np.min(f_values):
+                norm_values = (f_values - np.min(f_values)) / (np.max(f_values) - np.min(f_values))
+            else:
+                norm_values = np.zeros_like(f_values)
+        else:
+            norm_values = np.zeros_like(f_shap)
+            
+        fig.add_trace(go.Scatter(
+            x=f_shap,
+            y=y_positions,
+            mode='markers',
+            name=f_name,
+            marker=dict(
+                size=5,
+                color=norm_values if x_test is not None else '#DE237B',
+                colorscale='Viridis' if x_test is not None else None,
+                showscale=True if (i == len(top_indices)-1 and x_test is not None) else False,
+                colorbar=dict(title="Feature Value", titleside="top", tickvals=[0, 1], ticktext=["Low", "High"]) if (i == len(top_indices)-1 and x_test is not None) else None,
+                opacity=0.8
+            ),
+            hovertext=[f"Feature: {f_name}<br>SHAP: {s:.4f}<br>Value: {v:.4f}" for s, v in zip(f_shap, f_values)] if x_test is not None else None,
+            showlegend=False
+        ))
+
+    fig.update_layout(
+        template='plotly_white',
+        title=f"<b>SHAP Beeswarm: {comparison}</b>",
+        xaxis_title="SHAP Value (impact on model output)",
+        yaxis=dict(
+            tickmode='array',
+            tickvals=list(range(len(top_indices))),
+            ticktext=[feature_names[idx] for idx in top_indices],
+            showgrid=True,
+            gridcolor='#F0F0F0'
+        ),
+        xaxis=dict(showgrid=True, gridcolor='#F0F0F0', zeroline=True, zerolinecolor='black'),
+        height=max(600, len(top_indices) * 40),
+        width=900,
+        margin=dict(l=200, r=50, t=80, b=80)
+    )
     
-    return plt.gcf()
+    out_path = os.path.join(str(save_dir), f"{save_prefix}_shap_beeswarm")
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save SHAP beeswarm plot: {e}")
+        
+    return fig
 
 
 def plot_shap_feature_importance(shap_values, X, feature_names, comparison_results_path, filename_base, max_display=20):
     """
-    Plot and save SHAP feature importance (bar) plot.
+    Plot and save SHAP feature importance (bar) plot using Plotly.
     """
-    import shap
+    # Calculate mean absolute SHAP
+    if isinstance(shap_values, list) and len(shap_values) > 1:
+        shap_vals = shap_values[0]
+    elif hasattr(shap_values, 'ndim') and shap_values.ndim == 3:
+        shap_vals = shap_values[..., 0]
+    else:
+        shap_vals = shap_values
+        
+    mean_abs_shap = np.mean(np.abs(shap_vals), axis=0)
+    indices = np.argsort(mean_abs_shap)[::-1][:max_display]
+    indices_plot = indices[::-1]
     
-    plt.figure(figsize=(12, 8))
-    shap.summary_plot(shap_values, X, feature_names=feature_names, show=False, 
-                     plot_type="bar", max_display=min(max_display, len(feature_names)))
-    plt.tight_layout()
-    out_path = f"{comparison_results_path}/{filename_base}_shap_importance.png"
-    plt.savefig(out_path, dpi=300)
-    plt.savefig(out_path.replace('.png', '.pdf'), dpi=300)
-    plt.savefig(out_path.replace('.png', '.svg'), dpi=300)
-    plt.close()
+    y_labels = [feature_names[i] for i in indices_plot]
+    x_values = mean_abs_shap[indices_plot]
     
-    # Save SHAP importance data
-    mean_abs_shap = np.mean(np.abs(shap_values), axis=0)
-    shap_importance_df = pd.DataFrame({
-        'feature_name': feature_names,
-        'mean_abs_shap_value': mean_abs_shap,
-        'rank': np.argsort(np.argsort(mean_abs_shap)[::-1]) + 1
-    })
-    shap_importance_df = shap_importance_df.sort_values('mean_abs_shap_value', ascending=False).reset_index(drop=True)
-    shap_importance_df.to_csv(f"{comparison_results_path}/{filename_base}_shap_importance_data.csv", index=False)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=x_values, y=y_labels, orientation='h',
+        marker_color='#DE237B'
+    ))
+    
+    fig.update_layout(
+        template='plotly_white',
+        title=dict(text='<b>SHAP Feature Importance</b>', font=dict(size=16)),
+        xaxis_title='mean(|SHAP value|) (average impact on model output magnitude)',
+        yaxis_title='Feature',
+        width=800, height=max(400, len(y_labels) * 30)
+    )
+    
+    out_path = f"{comparison_results_path}/{filename_base}_shap_importance"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save SHAP importance plot: {e}")
+        
+    # Save data
+    pd.DataFrame({'feature_name': feature_names, 'mean_abs_shap_value': mean_abs_shap}).to_csv(
+        f"{out_path}_data.csv", index=False)
+        
+    return fig
 
 
 # =============================================================================
@@ -439,200 +421,133 @@ def plot_shap_feature_importance(shap_values, X, feature_names, comparison_resul
 
 def plot_auc_distribution_comparison(true_results, perm_results, dimension, model_type, save_path=None):
     """
-    Plot AUC distribution comparison between true and permuted labels with comprehensive data saving.
+    Plot AUC distribution comparison between true and permuted labels with Plotly.
     """
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-    
-    # Get AUC values with safety checks
-    if 'mean_auc' not in true_results.columns:
-        print(f"Warning: 'mean_auc' column not found in true_results for {dimension}")
-        plt.close(fig)
-        return None
-    if 'mean_auc' not in perm_results.columns:
-        print(f"Warning: 'mean_auc' column not found in perm_results for {dimension}")
-        plt.close(fig)
+    if 'mean_auc' not in true_results.columns or 'mean_auc' not in perm_results.columns:
+        print(f"Warning: AUC columns not found for {dimension}")
         return None
         
-    true_aucs = true_results['mean_auc'].dropna()
-    perm_aucs = perm_results['mean_auc'].dropna()
+    true_aucs = true_results['mean_auc'].dropna().values
+    perm_aucs = perm_results['mean_auc'].dropna().values
     
-    # Check if we have valid data
     if len(true_aucs) == 0 and len(perm_aucs) == 0:
-        print(f"Warning: No valid AUC data to plot for {dimension}")
-        plt.close(fig)
         return None
+
+    fig = go.Figure()
     
-    # Plot 1: Distributions with professional colors
-    ax1.hist(true_aucs, bins=20, alpha=0.7, label='True Labels', color=COLORS[0], density=True)
-    ax1.hist(perm_aucs, bins=20, alpha=0.7, label='Permuted Labels', color='gray', density=True)
-    ax1.axvline(true_aucs.mean(), color=COLORS[0], linestyle='--', linewidth=2, label=f'True Mean: {true_aucs.mean():.3f}')
-    ax1.axvline(perm_aucs.mean(), color='black', linestyle='--', linewidth=2, label=f'Perm Mean: {perm_aucs.mean():.3f}')
-    ax1.set_xlabel('AUC', fontweight='bold')
-    ax1.set_ylabel('Density', fontweight='bold')
-    ax1.set_title(f'{dimension} - AUC Distribution ({model_type.upper()})', fontweight='bold')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
+    # Histograms
+    fig.add_trace(go.Histogram(
+        x=perm_aucs, name='Permuted', marker_color='#999999', opacity=0.6,
+        histnorm='probability density', nbinsx=20
+    ))
+    fig.add_trace(go.Histogram(
+        x=true_aucs, name='True Model', marker_color='#DE237B', opacity=0.7,
+        histnorm='probability density', nbinsx=20
+    ))
     
-    # Plot 2: Box plots with professional colors
-    data_to_plot = [true_aucs, perm_aucs]
-    labels = ['True Labels', 'Permuted Labels']
-    colors = [COLORS[0], 'lightgray']
+    # Statistical lines
+    true_mean = np.mean(true_aucs)
     
-    box_plot = ax2.boxplot(data_to_plot, labels=labels, patch_artist=True)
-    for patch, color in zip(box_plot['boxes'], colors):
-        patch.set_facecolor(color)
+    fig.add_vline(x=true_mean, line_dash="dash", line_color="#DE237B", 
+                 annotation_text=f"Mean True: {true_mean:.3f}", annotation_position="top right")
+    fig.add_vline(x=0.5, line_dash="dash", line_color="black", 
+                 annotation_text="Chance (0.5)", annotation_position="top left")
     
-    ax2.set_ylabel('AUC', fontweight='bold')
-    ax2.set_title(f'{dimension} - AUC Comparison ({model_type.upper()})', fontweight='bold')
-    ax2.grid(True, alpha=0.3)
+    # Calculate p-value
+    empirical_p = (perm_aucs >= true_mean).mean()
     
-    # Calculate comprehensive statistics
-    if len(true_aucs) > 0 and len(perm_aucs) > 0:
-        # Statistical tests
-        ks_stat, ks_p = stats.ks_2samp(true_aucs, perm_aucs)
-        mwu_stat, mwu_p = stats.mannwhitneyu(true_aucs, perm_aucs, alternative='greater')
-        
-        # Empirical p-value
-        empirical_p = (perm_aucs >= true_aucs.mean()).mean()
-        
-        fig.suptitle(f'Mann-Whitney U: p = {mwu_p:.4g}, Empirical p = {empirical_p:.4g}', 
-                    fontsize=12, y=1.02)
-    
-    plt.tight_layout()
+    fig.update_layout(
+        template='plotly_white',
+        title=dict(
+            text=f"<b>Distribution of AUC Scores</b> ({len(true_aucs)} runs)<br><sup>p-value: {empirical_p:.4f}</sup>",
+            font=dict(size=18)
+        ),
+        xaxis_title="AUC",
+        yaxis_title="Probability Density",
+        barmode='overlay',
+        width=800, height=600,
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99)
+    )
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.savefig(save_path.replace('.png', '.pdf'), dpi=300, bbox_inches='tight')
-        plt.savefig(save_path.replace('.png', '.svg'), dpi=300, bbox_inches='tight')
-        print(f"Saved AUC distribution plot to: {save_path}")
-        
-        # Save comprehensive data and statistics
-        true_array = np.array(true_aucs)
-        perm_array = np.array(perm_aucs)
-        
-        # Create data DataFrame
-        max_len = max(len(true_array), len(perm_array))
-        data_df = pd.DataFrame({
-            'true_auc': np.pad(true_array, (0, max_len - len(true_array)), constant_values=np.nan),
-            'perm_auc': np.pad(perm_array, (0, max_len - len(perm_array)), constant_values=np.nan)
-        })
-        
-        # Calculate percentiles
-        percentiles = [2.5, 5, 10, 25, 50, 75, 90, 95, 97.5]
-        true_percentiles = np.percentile(true_array, percentiles)
-        perm_percentiles = np.percentile(perm_array, percentiles)
-        
-        # Summary statistics
-        summary_df = pd.DataFrame({
-            'group': ['true', 'permuted'],
-            'mean': [np.mean(true_array), np.mean(perm_array)],
-            'std': [np.std(true_array), np.std(perm_array)],
-            'sem': [np.std(true_array) / np.sqrt(len(true_array)), 
-                    np.std(perm_array) / np.sqrt(len(perm_array))],
-            'median': [np.median(true_array), np.median(perm_array)],
-            'ci_95_lower': [true_percentiles[0], perm_percentiles[0]],
-            'ci_95_upper': [true_percentiles[7], perm_percentiles[7]]
-        })
-        
-        # Statistical tests summary
-        stats_df = pd.DataFrame({
-            'test': ['mann_whitney_u', 'kolmogorov_smirnov', 'empirical_p'],
-            'statistic': [mwu_stat, ks_stat, np.nan],
-            'p_value': [mwu_p, ks_p, empirical_p]
-        })
-        
-        # Save data
-        base_path = save_path.replace('.png', '')
-        data_df.to_csv(f"{base_path}_data.csv", index=False)
-        summary_df.to_csv(f"{base_path}_summary.csv", index=False)
-        stats_df.to_csv(f"{base_path}_stats.csv", index=False)
-    
+        try:
+            fig.write_image(save_path, scale=2)
+            fig.write_image(save_path.replace('.png', '.pdf'))
+            fig.write_html(save_path.replace('.png', '.html'))
+        except Exception as e:
+            print(f"Warning: Could not save Plotly AUC distribution plot: {e}")
+            
     return fig
+
 
 def plot_balanced_accuracy_distribution_comparison(true_results, perm_results, dimension, model_type, save_path=None):
     """
-    Plot balanced accuracy distribution comparison between true and permuted labels.
+    Plot balanced accuracy distribution comparison between true and permuted labels using Plotly.
     """
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-    
-    # Get balanced accuracy values with safety checks
-    if 'mean_balanced_accuracy' not in true_results.columns:
-        print(f"Warning: 'mean_balanced_accuracy' column not found in true_results for {dimension}")
-        plt.close(fig)
-        return None
-    if 'mean_balanced_accuracy' not in perm_results.columns:
-        print(f"Warning: 'mean_balanced_accuracy' column not found in perm_results for {dimension}")
-        plt.close(fig)
+    if 'mean_balanced_accuracy' not in true_results.columns or 'mean_balanced_accuracy' not in perm_results.columns:
+        print(f"Warning: Balanced Accuracy columns not found for {dimension}")
         return None
         
-    true_bal_accs = true_results['mean_balanced_accuracy'].dropna()
-    perm_bal_accs = perm_results['mean_balanced_accuracy'].dropna()
+    true_vals = true_results['mean_balanced_accuracy'].dropna().values
+    perm_vals = perm_results['mean_balanced_accuracy'].dropna().values
     
-    # Check if we have valid data
-    if len(true_bal_accs) == 0 and len(perm_bal_accs) == 0:
-        print(f"Warning: No valid balanced accuracy data to plot for {dimension}")
-        plt.close(fig)
+    if len(true_vals) == 0 and len(perm_vals) == 0:
         return None
+
+    fig = go.Figure()
     
-    # Plot 1: Distributions
-    ax1.hist(true_bal_accs, bins=20, alpha=0.7, label='True Labels', color='green', density=True)
-    ax1.hist(perm_bal_accs, bins=20, alpha=0.7, label='Permuted Labels', color='orange', density=True)
-    ax1.axvline(true_bal_accs.mean(), color='green', linestyle='--', linewidth=2, label=f'True Mean: {true_bal_accs.mean():.3f}')
-    ax1.axvline(perm_bal_accs.mean(), color='orange', linestyle='--', linewidth=2, label=f'Perm Mean: {perm_bal_accs.mean():.3f}')
-    ax1.set_xlabel('Balanced Accuracy')
-    ax1.set_ylabel('Density')
-    ax1.set_title(f'{dimension} - Balanced Accuracy Distribution ({model_type.upper()})')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
+    fig.add_trace(go.Histogram(
+        x=perm_vals, name='Permuted', marker_color='#999999', opacity=0.6,
+        histnorm='probability density', nbinsx=20
+    ))
+    fig.add_trace(go.Histogram(
+        x=true_vals, name='True Model', marker_color='#DE237B', opacity=0.7,
+        histnorm='probability density', nbinsx=20
+    ))
     
-    # Plot 2: Box plots
-    data_to_plot = [true_bal_accs, perm_bal_accs]
-    labels = ['True Labels', 'Permuted Labels']
-    colors = ['lightgreen', 'wheat']
+    true_mean = np.mean(true_vals)
+    fig.add_vline(x=true_mean, line_dash="dash", line_color="#DE237B", 
+                 annotation_text=f"Mean True: {true_mean:.3f}", annotation_position="top right")
+    fig.add_vline(x=0.5, line_dash="dash", line_color="black", 
+                 annotation_text="Chance (0.5)", annotation_position="top left")
     
-    box_plot = ax2.boxplot(data_to_plot, labels=labels, patch_artist=True)
-    for patch, color in zip(box_plot['boxes'], colors):
-        patch.set_facecolor(color)
+    empirical_p = (perm_vals >= true_mean).mean()
     
-    ax2.set_ylabel('Balanced Accuracy')
-    ax2.set_title(f'{dimension} - Balanced Accuracy Comparison ({model_type.upper()})')
-    ax2.grid(True, alpha=0.3)
-    
-    # Calculate p-value
-    if len(true_bal_accs) > 0 and len(perm_bal_accs) > 0:
-        _, p_value = stats.mannwhitneyu(true_bal_accs, perm_bal_accs, alternative='greater')
-        fig.suptitle(f'P-value (Mann-Whitney U): {p_value:.4f}', fontsize=14, y=1.02)
-    
-    plt.tight_layout()
+    fig.update_layout(
+        template='plotly_white',
+        title=dict(
+            text=f"<b>Distribution of Balanced Accuracy Scores</b> ({len(true_vals)} runs)<br><sup>p-value: {empirical_p:.4f}</sup>",
+            font=dict(size=18)
+        ),
+        xaxis_title="Balanced Accuracy",
+        yaxis_title="Probability Density",
+        barmode='overlay',
+        width=800, height=600,
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99)
+    )
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved balanced accuracy distribution plot to: {save_path}")
-    
+        try:
+            fig.write_image(save_path, scale=2)
+            fig.write_image(save_path.replace('.png', '.pdf'))
+            fig.write_html(save_path.replace('.png', '.html'))
+        except Exception as e:
+            print(f"Warning: Could not save Plotly BalAcc distribution plot: {e}")
+            
     return fig
 
 def plot_feature_importance_distribution(results_df, feature_cols, dimension, model_type, top_n=15, save_path=None):
     """
-    Plot feature importance distribution across runs.
-    
-    Parameters:
-    - results_df: DataFrame with results including feature importance columns
-    - feature_cols: List of feature column names
-    - dimension: Name of the dimension being analyzed
-    - model_type: Type of model (rf, xgb, merf)
-    - top_n: Number of top features to plot
-    - save_path: Path to save the plot
+    Plot feature importance distribution across runs using Plotly.
     """
-    # Extract feature importances
     importance_cols = [col for col in results_df.columns if col.startswith('importance_')]
     
     if not importance_cols:
         print("No feature importance columns found")
         return None
     
-    # Calculate mean importance for each feature
     feature_importance_means = {}
     feature_importance_stds = {}
     
@@ -642,7 +557,6 @@ def plot_feature_importance_distribution(results_df, feature_cols, dimension, mo
             feature_importance_means[feature_name] = results_df[col].mean()
             feature_importance_stds[feature_name] = results_df[col].std()
     
-    # Sort by mean importance
     sorted_features = sorted(feature_importance_means.items(), key=lambda x: x[1], reverse=True)
     top_features = sorted_features[:top_n]
     
@@ -650,257 +564,194 @@ def plot_feature_importance_distribution(results_df, feature_cols, dimension, mo
         print("No valid feature importances found")
         return None
     
-    # Create plot
-    fig, ax = plt.subplots(figsize=(12, 8))
-    
     feature_names = [f[0] for f in top_features]
     mean_importances = [f[1] for f in top_features]
     std_importances = [feature_importance_stds.get(f[0], 0) for f in top_features]
     
-    # Create horizontal bar plot
-    y_pos = np.arange(len(feature_names))
-    bars = ax.barh(y_pos, mean_importances, xerr=std_importances, 
-                   capsize=5, alpha=0.7, color='skyblue', edgecolor='navy')
-    
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(feature_names)
-    ax.invert_yaxis()  # Highest importance at the top
-    ax.set_xlabel('Feature Importance')
-    ax.set_title(f'{dimension} - Top {top_n} Feature Importances ({model_type.upper()})')
-    ax.grid(True, alpha=0.3, axis='x')
-    
-    # Add value labels on bars
-    for i, (bar, mean_val, std_val) in enumerate(zip(bars, mean_importances, std_importances)):
-        ax.text(bar.get_width() + std_val + 0.001, bar.get_y() + bar.get_height()/2, 
-                f'{mean_val:.3f}', ha='left', va='center', fontsize=9)
-    
-    plt.tight_layout()
+    # Use the same dot plot style as plot_feature_importances
+    indices_plot = list(range(len(feature_names)))[::-1]
+    y_labels = [feature_names[i] for i in indices_plot]
+    x_means = [mean_importances[i] for i in indices_plot]
+    x_errs = [std_importances[i] for i in indices_plot]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x_means, y=y_labels, mode='markers+text',
+        marker=dict(color='#DE237B', size=8),
+        error_x=dict(type='data', array=x_errs, color='#DE237B', thickness=1.5),
+        text=[f"{m:.3f}" for m in x_means], textposition="middle right"
+    ))
+
+    fig.update_layout(
+        template='plotly_white',
+        title=f"<b>Top Feature Importances: {dimension}</b>",
+        xaxis_title="Importance",
+        yaxis=dict(gridcolor='#F0F0F0'),
+        xaxis=dict(gridcolor='#F0F0F0'),
+        height=max(400, len(y_labels) * 30),
+        width=800,
+        showlegend=False
+    )
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved feature importance plot to: {save_path}")
-    
+        try:
+            fig.write_image(save_path, scale=2)
+            fig.write_image(save_path.replace('.png', '.pdf'))
+            fig.write_html(save_path.replace('.png', '.html'))
+        except Exception as e:
+            print(f"Warning: Could not save feature importance distribution plot: {e}")
+            
     return fig
 
 def plot_performance_metrics_summary(true_results, dimension, model_type, save_path=None):
     """
-    Plot summary of all performance metrics.
+    Plot summary of all performance metrics using Plotly.
     """
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    from plotly.subplots import make_subplots
     
     metrics = ['mean_auc', 'mean_balanced_accuracy', 'fold_precision', 'fold_recall']
     metric_names = ['AUC', 'Balanced Accuracy', 'Precision', 'Recall']
     
+    fig = make_subplots(rows=2, cols=2, subplot_titles=metric_names)
+    
     for i, (metric, name) in enumerate(zip(metrics, metric_names)):
-        ax = axes[i//2, i%2]
+        row = (i // 2) + 1
+        col = (i % 2) + 1
         
         if metric in true_results.columns:
-            values = true_results[metric].dropna()
-            
+            values = true_results[metric].dropna().values
             if len(values) > 0:
-                # Histogram
-                ax.hist(values, bins=15, alpha=0.7, color='steelblue', edgecolor='black')
-                ax.axvline(values.mean(), color='red', linestyle='--', linewidth=2, 
-                          label=f'Mean: {values.mean():.3f}')
-                ax.axvline(values.median(), color='orange', linestyle='--', linewidth=2, 
-                          label=f'Median: {values.median():.3f}')
+                fig.add_trace(go.Histogram(
+                    x=values, name=name, marker_color='#DE237B', opacity=0.7, nbinsx=15
+                ), row=row, col=col)
                 
-                ax.set_xlabel(name)
-                ax.set_ylabel('Frequency')
-                ax.set_title(f'{name} Distribution ({model_type.upper()})')
-                ax.legend()
-                ax.grid(True, alpha=0.3)
+                # Add mean line
+                mean_val = np.mean(values)
+                fig.add_vline(x=mean_val, line_dash="dash", line_color="black", row=row, col=col)
             else:
-                ax.text(0.5, 0.5, f'No data for {name}', ha='center', va='center', transform=ax.transAxes)
+                fig.add_annotation(text="No data", row=row, col=col, showarrow=False)
         else:
-            ax.text(0.5, 0.5, f'No {metric} column found', ha='center', va='center', transform=ax.transAxes)
-    
-    fig.suptitle(f'{dimension} - Performance Metrics Summary', fontsize=16, y=1.02)
-    plt.tight_layout()
+            fig.add_annotation(text="Not found", row=row, col=col, showarrow=False)
+
+    fig.update_layout(
+        template='plotly_white',
+        title=f"<b>Performance Metrics Summary: {dimension}</b>",
+        height=800, width=1000,
+        showlegend=False
+    )
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved performance metrics summary to: {save_path}")
-    
+        try:
+            fig.write_image(save_path, scale=2)
+            fig.write_html(save_path.replace('.png', '.html'))
+        except Exception as e:
+            print(f"Warning: Could not save performance summary plot: {e}")
+            
     return fig
 
 def create_dimension_comparison_plot(results_summary, model_type, metric='mean_auc', save_path=None):
     """
-    Create a comparison plot across all dimensions.
-    
-    Parameters:
-    - results_summary: Dictionary with dimension names as keys and result DataFrames as values
-    - model_type: Type of model (rf, xgb, merf)
-    - metric: Metric to compare ('mean_auc', 'mean_balanced_accuracy', etc.)
-    - save_path: Path to save the plot
+    Create a comparison plot across all dimensions using Plotly.
     """
     if not results_summary:
-        print("No results to plot")
         return None
     
-    # Prepare data for plotting
     dimension_names = []
     metric_means = []
     metric_stds = []
     
     for dimension, results_df in results_summary.items():
         if metric in results_df.columns:
-            values = results_df[metric].dropna()
+            values = results_df[metric].dropna().values
             if len(values) > 0:
                 dimension_names.append(dimension)
-                metric_means.append(values.mean())
-                metric_stds.append(values.std())
+                metric_means.append(np.mean(values))
+                metric_stds.append(np.std(values))
     
     if not dimension_names:
-        print(f"No valid data for metric {metric}")
         return None
     
-    # Sort by performance
-    sorted_data = sorted(zip(dimension_names, metric_means, metric_stds), 
-                        key=lambda x: x[1], reverse=True)
+    # Sort
+    sorted_data = sorted(zip(dimension_names, metric_means, metric_stds), key=lambda x: x[1], reverse=True)
     dimension_names, metric_means, metric_stds = zip(*sorted_data)
     
-    # Create plot
-    fig, ax = plt.subplots(figsize=(15, 8))
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=dimension_names, y=metric_means,
+        error_y=dict(type='data', array=metric_stds),
+        marker_color='#DE237B'
+    ))
     
-    x_pos = np.arange(len(dimension_names))
-    bars = ax.bar(x_pos, metric_means, yerr=metric_stds, capsize=5, 
-                  alpha=0.7, color='lightcoral', edgecolor='darkred')
-    
-    ax.set_xlabel('Phenomenology Dimensions')
-    ax.set_ylabel(metric.replace('_', ' ').title())
-    ax.set_title(f'{metric.replace("_", " ").title()} Comparison Across Dimensions ({model_type.upper()})')
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels(dimension_names, rotation=45, ha='right')
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Add value labels on bars
-    for bar, mean_val, std_val in zip(bars, metric_means, metric_stds):
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height + std_val + 0.01,
-                f'{mean_val:.3f}', ha='center', va='bottom', fontsize=9)
-    
-    plt.tight_layout()
+    fig.update_layout(
+        template='plotly_white',
+        title=f"<b>Comparison of {metric.replace('_', ' ').title()} Across Dimensions</b>",
+        xaxis_title="Phenomenology Dimensions",
+        yaxis_title=metric.replace('_', ' ').title(),
+        height=600, width=1200
+    )
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved dimension comparison plot to: {save_path}")
-    
+        try:
+            fig.write_image(save_path, scale=2)
+            fig.write_html(save_path.replace('.png', '.html'))
+        except Exception as e:
+            print(f"Warning: Could not save dimension comparison plot: {e}")
+            
     return fig
 
 def plot_permutation_test_results(true_results, perm_results, dimension, model_type, save_path=None):
     """
-    Create comprehensive permutation test visualization.
+    Create comprehensive permutation test visualization using Plotly subplots.
     """
-    fig = plt.figure(figsize=(20, 12))
+    from plotly.subplots import make_subplots
     
-    # Create subplots
-    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
-    
-    # AUC comparison
-    ax1 = fig.add_subplot(gs[0, :2])
-    
-    # Check for column existence before plotting
     if 'mean_auc' not in true_results.columns or 'mean_auc' not in perm_results.columns:
-        print(f"Warning: Required AUC columns not found for {dimension}")
-        plt.close(fig)
+        print(f"Warning: Required columns not found for {dimension}")
         return None
         
-    true_aucs = true_results['mean_auc'].dropna()
-    perm_aucs = perm_results['mean_auc'].dropna()
+    true_aucs = true_results['mean_auc'].dropna().values
+    perm_aucs = perm_results['mean_auc'].dropna().values
+    true_bal = true_results['mean_balanced_accuracy'].dropna().values
+    perm_bal = perm_results['mean_balanced_accuracy'].dropna().values
     
-    ax1.hist(perm_aucs, bins=20, alpha=0.6, color='red', label='Permuted', density=True)
-    ax1.hist(true_aucs, bins=20, alpha=0.7, color='blue', label='True', density=True)
-    ax1.axvline(true_aucs.mean(), color='blue', linestyle='--', linewidth=2)
-    ax1.axvline(perm_aucs.mean(), color='red', linestyle='--', linewidth=2)
-    ax1.set_xlabel('AUC')
-    ax1.set_ylabel('Density')
-    ax1.set_title(f'{dimension} - AUC Distribution Comparison')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
+    fig = make_subplots(
+        rows=2, cols=2, 
+        subplot_titles=("AUC Distribution", "Balanced Accuracy Distribution", "Performance Summary"),
+        specs=[[{"colspan": 1}, {"colspan": 1}], [{"colspan": 2}, None]]
+    )
     
-    # Balanced Accuracy comparison
-    ax2 = fig.add_subplot(gs[1, :2])
+    # AUC Histogram
+    fig.add_trace(go.Histogram(x=perm_aucs, name='Permuted AUC', marker_color='#999999', opacity=0.6, histnorm='probability density'), row=1, col=1)
+    fig.add_trace(go.Histogram(x=true_aucs, name='True AUC', marker_color='#DE237B', opacity=0.7, histnorm='probability density'), row=1, col=1)
     
-    # Check for column existence
-    if 'mean_balanced_accuracy' not in true_results.columns or 'mean_balanced_accuracy' not in perm_results.columns:
-        print(f"Warning: Required balanced accuracy columns not found for {dimension}")
-        plt.close(fig)
-        return None
-        
-    true_bal_acc = true_results['mean_balanced_accuracy'].dropna()
-    perm_bal_acc = perm_results['mean_balanced_accuracy'].dropna()
+    # Balanced Accuracy Histogram
+    fig.add_trace(go.Histogram(x=perm_bal, name='Permuted BalAcc', marker_color='#999999', opacity=0.6, histnorm='probability density'), row=1, col=2)
+    fig.add_trace(go.Histogram(x=true_bal, name='True BalAcc', marker_color='#DE237B', opacity=0.7, histnorm='probability density'), row=1, col=2)
     
-    ax2.hist(perm_bal_acc, bins=20, alpha=0.6, color='orange', label='Permuted', density=True)
-    ax2.hist(true_bal_acc, bins=20, alpha=0.7, color='green', label='True', density=True)
-    ax2.axvline(true_bal_acc.mean(), color='green', linestyle='--', linewidth=2)
-    ax2.axvline(perm_bal_acc.mean(), color='orange', linestyle='--', linewidth=2)
-    ax2.set_xlabel('Balanced Accuracy')
-    ax2.set_ylabel('Density')
-    ax2.set_title(f'{dimension} - Balanced Accuracy Distribution Comparison')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
-    # P-value calculation and display
-    ax3 = fig.add_subplot(gs[:2, 2])
-    
-    stats_text = []
-    
-    if len(true_aucs) > 0 and len(perm_aucs) > 0:
-        _, p_auc = stats.mannwhitneyu(true_aucs, perm_aucs, alternative='greater')
-        empirical_p_auc = (perm_aucs >= true_aucs.mean()).mean()
-        stats_text.extend([
-            f"AUC Statistics:",
-            f"True Mean: {true_aucs.mean():.4f} ± {true_aucs.std():.4f}",
-            f"Perm Mean: {perm_aucs.mean():.4f} ± {perm_aucs.std():.4f}",
-            f"Mann-Whitney p: {p_auc:.4f}",
-            f"Empirical p: {empirical_p_auc:.4f}",
-            ""
-        ])
-    
-    if len(true_bal_acc) > 0 and len(perm_bal_acc) > 0:
-        _, p_bal_acc = stats.mannwhitneyu(true_bal_acc, perm_bal_acc, alternative='greater')
-        empirical_p_bal_acc = (perm_bal_acc >= true_bal_acc.mean()).mean()
-        stats_text.extend([
-            f"Balanced Accuracy Statistics:",
-            f"True Mean: {true_bal_acc.mean():.4f} ± {true_bal_acc.std():.4f}",
-            f"Perm Mean: {perm_bal_acc.mean():.4f} ± {perm_bal_acc.std():.4f}",
-            f"Mann-Whitney p: {p_bal_acc:.4f}",
-            f"Empirical p: {empirical_p_bal_acc:.4f}"
-        ])
-    
-    ax3.text(0.1, 0.9, '\n'.join(stats_text), transform=ax3.transAxes, 
-             fontsize=11, verticalalignment='top', fontfamily='monospace',
-             bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
-    ax3.set_xlim(0, 1)
-    ax3.set_ylim(0, 1)
-    ax3.axis('off')
-    ax3.set_title('Statistical Summary')
-    
-    # Box plot comparison
-    ax4 = fig.add_subplot(gs[2, :])
-    data_to_plot = [true_aucs, perm_aucs, true_bal_acc, perm_bal_acc]
-    labels = ['True AUC', 'Perm AUC', 'True Bal Acc', 'Perm Bal Acc']
-    colors = ['lightblue', 'lightcoral', 'lightgreen', 'wheat']
-    
-    box_plot = ax4.boxplot(data_to_plot, labels=labels, patch_artist=True)
-    for patch, color in zip(box_plot['boxes'], colors):
-        patch.set_facecolor(color)
-    
-    ax4.set_ylabel('Performance')
-    ax4.set_title('Performance Metrics Comparison')
-    ax4.grid(True, alpha=0.3)
-    
-    fig.suptitle(f'{dimension} - Permutation Test Results ({model_type.upper()})', fontsize=16)
+    # Box Plot Summary
+    fig.add_trace(go.Box(y=true_aucs, name='True AUC', marker_color='#DE237B'), row=2, col=1)
+    fig.add_trace(go.Box(y=perm_aucs, name='Perm AUC', marker_color='#999999'), row=2, col=1)
+    fig.add_trace(go.Box(y=true_bal, name='True BalAcc', marker_color='#DE237B'), row=2, col=1)
+    fig.add_trace(go.Box(y=perm_bal, name='Perm BalAcc', marker_color='#999999'), row=2, col=1)
+
+    fig.update_layout(
+        template='plotly_white',
+        title=f"<b>Permutation Test Results: {dimension}</b>",
+        height=900, width=1200,
+        barmode='overlay'
+    )
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved permutation test plot to: {save_path}")
-    
+        try:
+            fig.write_image(save_path, scale=2)
+            fig.write_html(save_path.replace('.png', '.html'))
+        except Exception as e:
+            print(f"Warning: Could not save permutation test plot: {e}")
+            
     return fig
 
 def load_and_plot_results(results_path, dimensions, model_types=['rf'], n_folds=4):
@@ -1104,137 +955,101 @@ def create_model_comparison_plot(results_dict, metric='mean_auc', model_types=['
     
     plot_df = pd.DataFrame(plot_data)
     
-    # Create the plot
-    fig, ax = plt.subplots(figsize=(16, 10))
+def create_model_comparison_plot(results_summary, model_type, metric='mean_auc', save_path=None):
+    """
+    Create a comparison violin plot across dimensions and models using Plotly.
+    """
+    import plotly.express as px
     
-    # Create violin plot
-    sns.violinplot(data=plot_df, x='Dimension', y='Value', hue='Model', ax=ax, inner='box')
+    plot_data = []
     
-    # Add chance level line
-    ax.axhline(y=0.5, color='gray', linestyle='--', linewidth=2, alpha=0.7, label='Chance Level')
+    # results_summary is {model_name: {dimension: results_df}}
+    for m_name, dims in results_summary.items():
+        for d_name, df in dims.items():
+            if metric in df.columns:
+                vals = df[metric].dropna().values
+                for v in vals:
+                    plot_data.append({'Dimension': d_name, 'Model': m_name, 'Value': v})
     
-    # Customize plot
-    ax.set_xlabel('Phenomenology Dimensions', fontsize=14)
-    ax.set_ylabel(metric.replace('_', ' ').title(), fontsize=14)
-    ax.set_title(f'{metric.replace("_", " ").title()} Comparison Across Models', fontsize=16)
+    if not plot_data:
+        return None
+        
+    df_plot = pd.DataFrame(plot_data)
     
-    # Rotate x-axis labels for better readability
-    plt.xticks(rotation=45, ha='right')
+    fig = px.violin(df_plot, x='Dimension', y='Value', color='Model', box=True, points='all',
+                    template='plotly_white', color_discrete_sequence=COLORS)
     
-    # Adjust legend
-    ax.legend(title='Model', bbox_to_anchor=(1.05, 1), loc='upper left')
+    fig.add_hline(y=0.5, line_dash="dash", line_color="gray")
     
-    # Add grid
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    plt.tight_layout()
+    fig.update_layout(
+        title=f"<b>{metric.replace('_', ' ').title()} Comparison Across Models</b>",
+        xaxis_title="Phenomenology Dimensions",
+        yaxis_title=metric.replace('_', ' ').title(),
+        height=800, width=1200
+    )
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved model comparison plot to: {save_path}")
-    
+        try:
+            fig.write_image(save_path, scale=2)
+            fig.write_html(save_path.replace('.png', '.html'))
+        except Exception as e:
+            print(f"Warning: Could not save model comparison plot: {e}")
+            
     return fig
+
 
 def create_permutation_comparison_plot(results_dict, perm_results_dict, metric='mean_auc', save_path=None):
     """
-    Create violin plots comparing true vs permutation results across models.
-    
-    Parameters:
-    - results_dict: Dictionary with true results {model_name: {dimension: results_df}}
-    - perm_results_dict: Dictionary with permutation results {model_name: {dimension: results_df}}
-    - metric: Metric to compare
-    - save_path: Path to save the plot
+    Create violin plots comparing true vs permutation results across models using Plotly.
     """
-    if not results_dict or not perm_results_dict:
-        print("Need both true and permutation results")
-        return None
+    import plotly.express as px
     
-    # Find common models and dimensions
-    common_models = set(results_dict.keys()).intersection(set(perm_results_dict.keys()))
-    if not common_models:
-        print("No common models found")
-        return None
-    
-    # Prepare data for plotting
     plot_data = []
     
+    common_models = set(results_dict.keys()).intersection(set(perm_results_dict.keys()))
+    
     for model_name in common_models:
-        true_results = results_dict[model_name]
-        perm_results = perm_results_dict[model_name]
+        true_res = results_dict[model_name]
+        perm_res = perm_results_dict[model_name]
         
-        common_dims = set(true_results.keys()).intersection(set(perm_results.keys()))
+        common_dims = set(true_res.keys()).intersection(set(perm_res.keys()))
         
         for dimension in common_dims:
-            # True results
-            if metric in true_results[dimension].columns:
-                values = true_results[dimension][metric].dropna()
-                for value in values:
-                    plot_data.append({
-                        'Model': model_name,
-                        'Dimension': dimension,
-                        'Value': value,
-                        'Type': 'True',
-                        'Metric': metric
-                    })
+            # True
+            if metric in true_res[dimension].columns:
+                t_vals = true_res[dimension][metric].dropna().values
+                for v in t_vals:
+                    plot_data.append({'Dimension': dimension, 'Type': 'True', 'Value': v, 'Model': model_name})
             
-            # Permutation results
-            if metric in perm_results[dimension].columns:
-                values = perm_results[dimension][metric].dropna()
-                for value in values:
-                    plot_data.append({
-                        'Model': model_name,
-                        'Dimension': dimension,
-                        'Value': value,
-                        'Type': 'Permutation',
-                        'Metric': metric
-                    })
-    
+            # Permuted
+            if metric in perm_res[dimension].columns:
+                p_vals = perm_res[dimension][metric].dropna().values
+                for v in p_vals:
+                    plot_data.append({'Dimension': dimension, 'Type': 'Permuted', 'Value': v, 'Model': model_name})
+
     if not plot_data:
-        print(f"No valid data found for metric {metric}")
         return None
-    
-    plot_df = pd.DataFrame(plot_data)
-    
-    # Create the plot
-    fig, axes = plt.subplots(len(common_models), 1, figsize=(16, 6*len(common_models)), squeeze=False)
-    
-    if len(common_models) == 1:
-        axes = axes.reshape(1, -1)
-    
-    for i, model_name in enumerate(sorted(common_models)):
-        ax = axes[i][0]
-        model_data = plot_df[plot_df['Model'] == model_name]
         
-        if not model_data.empty:
-            sns.violinplot(data=model_data, x='Dimension', y='Value', hue='Type', 
-                         ax=ax, inner='box', alpha=0.7)
-            
-            # Add chance level line
-            ax.axhline(y=0.5, color='gray', linestyle='--', linewidth=2, alpha=0.7)
-            
-            # Customize subplot
-            ax.set_xlabel('Phenomenology Dimensions', fontsize=12)
-            ax.set_ylabel(metric.replace('_', ' ').title(), fontsize=12)
-            ax.set_title(f'{model_name.capitalize()} - True vs Permutation Results', fontsize=14)
-            
-            # Rotate x-axis labels
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-            
-            # Adjust legend
-            ax.legend(title='Type')
-            
-            # Add grid
-            ax.grid(True, alpha=0.3, axis='y')
+    df_plot = pd.DataFrame(plot_data)
     
-    plt.suptitle(f'{metric.replace("_", " ").title()} - Permutation Test Comparison', fontsize=16)
-    plt.tight_layout()
+    fig = px.violin(df_plot, x='Dimension', y='Value', color='Type', facet_row='Model',
+                    box=True, template='plotly_white', color_discrete_map={'True': '#DE237B', 'Permuted': '#999999'})
+    
+    fig.add_hline(y=0.5, line_dash="dash", line_color="gray")
+    
+    fig.update_layout(
+        title=f"<b>True vs Permuted Labels Comparison ({metric})</b>",
+        height=400 * len(common_models), width=1200
+    )
     
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved permutation comparison plot to: {save_path}")
-    
+        try:
+            fig.write_image(save_path, scale=2)
+            fig.write_html(save_path.replace('.png', '.html'))
+        except Exception as e:
+            print(f"Warning: Could not save permutation comparison plot: {e}")
     return fig
 
 def load_and_plot_model_comparisons(results_path, models=['human', 'chatgpt4o'], model_types=['rf'], n_folds=4):
@@ -1446,75 +1261,40 @@ def plot_metric_distribution_with_stats(
     empirical_p=None
 ):
     """
-    Plot combined histogram for true and permuted values with statistical annotations.
-    Optionally annotate empirical mean permutation p-value if provided.
+    Plot combined histogram for true and permuted values with statistical annotations using Plotly.
     """
-    # Filter out NaN values before plotting
-    true_values_clean = np.array(true_values)
-    true_values_clean = true_values_clean[~np.isnan(true_values_clean)]
+    true_vals = np.array(true_values); true_vals = true_vals[~np.isnan(true_vals)]
+    perm_vals = np.array(perm_values); perm_vals = perm_vals[~np.isnan(perm_vals)]
     
-    perm_values_clean = np.array(perm_values)
-    perm_values_clean = perm_values_clean[~np.isnan(perm_values_clean)]
-    
-    # Check if we have valid data to plot
-    if len(true_values_clean) == 0 and len(perm_values_clean) == 0:
-        print(f"Warning: No valid data to plot for {metric_name}. Skipping plot generation.")
+    if len(true_vals) == 0 and len(perm_vals) == 0:
         return
+
+    fig = go.Figure()
     
-    plt.figure(figsize=(10, 6))
-    
-    # Create bins based on available data
-    all_valid_data = []
-    if len(true_values_clean) > 0:
-        all_valid_data.extend(true_values_clean)
-    if len(perm_values_clean) > 0:
-        all_valid_data.extend(perm_values_clean)
-    
-    if len(all_valid_data) > 0:
-        bins = np.histogram(all_valid_data, bins=20)[1]
-    else:
-        bins = 20
-    # Plot histograms with cleaned data if available
-    if len(perm_values_clean) > 0:
-        plt.hist(perm_values_clean, bins=bins, alpha=0.6, color='gray', label=f'Permuted Labels (n={len(perm_values_clean)})')
-        plt.axvline(np.mean(perm_values_clean), color='black', linestyle='--', label=f'Perm Mean: {np.mean(perm_values_clean):.3f}')
-    else:
-        print(f"Warning: No valid permuted values to plot for {metric_name}")
-    
-    if len(true_values_clean) > 0:
-        plt.hist(true_values_clean, bins=bins, alpha=0.7, color=COLORS[0], label=f'True Labels (n={len(true_values_clean)})')
-        plt.axvline(np.mean(true_values_clean), color=COLORS[0], linestyle='--', label=f'True Mean: {np.mean(true_values_clean):.3f}')
-    else:
-        print(f"Warning: No valid true values to plot for {metric_name}")
+    if len(perm_vals) > 0:
+        fig.add_trace(go.Histogram(x=perm_vals, name='Permuted', marker_color='#999999', opacity=0.6, nbinsx=20))
+        fig.add_vline(x=np.mean(perm_vals), line_dash="dash", line_color="black", annotation_text=f"Perm Mean: {np.mean(perm_vals):.3f}")
+        
+    if len(true_vals) > 0:
+        fig.add_trace(go.Histogram(x=true_vals, name='True Labels', marker_color='#DE237B', opacity=0.7, nbinsx=20))
+        fig.add_vline(x=np.mean(true_vals), line_dash="dash", line_color="#DE237B", annotation_text=f"True Mean: {np.mean(true_vals):.3f}")
+
     if chance_value is not None:
-        plt.axvline(chance_value, color='black', linestyle=':', label=f'Chance ({chance_value})')
+        fig.add_vline(x=chance_value, line_dash="dot", line_color="red", annotation_text=f"Chance ({chance_value})")
+
+    stats_text = f"MW-p: {mwu_p:.4g}<br>KS-p: {ks_p:.4g}"
+    if empirical_p is not None: stats_text += f"<br>Emp-p: {empirical_p:.4g}"
     
-    # Title
-    if title is None:
-        title = f"{metric_name.title()} Distribution"
-    plt.title(title, fontsize=16, fontweight='bold')
-    plt.xlabel(metric_name.title(), fontweight='bold')
-    plt.ylabel('Frequency', fontweight='bold')
+    fig.add_annotation(text=stats_text, xref="paper", yref="paper", x=0.02, y=0.98, showarrow=False, bgcolor="white", opacity=0.8, align="left")
     
-    # Statistics in upper left corner
-    stats_text = (
-        f"Mann-Whitney U: p = {mwu_p:.4g}, Kolmogorov-Smirnov: p = {ks_p:.4g}"
-    )
-    if empirical_p is not None:
-        stats_text += f"\nEmpirical mean p = {empirical_p:.4g}"
-    plt.gca().text(
-        0.02, 0.98, stats_text, transform=plt.gca().transAxes,
-        fontsize=10, va='top', ha='left',
-        bbox=dict(facecolor='white', alpha=0.7, edgecolor='none')
-    )
+    fig.update_layout(template='plotly_white', barmode='overlay', title=f"<b>{title if title else metric_name.title() + ' Distribution'}</b>",
+                      xaxis_title=metric_name.title(), yaxis_title="Frequency", width=800, height=600)
     
-    plt.legend(loc='upper right', fontsize=11, frameon=True, bbox_to_anchor=(1, 1))
-    plt.tight_layout()
-    plt.savefig(f"{comparison_results_path}/{filename_base}_{metric_name}_distribution.png", dpi=300)
-    plt.savefig(f"{comparison_results_path}/{filename_base}_{metric_name}_distribution.pdf", dpi=300)
-    plt.savefig(f"{comparison_results_path}/{filename_base}_{metric_name}_distribution.svg", dpi=300)
+    out_path = f"{comparison_results_path}/{filename_base}_{metric_name}_distribution"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e: print(f"Warning: Could not save distribution plot: {e}")
     print(f"Saved {metric_name} distribution plot to {comparison_results_path}/{filename_base}_{metric_name}_distribution.png")
-    plt.close()
     
     # Save comprehensive metric distribution data and statistics to CSV
     # Use the cleaned arrays for statistics
@@ -1597,53 +1377,31 @@ def plot_consolidated_permutation_results(
     chance_values=None
 ):
     """
-    Plot consolidated permutation test results for multiple metrics in a single figure.
-    Also saves consolidated data and statistics CSVs.
-
-    Parameters
-    ----------
-    results_dict : dict
-        Dictionary containing results for each metric.
-        Structure:
-        {
-            'Metric Name': {
-                'true_values': array-like,
-                'perm_values': array-like,
-                'p_value': float,
-                'empirical_p': float (optional),
-                'stats': dict (optional extra stats like mean, std)
-            },
-            ...
-        }
-    dimension : str
-        Name of the dimension being analyzed.
-    model_type : str
-        Type of model (rf, xgb, etc.).
-    save_path : str
-        Directory to save the results.
-    filename_base : str
-        Base filename for saved files.
-    chance_values : dict, optional
-        Dictionary mapping metric names to chance levels (e.g., {'AUC': 0.5}).
+    Plot consolidated permutation test results for multiple metrics using Plotly.
     """
+    import plotly.subplots as sp
+    
     if not results_dict:
         print("No results to plot.")
         return
 
     n_metrics = len(results_dict)
-    # Determine grid size (approximate square)
     n_cols = 2
     n_rows = (n_metrics + 1) // 2
     
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows))
-    axes = axes.flatten()
+    # Create subplots
+    fig = sp.make_subplots(
+        rows=n_rows, cols=n_cols,
+        subplot_titles=[f"<b>{m}</b>" for m in results_dict.keys()],
+        vertical_spacing=0.1,
+        horizontal_spacing=0.1
+    )
     
-    # Initialize containers for consolidated CSVs
     all_data_list = []
-    stats_list = []
     
     for i, (metric_name, data) in enumerate(results_dict.items()):
-        ax = axes[i]
+        row = (i // n_cols) + 1
+        col = (i % n_cols) + 1
         
         true_values = np.array(data['true_values'])
         perm_values = np.array(data['perm_values'])
@@ -1651,37 +1409,64 @@ def plot_consolidated_permutation_results(
         perm_values = perm_values[~np.isnan(perm_values)]
         
         if len(true_values) == 0 and len(perm_values) == 0:
-            ax.text(0.5, 0.5, 'No valid data', ha='center', va='center')
             continue
             
-        # Determine bins
-        all_vals = np.concatenate([true_values, perm_values])
-        if len(all_vals) > 0:
-            bins = np.histogram(all_vals, bins=20)[1]
-        else:
-            bins = 20
-            
-        # Plot histograms
+        # Histograms
         if len(perm_values) > 0:
-            ax.hist(perm_values, bins=bins, alpha=0.6, color='gray', 
-                   label=f'Permuted (n={len(perm_values)})', density=True)
-            ax.axvline(np.mean(perm_values), color='black', linestyle='--', 
-                      label=f'Perm Mean: {np.mean(perm_values):.3f}')
+            fig.add_trace(
+                go.Histogram(
+                    x=perm_values,
+                    name=f'Permuted ({metric_name})',
+                    marker_color='#999999',
+                    opacity=0.6,
+                    histnorm='probability density',
+                    nbinsx=20,
+                    showlegend=False
+                ),
+                row=row, col=col
+            )
+            # Permuted mean line
+            fig.add_vline(
+                x=np.mean(perm_values),
+                line_dash="dash",
+                line_color="black",
+                annotation_text=f"Perm Mean: {np.mean(perm_values):.3f}",
+                annotation_position="top",
+                annotation_font_size=10,
+                row=row, col=col
+            )
         
         if len(true_values) > 0:
-            ax.hist(true_values, bins=bins, alpha=0.7, color=COLORS[i % len(COLORS)], 
-                   label=f'True (n={len(true_values)})', density=True)
-            ax.axvline(np.mean(true_values), color=COLORS[i % len(COLORS)], linestyle='--', 
-                      label=f'True Mean: {np.mean(true_values):.3f}')
+            fig.add_trace(
+                go.Histogram(
+                    x=true_values,
+                    name=f'True ({metric_name})',
+                    marker_color=COLORS[i % len(COLORS)],
+                    opacity=0.7,
+                    histnorm='probability density',
+                    nbinsx=20,
+                    showlegend=False
+                ),
+                row=row, col=col
+            )
+            # True mean line
+            fig.add_vline(
+                x=np.mean(true_values),
+                line_dash="dash",
+                line_color=COLORS[i % len(COLORS)],
+                annotation_text=f"True Mean: {np.mean(true_values):.3f}",
+                annotation_position="top left",
+                annotation_font_size=10,
+                row=row, col=col
+            )
             
         # Chance line
         chance = None
         if chance_values and metric_name in chance_values:
             chance = chance_values[metric_name]
-        elif chance_values and metric_name.lower() in chance_values: # Try lower case
+        elif chance_values and metric_name.lower() in chance_values:
              chance = chance_values[metric_name.lower()]
              
-        # Heuristics for chance if not provided
         if chance is None:
             if 'auc' in metric_name.lower() or 'balanced' in metric_name.lower():
                 chance = 0.5
@@ -1689,30 +1474,40 @@ def plot_consolidated_permutation_results(
                 chance = 0.0
                 
         if chance is not None:
-             ax.axvline(chance, color='red', linestyle=':', label=f'Chance ({chance})')
+             fig.add_vline(
+                 x=chance,
+                 line_dash="dot",
+                 line_color="red",
+                 annotation_text=f"Chance ({chance})",
+                 annotation_position="bottom right",
+                 annotation_font_size=10,
+                 row=row, col=col
+             )
 
-        ax.set_title(f"{metric_name}", fontsize=12, fontweight='bold')
-        ax.set_xlabel(metric_name)
-        ax.set_ylabel("Density")
-        ax.legend(fontsize=9)
+        # Update axes
+        fig.update_xaxes(title_text=metric_name, row=row, col=col)
+        fig.update_yaxes(title_text="Density", row=row, col=col)
         
-        # Add p-value text
+        # Add stats text as annotation if p-values exist
         p_val = data.get('p_value', np.nan)
         emp_p = data.get('empirical_p', np.nan)
-        
-        stats_text = ""
-        if not np.isnan(p_val) and not isinstance(p_val, str):
-             stats_text += f"Mann-Whitney p: {p_val:.4f}\n"
-        if not np.isnan(emp_p) and not isinstance(emp_p, str):
-             stats_text += f"Empirical p: {emp_p:.4f}"
-             
-        if stats_text:
-            ax.text(0.05, 0.95, stats_text, transform=ax.transAxes,
-                   verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-                   fontsize=9)
+        if not np.isnan(p_val) or not np.isnan(emp_p):
+            stat_str = ""
+            if not np.isnan(p_val) and not isinstance(p_val, str):
+                stat_str += f"MW-p: {p_val:.4f}<br>"
+            if not np.isnan(emp_p) and not isinstance(emp_p, str):
+                stat_str += f"Emp-p: {emp_p:.4f}"
+            
+            fig.add_annotation(
+                text=stat_str,
+                xref=f"x{i+1 if i>0 else ''} domain", yref=f"y{i+1 if i>0 else ''} domain",
+                x=0.05, y=0.95, showarrow=False,
+                bgcolor="white", opacity=0.8,
+                font=dict(size=10), align="left",
+                row=row, col=col
+            )
 
-        # Collect data for CSVs
-        # Create a temp df for this metric
+        # Data collection for CSV
         max_len = max(len(true_values), len(perm_values))
         metric_df = pd.DataFrame({
             'run_idx': range(max_len),
@@ -1721,8 +1516,27 @@ def plot_consolidated_permutation_results(
             'perm_value': np.pad(perm_values, (0, max_len - len(perm_values)), constant_values=np.nan)
         })
         all_data_list.append(metric_df)
-        
-        # Collect stats
+
+    fig.update_layout(
+        template='plotly_white',
+        title_text=f"<b>Permutation Test Results: {dimension}</b> ({model_type.upper()})",
+        height=400 * n_rows,
+        width=1000,
+        barmode='overlay',
+        showlegend=False
+    )
+    
+    out_path = f"{save_path}/{filename_base}_consolidated"
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save Plotly permutation plots: {e}")
+
+    # Save consolidated CSVs
+    if all_data_list:
+        pd.concat(all_data_list).to_csv(f"{out_path}_data.csv", index=False)      # Collect stats
         stats_entry = {
             'dimension': dimension,
             'model_type': model_type,
@@ -1738,34 +1552,7 @@ def plot_consolidated_permutation_results(
         }
         stats_list.append(stats_entry)
 
-    # Hide unused subplots
-    for j in range(i + 1, len(axes)):
-        axes[j].axis('off')
-        
-    fig.suptitle(f"{dimension} - Permutation Test Results ({model_type.upper()})", fontsize=16)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    
-    # Save figure
-    os.makedirs(save_path, exist_ok=True)
-    out_fig_path = os.path.join(save_path, f"{filename_base}_consolidated_permutation_results.pdf")
-    plt.savefig(out_fig_path, dpi=300)
-    # Also save png for preview
-    plt.savefig(out_fig_path.replace('.pdf', '.png'), dpi=300)
-    print(f"Saved consolidated permutation plot to {out_fig_path}")
-    plt.close()
-    
-    # Save CSVs
-    if all_data_list:
-        combined_data_df = pd.concat(all_data_list, ignore_index=True)
-        out_data_path = os.path.join(save_path, f"{filename_base}_consolidated_permutation_data.csv")
-        combined_data_df.to_csv(out_data_path, index=False)
-        print(f"Saved consolidated permutation data to {out_data_path}")
-        
-    if stats_list:
-        stats_df = pd.DataFrame(stats_list)
-        out_stats_path = os.path.join(save_path, f"{filename_base}_consolidated_stats.csv")
-        stats_df.to_csv(out_stats_path, index=False)
-        print(f"Saved consolidated stats to {out_stats_path}")
+    return fig
 
 def generate_manuscript_summary_report(comparison_results_path, filename_base, metric_name='auc'):
     """
@@ -1807,96 +1594,219 @@ def generate_manuscript_summary_report(comparison_results_path, filename_base, m
 
 def plot_loso_subject_metrics(loso_subject_df, save_path, filename_base):
     """
-    Generate a grouped horizontal bar plot for LOSO subject metrics.
-    
-    Parameters
-    ----------
-    loso_subject_df : pd.DataFrame
-        DataFrame containing subject metrics.
-    save_path : str
-        Directory to save the plot.
-    filename_base : str
-        Base filename pattern.
+    Generate a grouped horizontal bar plot for LOSO subject metrics using Plotly.
     """
-    import matplotlib.pyplot as plt
-    import os
-    
     if loso_subject_df is None or loso_subject_df.empty:
-        print("Warning: No LOSO subject data to plot.")
         return
     
-    # Ensure subject is string
     df = loso_subject_df.copy()
-    if 'subject' not in df.columns:
-        print("Warning: 'subject' column not found in LOSO data.")
-        return
     df['subject'] = df['subject'].astype(str)
+    if 'auc' in df.columns: df = df.sort_values('auc', ascending=True)
     
-    # Sort by AUC
-    if 'auc' in df.columns:
-        df = df.sort_values('auc', ascending=True)
-    
-    # Select available metrics
-    colors = ['#2ecc71', '#3498db', '#e74c3c', '#9b59b6'] # Green, Blue, Red, Purple
-    
-    metrics = {
-        'auc': {'label': 'AUC', 'color': colors[0]},
-        'balanced_accuracy': {'label': 'Bal Acc', 'color': colors[1]},
-        'auprc': {'label': 'AUPRC', 'color': colors[2]},
-        'mcc': {'label': 'MCC', 'color': colors[3]}
+    metrics_info = {
+        'auc': {'label': 'AUC', 'color': COLORS[0]},
+        'balanced_accuracy': {'label': 'Bal Acc', 'color': COLORS[1]},
+        'auprc': {'label': 'AUPRC', 'color': COLORS[2]},
+        'mcc': {'label': 'MCC', 'color': COLORS[3]}
     }
     
-    metrics_to_plot = [m for m in metrics.keys() if m in df.columns]
+    metrics_to_plot = [m for m in metrics_info.keys() if m in df.columns]
+    if not metrics_to_plot: return
     
-    if not metrics_to_plot:
-        print("Warning: No recognized metrics found in LOSO data.")
-        return
-    
-    n_subjects = len(df)
-    n_metrics = len(metrics_to_plot)
-    bar_height = 0.8 / n_metrics
-    
-    # Calculate figure height dynamically
-    fig_height = max(6, n_subjects * n_metrics * 0.25)
-    plt.figure(figsize=(12, fig_height))
-    
-    # Create grouped bar plot
-    y_indices = np.arange(n_subjects)
-    
-    for i, metric in enumerate(metrics_to_plot):
-        props = metrics[metric]
-        # Offset bars
-        offset = (i - n_metrics/2 + 0.5) * bar_height
+    fig = go.Figure()
+    for m in metrics_to_plot:
+        fig.add_trace(go.Bar(y=df['subject'], x=df[m], name=metrics_info[m]['label'], marker_color=metrics_info[m]['color'], orientation='h'))
         
-        plt.barh(
-            y_indices + offset, 
-            df[metric], 
-            height=bar_height,
-            label=props['label'],
-            color=props['color'],
-            alpha=0.8,
-            edgecolor='white'
-        )
+    fig.add_vline(x=0.5, line_dash="dash", line_color="black", opacity=0.5)
+    fig.add_vline(x=0.0, line_dash="dot", line_color="gray", opacity=0.5)
     
-    # Add chance lines
-    plt.axvline(x=0.5, color='black', linestyle='--', linewidth=1, label='Chance (0.5)', alpha=0.5)
-    plt.axvline(x=0.0, color='gray', linestyle=':', linewidth=1, label='Chance (0.0)', alpha=0.5)
+    fig.update_layout(template='plotly_white', barmode='group', title="<b>LOSO Performance by Subject</b>",
+                      xaxis_title="Metric Score", yaxis_title="Subject ID", 
+                      height=max(600, len(df) * 30), width=1000, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     
-    plt.yticks(y_indices, df['subject'])
-    plt.xlabel('Metric Score')
-    plt.ylabel('Subject ID')
-    plt.title('LOSO Performance by Subject')
-    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
-    plt.grid(True, axis='x', linestyle='--', alpha=0.3)
-    plt.xlim(-0.2, 1.05)
+    out_path = os.path.join(save_path, f"{filename_base}_loso_subject_barplots")
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e: print(f"Warning: Could not save LOSO subject metrics plot: {e}")
     
-    plt.tight_layout()
+    return fig
+
+def plot_subject_level_densities(true_subject_metrics_list, perm_subject_metrics_list, dimension_name, save_path, filename_base, metric='auc'):
+    """
+    Generate complex Plotly plot with True/Permuted densities per subject, and pie charts of significant subjects.
+    true_subject_metrics_list: List of DataFrames/dicts per run, capturing subject metrics for True.
+    perm_subject_metrics_list: List of DataFrames/dicts per run, capturing subject metrics for Permuted.
+    """
+    import plotly.subplots as sp
+    from scipy.stats import mannwhitneyu
     
-    # Save with "barplots" in name as requested/expected
-    output_path = os.path.join(save_path, f"{filename_base}_loso_subject_barplots.png")
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.savefig(output_path.replace('.png', '.pdf'), bbox_inches='tight')
-    plt.savefig(output_path.replace('.png', '.svg'), bbox_inches='tight')
-    plt.close()
+    # 1. Compile arrays of true vs permuted metrics per subject
+    def _extract_data(metrics_list, type_label):
+        extracted = []
+        for run in metrics_list:
+            if isinstance(run, pd.DataFrame):
+                for _, r in run.iterrows():
+                    val = r.get(metric, r.get(f'mean_{metric}'))
+                    extracted.append({'subject': str(r['subject']), 'value': val, 'type': type_label})
+            elif isinstance(run, dict):
+                if 'loso_subject_metrics' in run and run['loso_subject_metrics'] is not None:
+                    for r in run['loso_subject_metrics']:
+                        val = r.get(metric, r.get(f'mean_{metric}'))
+                        extracted.append({'subject': str(r['subject']), 'value': val, 'type': type_label})
+                elif 'subject' in run: # WS direct dict format
+                    val = run.get(metric, run.get(f'mean_{metric}'))
+                    extracted.append({'subject': str(run['subject']), 'value': val, 'type': type_label})
+            elif isinstance(run, (list, tuple)):
+                extracted.extend(_extract_data(run, type_label))
+        return extracted
+        
+    true_data = _extract_data(true_subject_metrics_list, 'True')
+    perm_data = _extract_data(perm_subject_metrics_list, 'Permuted')
+                 
+    df = pd.DataFrame(true_data + perm_data)
+    df = df.dropna()
+    if df.empty: return
     
-    print(f"  ✓ Generated LOSO subject metrics barplot: {output_path}") 
+    subjects = sorted(df['subject'].unique(), key=lambda x: int(x) if x.isdigit() else x, reverse=True)
+    
+    # 2. Calculate significance per subject
+    significant_subjects = 0
+    p_values = {}
+    for sub in subjects:
+        t_vals = df[(df['subject'] == sub) & (df['type'] == 'True')]['value'].values
+        p_vals = df[(df['subject'] == sub) & (df['type'] == 'Permuted')]['value'].values
+        if len(t_vals) > 0 and len(p_vals) > 0:
+            if np.mean(t_vals) > np.mean(p_vals):
+                 _, p = mannwhitneyu(t_vals, p_vals, alternative='greater')
+                 p_values[sub] = p
+                 if p < 0.05: significant_subjects += 1
+            else:
+                 p_values[sub] = 1.0
+        else:
+            p_values[sub] = 1.0
+            
+    pct_sig = (significant_subjects / len(subjects)) * 100 if subjects else 0
+    
+    # 3. Create Subplots layout
+    # Since we might call this per dimension or a consolidated grid, we do it per dimension.
+    # Layout: Rows = 2 (Violins, Pie), Cols = 1
+    # But to match user design: many dimensions col by col. We will do 1 dimension plot here.
+    
+    fig = sp.make_subplots(rows=2, cols=1, row_heights=[0.85, 0.15], shared_xaxes=False, vertical_spacing=0.05,
+                           specs=[[{"type": "xy"}], [{"type": "domain"}]])
+    
+    # Add violins
+    for i, sub in enumerate(subjects):
+        t_vals = df[(df['subject'] == sub) & (df['type'] == 'True')]['value']
+        p_vals = df[(df['subject'] == sub) & (df['type'] == 'Permuted')]['value']
+        
+        # We simulate Ridgeline by using Violins with strong horizontal orientation.
+        if len(p_vals) > 0:
+            fig.add_trace(go.Violin(x=p_vals, y=[sub]*len(p_vals), side='positive', line_color='rgba(0,0,0,0)',
+                                    fillcolor='#d3d3d3', opacity=0.6, name='Permuted', hoverinfo='none', showlegend=(i==0)), row=1, col=1)
+        if len(t_vals) > 0:
+            fig.add_trace(go.Violin(x=t_vals, y=[sub]*len(t_vals), side='negative', line_color='rgba(0,0,0,0)',
+                                    fillcolor='#DE237B', opacity=0.8, name='True', hoverinfo='none', showlegend=(i==0)), row=1, col=1)
+            
+        # Add significance stars
+        p = p_values.get(sub, 1.0)
+        star = '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else ''
+        if star:
+            fig.add_annotation(x=max(t_vals.max(), p_vals.max() if len(p_vals)>0 else 0) + 0.05, y=sub, text=star, showarrow=False,
+                               font=dict(size=14, color='black'), yanchor='middle', row=1, col=1)
+
+    fig.update_traces(orientation='h', width=1.5, points=False, box_visible=False, meanline_visible=False, row=1, col=1)
+    
+    chance = 0.5 if metric in ('auc', 'balanced_accuracy') else 0.0
+    fig.add_vline(x=chance, line_dash='dash', line_color='black', row=1, col=1)
+    
+    # Add Donut pie chart for % significant
+    fig.add_trace(go.Pie(labels=['Sig', 'Not Sig'], values=[pct_sig, 100-pct_sig], hole=0.6,
+                         marker=dict(colors=['#DE237B', '#d3d3d3']), textinfo='none', hoverinfo='none', showlegend=False), row=2, col=1)
+    # Donut annotation
+    fig.add_annotation(text=f"<b>{pct_sig:.0f}%</b>", xref='x domain', yref='y domain', x=0.5, y=0.5, 
+                       showarrow=False, font=dict(size=16, color='#DE237B'), row=2, col=1)
+    
+    fig.update_layout(title=f"<b>Subject-Level Density: {dimension_name} ({metric.upper()})</b>",
+                      template='plotly_white', height=max(600, len(subjects)*40), width=400,
+                      yaxis=dict(title="Subject ID", tickmode='array', tickvals=subjects, ticktext=subjects),
+                      xaxis=dict(title=metric.upper(), range=[max(0.0, chance-0.2), 1.0]),
+                      violingap=0, violinmode='overlay')
+                      
+    out_path = os.path.join(save_path, f"{filename_base}_subject_densities_{metric}")
+    os.makedirs(save_path, exist_ok=True)
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+    except Exception as e: print(f"Warning: Could not save subject densities plot: {e}")
+    return fig
+
+
+def plot_shap_comparative_boxplots(true_shap_runs, perm_shap_runs, feature_names, save_path, filename_base, num_features=10):
+    """
+    Generate horizontal boxplots comparing True Mean |SHAP| vs Permuted (same feature) vs Permuted (same rank) across runs.
+    true_shap_runs: List of stacked SHAP value arrays per run (runs x samples x features)
+    perm_shap_runs: List of stacked SHAP value arrays per perm_run (perm_runs x samples x features)
+    """
+    if not true_shap_runs or not perm_shap_runs: return
+    
+    # Calculate Mean |SHAP| per run for True
+    true_means_per_run = np.array([np.mean(np.abs(run_shap), axis=0) for run_shap in true_shap_runs]) # shape: (n_runs, n_features)
+    
+    # Calculate Mean |SHAP| per run for Permuted
+    perm_means_per_run = np.array([np.mean(np.abs(run_shap), axis=0) for run_shap in perm_shap_runs]) # shape: (n_perms, n_features)
+    
+    # Determine top N features from the TRUE overall mean
+    true_overall_mean = np.mean(true_means_per_run, axis=0)
+    top_indices = np.argsort(true_overall_mean)[::-1][:num_features]
+    top_feature_names = [feature_names[i] for i in top_indices]
+    
+    plot_data = []
+    
+    # Gather data for Top N features
+    for rank, feature_idx in enumerate(top_indices):
+        feature_name = feature_names[feature_idx]
+        
+        # 1. True distribution
+        for val in true_means_per_run[:, feature_idx]:
+             plot_data.append({'Feature': feature_name, 'Rank': rank, 'Value': val, 'Type': 'True Labels'})
+             
+        # 2. Permuted (Same Feature)
+        for val in perm_means_per_run[:, feature_idx]:
+             plot_data.append({'Feature': feature_name, 'Rank': rank, 'Value': val, 'Type': 'Shuffled (Same Feature)'})
+             
+        # 3. Permuted (Same Rank)
+        # Sort each perm run's features by importance, get the one at `rank`
+        for perm_run in perm_means_per_run:
+             sorted_perm = np.sort(perm_run)[::-1]
+             val = sorted_perm[rank]
+             plot_data.append({'Feature': feature_name, 'Rank': rank, 'Value': val, 'Type': 'Shuffled (Same Rank)'})
+             
+    df = pd.DataFrame(plot_data)
+    
+    fig = go.Figure()
+    # To match user's horizontal grouped structure
+    types = ['True Labels', 'Shuffled (Same Feature)', 'Shuffled (Same Rank)']
+    colors = ['#8CC63F', '#808080', '#D3E0A3'] # Green, Dark Gray, Light Green (as requested in style)
+    
+    # Plotly Box plots grouped
+    for i, t in enumerate(types):
+        df_t = df[df['Type'] == t]
+        fig.add_trace(go.Box(
+            x=df_t['Value'], y=df_t['Feature'], orientation='h', name=t, marker_color=colors[i],
+            boxmean=True, line_width=1, marker_size=2
+        ))
+        
+    fig.update_layout(
+        template='plotly_white', boxmode='group', title="<b>Top Features SHAP Importance (True vs Shuffled)</b>",
+        xaxis_title="Mean |SHAP value| across runs", yaxis_title="Feature", height=max(400, num_features*60), width=900,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        yaxis=dict(autorange="reversed") # Highest rank at top
+    )
+    
+    out_path = os.path.join(save_path, f"{filename_base}_shap_comparative_boxplots")
+    os.makedirs(save_path, exist_ok=True)
+    try:
+        fig.write_image(f"{out_path}.png", scale=2); fig.write_image(f"{out_path}.pdf"); fig.write_html(f"{out_path}.html")
+        df.to_csv(f"{out_path}.csv", index=False)
+    except Exception as e: print(f"Warning: Could not save SHAP comparative plot: {e}")
+    return fig

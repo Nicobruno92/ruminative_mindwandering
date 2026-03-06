@@ -134,7 +134,7 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
     print(f"PROCESSING MARKER: {marker_name} ({marker_type})")
     print(f"{'='*60}")
     
-    try:
+    if True:
         # Extract parameters
         formula = config['lmm']['formula']
         predictor_of_interest = config['lmm'].get('predictor_of_interest')
@@ -316,7 +316,7 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
                 # Exclude outermost channels by position
                 percentile = exclude_config.get('auto_percentile', 10)
                 from mne.channels import find_layout
-                try:
+                if True:
                     layout = find_layout(info)
                     pos = layout.pos[:, :2]  # x, y positions
                     
@@ -332,10 +332,6 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
                     excluded_names = [ch_names_final[i] for i in range(n_channels) if exclude_mask[i]]
                     print(f"\n✓ Excluding {n_excluded}/{n_channels} channels from clustering (auto_position method, {percentile}th percentile)")
                     print(f"  Excluded channels: {excluded_names}")
-                except Exception as e:
-                    print(f"\n⚠ Could not auto-detect edge channels: {e}")
-                    print("  Proceeding without exclusion")
-                    exclude_mask = None
         
         # Spatial cluster permutation test - choose method
         if clustering_method == 'tfce':
@@ -457,6 +453,7 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         
         # Save results with comprehensive metadata
         results_dict = {
+            'target_variable': predictor_of_interest,  # Explicitly highlight target variable
             'config': config,
             'marker_name': marker_name,
             'marker_type': marker_type,
@@ -498,10 +495,19 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             cluster_summary = summarize_clusters(
                 clusters, cluster_stats, cluster_p_values, ch_names_final, alpha
             )
-            # Add metadata to cluster summary
+            
+            # Add metadata columns
+            cluster_summary['target_variable'] = predictor_of_interest
             cluster_summary['marker_name'] = marker_name
             cluster_summary['marker_type'] = marker_type
-            cluster_summary['analysis_timestamp'] = datetime.now().isoformat()
+            
+            # Reorder columns to highlight the target variable
+            cols = cluster_summary.columns.tolist()
+            if 'p_value' in cols:
+                # Move target_variable and p_value up
+                base_cols = ['target_variable', 'marker_name', 'marker_type', 'cluster_id', 'p_value', 'stat']
+                other_cols = [c for c in cols if c not in base_cols]
+                cluster_summary = cluster_summary[base_cols + other_cols]
             
             csv_path = output_dir / "cluster_summary_uncorrected.csv"
             cluster_summary.to_csv(csv_path, index=False)
@@ -510,6 +516,9 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         # Save t-statistics per channel
         if save_csv:
             t_stats_df = pd.DataFrame({
+                'target_variable': predictor_of_interest,
+                'marker_name': marker_name,
+                'marker_type': marker_type,
                 'channel': ch_names_final,
                 't_statistic': t_stats,
                 'p_value': p_values,
@@ -586,10 +595,6 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             print(f"✓ Figures saved to {output_dir}")
         
         return {'success': True, 'result': results_dict}
-        
-    except Exception as e:
-        print(f"✗ Error processing marker '{marker_name}': {e}")
-        return {'success': False, 'error': str(e)}
 
 
 def main(config_path: str = "Statistics/config.yaml", 
@@ -641,8 +646,7 @@ def main(config_path: str = "Statistics/config.yaml",
     # Data filtering parameters
     subjects = config['project'].get('subjects', None)
     tasks = config['project'].get('tasks', None)
-    marker_types = config['project'].get('marker_types', None)
-    markers_config = config['project'].get('markers', 'all')  # Read markers from config
+    selected_markers = config['project'].get('selected_markers', {})
     
     # Create output directory
     output_dir = Path(output_path)
@@ -700,7 +704,7 @@ def main(config_path: str = "Statistics/config.yaml",
         features_root=features_root,
         subjects=subjects,
         tasks=tasks,
-        marker_types=marker_types,
+        marker_types=list(selected_markers.keys()) if selected_markers else None,
         qa_exclusions=qa_exclusions_dict if qa_exclusions_dict else None,
         verbose=True
     )
@@ -715,33 +719,34 @@ def main(config_path: str = "Statistics/config.yaml",
     else:
         print("\nNo PCA data path provided in config. Skipping PCA data loading.")
     
-    # Determine which markers to process based on config
-    # Create list of (marker_name, marker_type) tuples to handle markers in both evoked and state
-    if isinstance(markers_config, str) and markers_config.lower() == 'all':
-        # Get all available markers (state and evoked kept separate)
-        available_markers_dict = get_available_markers(features_root, marker_types)
-        markers_to_process = []
-        for marker_type, markers in available_markers_dict.items():
-            # Create tuples of (marker_name, marker_type)
-            markers_to_process.extend([(m, marker_type) for m in markers])
-            print(f"  {marker_type} markers: {len(markers)}")
-        print(f"Processing all available markers: {len(markers_to_process)} markers total")
-    elif isinstance(markers_config, list):
-        # Process specific markers from config
-        # For each marker, check which types it exists in
-        available_markers_dict = get_available_markers(features_root, marker_types)
-        markers_to_process = []
-        for marker_name in markers_config:
-            for marker_type, type_markers in available_markers_dict.items():
-                if marker_name in type_markers:
-                    markers_to_process.append((marker_name, marker_type))
+    # Determine which markers to process based on configured selected_markers
+    markers_to_process = []
+    
+    if selected_markers:
+        available_markers_dict = get_available_markers(features_root)
+        for expected_marker_type, configured_markers in selected_markers.items():
+            if expected_marker_type not in available_markers_dict:
+                print(f"Warning: Marker type {expected_marker_type} not found in data.")
+                continue
+                
+            available_type_markers = available_markers_dict[expected_marker_type]
+            if isinstance(configured_markers, str) and configured_markers.lower() == 'all':
+                markers_to_process.extend([(m, expected_marker_type) for m in available_type_markers])
+                print(f"  {expected_marker_type} markers: {len(available_type_markers)} (all)")
+            elif isinstance(configured_markers, list):
+                for m in configured_markers:
+                    if m in available_type_markers:
+                        markers_to_process.append((m, expected_marker_type))
+                    else:
+                        print(f"Warning: Selected marker {m} not found in available {expected_marker_type} markers.")
+                print(f"  {expected_marker_type} markers: {sum(1 for m, mt in markers_to_process if mt == expected_marker_type)} (selected)")
+        
         print(f"Processing {len(markers_to_process)} marker-type combinations from config")
         if len(markers_to_process) == 0:
-            print(f"Warning: No markers found matching config: {markers_config}")
+            print(f"Warning: No markers found matching selected_markers config.")
             return
     else:
-        print(f"Invalid markers configuration: {markers_config}")
-        print("Set project.markers to 'all' or a list of marker names")
+        print("Error: No selected_markers section found in config.")
         return
     
     # If marker_index is provided (SLURM array job), process only that marker
@@ -935,7 +940,7 @@ def main(config_path: str = "Statistics/config.yaml",
         base_output_dir = Path(config['project']['output_path'])
         model_output_dir = base_output_dir / model_folder_name
         
-        try:
+        if True:
             # Generate report with all topoplots and tables
             generate_summary_report(
                 model_dir=model_output_dir,
@@ -943,12 +948,9 @@ def main(config_path: str = "Statistics/config.yaml",
                 use_corrected=True,
                 verbose=True
             )
-        except Exception as e:
-            print(f"⚠ Warning: Failed to generate summary report: {e}")
-            print("  Individual marker results are still available.")
         
         # Generate HTML QA report
-        try:
+        if True:
             successful_marker_names = [r.get('marker_name', 'unknown') for r in successful_results]
             html_path = generate_pipeline_qa_html_report(
                 model_dir=model_output_dir,
@@ -958,8 +960,6 @@ def main(config_path: str = "Statistics/config.yaml",
                 output_filename="pipeline_qa_summary.html"
             )
             print(f"✓ Pipeline QA HTML report saved to {html_path}")
-        except Exception as e:
-            print(f"⚠ Warning: Failed to generate HTML QA report: {e}")
     
     # Print completion message
     print("\n" + "="*80)

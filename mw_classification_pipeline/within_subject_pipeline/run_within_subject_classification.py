@@ -40,6 +40,7 @@ from utils.analysis_utils import (
     run_within_subject_permutation_analysis,
 )
 from utils.logging_utils import AnalysisLogger
+from utils.plotting_utils import plot_subject_level_densities, plot_shap_comparative_boxplots
 
 # Reuse LOSO's filter_features_by_family function by importing or replicating
 def filter_features_by_family(X: pd.DataFrame, family_name: str, feature_families: dict) -> pd.DataFrame:
@@ -184,7 +185,7 @@ def main():
     # In within-subject, df_prepared["task"] holds the tasks which map to groups if using group_kfold
     tasks = df_prepared["task"] if "task" in df_prepared.columns else groups
 
-    true_ws_metrics_list, _ = run_within_subject_distribution_analysis(
+    true_ws_metrics_list, true_shap_values = run_within_subject_distribution_analysis(
         dimension=contrast_name,
         df=df_prepared,
         X=X,
@@ -250,7 +251,7 @@ def main():
         print(f"Running permutation test ({permutation_runs} permutations)...")
         print(f"{'='*60}\n")
         
-        run_within_subject_permutation_analysis(
+        perm_df, perm_summary, perm_all_results, perm_shap_values = run_within_subject_permutation_analysis(
             dimension=contrast_name,
             df=df_prepared,
             X=X,
@@ -280,13 +281,34 @@ def main():
             save_csv=True,
             save_probabilities=outputs_cfg.get("save_probabilities", True),
             save_plots=outputs_cfg.get("save_plots", False),
-            save_shap=False,
+            save_shap=outputs_cfg.get("save_shap", False),
             verbose=verbose,
             feature_selection_method=fs_cfg.get("method", "mrmr"),
             scaler=prep_cfg.get("scaler", "standard"),
             true_ws_metrics_df=true_ws_metrics_df,
             logger=logger,
         )
+        
+        if outputs_cfg.get("save_plots", False):
+            print("\nGenerating advanced comparison plots...")
+            plot_subject_level_densities(
+                true_subject_metrics_list=[true_ws_metrics_df],  # WS has a flat DataFrame per run, we wrap in list
+                perm_subject_metrics_list=[perm_all_results],    # Wrap the full perm structures
+                dimension_name=contrast_name,
+                save_path=results_path,
+                filename_base=f"{model_type}_ws_permutation",
+                metric='auc'
+            )
+            
+            if outputs_cfg.get("save_shap", False) and true_shap_values and perm_shap_values:
+                plot_shap_comparative_boxplots(
+                    true_shap_runs=true_shap_values,
+                    perm_shap_runs=perm_shap_values,
+                    feature_names=feature_cols,
+                    save_path=results_path,
+                    filename_base=f"{model_type}_ws_permutation",
+                    num_features=10
+                )
 
     print(f"\n{'='*60}")
     print(f"Done. Results → {results_path}")
