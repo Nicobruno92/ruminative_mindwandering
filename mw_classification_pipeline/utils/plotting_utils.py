@@ -332,7 +332,7 @@ def plot_shap_beeswarm(shap_values, x_test, feature_names, comparison, save_dir,
                 color=norm_values if x_test is not None else '#DE237B',
                 colorscale='Viridis' if x_test is not None else None,
                 showscale=True if (i == len(top_indices)-1 and x_test is not None) else False,
-                colorbar=dict(title="Feature Value", titleside="top", tickvals=[0, 1], ticktext=["Low", "High"]) if (i == len(top_indices)-1 and x_test is not None) else None,
+                colorbar=dict(title=dict(text="Feature Value", side="top"), tickvals=[0, 1], ticktext=["Low", "High"]) if (i == len(top_indices)-1 and x_test is not None) else None,
                 opacity=0.8
             ),
             hovertext=[f"Feature: {f_name}<br>SHAP: {s:.4f}<br>Value: {v:.4f}" for s, v in zip(f_shap, f_values)] if x_test is not None else None,
@@ -1810,3 +1810,909 @@ def plot_shap_comparative_boxplots(true_shap_runs, perm_shap_runs, feature_names
         df.to_csv(f"{out_path}.csv", index=False)
     except Exception as e: print(f"Warning: Could not save SHAP comparative plot: {e}")
     return fig
+
+
+# =============================================================================
+# SUBJECT-LEVEL RIDGELINE  —  True distributions vs Permuted per subject
+# =============================================================================
+
+def plot_subject_distribution_ridgelines(
+    true_df: pd.DataFrame,
+    perm_df: pd.DataFrame,
+    metric: str,
+    save_path: str,
+    filename_base: str,
+    dimension: str,
+) -> go.Figure:
+    """
+    Horizontal ridgeline plot comparing per-subject true vs permuted distributions.
+
+    For each subject, the true distribution (colored, from N real runs) and the
+    permuted distribution (gray, from N permutation runs) are drawn as horizontal
+    half-violins stacked on the same y position. Significance stars are added on
+    the right. A donut chart summarises the fraction of significant subjects.
+
+    Parameters
+    ----------
+    true_df : pd.DataFrame
+        Stacked per-subject metrics from all true runs. Must have columns
+        ``subject`` and at least the column named by *metric*.
+    perm_df : pd.DataFrame
+        Same format but from permutation runs. May be empty.
+    metric : str
+        Bare metric column name: ``'auc'``, ``'balanced_accuracy'``,
+        ``'auprc'``, or ``'mcc'``.
+    save_path : str
+        Directory where files are written.
+    filename_base : str
+        Prefix for output file names.
+    dimension : str
+        Contrast name used in the title.
+
+    Returns
+    -------
+    go.Figure
+    """
+    import plotly.subplots as sp
+    from scipy.stats import mannwhitneyu
+
+    # --- normalise column names (strip mean_ prefix if present) -------------
+    def _norm(df: pd.DataFrame) -> pd.DataFrame:
+        return df.rename(columns={c: c.replace("mean_", "", 1) for c in df.columns})
+
+    true_df = _norm(true_df.copy())
+    perm_df = _norm(perm_df.copy()) if not perm_df.empty else perm_df
+
+    if metric not in true_df.columns:
+        print(f"    ! Column '{metric}' not found in subject metrics — skipping")
+        return
+
+    # Keep only finite values
+    true_df = true_df[true_df[metric].notna()]
+    if perm_df.empty or metric not in perm_df.columns:
+        perm_df = pd.DataFrame()
+
+    subjects = sorted(
+        true_df["subject"].astype(str).unique(),
+        key=lambda x: int(x) if str(x).isdigit() else x,
+    )
+
+    TRUE_COLOR  = "#DE237B"
+    PERM_COLOR  = "rgba(180,180,180,0.65)"
+    PERM_LINE   = "rgba(100,100,100,0.8)"
+    CHANCE = 0.5 if metric in ("auc", "balanced_accuracy", "auprc") else 0.0
+
+    # --- significance per subject -------------------------------------------
+    p_values: dict = {}
+    for sub in subjects:
+        t = true_df[true_df["subject"].astype(str) == sub][metric].values
+        p = (perm_df[perm_df["subject"].astype(str) == sub][metric].values
+             if not perm_df.empty else np.array([]))
+        if len(t) == 0:
+            p_values[sub] = 1.0
+        elif len(p) == 0:
+            # No perm data: compare vs chance level (empirical)
+            p_values[sub] = float(np.mean(t <= CHANCE)) if CHANCE is not None else 1.0
+        elif len(t) == 1:
+            # Single true value: empirical p from perm distribution
+            p_values[sub] = float(np.mean(p >= t[0]))
+        else:
+            _, pv = mannwhitneyu(t, p, alternative="greater")
+            p_values[sub] = float(pv)
+
+    n_sig = sum(v < 0.05 for v in p_values.values())
+    pct_sig = n_sig / len(subjects) * 100 if subjects else 0.0
+
+    # --- layout: ridgeline rows + donut at bottom ---------------------------
+    n_subj = len(subjects)
+    main_height = max(500, n_subj * 38)
+    donut_height = 220
+
+    fig = sp.make_subplots(
+        rows=2, cols=1,
+        row_heights=[main_height, donut_height],
+        vertical_spacing=0.02,
+        specs=[[{"type": "xy"}], [{"type": "domain"}]],
+    )
+
+    legend_added = {"true": False, "perm": False}
+
+    for i, sub in enumerate(reversed(subjects)):   # top = highest subject id
+        t_vals = true_df[true_df["subject"].astype(str) == sub][metric].values
+        p_vals = (perm_df[perm_df["subject"].astype(str) == sub][metric].values
+                  if not perm_df.empty else np.array([]))
+
+        # --- permuted half-violin (positive / right half) ---
+        if len(p_vals) >= 2:
+            fig.add_trace(
+                go.Violin(
+                    x=p_vals, y=[sub] * len(p_vals),
+                    orientation="h",
+                    side="positive",
+                    fillcolor=PERM_COLOR, line_color=PERM_LINE,
+                    width=1.6, points=False, box_visible=False, meanline_visible=True,
+                    meanline=dict(color=PERM_LINE, width=1.5),
+                    name="Permuted",
+                    showlegend=not legend_added["perm"],
+                    legendgroup="perm",
+                    hoverinfo="x+name",
+                ),
+                row=1, col=1,
+            )
+            legend_added["perm"] = True
+        elif len(p_vals) == 1:
+            fig.add_trace(
+                go.Scatter(
+                    x=p_vals, y=[sub],
+                    mode="markers",
+                    marker=dict(color=PERM_LINE, size=7, symbol="line-ew-open"),
+                    name="Permuted", showlegend=not legend_added["perm"],
+                    legendgroup="perm",
+                ),
+                row=1, col=1,
+            )
+            legend_added["perm"] = True
+
+        # --- true half-violin (negative / left half) ---
+        if len(t_vals) >= 2:
+            fig.add_trace(
+                go.Violin(
+                    x=t_vals, y=[sub] * len(t_vals),
+                    orientation="h",
+                    side="negative",
+                    fillcolor=TRUE_COLOR,
+                    line_color=TRUE_COLOR,
+                    width=1.6, points=False, box_visible=True,
+                    meanline_visible=True,
+                    meanline=dict(color="white", width=1.5),
+                    name="True",
+                    showlegend=not legend_added["true"],
+                    legendgroup="true",
+                    hoverinfo="x+name",
+                ),
+                row=1, col=1,
+            )
+            legend_added["true"] = True
+        elif len(t_vals) >= 1:
+            fig.add_trace(
+                go.Scatter(
+                    x=t_vals, y=[sub],
+                    mode="markers",
+                    marker=dict(color=TRUE_COLOR, size=8, symbol="diamond"),
+                    name="True", showlegend=not legend_added["true"],
+                    legendgroup="true",
+                ),
+                row=1, col=1,
+            )
+            legend_added["true"] = True
+
+        # --- significance stars ----------------------------------------------
+        pv = p_values.get(sub, 1.0)
+        star = "***" if pv < 0.001 else "**" if pv < 0.01 else "*" if pv < 0.05 else ""
+        if star:
+            all_x = np.concatenate([t_vals, p_vals]) if len(p_vals) else t_vals
+            x_star = float(np.nanmax(all_x)) + 0.04 if len(all_x) else CHANCE + 0.06
+            fig.add_annotation(
+                x=x_star, y=sub,
+                text=f"<b>{star}</b>",
+                showarrow=False,
+                font=dict(size=13, color="#111111"),
+                xanchor="left", yanchor="middle",
+                row=1, col=1,
+            )
+
+    # chance line
+    fig.add_vline(
+        x=CHANCE, line_dash="dash", line_color="#333333",
+        line_width=1.5, opacity=0.7,
+        row=1, col=1,
+    )
+
+    # --- donut chart ---------------------------------------------------------
+    donut_labels = ["Significant", "Not significant"]
+    donut_values = [round(pct_sig, 1), round(100 - pct_sig, 1)]
+    fig.add_trace(
+        go.Pie(
+            labels=donut_labels,
+            values=donut_values,
+            hole=0.62,
+            marker=dict(colors=[TRUE_COLOR, "#d3d3d3"]),
+            textinfo="none",
+            hovertemplate="%{label}: %{value:.1f}%<extra></extra>",
+            showlegend=False,
+        ),
+        row=2, col=1,
+    )
+    fig.add_annotation(
+        text=f"<b>{pct_sig:.0f}%</b>",
+        xref="paper", yref="paper",
+        x=0.5, y=0.07,
+        showarrow=False,
+        font=dict(size=18, color=TRUE_COLOR),
+        xanchor="center", yanchor="middle",
+    )
+
+    metric_label = metric.replace("_", " ").upper()
+    fig.update_layout(
+        template="plotly_white",
+        title=dict(
+            text=f"<b>Subject Distributions — {dimension} | {metric_label}</b>",
+            font=dict(size=14),
+        ),
+        height=main_height + donut_height + 80,
+        width=520,
+        violingap=0.05,
+        violingroupgap=0.0,
+        violinmode="overlay",
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.01,
+            xanchor="right", x=1, font=dict(size=11),
+        ),
+        xaxis=dict(
+            title=metric_label,
+            range=[max(-0.05, CHANCE - 0.25), 1.05],
+        ),
+        yaxis=dict(
+            title="Subject ID",
+            type="category",
+            categoryorder="array",
+            categoryarray=[str(s) for s in reversed(subjects)],
+            tickfont=dict(size=10),
+        ),
+        margin=dict(l=60, r=60, t=60, b=30),
+    )
+
+    os.makedirs(save_path, exist_ok=True)
+    out_path = os.path.join(save_path, f"{filename_base}_subject_ridgelines_{metric}")
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save subject ridgeline plot: {e}")
+
+    return fig
+
+def plot_true_vs_perm_violins(
+    results_dict: dict,
+    dimension: str,
+    model_type: str,
+    save_path: str,
+    filename_base: str,
+) -> go.Figure:
+    """
+    Generate side-by-side violin plots comparing true vs permuted distributions.
+
+    One subplot per metric. Each subplot contains two violins (True in colour,
+    Permuted in grey), individual run points jittered on top, a horizontal
+    dashed chance line, and a p-value annotation.
+
+    Parameters
+    ----------
+    results_dict : dict
+        Keys are metric labels (str). Values are dicts with:
+        - ``true_values``  : array-like of metric values from real runs
+        - ``perm_values``  : array-like of metric values from permutation runs
+        - ``p_value``      : Mann-Whitney U p-value (float)
+        - ``empirical_p``  : empirical p-value (float)
+    dimension : str
+        Contrast name used in the figure title.
+    model_type : str
+        Model identifier used in the figure title.
+    save_path : str
+        Directory where output files are written.
+    filename_base : str
+        Prefix for output file names.
+
+    Returns
+    -------
+    go.Figure
+        The Plotly figure object.
+    """
+    import plotly.subplots as sp
+
+    if not results_dict:
+        print("No results to plot.")
+        return
+
+    # Chance levels per metric keyword
+    CHANCE: dict = {"auc": 0.5, "balanced": 0.5, "mcc": 0.0, "auprc": 0.5}
+    METRIC_COLORS: dict = {
+        "AUC": "#4C72B0",
+        "Balanced Accuracy": "#DD8452",
+        "AUPRC": "#55A868",
+        "MCC": "#C44E52",
+    }
+    PERM_COLOR = "#AAAAAA"
+    JITTER_SEED = 42
+    rng = np.random.default_rng(JITTER_SEED)
+
+    n_metrics = len(results_dict)
+    n_cols = min(2, n_metrics)
+    n_rows = (n_metrics + n_cols - 1) // n_cols
+
+    fig = sp.make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        subplot_titles=[f"<b>{m}</b>" for m in results_dict.keys()],
+        vertical_spacing=0.15,
+        horizontal_spacing=0.12,
+    )
+
+    for idx, (metric_name, data) in enumerate(results_dict.items()):
+        row = idx // n_cols + 1
+        col = idx % n_cols + 1
+        true_vals = np.asarray(data["true_values"], dtype=float)
+        perm_vals = np.asarray(data["perm_values"], dtype=float)
+        true_vals = true_vals[np.isfinite(true_vals)]
+        perm_vals = perm_vals[np.isfinite(perm_vals)]
+
+        true_color = METRIC_COLORS.get(metric_name, COLORS[idx % len(COLORS)])
+        p_val = data.get("p_value", np.nan)
+        emp_p = data.get("empirical_p", np.nan)
+
+        # Determine chance level
+        chance = None
+        for kw, val in CHANCE.items():
+            if kw in metric_name.lower():
+                chance = val
+                break
+
+        # --- Permuted violin ---
+        if len(perm_vals) > 0:
+            fig.add_trace(
+                go.Violin(
+                    y=perm_vals,
+                    x=["Permuted"] * len(perm_vals),
+                    name=f"Permuted",
+                    fillcolor=PERM_COLOR,
+                    line_color="#666666",
+                    opacity=0.7,
+                    box_visible=True,
+                    meanline_visible=True,
+                    showlegend=(idx == 0),
+                    legendgroup="perm",
+                    points=False,
+                ),
+                row=row, col=col,
+            )
+            # Jittered strip
+            jitter_x = rng.uniform(-0.08, 0.08, size=len(perm_vals))
+            fig.add_trace(
+                go.Scatter(
+                    y=perm_vals,
+                    x=["Permuted"] * len(perm_vals),
+                    mode="markers",
+                    marker=dict(color="#555555", size=4, opacity=0.6,
+                                line=dict(width=0.5, color="white")),
+                    showlegend=False,
+                ),
+                row=row, col=col,
+            )
+
+        # --- True violin ---
+        if len(true_vals) > 0:
+            fig.add_trace(
+                go.Violin(
+                    y=true_vals,
+                    x=["True"] * len(true_vals),
+                    name=f"True",
+                    fillcolor=true_color,
+                    line_color=true_color,
+                    opacity=0.75,
+                    box_visible=True,
+                    meanline_visible=True,
+                    showlegend=(idx == 0),
+                    legendgroup="true",
+                    points=False,
+                ),
+                row=row, col=col,
+            )
+            # Jittered strip
+            fig.add_trace(
+                go.Scatter(
+                    y=true_vals,
+                    x=["True"] * len(true_vals),
+                    mode="markers",
+                    marker=dict(color=true_color, size=5, opacity=0.8,
+                                line=dict(width=0.8, color="white")),
+                    showlegend=False,
+                ),
+                row=row, col=col,
+            )
+
+        # Chance line
+        if chance is not None:
+            fig.add_hline(
+                y=chance,
+                line_dash="dot",
+                line_color="red",
+                line_width=1.5,
+                opacity=0.6,
+                row=row, col=col,
+            )
+
+        # P-value annotation inside subplot
+        p_text = ""
+        if np.isfinite(p_val):
+            if p_val < 0.001:
+                p_text = "p < 0.001"
+            else:
+                p_text = f"p = {p_val:.3f}"
+        if np.isfinite(emp_p):
+            p_text += f"<br>p_emp = {emp_p:.3f}"
+
+        if p_text:
+            fig.add_annotation(
+                text=p_text,
+                xref=f"x{idx + 1}" if idx > 0 else "x",
+                yref=f"y{idx + 1}" if idx > 0 else "y",
+                x=0.98, y=0.02,
+                xanchor="right", yanchor="bottom",
+                showarrow=False,
+                font=dict(size=11, color="#333333"),
+                bgcolor="rgba(255,255,255,0.7)",
+                bordercolor="#CCCCCC",
+                borderwidth=1,
+                row=row, col=col,
+            )
+
+    fig.update_layout(
+        template="plotly_white",
+        title=dict(
+            text=f"<b>True vs Permuted — {dimension} | {model_type.upper()}</b>",
+            font=dict(size=16),
+        ),
+        violinmode="group",
+        height=450 * n_rows,
+        width=600 * n_cols,
+        legend=dict(orientation="h", yanchor="bottom", y=1.03, xanchor="right", x=1),
+    )
+    fig.update_yaxes(title_text="Metric value")
+
+    os.makedirs(save_path, exist_ok=True)
+    out_path = os.path.join(save_path, f"{filename_base}_true_vs_perm_violins")
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save violin plot: {e}")
+
+    return fig
+
+
+# =============================================================================
+# GLOBAL PERMUTATION HISTOGRAM  —  True distribution vs Permuted per metric
+# =============================================================================
+
+def plot_global_permutation_histogram(
+    results_dict: dict,
+    dimension: str,
+    model_type: str,
+    save_path: str,
+    filename_base: str,
+) -> go.Figure:
+    """
+    Overlaid histogram and KDE showing the null permutation distribution against
+    the true run value(s) for each metric.
+
+    Each subplot shows a filled gray histogram for the permuted values, a gray
+    KDE curve, a colored vertical line at the mean of the true run values, and
+    the empirical + MWU p-value.
+
+    Parameters
+    ----------
+    results_dict : dict
+        Same format as ``plot_true_vs_perm_violins``:
+        keys = metric labels; values contain ``true_values``, ``perm_values``,
+        ``p_value``, ``empirical_p``.
+    dimension : str
+        Contrast name used in the figure title.
+    model_type : str
+        Model identifier used in the figure title.
+    save_path : str
+        Directory where output files are written.
+    filename_base : str
+        Prefix for output file names.
+
+    Returns
+    -------
+    go.Figure
+    """
+    import plotly.subplots as sp
+    from scipy.stats import gaussian_kde
+
+    if not results_dict:
+        print("No results to plot (histogram).")
+        return None
+
+    CHANCE: dict = {"auc": 0.5, "balanced": 0.5, "mcc": 0.0, "auprc": 0.5}
+    METRIC_COLORS: dict = {
+        "AUC": "#4C72B0",
+        "Balanced Accuracy": "#DD8452",
+        "AUPRC": "#55A868",
+        "MCC": "#C44E52",
+    }
+    PERM_FILL = "rgba(170,170,170,0.45)"
+    PERM_LINE_COLOR = "#666666"
+
+    n_metrics = len(results_dict)
+    n_cols = min(2, n_metrics)
+    n_rows = (n_metrics + n_cols - 1) // n_cols
+
+    fig = sp.make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        subplot_titles=[f"<b>{m}</b>" for m in results_dict.keys()],
+        vertical_spacing=0.18,
+        horizontal_spacing=0.14,
+    )
+
+    for idx, (metric_name, data) in enumerate(results_dict.items()):
+        row = idx // n_cols + 1
+        col = idx % n_cols + 1
+
+        true_vals = np.asarray(data["true_values"], dtype=float)
+        perm_vals = np.asarray(data["perm_values"], dtype=float)
+        true_vals = true_vals[np.isfinite(true_vals)]
+        perm_vals = perm_vals[np.isfinite(perm_vals)]
+
+        true_color = METRIC_COLORS.get(metric_name, "#DE237B")
+        p_val = data.get("p_value", np.nan)
+        emp_p = data.get("empirical_p", np.nan)
+
+        chance = None
+        for kw, val in CHANCE.items():
+            if kw in metric_name.lower():
+                chance = val
+                break
+
+        x_all = np.concatenate([true_vals, perm_vals]) if len(perm_vals) else true_vals
+        x_min = float(np.nanmin(x_all)) - 0.05 if len(x_all) else -0.1
+        x_max = float(np.nanmax(x_all)) + 0.05 if len(x_all) else 1.1
+        x_range = np.linspace(x_min, x_max, 300)
+
+        # --- Permuted histogram ---
+        if len(perm_vals) >= 2:
+            fig.add_trace(
+                go.Histogram(
+                    x=perm_vals,
+                    histnorm="probability density",
+                    marker=dict(color=PERM_FILL, line=dict(color=PERM_LINE_COLOR, width=0.5)),
+                    name="Permuted" if idx == 0 else None,
+                    showlegend=(idx == 0),
+                    legendgroup="perm",
+                    nbinsx=20,
+                    opacity=0.7,
+                ),
+                row=row, col=col,
+            )
+            # KDE overlay for permuted
+            kde_perm = gaussian_kde(perm_vals)
+            fig.add_trace(
+                go.Scatter(
+                    x=x_range,
+                    y=kde_perm(x_range),
+                    mode="lines",
+                    line=dict(color=PERM_LINE_COLOR, width=2),
+                    showlegend=False,
+                    hoverinfo="skip",
+                ),
+                row=row, col=col,
+            )
+
+        # --- True value(s): vertical line(s) ---
+        if len(true_vals) >= 1:
+            true_mean = float(np.mean(true_vals))
+            # Vertical line at mean of true values
+            fig.add_vline(
+                x=true_mean,
+                line=dict(color=true_color, width=2.5, dash="solid"),
+                row=row, col=col,
+            )
+            # If multiple true values, add individual markers as rug
+            if len(true_vals) > 1:
+                kde_true = gaussian_kde(true_vals)
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_range,
+                        y=kde_true(x_range),
+                        mode="lines",
+                        fill="tozeroy",
+                        fillcolor=f"rgba{tuple(list(int(true_color.lstrip('#')[i:i+2], 16) for i in (0,2,4)) + [0.2])}",
+                        line=dict(color=true_color, width=2),
+                        name="True" if idx == 0 else None,
+                        showlegend=(idx == 0 and len(true_vals) > 1),
+                        legendgroup="true",
+                        hoverinfo="skip",
+                    ),
+                    row=row, col=col,
+                )
+
+        # Chance baseline
+        if chance is not None:
+            fig.add_vline(
+                x=chance,
+                line=dict(color="red", width=1.2, dash="dot"),
+                row=row, col=col,
+            )
+
+        # P-value annotation
+        p_lines = []
+        if np.isfinite(p_val):
+            p_lines.append(f"MWU p = {p_val:.3f}" if p_val >= 0.001 else "MWU p < 0.001")
+        if np.isfinite(emp_p):
+            p_lines.append(f"emp p = {emp_p:.3f}")
+        if p_lines:
+            fig.add_annotation(
+                text="<br>".join(p_lines),
+                xref=f"x{idx + 1}" if idx > 0 else "x",
+                yref=f"y{idx + 1}" if idx > 0 else "y",
+                x=0.97, y=0.97,
+                xanchor="right", yanchor="top",
+                showarrow=False,
+                font=dict(size=10, color="#333333"),
+                bgcolor="rgba(255,255,255,0.75)",
+                bordercolor="#CCCCCC",
+                borderwidth=1,
+                row=row, col=col,
+            )
+
+    fig.update_layout(
+        template="plotly_white",
+        title=dict(
+            text=f"<b>Permutation Null Distribution — {dimension} | {model_type.upper()}</b>",
+            font=dict(size=15),
+        ),
+        barmode="overlay",
+        height=380 * n_rows,
+        width=580 * n_cols,
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.03, xanchor="right", x=1,
+        ),
+    )
+    fig.update_xaxes(title_text="Metric value")
+    fig.update_yaxes(title_text="Density")
+
+    os.makedirs(save_path, exist_ok=True)
+    out_path = os.path.join(save_path, f"{filename_base}_perm_histogram")
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save permutation histogram: {e}")
+
+    return fig
+
+
+# =============================================================================
+# FEATURE IMPORTANCE TRUE vs PERMUTED  — grouped bar comparison
+# =============================================================================
+
+def plot_feature_importances_true_vs_perm(
+    true_feature_names: list,
+    true_mean: np.ndarray,
+    true_std: np.ndarray,
+    perm_feature_names: list,
+    perm_mean: np.ndarray,
+    perm_std: np.ndarray,
+    save_path: str,
+    filename_base: str,
+    top_n: int = 20,
+) -> go.Figure:
+    """
+    Grouped horizontal bar chart comparing feature importances from true runs vs
+    permutation runs.
+
+    Features are sorted by true importance. The top *top_n* features are shown.
+    True importance bars are drawn in the project pink; permuted bars in gray.
+    Error bars represent the standard deviation across runs.
+
+    Parameters
+    ----------
+    true_feature_names : list[str]
+        Feature name list from true runs.
+    true_mean : np.ndarray
+        Per-feature mean importance across true runs.
+    true_std : np.ndarray
+        Per-feature std of importance across true runs.
+    perm_feature_names : list[str]
+        Feature name list from perm runs (must match order of true_feature_names).
+    perm_mean : np.ndarray
+        Per-feature mean importance across perm runs.
+    perm_std : np.ndarray
+        Per-feature std of importance across perm runs.
+    save_path : str
+        Directory where output files are written.
+    filename_base : str
+        Prefix for output file names.
+    top_n : int
+        Number of top features to display.
+
+    Returns
+    -------
+    go.Figure
+    """
+    if not true_feature_names or len(true_mean) == 0:
+        print("    ! No feature importances to compare — skipping")
+        return None
+
+    TRUE_COLOR = "#DE237B"
+    PERM_COLOR = "#BBBBBB"
+    PERM_LINE = "#888888"
+
+    # Select top_n by true importance
+    top_idx = np.argsort(true_mean)[::-1][:top_n]
+    # Reverse so highest feature is at top in horizontal bar
+    top_idx = top_idx[::-1]
+
+    y_labels = [true_feature_names[i] for i in top_idx]
+    t_mean = true_mean[top_idx]
+    t_std = true_std[top_idx]
+
+    # Align perm values to true feature ordering
+    if perm_feature_names and len(perm_mean) > 0:
+        perm_name_to_idx = {n: j for j, n in enumerate(perm_feature_names)}
+        p_mean_aligned = np.array(
+            [perm_mean[perm_name_to_idx[n]] if n in perm_name_to_idx else 0.0
+             for n in [true_feature_names[i] for i in top_idx]]
+        )
+        p_std_aligned = np.array(
+            [perm_std[perm_name_to_idx[n]] if n in perm_name_to_idx else 0.0
+             for n in [true_feature_names[i] for i in top_idx]]
+        )
+        has_perm = True
+    else:
+        p_mean_aligned = np.zeros_like(t_mean)
+        p_std_aligned = np.zeros_like(t_std)
+        has_perm = False
+
+    fig = go.Figure()
+
+    # Permuted bars (behind)
+    if has_perm:
+        fig.add_trace(
+            go.Bar(
+                y=y_labels,
+                x=p_mean_aligned,
+                orientation="h",
+                name="Permuted",
+                marker=dict(color=PERM_COLOR, line=dict(color=PERM_LINE, width=0.8)),
+                error_x=dict(
+                    type="data",
+                    array=p_std_aligned,
+                    color=PERM_LINE,
+                    thickness=1.5,
+                    width=4,
+                ),
+                opacity=0.85,
+            )
+        )
+
+    # True bars (foreground)
+    fig.add_trace(
+        go.Bar(
+            y=y_labels,
+            x=t_mean,
+            orientation="h",
+            name="True",
+            marker=dict(color=TRUE_COLOR, line=dict(color=TRUE_COLOR, width=0.8)),
+            error_x=dict(
+                type="data",
+                array=t_std,
+                color=TRUE_COLOR,
+                thickness=1.5,
+                width=4,
+            ),
+            opacity=0.85,
+        )
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        title=dict(
+            text=f"<b>Feature Importances — True vs Permuted (Top {len(y_labels)})</b>",
+            font=dict(size=15),
+        ),
+        barmode="group",
+        xaxis_title="Importance",
+        yaxis_title="Feature",
+        height=max(450, len(y_labels) * 35),
+        width=820,
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1,
+        ),
+        yaxis=dict(tickfont=dict(size=11)),
+        margin=dict(l=170, r=30, t=70, b=60),
+    )
+
+    os.makedirs(save_path, exist_ok=True)
+    out_path = os.path.join(save_path, f"{filename_base}_feature_importances_true_vs_perm")
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save feature importance comparison plot: {e}")
+
+    # Save CSV with comparison data
+    pd.DataFrame(
+        {
+            "feature": y_labels,
+            "true_mean": t_mean,
+            "true_std": t_std,
+            "perm_mean": p_mean_aligned if has_perm else [np.nan] * len(y_labels),
+            "perm_std": p_std_aligned if has_perm else [np.nan] * len(y_labels),
+        }
+    ).to_csv(f"{out_path}.csv", index=False)
+
+    return fig
+
+
+# =============================================================================
+# SHAP BEESWARM  —  Official shap library (matplotlib-based)
+# =============================================================================
+
+def plot_shap_beeswarm_official(
+    shap_values: np.ndarray,
+    x_test: np.ndarray,
+    feature_names: list,
+    save_path: str,
+    filename_base: str,
+    max_display: int = 20,
+) -> None:
+    """
+    Render an official SHAP beeswarm plot using the ``shap`` library.
+
+    Uses ``shap.plots.beeswarm`` with a ``shap.Explanation`` object so that
+    feature values are properly used for the colour axis. Saves the matplotlib
+    figure as PNG and PDF.
+
+    Parameters
+    ----------
+    shap_values : np.ndarray
+        2-D array of shape (n_samples, n_features).
+    x_test : np.ndarray
+        2-D array of shape (n_samples, n_features) holding the original feature
+        values used for colour-coding. If None or all-zero, a zero-filled array
+        is used (no colour variation).
+    feature_names : list[str]
+        Feature names corresponding to the columns of *shap_values*.
+    save_path : str
+        Directory where output files are written.
+    filename_base : str
+        Prefix for output file names.
+    max_display : int
+        Maximum number of features to display (top by mean |SHAP|).
+    """
+    import shap
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    matplotlib.use("Agg")  # Non-interactive backend — required for server/cluster
+
+    # Handle multi-class SHAP output (take first class for binary)
+    sv = shap_values
+    if sv.ndim == 3:
+        sv = sv[..., 0]
+
+    # Ensure x_test has correct shape; fall back to zeros for colour if absent
+    if x_test is None or x_test.shape != sv.shape:
+        x_test = np.zeros_like(sv)
+
+    explanation = shap.Explanation(
+        values=sv,
+        data=x_test,
+        feature_names=[str(f) for f in feature_names],
+    )
+
+    plt.figure()
+    shap.plots.beeswarm(explanation, max_display=max_display, show=False)
+
+    os.makedirs(save_path, exist_ok=True)
+    out_path = os.path.join(save_path, f"{filename_base}_shap_beeswarm_official")
+    plt.savefig(f"{out_path}.png", dpi=200, bbox_inches="tight")
+    plt.savefig(f"{out_path}.pdf", bbox_inches="tight")
+    plt.close()

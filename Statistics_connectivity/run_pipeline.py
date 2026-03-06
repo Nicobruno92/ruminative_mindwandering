@@ -11,6 +11,7 @@ Orchestrates the analysis:
 """
 
 import argparse
+import gc
 import yaml
 import numpy as np
 import pandas as pd
@@ -181,42 +182,68 @@ def main(config_path: str = "Statistics_connectivity/config.yaml"):
     print(f"  Analysis level: {analysis_level}")
     print(f"  Bands: {bands}")
 
-    # ── Step 1: Load connectivity data ────────────────────────────────────
-    print("\n" + "=" * 70)
-    print("  STEP 1: Loading connectivity data")
-    print("=" * 70)
-
-    raw_df = load_connectivity_data(
-        features_root=features_root,
-        subjects=project.get("subjects"),
-        tasks=project.get("tasks"),
-        epoch_types=config.get("epoch_types"),
-        bands=bands,
-        verbose=True,
-    )
-
-    # ── Step 2: ROI-level analysis ────────────────────────────────────────
+    roi_output = output_base / "roi_level"
+    channel_output = output_base / "channel_level"
     if analysis_level in ("roi", "both"):
+        roi_output.mkdir(parents=True, exist_ok=True)
+    if analysis_level in ("channel", "both"):
+        channel_output.mkdir(parents=True, exist_ok=True)
+
+    roi_results: Dict[str, pd.DataFrame] = {}
+    channel_results: Dict[str, pd.DataFrame] = {}
+
+    # ── Steps 1-3: Per-band load → analyse → free ─────────────────────────
+    # Processing one band at a time keeps peak memory at ~1/n_bands of the
+    # full dataset instead of loading all bands simultaneously.
+    for band in bands:
         print("\n" + "=" * 70)
-        print("  STEP 2a: ROI-level analysis")
+        print(f"  Processing band: {band}")
         print("=" * 70)
 
-        roi_df = aggregate_to_roi_pairs(raw_df, rois, verbose=True)
-        roi_output = output_base / "roi_level"
-
-        roi_results = run_analysis_level(
-            df=roi_df,
-            level_name="roi",
-            bands=bands,
-            config=config,
-            output_dir=roi_output,
+        # ── Load only this band's connectivity data ───────────────────────
+        print(f"  Loading {band} connectivity data...")
+        band_df = load_connectivity_data(
+            features_root=features_root,
+            subjects=project.get("subjects"),
+            tasks=project.get("tasks"),
+            epoch_types=config.get("epoch_types"),
+            bands=[band],
+            verbose=True,
         )
 
-        # Generate ROI figures
-        if out_cfg.get("save_figures", True) and roi_results:
-            print("\n  Generating ROI-level figures...")
+        # ── ROI-level analysis for this band ─────────────────────────────
+        if analysis_level in ("roi", "both"):
+            roi_df = aggregate_to_roi_pairs(band_df, rois, verbose=False)
+            band_roi_results = run_analysis_level(
+                df=roi_df,
+                level_name="roi",
+                bands=[band],
+                config=config,
+                output_dir=roi_output,
+            )
+            roi_results.update(band_roi_results)
+            del roi_df
 
-            # Multi-band grid
+        # ── Channel-level analysis for this band ─────────────────────────
+        if analysis_level in ("channel", "both"):
+            band_channel_results = run_analysis_level(
+                df=band_df,
+                level_name="channel",
+                bands=[band],
+                config=config,
+                output_dir=channel_output,
+            )
+            channel_results.update(band_channel_results)
+
+        # Free this band's data before loading the next
+        del band_df
+        gc.collect()
+
+    # ── Figures (after all bands collected) ───────────────────────────────
+    if out_cfg.get("save_figures", True):
+
+        if roi_results:
+            print("\n  Generating ROI-level figures...")
             fig_path = roi_output / "connectivity_matrix_grid.png"
             plot_multi_band_grid(
                 all_results=roi_results,
@@ -225,8 +252,6 @@ def main(config_path: str = "Statistics_connectivity/config.yaml"):
                 dpi=out_cfg.get("fig_dpi", 300),
             )
             plt.close("all")
-
-            # Individual band figures
             for band, results in roi_results.items():
                 fig_path = roi_output / f"connectivity_matrix_{band}.png"
                 fig = plot_contrast_matrix(
@@ -235,31 +260,11 @@ def main(config_path: str = "Statistics_connectivity/config.yaml"):
                 )
                 fig.savefig(fig_path, dpi=out_cfg.get("fig_dpi", 300), bbox_inches="tight")
                 plt.close(fig)
-
-            # Summary table
             summary_path = roi_output / "summary_all_bands.csv"
             create_summary_table(roi_results, save_path=str(summary_path))
 
-    # ── Step 3: Channel-level analysis ────────────────────────────────────
-    if analysis_level in ("channel", "both"):
-        print("\n" + "=" * 70)
-        print("  STEP 2b: Channel-level analysis")
-        print("=" * 70)
-
-        channel_output = output_base / "channel_level"
-
-        channel_results = run_analysis_level(
-            df=raw_df,
-            level_name="channel",
-            bands=bands,
-            config=config,
-            output_dir=channel_output,
-        )
-
-        # Generate channel-level figures
-        if out_cfg.get("save_figures", True) and channel_results:
+        if channel_results:
             print("\n  Generating channel-level figures...")
-
             for band, results in channel_results.items():
                 fig_path = channel_output / f"channel_matrix_{band}.png"
                 plot_channel_contrast_matrix(
@@ -269,8 +274,6 @@ def main(config_path: str = "Statistics_connectivity/config.yaml"):
                     dpi=out_cfg.get("fig_dpi", 300),
                 )
                 plt.close("all")
-
-            # Summary table
             summary_path = channel_output / "summary_all_bands.csv"
             create_summary_table(channel_results, save_path=str(summary_path))
 

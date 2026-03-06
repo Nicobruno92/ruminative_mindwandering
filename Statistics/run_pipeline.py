@@ -646,7 +646,7 @@ def main(config_path: str = "Statistics/config.yaml",
     # Data filtering parameters
     subjects = config['project'].get('subjects', None)
     tasks = config['project'].get('tasks', None)
-    selected_markers = config['project'].get('selected_markers', {})
+    selected_markers = config.get('selected_markers', {})
     feature_families = config.get('feature_families', {})
     
     # Create output directory
@@ -678,8 +678,8 @@ def main(config_path: str = "Statistics/config.yaml",
         qa_df = load_qa_summary(qa_summary_path, verbose=True)
         
         # Get exclusion lists for each marker type
-        if marker_types:
-            for marker_type in marker_types:
+        if selected_markers:
+            for marker_type in selected_markers.keys():
                 exclusion_set, exclusion_info = get_qa_exclusion_list(
                     qa_df, marker_type, verbose=True
                 )

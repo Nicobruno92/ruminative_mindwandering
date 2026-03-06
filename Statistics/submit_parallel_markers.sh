@@ -48,9 +48,7 @@ echo "Detecting number of markers from config..."
 PYTHON_OUTPUT=$(python -c "
 import yaml
 import sys
-import os
 from pathlib import Path
-from collections import defaultdict
 
 try:
     # Load config
@@ -58,10 +56,15 @@ try:
         config = yaml.safe_load(f)
 
     features_root = config['project']['features_root']
-    selected_markers = config['project'].get('selected_markers', {})
+    # selected_markers and feature_families are top-level keys, not under 'project'
+    selected_markers = config.get('selected_markers', {})
+    feature_families = config.get('feature_families', {})
     
     if not selected_markers:
         print('No selected_markers configured in config.yaml', file=sys.stderr)
+        sys.exit(1)
+    if not feature_families:
+        print('No feature_families configured in config.yaml', file=sys.stderr)
         sys.exit(1)
 
     # Lightweight marker discovery: scan filenames and read ONE csv header per type
@@ -77,41 +80,54 @@ try:
         sys.exit(1)
     
     # Group files by marker type and find one sample file per type
+    import re
+    import pandas as pd
     sample_files_by_type = {}
     for f in csv_files:
-        filename = f.name
-        if '_aggMarkers.csv' in filename:
-            marker_type = filename.split('_desc-probe-')[1].split('_aggMarkers.csv')[0]
-            if '_' in marker_type:
-                marker_type = marker_type.split('_')[-1]
-            else:
-                marker_type = 'mixed'
-            
-            if marker_type in selected_markers:
-                if marker_type not in sample_files_by_type:
-                    sample_files_by_type[marker_type] = f
+        m = re.search(r'_desc-probe-\d+_(\w+)_aggMarkers\.csv$', f.name)
+        if m:
+            mtype = m.group(1)
+            if mtype not in sample_files_by_type:
+                sample_files_by_type[mtype] = f
     
-    # Read marker names from ONE sample file per type (memory efficient)
-    import pandas as pd
+    # Read available marker names from ONE sample file per type (memory-efficient)
     markers_by_type = {}
-    for marker_type, sample_file in sample_files_by_type.items():
-        # Read only the 'marker' column from one file
+    for mtype, sample_file in sample_files_by_type.items():
         df = pd.read_csv(sample_file, usecols=['marker'])
-        markers_by_type[marker_type] = sorted(df['marker'].unique().tolist())
+        markers_by_type[mtype] = sorted(df['marker'].unique().tolist())
     
-    # Count markers
+    # Count markers: resolve feature_families -> fragments -> substring matching
+    # (mirrors the logic in run_pipeline.py)
     n_markers = 0
-    for marker_type, configured_markers in selected_markers.items():
+    for marker_type, family_list in selected_markers.items():
         if marker_type not in markers_by_type:
             continue
-            
-        available_type_markers = markers_by_type[marker_type]
-        if isinstance(configured_markers, str) and configured_markers.lower() == 'all':
-            n_markers += len(available_type_markers)
-        elif isinstance(configured_markers, list):
-            for marker_name in configured_markers:
-                if marker_name in available_type_markers:
-                    n_markers += 1
+
+        available = markers_by_type[marker_type]
+
+        # Special case: ['all'] -> include every available marker
+        if isinstance(family_list, list) and len(family_list) == 1 and str(family_list[0]).lower() == 'all':
+            n_markers += len(available)
+            continue
+
+        # Collect fragments from all referenced families
+        fragments = []
+        null_family = False
+        for family_name in family_list:
+            if family_name not in feature_families:
+                print(f'Family "{family_name}" not defined in feature_families', file=sys.stderr)
+                sys.exit(1)
+            ffrags = feature_families[family_name]
+            if ffrags is None:  # null -> all features
+                null_family = True
+                break
+            fragments.extend(ffrags)
+
+        if null_family:
+            n_markers += len(available)
+        else:
+            matched = [mk for mk in available if any(frag in mk for frag in fragments)]
+            n_markers += len(matched)
 
     print(n_markers)
 except Exception as e:

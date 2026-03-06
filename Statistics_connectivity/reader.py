@@ -16,8 +16,9 @@ from itertools import combinations_with_replacement
 # CONSTANTS
 # =============================================================================
 
-# Separator used in channel pair column names
-PAIR_SEPARATOR = "--"
+# Separator used in channel pair column names.
+# The Junifer H5 reader writes pairs as "Ch1-Ch2" (single hyphen).
+PAIR_SEPARATOR = "-"
 
 
 # =============================================================================
@@ -80,16 +81,21 @@ def load_connectivity_data(
     if verbose:
         print(f"After filtering: {len(filtered_files)} files to load")
 
-    # Load and combine
-    all_rows = []
+    # Load and combine – each file returns a DataFrame (melt-based, no iterrows)
+    all_dfs = []
     for file_path in filtered_files:
-        rows = _parse_connectivity_csv(file_path, bands)
-        all_rows.extend(rows)
+        file_df = _parse_connectivity_csv(file_path, bands)
+        if not file_df.empty:
+            all_dfs.append(file_df)
+
+    assert len(all_dfs) > 0, (
+        f"All connectivity CSV files were empty after parsing in {features_root}"
+    )
+
+    combined_df = pd.concat(all_dfs, ignore_index=True)
 
     if verbose:
-        print(f"  Loaded {len(all_rows)} connection records")
-
-    combined_df = pd.DataFrame(all_rows)
+        print(f"  Loaded {len(combined_df)} connection records")
 
     if verbose:
         n_subjects = combined_df["subject"].nunique()
@@ -171,9 +177,12 @@ def _filter_files(
 def _parse_connectivity_csv(
     file_path: Path,
     bands: Optional[List[str]] = None,
-) -> List[Dict]:
+) -> pd.DataFrame:
     """
-    Parse a single connectivity CSV file into long-format records.
+    Parse a single connectivity CSV file into a long-format DataFrame.
+
+    Uses pd.melt instead of iterrows to avoid building one Python dict per
+    (pair × band) — critical for processing thousands of files without OOM.
 
     Parameters
     ----------
@@ -184,29 +193,38 @@ def _parse_connectivity_csv(
 
     Returns
     -------
-    List[Dict]
-        List of records, each with: subject, task, probe_number, label,
-        n_epochs, onoff, epoch_type, band, connection_id, wsmi_value
+    pd.DataFrame
+        Long-format with columns: subject, task, probe_number, label,
+        n_epochs, onoff, valence, selfother, confidence, time,
+        epoch_type, band, connection_id, wsmi_value.
+        Empty DataFrame if no matching marker columns are found.
     """
     df = pd.read_csv(file_path)
 
-    # Extract metadata from columns
+    # ── Scalar metadata (constant for every row in this file) ────────────
     subject = str(df["subject"].iloc[0])
     task = str(df["task"].iloc[0])
     probe_number = int(df["probe_number"].iloc[0])
     label = str(df["label"].iloc[0])
     n_epochs = int(df["n_epochs"].iloc[0])
-
-    # Extract onoff from metadata columns (if present)
-    onoff_val = float(df["onoff"].iloc[0]) if "onoff" in df.columns else np.nan
-
-    # Extract additional behavioral variables
+    # onoff: derive from ontask_label (ONTASK=100, OFFTASK=0) when not stored
+    # directly. This matches the convention in the aggregation helpers.
+    if "onoff" in df.columns:
+        onoff_val = float(df["onoff"].iloc[0])
+    elif "ontask_label" in df.columns:
+        ontask = str(df["ontask_label"].iloc[0]).upper()
+        onoff_val = 100.0 if ontask == "ONTASK" else 0.0 if ontask == "OFFTASK" else np.nan
+    elif "label" in df.columns:
+        label_str = str(df["label"].iloc[0]).lower()
+        onoff_val = 100.0 if "ontask" in label_str else 0.0 if "offtask" in label_str else np.nan
+    else:
+        onoff_val = np.nan
     valence = float(df["valence"].iloc[0]) if "valence" in df.columns else np.nan
     selfother = float(df["selfother"].iloc[0]) if "selfother" in df.columns else np.nan
     confidence = float(df["confidence"].iloc[0]) if "confidence" in df.columns else np.nan
     time_val = float(df["time"].iloc[0]) if "time" in df.columns else np.nan
 
-    # Extract epoch type from filename
+    # ── Epoch type from filename ──────────────────────────────────────────
     fname = file_path.name.replace(".csv", "")
     parts = fname.split("_")
     epoch_type = "unknown"
@@ -215,43 +233,54 @@ def _parse_connectivity_csv(
             epoch_type = parts[i - 1] + "_connectivity"
             break
 
-    # Find wSMI marker columns: wsmi_{band}_pairs_trimmean (or similar)
-    # The "channel" column in these files contains the pair identifier (e.g., "Fp1--F3")
+    # ── Identify wSMI pair marker columns ────────────────────────────────
     marker_cols = [
         c for c in df.columns
         if c.startswith("wsmi_") and "pairs" in c
     ]
+    if bands is not None:
+        marker_cols = [
+            c for c in marker_cols
+            if _extract_band_from_column(c) in bands
+        ]
 
-    rows = []
-    for _, row in df.iterrows():
-        connection_id = str(row["channel"])
+    if not marker_cols:
+        return pd.DataFrame()
 
-        for col in marker_cols:
-            # Extract band from column name: wsmi_theta_pairs_trimmean → theta
-            band = _extract_band_from_column(col)
-            if bands is not None and band not in bands:
-                continue
+    # ── Melt: (n_pairs rows × n_band_cols) → (n_pairs × n_bands rows) ────
+    # Avoids per-row Python dict allocation; stays in numpy/pandas internals.
+    result = (
+        df[["channel"] + marker_cols]
+        .melt(
+            id_vars=["channel"],
+            value_vars=marker_cols,
+            var_name="marker_col",
+            value_name="wsmi_value",
+        )
+        .rename(columns={"channel": "connection_id"})
+    )
+    result["band"] = result["marker_col"].apply(_extract_band_from_column)
+    result = result.drop(columns=["marker_col"])
 
-            wsmi_value = float(row[col])
+    # ── Attach scalar metadata as columns ────────────────────────────────
+    result["subject"] = subject
+    result["task"] = task
+    result["probe_number"] = probe_number
+    result["label"] = label
+    result["n_epochs"] = n_epochs
+    result["onoff"] = onoff_val
+    result["valence"] = valence
+    result["selfother"] = selfother
+    result["confidence"] = confidence
+    result["time"] = time_val
+    result["epoch_type"] = epoch_type
 
-            rows.append({
-                "subject": subject,
-                "task": task,
-                "probe_number": probe_number,
-                "label": label,
-                "n_epochs": n_epochs,
-                "onoff": onoff_val,
-                "valence": valence,
-                "selfother": selfother,
-                "confidence": confidence,
-                "time": time_val,
-                "epoch_type": epoch_type,
-                "band": band,
-                "connection_id": connection_id,
-                "wsmi_value": wsmi_value,
-            })
-
-    return rows
+    out_cols = [
+        "subject", "task", "probe_number", "label", "n_epochs",
+        "onoff", "valence", "selfother", "confidence", "time",
+        "epoch_type", "band", "connection_id", "wsmi_value",
+    ]
+    return result[[c for c in out_cols if c in result.columns]]
 
 
 def _extract_band_from_column(col_name: str) -> str:
@@ -387,8 +416,10 @@ def aggregate_to_roi_pairs(
     # Keep only columns that exist
     group_cols = [c for c in group_cols if c in df.columns]
 
+    # dropna=False: keep groups where metadata columns (valence, time, etc.)
+    # are NaN — this is expected for connectivity CSVs which lack those fields.
     result = (
-        df.groupby(group_cols, as_index=False)
+        df.groupby(group_cols, as_index=False, dropna=False)
         .agg(wsmi_value=("wsmi_value", "mean"))
     )
 
@@ -455,11 +486,18 @@ def prepare_connectivity_for_lmm(
         print(f"  onoff <= {onoff_max_value}: {n_before} -> {len(filtered)} rows")
 
     # Pivot: rows = probes, columns = connection_ids
-    metadata_cols = [
+    # Only include metadata columns that (a) exist and (b) have at least one
+    # non-NaN value — avoids pivot_table silently dropping all rows when
+    # optional columns (valence, selfother, confidence, time) are absent in
+    # connectivity CSVs.
+    candidate_meta = [
         "subject", "task", "probe_number", "label", "n_epochs",
-        "onoff", "valence", "selfother", "confidence", "time",
+        "onoff", "epoch_type", "valence", "selfother", "confidence", "time",
     ]
-    metadata_cols = [c for c in metadata_cols if c in filtered.columns]
+    metadata_cols = [
+        c for c in candidate_meta
+        if c in filtered.columns and filtered[c].notna().any()
+    ]
 
     pivot = filtered.pivot_table(
         index=metadata_cols,
@@ -492,12 +530,15 @@ def prepare_connectivity_for_lmm(
             print(f"  Excluded {n_excluded} subjects (low predictor variability)")
 
     # Filter subjects by class balance
+    # onoff is binary (0.0=OFFTASK, 100.0=ONTASK); do NOT use a global median
+    # as a split boundary — with binary data median equals the majority class
+    # value, making (x > median).mean() = 0 for everyone when one class
+    # dominates globally, which would exclude all subjects.
     if min_minority_ratio is not None and "onoff" in pivot.columns:
-        median_onoff = pivot["onoff"].median()
         subject_balance = pivot.groupby("subject")["onoff"].apply(
             lambda x: min(
-                (x <= median_onoff).mean(),
-                (x > median_onoff).mean(),
+                (x == 0.0).mean(),    # OFFTASK ratio
+                (x == 100.0).mean(),  # ONTASK ratio
             )
         )
         valid_subjects = subject_balance[

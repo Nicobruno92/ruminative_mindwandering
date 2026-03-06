@@ -30,7 +30,7 @@ tasks: ["Sart1", "Sart2", "Sart3", 'Sart4']
 # 2. INITIAL PROCESSING PARAMETERS
 # =============================================================================
 # Target resampling rate and basic filtering
-sr_target: 500  # target resampling rate for the pipeline
+sr_target: 250  # target resampling rate for the pipeline
 notch_freqs: [50, 100, 150]  # line noise removal frequencies
 avg_ref_projector: false  # apply average reference
 

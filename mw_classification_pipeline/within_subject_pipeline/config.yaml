@@ -51,7 +51,7 @@ slurm:
 # EXPERIMENT PARAMS
 # =============================================================================
 random_seed: 42
-n_runs: 1                       # Base ML training passes (default 1)
+n_runs: 10                      # Base ML training passes — gives 10 data points per subject for distribution plots
 n_permutations: 100             # Runs per permutation pass (useful: 100 or 1000)
 
 # =============================================================================
@@ -251,7 +251,7 @@ oversampling:
 # =============================================================================
 outputs:
   # If true, computes permutation tests natively inside the subjects
-  run_permutations: false
+  run_permutations: true
   
   # Whether to save full models and data to disk
   save_pickle: false

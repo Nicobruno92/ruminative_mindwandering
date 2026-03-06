@@ -61,32 +61,60 @@ project:
 # A marker belongs to a family if any fragment is a substring of its marker name.
 #
 # Fragment matching is case-sensitive and checks if the string
-# appears anywhere in the full marker name.
+# appears anywhere in the marker name column of the aggMarkers CSVs.
 #
 # Examples:
-#   "EEG_evoked_P3" matches "EEG_evoked_P3b", "EEG_evoked_P3a"
-#   "EEG_psd_bands" matches all band power markers
-#   "EEG_wsmi"      matches all wSMI connectivity markers
+#   "P3a"          matches marker "P3a" (exact)
+#   "power_"       matches "power_delta", "power_alpha", etc.
+#   "wsmi_"        matches all wSMI connectivity markers
+#   "PE_"          matches all permutation entropy markers
 
 feature_families:
-  erp:                          # ERP components (for evoked epochs)
-    - "EEG_evoked_P1"
-    - "EEG_evoked_N1"
-    - "EEG_evoked_P2"
-    - "EEG_evoked_P3"
+  # Naming convention: fragments are matched as substrings against the marker
+  # column values in the aggMarkers CSVs produced by aggregate_markers_by_probe.py.
+  # e.g. "power_delta" matches the marker named exactly "power_delta".
 
-  spectral:                     # Absolute band power (for state epochs)
-    - "EEG_psd_bands_spectralpower"
+  all: null                     # All available features (no filtering)
 
-  connectivity:                 # wSMI connectivity (for state epochs)
-    - "EEG_wsmi"
+  erp:                          # ERP time-locked topographies (evoked epochs only)
+    - "P1"                       # P1 component  [80-130 ms]
+    - "N1"                       # N1 component  [140-200 ms]
+    - "P2"                       # P2 component  [180-250 ms]
+    - "P3a"                      # P3a component [250-350 ms, fronto-central]
+    - "P3b"                      # P3b component [300-500 ms, parietal]
 
-  information_theory:           # Permutation entropy + complexity (for state epochs)
-    - "EEG_PE"
-    - "EEG_kolmogorov"
+  spectral:                     # Absolute band power in dB (SpectralPower, normalize=false)
+    - "power_delta"              # 1-4 Hz
+    - "power_theta"              # 4-8 Hz
+    - "power_alpha"              # 8-12 Hz
+    - "power_beta"               # 12-25 Hz
+    - "power_iota"               # 25-35 Hz
+    - "power_gamma"              # 35-45 Hz
 
-  sleep:                        # Sleep markers (for sleep epochs)
-    - "EEG_sleep"
+  spectral_relative:            # Relative (normalized) band power (SpectralPower, normalize=true)
+    - "power_normalized_delta"
+    - "power_normalized_theta"
+    - "power_normalized_alpha"
+    - "power_normalized_beta"
+    - "power_normalized_iota"
+    - "power_normalized_gamma"
+
+  connectivity:                 # wSMI — Weighted Symbolic Mutual Information
+    - "wsmi_theta"               # tau=8  (theta band)
+    - "wsmi_alpha"               # tau=4  (alpha band)
+    - "wsmi_beta"                # tau=2  (beta band)
+    - "wsmi_gamma"               # tau=1  (gamma band)
+
+  information_theory:           # Permutation Entropy + Kolmogorov Complexity
+    - "PE_theta"                 # Permutation entropy, tau=8
+    - "PE_alpha"                 # Permutation entropy, tau=4
+    - "PE_beta"                  # Permutation entropy, tau=2
+    - "PE_gamma"                 # Permutation entropy, tau=1
+    - "kolmogorov_complexity"    # Kolmogorov complexity (lempel-ziv)
+
+  sleep:                        # Sleep markers (sleep epochs only)
+    - "slowwaves"               # Slow-wave properties (density, duration, ptp, slope, freq)
+    # - "spindles"                # Sleep spindle properties (amplitude, density, duration, freq)
 
 
 # =============================================================================
@@ -105,12 +133,16 @@ feature_families:
 selected_markers:
   evoked:
     - erp
-  state:
-    - spectral
+  # state:
+  #   - spectral
+  #   - spectral_relative
+  #   - connectivity
+  #   - information_theory
+  sleep:
+    - spectral_relative
     - connectivity
     - information_theory
-  # sleep:
-  #   - sleep
+    - sleep
 
 # Preprocessing parameters
 preprocessing:
@@ -218,7 +250,7 @@ clustering:
     n_steps: 500  # Number of integration steps (higher = more accurate but slower)
   
   # Common parameters
-  n_permutations: 100  # INCREASED from 100 for stable p-values and reliable clusters
+  n_permutations: 500  # INCREASED from 100 for stable p-values and reliable clusters
   alpha: 0.05
   seed: 42
   

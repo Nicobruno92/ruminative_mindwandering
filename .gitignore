@@ -178,3 +178,4 @@ Statistics/tests/test_results/
 
 .DS_Store
 mw_classification_pipeline/results
+logs_connectivity/
