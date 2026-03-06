@@ -1,0 +1,107 @@
+# =============================================================================
+# Connectivity Statistics Pipeline Configuration
+# LMM-based analysis of wSMI connectivity pairs
+# =============================================================================
+
+# ── Project paths ────────────────────────────────────────────────────────────
+project:
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/"
+  output_path: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/connectivity_lmm"
+
+  # PCA results (adds PC1, PC2, PC3, time_on_task to predictors)
+  pca_results_path: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/Behavior/probe_data/pca_results.csv"
+
+  # QA filtering
+  qa_summary_path: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives/qa_summary.csv"
+  exclude_failed_qa: true
+
+  # Subjects and tasks
+  subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+  tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+
+  # Filter probes by onoff value
+  onoff_max_value: 100
+
+  # Predictor variability filter
+  min_predictor_variability: 50
+  min_minority_ratio: 0.2
+
+
+# ── Analysis level ───────────────────────────────────────────────────────────
+# "roi" = aggregate channel pairs into ROI pairs (28 connections)
+# "channel" = keep all individual channel pairs (~300+ connections)
+# "both" = run both levels separately
+analysis_level: "both"
+
+
+# ── ROI definitions ──────────────────────────────────────────────────────────
+# Map ROI name → list of EEG channels belonging to that ROI
+# Used to aggregate channel-pair wSMI into ROI-pair wSMI
+rois:
+  frontal_left: ['Fp1', 'F3', 'F7', 'FC1', 'FC5']
+  frontal_right: ['Fp2', 'F4', 'F8', 'FC2', 'FC6']
+  central_left: ['C3', 'T7', 'CP1', 'CP5']
+  central_right: ['C4', 'T8', 'CP2', 'CP6']
+  posterior_left: ['P3', 'P7', 'O1']
+  posterior_right: ['P4', 'P8', 'O2']
+  midline: ['Fz', 'Cz', 'Pz']
+
+
+# ── Frequency bands ─────────────────────────────────────────────────────────
+# Which wSMI bands to analyze
+bands:
+  - theta
+  - alpha
+  - beta
+  - gamma
+
+
+# ── Epoch types to include ───────────────────────────────────────────────────
+# Which epoch types to load connectivity data from
+# Options: state_connectivity, evoked_connectivity, sleep_connectivity
+epoch_types:
+  - state_connectivity
+  - evoked_connectivity
+
+
+# ── LMM configuration ───────────────────────────────────────────────────────
+lmm:
+  # Formula for per-connection LMM
+  # "power" is the placeholder for wSMI value (replaced internally)
+  formula: "power ~ onoff + (1|subject)"
+  predictor_of_interest: "onoff"
+  method: "powell"
+  maxiter: 500
+  random_state: 42
+
+
+# ── Preprocessing ────────────────────────────────────────────────────────────
+preprocessing:
+  normalize_by_subject: false
+  subject_column: "subject"
+  normalization_method: "zscore"
+  channel_wise: false
+
+  predictor_normalization:
+    enabled: true
+    method: "zscore"
+    predictors: ["onoff", "valence", "selfother", "confidence", "time"]
+
+
+# ── Multiple comparisons ────────────────────────────────────────────────────
+fdr:
+  method: "fdr_bh"      # Benjamini-Hochberg
+  alpha: 0.05
+  # Correction scope: "per_band" or "global"
+  # per_band = correct within each band separately
+  # global = correct across all bands × connections
+  scope: "per_band"
+
+
+# ── Output ───────────────────────────────────────────────────────────────────
+output:
+  save_csv: true
+  save_figures: true
+  fig_format: "png"
+  fig_dpi: 300
+  overwrite: true
