@@ -53,19 +53,64 @@ project:
   # e.g., 0.2 means exclude subjects with < 20% of trials in their minority class
   # Set to null to disable
   min_minority_ratio: 0.2  # e.g. 0.2
-  # NEW: Per-type marker selection
-  # Each key is a marker_type (evoked, state, etc.)
-  # Each value is a list of specific marker names to use, or "all" for all markers of that type
-  selected_markers:
-    evoked:
-      - "EEG_evoked_P1"
-      - "EEG_evoked_N1"
-      - "EEG_evoked_P3b"
-    state:
-      - "EEG_psd_bands_spectralpower_alpha"
-      - "EEG_psd_bands_spectralpower_theta"
-    # sleep:
-    #   - "EEG_sleep_spindle_density"
+
+# =============================================================================
+# FEATURE FAMILIES
+# =============================================================================
+# Each family maps to a list of marker-name fragments.
+# A marker belongs to a family if any fragment is a substring of its marker name.
+#
+# Fragment matching is case-sensitive and checks if the string
+# appears anywhere in the full marker name.
+#
+# Examples:
+#   "EEG_evoked_P3" matches "EEG_evoked_P3b", "EEG_evoked_P3a"
+#   "EEG_psd_bands" matches all band power markers
+#   "EEG_wsmi"      matches all wSMI connectivity markers
+
+feature_families:
+  erp:                          # ERP components (for evoked epochs)
+    - "EEG_evoked_P1"
+    - "EEG_evoked_N1"
+    - "EEG_evoked_P2"
+    - "EEG_evoked_P3"
+
+  spectral:                     # Absolute band power (for state epochs)
+    - "EEG_psd_bands_spectralpower"
+
+  connectivity:                 # wSMI connectivity (for state epochs)
+    - "EEG_wsmi"
+
+  information_theory:           # Permutation entropy + complexity (for state epochs)
+    - "EEG_PE"
+    - "EEG_kolmogorov"
+
+  sleep:                        # Sleep markers (for sleep epochs)
+    - "EEG_sleep"
+
+
+# =============================================================================
+# SELECTED MARKERS
+# =============================================================================
+# Which families to use, per epoch type.
+# Each key is a marker_type (evoked, state, sleep).
+# Each value is a list of family names (defined in feature_families above).
+# Use ["all"] to load every available marker for that epoch type.
+#
+# Example:
+#   selected_markers:
+#     state: ["all"]                           # All state markers
+#     evoked: ["erp"]                          # Only ERP family
+
+selected_markers:
+  evoked:
+    - erp
+  state:
+    - spectral
+    - connectivity
+    - information_theory
+  # sleep:
+  #   - sleep
 
 # Preprocessing parameters
 preprocessing:

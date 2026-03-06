@@ -504,8 +504,8 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             # Reorder columns to highlight the target variable
             cols = cluster_summary.columns.tolist()
             if 'p_value' in cols:
-                # Move target_variable and p_value up
-                base_cols = ['target_variable', 'marker_name', 'marker_type', 'cluster_id', 'p_value', 'stat']
+                # Move key metadata/results up so the target variable is visually prominent
+                base_cols = ['target_variable', 'marker_name', 'marker_type', 'cluster_id', 'p_value', 'statistic']
                 other_cols = [c for c in cols if c not in base_cols]
                 cluster_summary = cluster_summary[base_cols + other_cols]
             
@@ -647,6 +647,7 @@ def main(config_path: str = "Statistics/config.yaml",
     subjects = config['project'].get('subjects', None)
     tasks = config['project'].get('tasks', None)
     selected_markers = config['project'].get('selected_markers', {})
+    feature_families = config.get('feature_families', {})
     
     # Create output directory
     output_dir = Path(output_path)
@@ -722,32 +723,55 @@ def main(config_path: str = "Statistics/config.yaml",
     # Determine which markers to process based on configured selected_markers
     markers_to_process = []
     
-    if selected_markers:
-        available_markers_dict = get_available_markers(features_root)
-        for expected_marker_type, configured_markers in selected_markers.items():
-            if expected_marker_type not in available_markers_dict:
-                print(f"Warning: Marker type {expected_marker_type} not found in data.")
-                continue
-                
-            available_type_markers = available_markers_dict[expected_marker_type]
-            if isinstance(configured_markers, str) and configured_markers.lower() == 'all':
-                markers_to_process.extend([(m, expected_marker_type) for m in available_type_markers])
-                print(f"  {expected_marker_type} markers: {len(available_type_markers)} (all)")
-            elif isinstance(configured_markers, list):
-                for m in configured_markers:
-                    if m in available_type_markers:
-                        markers_to_process.append((m, expected_marker_type))
-                    else:
-                        print(f"Warning: Selected marker {m} not found in available {expected_marker_type} markers.")
-                print(f"  {expected_marker_type} markers: {sum(1 for m, mt in markers_to_process if mt == expected_marker_type)} (selected)")
+    assert selected_markers, "No selected_markers section found in config."
+    
+    available_markers_dict = get_available_markers(features_root)
+    
+    print("\n--- Marker resolution (feature_families) ---")
+    for marker_type, family_list in selected_markers.items():
+        if marker_type not in available_markers_dict:
+            print(f"  Warning: epoch type '{marker_type}' not found in data — skipping.")
+            continue
         
-        print(f"Processing {len(markers_to_process)} marker-type combinations from config")
-        if len(markers_to_process) == 0:
-            print(f"Warning: No markers found matching selected_markers config.")
-            return
-    else:
-        print("Error: No selected_markers section found in config.")
-        return
+        available_type_markers = available_markers_dict[marker_type]
+        
+        # Special case: ["all"] → include every marker for this epoch type
+        if isinstance(family_list, list) and len(family_list) == 1 and \
+                str(family_list[0]).lower() == 'all':
+            markers_to_process.extend([(m, marker_type) for m in available_type_markers])
+            print(f"  {marker_type}: all ({len(available_type_markers)} markers)")
+            continue
+        
+        # Resolve family names → fragments → filter by substring
+        assert isinstance(family_list, list), \
+            f"selected_markers['{marker_type}'] must be a list, got {type(family_list)}"
+        
+        resolved_fragments = []
+        for family_name in family_list:
+            assert family_name in feature_families, (
+                f"Family '{family_name}' referenced in selected_markers['{marker_type}'] "
+                f"is not defined in feature_families. "
+                f"Available families: {list(feature_families.keys())}"
+            )
+            resolved_fragments.extend(feature_families[family_name])
+        
+        # Filter available markers: include if any fragment is a substring of the marker name
+        matched = [
+            m for m in available_type_markers
+            if any(frag in m for frag in resolved_fragments)
+        ]
+        
+        markers_to_process.extend([(m, marker_type) for m in matched])
+        print(
+            f"  {marker_type}: families={family_list} → "
+            f"{len(matched)} markers matched "
+            f"(out of {len(available_type_markers)} available)"
+        )
+    
+    print(f"\nTotal markers to process: {len(markers_to_process)}")
+    assert len(markers_to_process) > 0, \
+        "No markers matched the configured feature_families / selected_markers. " \
+        "Check that marker names in the data contain the configured fragments."
     
     # If marker_index is provided (SLURM array job), process only that marker
     if marker_index is not None:

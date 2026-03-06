@@ -262,7 +262,8 @@ def test_pipeline():
         test_config['project']['montage_path'] = 'standard_1020'  # Use standard montage for testing
         test_config['project']['subjects'] = None  # Test all subjects
         test_config['project']['tasks'] = None  # Test all tasks
-        test_config['project']['selected_markers'] = {'state': [test_marker]}  # Only test one marker
+        test_config['feature_families'] = {'state_test': [test_marker]}
+        test_config['project']['selected_markers'] = {'state': ['state_test']}  # Only test one marker
         test_config['project']['qa_summary_path'] = None  # Disable QA filtering for test
         test_config['project']['pca_results_path'] = None  # Disable PCA data for test
         test_config['lmm']['method'] = 'powell'  # More robust method for convergence
