@@ -1236,9 +1236,25 @@ def process_epoch_type(
                 message=f"Failed to load marker DataFrames: {e}"
             )
         return outputs
-    
+
+    # Load connectivity pair markers (bifurcated stream: epochs × channel_pairs)
+    try:
+        conn_df, conn_marker_columns = load_connectivity_marker_dataframes(
+            reader=reader,
+            events_tsv_path=events_tsv_path,
+            marker_mapping=marker_mapping,
+            stats=stats,
+            context=context_str,
+        )
+    except Exception as e:
+        print(f"    [WARN] Failed to load connectivity pair DataFrames: {e}")
+        conn_df = pd.DataFrame()
+        conn_marker_columns = []
+
     # Enrich with parsed event fields
     combined_df = enrich_events_with_parsed_fields(combined_df)
+    if not conn_df.empty:
+        conn_df = enrich_events_with_parsed_fields(conn_df)
     
     # Get unique probes
     probes = combined_df["probe_number"].dropna().unique()
@@ -1369,6 +1385,39 @@ def process_epoch_type(
             session=session,
             overwrite=overwrite,
         )
+
+        # Save connectivity pair markers (separate stream, no channel aggregation)
+        if not conn_df.empty and conn_marker_columns:
+            conn_filtered = filter_epochs_for_probe(
+                df=conn_df,
+                probe_number=probe_num,
+                epoch_type=epoch_type,
+                distance_min=evoked_dist_min,
+                distance_max=evoked_dist_max,
+                filter_go=filter_go,
+                filter_correct=filter_correct,
+            )
+            if not conn_filtered.empty:
+                conn_aggregated, _ = aggregate_probe_markers(
+                    df=conn_filtered,
+                    marker_columns=conn_marker_columns,
+                    aggregation_methods=trial_methods,
+                    trimmean_proportion=trimmean_proportion,
+                )
+                if not conn_aggregated.empty:
+                    save_probe_csv(
+                        df=conn_aggregated,
+                        features_root=features_root,
+                        subject=subject,
+                        task=task,
+                        probe_number=probe_num,
+                        label=label_str,
+                        epoch_type=f"{epoch_type}_connectivity",
+                        probe_metadata=probe_metadata,
+                        n_epochs_aggregated=conn_filtered["epoch_idx"].nunique(),
+                        session=session,
+                        overwrite=overwrite,
+                    )
         
         # If channel aggregation is enabled, also save the aggregated version
         out_path = perchannel_path  # Default output path for summary

@@ -189,11 +189,17 @@ marker_name_mapping:
   # Expands to: power_normalized_delta, power_normalized_theta, etc.
   "EEG_psd_relative_spectralpower": "power_normalized"
   
-  # --- Connectivity: Weighted Symbolic Mutual Information ---
+  # --- Connectivity: Weighted Symbolic Mutual Information (aggregated per channel) ---
   "EEG_wsmi_theta_symbolicmutualinformation": "wsmi_theta"
   "EEG_wsmi_alpha_symbolicmutualinformation": "wsmi_alpha"
   "EEG_wsmi_beta_symbolicmutualinformation": "wsmi_beta"
   "EEG_wsmi_gamma_symbolicmutualinformation": "wsmi_gamma"
+
+  # --- Connectivity: Non-Aggregated Pairs (all channel pairs preserved) ---
+  "EEG_wsmi_theta_pairs_symbolicmutualinformation": "wsmi_theta_pairs"
+  "EEG_wsmi_alpha_pairs_symbolicmutualinformation": "wsmi_alpha_pairs"
+  "EEG_wsmi_beta_pairs_symbolicmutualinformation": "wsmi_beta_pairs"
+  "EEG_wsmi_gamma_pairs_symbolicmutualinformation": "wsmi_gamma_pairs"
   
   # --- Information theory: Permutation Entropy ---
   "EEG_PE_theta_permutationentropy": "PE_theta"

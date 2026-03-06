@@ -11,6 +11,10 @@ USAGE:
     python generate_pipeline_plots.py --results_dir path/to/results/folder
 
 Project: depressed_mindwandering
+
+example: 
+python mw_classification_pipeline/scripts/generate_pipeline_plots.py --results_dir mw_classification_pipeline/results/MW_Classification/WithinSubject/on_vs_off_within_median/all
+
 """
 
 import os
@@ -111,7 +115,7 @@ def main():
     print(f"Detected Pipeline: {pipeline_type}, Dimension: {dimension_name}")
     
     # Configure plotting
-    set_plot_style("seaborn")
+    set_plot_style("seaborn-v0_8")
     
     # 2. Find True Result Files
     true_summary_csv = find_file_by_suffix(results_dir, "_summary.csv")
