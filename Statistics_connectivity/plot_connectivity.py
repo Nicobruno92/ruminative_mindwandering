@@ -19,7 +19,7 @@ from itertools import combinations_with_replacement
 # CONSTANTS
 # =============================================================================
 
-PAIR_SEPARATOR = "--"
+PAIR_SEPARATOR = "-"
 
 # Greek band labels for display
 BAND_LABELS = {

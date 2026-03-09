@@ -51,7 +51,7 @@ DEFAULT_CONFIG = {
         "raw_root": "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/raw",
         "dataset_name": "CyberSART EEG Dataset",
         "montage": "CACS-64_REF.bvef",
-        "resample_hz": 500,
+        "resample_hz": 250,
         "line_freq_hz": 50,
         "overwrite": True,
     },

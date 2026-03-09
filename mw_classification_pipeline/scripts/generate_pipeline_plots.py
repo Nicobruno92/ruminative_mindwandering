@@ -60,10 +60,11 @@ import pandas as pd
 from pathlib import Path
 import warnings
 
-# Allow importing utils/ from the pipeline root
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Allow importing utils/plotting_utils directly without loading the full
+# utils package (which pulls in ML-only dependencies like tqdm, imblearn, etc.)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "utils"))
 
-from utils.plotting_utils import (
+from plotting_utils import (
     plot_feature_importances,
     plot_feature_importances_true_vs_perm,
     plot_global_permutation_histogram,
@@ -171,10 +172,16 @@ def collect_feature_importances(model_dir: str) -> tuple:
 def collect_shap_values(model_dir: str) -> tuple:
     """Collect stacked SHAP arrays and matching X_test from all runs/run*/ subdirs.
 
+    Handles two layouts:
+    - LOSO: one ``*_shap_values.pkl`` per run dir (whole-run SHAP matrix).
+    - WithinSubject: many ``*_{subject}_shap_values.pkl`` per run dir (one per
+      subject).  All subject-level arrays are concatenated within a run dir
+      before being added to the per-run list.
+
     Returns
     -------
     shap_runs : list[np.ndarray]
-        Per-run SHAP arrays.
+        Per-run SHAP arrays (rows = samples across all subjects in that run).
     x_runs : list[np.ndarray] or list[None]
         Per-run X_test arrays (None when not saved in older pkl files).
     feature_names_from_shap : list[str] or []
@@ -187,22 +194,46 @@ def collect_shap_values(model_dir: str) -> tuple:
     shap_runs: list = []
     x_runs: list = []
     feature_names_from_shap: list = []
+
     for run_folder in sorted(os.listdir(runs_dir)):
         run_path = os.path.join(runs_dir, run_folder)
-        # Prefer the single-run pkl saved by _save_shap_values
-        pkl_f = find_file_by_suffix(run_path, "_shap_values.pkl")
-        if pkl_f is None:
-            # Legacy stacked filename fallback
-            pkl_f = find_file_by_suffix(run_path, "_shap_values_stacked.pkl")
-        if pkl_f is None:
+        if not os.path.isdir(run_path):
             continue
-        data = load_pkl(pkl_f)
-        if not isinstance(data, dict) or "shap_values" not in data:
+
+        # Collect *all* _shap_values.pkl files in this run dir
+        all_pkl_files = sorted([
+            os.path.join(run_path, f)
+            for f in os.listdir(run_path)
+            if f.endswith("_shap_values.pkl") or f.endswith("_shap_values_stacked.pkl")
+        ])
+        if not all_pkl_files:
             continue
-        shap_runs.append(data["shap_values"])
-        x_runs.append(data.get("x_test", None))
-        if "feature_names" in data:
-            feature_names_from_shap = data["feature_names"]
+
+        run_shap_list: list = []
+        run_x_list: list = []
+
+        for pkl_f in all_pkl_files:
+            data = load_pkl(pkl_f)
+            if not isinstance(data, dict) or "shap_values" not in data:
+                continue
+            run_shap_list.append(data["shap_values"])
+            x_val = data.get("x_test", None)
+            if x_val is not None:
+                run_x_list.append(x_val)
+            if "feature_names" in data:
+                feature_names_from_shap = data["feature_names"]
+
+        if not run_shap_list:
+            continue
+
+        # Concatenate subject-level arrays within this run
+        combined_shap = np.concatenate(run_shap_list, axis=0)
+        shap_runs.append(combined_shap)
+        if len(run_x_list) == len(run_shap_list):
+            x_runs.append(np.concatenate(run_x_list, axis=0))
+        else:
+            x_runs.append(None)
+
     return shap_runs, x_runs, feature_names_from_shap
 
 
