@@ -3,8 +3,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
-#SBATCH --output=logs_connectivity/lmm_%j.out
-#SBATCH --error=logs_connectivity/lmm_%j.err
+#SBATCH --output=logs/connectivity_lmm_%j.out
+#SBATCH --error=logs/connectivity_lmm_%j.err
 
 # Connectivity Statistics Pipeline - SLURM script
 # Usage: sbatch Statistics_connectivity/run_lmm_pipeline_slurm.sh
@@ -53,7 +53,7 @@ cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 # Configuration
 CONFIG_FILE="Statistics_connectivity/config.yaml"
 SCRIPT_DIR="Statistics_connectivity"
-LOG_DIR="logs_connectivity"
+LOG_DIR="logs"
 
 # Create directories if they don't exist
 mkdir -p ${LOG_DIR}
