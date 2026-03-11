@@ -15,6 +15,13 @@ from statsmodels.stats.multitest import multipletests
 
 
 # =============================================================================
+# CONSTANTS
+# =============================================================================
+
+PAIR_SEPARATOR = "-"
+
+
+# =============================================================================
 # PER-CONNECTION LMM
 # =============================================================================
 
@@ -285,6 +292,339 @@ def _parse_random_effects(formula: str) -> Tuple[str, Optional[str]]:
             else:
                 return fixed_formula, re_part
     return formula, None
+
+
+def apply_nbs_correction(
+    results_df: pd.DataFrame,
+    df_wide: pd.DataFrame,
+    connection_ids: List[str],
+    formula: str = "power ~ onoff + (1|subject)",
+    predictor_of_interest: str = "onoff",
+    method: str = "powell",
+    maxiter: int = 500,
+    primary_threshold: float = 3.0,
+    n_permutations: int = 5000,
+    alpha: float = 0.05,
+    random_state: int = 42,
+) -> pd.DataFrame:
+    """
+    Apply Network-Based Statistic (NBS) correction for channel-level connectivity.
+
+    NBS (Zalesky et al., 2010, NeuroImage) is the graph analogue of
+    cluster-based permutation testing. Steps:
+    1. Threshold the observed t-statistic matrix at `primary_threshold`.
+    2. Identify connected components in the supra-threshold graph.
+    3. Record the size (number of edges) of each component.
+    4. Build a null distribution by permuting the predictor label within
+       subjects, re-fitting LMMs, re-thresholding, and recording the
+       largest component size.
+    5. Compute p-values as the proportion of null max-component sizes >= the
+       observed component size.
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        Results from run_lmm_per_connection with observed t-statistics.
+    df_wide : pd.DataFrame
+        Wide-format data used for permutation re-fitting.
+    connection_ids : List[str]
+        Connection column names.
+    formula : str
+        LMM formula.
+    predictor_of_interest : str
+        Predictor to permute and extract stats for.
+    method : str
+        LMM optimization method.
+    maxiter : int
+        Max iterations for LMM.
+    primary_threshold : float
+        Absolute t-value threshold for forming supra-threshold edges.
+    n_permutations : int
+        Number of permutations for null distribution.
+    alpha : float
+        Significance level.
+    random_state : int
+        Random seed.
+
+    Returns
+    -------
+    pd.DataFrame
+        Input DataFrame with added columns:
+        p_value_nbs, significant_nbs, nbs_component_id
+    """
+    import networkx as nx
+
+    rng = np.random.RandomState(random_state)
+    df = results_df.copy()
+
+    # ── Build observed graph ─────────────────────────────────────────────
+    nodes = _extract_unique_nodes(connection_ids)
+    obs_t = dict(zip(df["connection_id"], df["t_statistic"]))
+
+    obs_components = _find_supra_threshold_components(
+        obs_t, nodes, primary_threshold
+    )
+    obs_component_sizes = [len(comp_edges) for comp_edges in obs_components]
+
+    if not obs_component_sizes:
+        print("  NBS: No supra-threshold components found. "
+              "Consider lowering primary_threshold.")
+        df["p_value_nbs"] = np.nan
+        df["significant_nbs"] = False
+        df["nbs_component_id"] = -1
+        return df
+
+    print(f"  NBS: {len(obs_components)} observed component(s), "
+          f"sizes = {obs_component_sizes}")
+
+    # ── Null distribution via permutation ────────────────────────────────
+    fixed_formula, re_formula = _parse_random_effects(formula)
+    null_max_sizes = np.zeros(n_permutations)
+
+    print(f"  NBS: Running {n_permutations} permutations...")
+    for perm_i in range(n_permutations):
+        if (perm_i + 1) % 500 == 0:
+            print(f"    Permutation {perm_i + 1}/{n_permutations}")
+
+        # Permute predictor within subjects
+        df_perm = df_wide.copy()
+        for subj in df_perm["subject"].unique():
+            mask = df_perm["subject"] == subj
+            vals = df_perm.loc[mask, predictor_of_interest].values.copy()
+            rng.shuffle(vals)
+            df_perm.loc[mask, predictor_of_interest] = vals
+
+        # Re-fit LMMs (fast: only extract t-values)
+        perm_t = {}
+        for conn_id in connection_ids:
+            df_conn = df_perm[["subject", conn_id]].copy()
+            for col in _extract_formula_variables(formula):
+                if col in df_perm.columns and col != "power":
+                    df_conn[col] = df_perm[col].values
+            df_conn = df_conn.rename(columns={conn_id: "power"})
+            df_conn = df_conn.dropna(subset=["power"])
+            if len(df_conn) < 10:
+                continue
+            try:
+                result = _fit_single_lmm(
+                    df_conn, fixed_formula, re_formula,
+                    predictor_of_interest, method, maxiter,
+                )
+                if result["converged"] and not np.isnan(result["t_statistic"]):
+                    perm_t[conn_id] = result["t_statistic"]
+            except Exception:
+                continue
+
+        # Find largest component in permuted data
+        perm_comps = _find_supra_threshold_components(
+            perm_t, nodes, primary_threshold
+        )
+        if perm_comps:
+            null_max_sizes[perm_i] = max(len(c) for c in perm_comps)
+
+    # ── Compute p-values for each observed component ─────────────────────
+    df["p_value_nbs"] = np.nan
+    df["significant_nbs"] = False
+    df["nbs_component_id"] = -1
+
+    for comp_idx, comp_edges in enumerate(obs_components):
+        comp_size = len(comp_edges)
+        p_val = (np.sum(null_max_sizes >= comp_size) + 1) / (n_permutations + 1)
+
+        for edge in comp_edges:
+            mask = df["connection_id"] == edge
+            df.loc[mask, "p_value_nbs"] = p_val
+            df.loc[mask, "significant_nbs"] = p_val < alpha
+            df.loc[mask, "nbs_component_id"] = comp_idx
+
+    n_sig = df["significant_nbs"].sum()
+    print(f"  NBS: {n_sig} edges significant at alpha={alpha}")
+
+    return df
+
+
+def apply_max_t_permutation(
+    results_df: pd.DataFrame,
+    df_wide: pd.DataFrame,
+    connection_ids: List[str],
+    formula: str = "power ~ onoff + (1|subject)",
+    predictor_of_interest: str = "onoff",
+    method: str = "powell",
+    maxiter: int = 500,
+    n_permutations: int = 5000,
+    alpha: float = 0.05,
+    random_state: int = 42,
+) -> pd.DataFrame:
+    """
+    Apply max-t permutation correction for FWER control.
+
+    Less conservative than Bonferroni but controls FWER. Suitable for
+    ROI-level analyses with moderate number of tests.
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        Results from run_lmm_per_connection.
+    df_wide : pd.DataFrame
+        Wide-format data for re-fitting.
+    connection_ids : List[str]
+        Connection column names.
+    formula : str
+        LMM formula.
+    predictor_of_interest : str
+        Predictor to permute.
+    method : str
+        LMM optimization method.
+    maxiter : int
+        Max iterations.
+    n_permutations : int
+        Number of permutations.
+    alpha : float
+        Significance level.
+    random_state : int
+        Random seed.
+
+    Returns
+    -------
+    pd.DataFrame
+        Input DataFrame with added columns: p_value_perm, significant_perm.
+    """
+    rng = np.random.RandomState(random_state)
+    df = results_df.copy()
+    fixed_formula, re_formula = _parse_random_effects(formula)
+
+    # Observed max |t|
+    obs_t = df.set_index("connection_id")["t_statistic"].to_dict()
+
+    # Null distribution of max |t|
+    null_max_t = np.zeros(n_permutations)
+
+    print(f"  Max-t permutation: Running {n_permutations} permutations...")
+    for perm_i in range(n_permutations):
+        if (perm_i + 1) % 500 == 0:
+            print(f"    Permutation {perm_i + 1}/{n_permutations}")
+
+        df_perm = df_wide.copy()
+        for subj in df_perm["subject"].unique():
+            mask = df_perm["subject"] == subj
+            vals = df_perm.loc[mask, predictor_of_interest].values.copy()
+            rng.shuffle(vals)
+            df_perm.loc[mask, predictor_of_interest] = vals
+
+        perm_max = 0.0
+        for conn_id in connection_ids:
+            df_conn = df_perm[["subject", conn_id]].copy()
+            for col in _extract_formula_variables(formula):
+                if col in df_perm.columns and col != "power":
+                    df_conn[col] = df_perm[col].values
+            df_conn = df_conn.rename(columns={conn_id: "power"})
+            df_conn = df_conn.dropna(subset=["power"])
+            if len(df_conn) < 10:
+                continue
+            try:
+                result = _fit_single_lmm(
+                    df_conn, fixed_formula, re_formula,
+                    predictor_of_interest, method, maxiter,
+                )
+                if result["converged"] and not np.isnan(result["t_statistic"]):
+                    perm_max = max(perm_max, abs(result["t_statistic"]))
+            except Exception:
+                continue
+
+        null_max_t[perm_i] = perm_max
+
+    # Compute p-values
+    df["p_value_perm"] = np.nan
+    df["significant_perm"] = False
+
+    valid_mask = df["converged"] & df["t_statistic"].notna()
+    for idx in df[valid_mask].index:
+        obs_abs_t = abs(df.loc[idx, "t_statistic"])
+        p_val = (np.sum(null_max_t >= obs_abs_t) + 1) / (n_permutations + 1)
+        df.loc[idx, "p_value_perm"] = p_val
+        df.loc[idx, "significant_perm"] = p_val < alpha
+
+    n_sig = df["significant_perm"].sum()
+    print(f"  Max-t perm: {n_sig}/{valid_mask.sum()} significant at alpha={alpha}")
+
+    return df
+
+
+def _extract_unique_nodes(connection_ids: List[str]) -> set:
+    """
+    Extract unique node names from connection ID strings.
+
+    Parameters
+    ----------
+    connection_ids : List[str]
+        Connection IDs like ["Fp1-F3", "Fp1-F7", ...].
+
+    Returns
+    -------
+    set
+        Set of unique node names.
+    """
+    nodes = set()
+    for conn_id in connection_ids:
+        parts = conn_id.split(PAIR_SEPARATOR)
+        if len(parts) == 2:
+            nodes.add(parts[0].strip())
+            nodes.add(parts[1].strip())
+    return nodes
+
+
+def _find_supra_threshold_components(
+    t_values: Dict[str, float],
+    nodes: set,
+    threshold: float,
+) -> List[List[str]]:
+    """
+    Find connected components in the supra-threshold graph.
+
+    Parameters
+    ----------
+    t_values : Dict[str, float]
+        Mapping connection_id -> t-statistic.
+    nodes : set
+        All node names.
+    threshold : float
+        Absolute t-value threshold for edge inclusion.
+
+    Returns
+    -------
+    List[List[str]]
+        List of components, each component is a list of edge (connection_id) strings.
+    """
+    import networkx as nx
+
+    G = nx.Graph()
+    G.add_nodes_from(nodes)
+
+    edge_map = {}
+    for conn_id, t_val in t_values.items():
+        if np.isnan(t_val):
+            continue
+        if abs(t_val) >= threshold:
+            parts = conn_id.split(PAIR_SEPARATOR)
+            if len(parts) == 2:
+                n1, n2 = parts[0].strip(), parts[1].strip()
+                G.add_edge(n1, n2)
+                edge_map[(n1, n2)] = conn_id
+
+    components = []
+    for comp_nodes in nx.connected_components(G):
+        if len(comp_nodes) < 2:
+            continue
+        subgraph = G.subgraph(comp_nodes)
+        comp_edges = []
+        for n1, n2 in subgraph.edges():
+            key = (n1, n2) if (n1, n2) in edge_map else (n2, n1)
+            if key in edge_map:
+                comp_edges.append(edge_map[key])
+        if comp_edges:
+            components.append(comp_edges)
+
+    return components
 
 
 def _extract_formula_variables(formula: str) -> List[str]:

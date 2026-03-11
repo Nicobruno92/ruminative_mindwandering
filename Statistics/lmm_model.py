@@ -28,6 +28,41 @@ from statsmodels.formula.api import mixedlm
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
 
+def is_interaction_term(predictor: str) -> bool:
+    """
+    Check if a predictor_of_interest is an interaction term.
+
+    Parameters
+    ----------
+    predictor : str
+        Predictor name, e.g. ``"onoff"`` or ``"onoff:valence"``.
+
+    Returns
+    -------
+    bool
+        True if the predictor contains a ``:`` separator (interaction).
+    """
+    return ':' in predictor
+
+
+def get_interaction_components(predictor: str) -> list:
+    """
+    Extract constituent variable names from an interaction term.
+
+    Parameters
+    ----------
+    predictor : str
+        Interaction term, e.g. ``"onoff:valence"``.
+
+    Returns
+    -------
+    list of str
+        Constituent variables, e.g. ``["onoff", "valence"]``.
+        For a non-interaction term, returns a single-element list.
+    """
+    return [v.strip() for v in predictor.split(':')]
+
+
 def parse_random_effects(formula: str) -> Tuple[str, Optional[str]]:
     """
     Parse random effects from formula to extract fixed effects and random effects structure.
@@ -179,12 +214,26 @@ def run_lmm_per_channel(
         raise ValueError(f"Design matrix validation failed: {validation_msg}")
     
     # Validate data structure before processing
-    if predictor_of_interest not in df_behavioral.columns:
-        raise ValueError(f"Predictor '{predictor_of_interest}' not found in behavioral data. Available columns: {list(df_behavioral.columns)}")
-    
-    # Check for sufficient variation in predictor across all data
-    if df_behavioral[predictor_of_interest].nunique() < 2:
-        raise ValueError(f"Predictor '{predictor_of_interest}' has insufficient variation (only {df_behavioral[predictor_of_interest].nunique()} unique values)")
+    # For interaction terms (e.g. "onoff:valence"), check constituent columns
+    if is_interaction_term(predictor_of_interest):
+        for comp in get_interaction_components(predictor_of_interest):
+            if comp not in df_behavioral.columns:
+                raise ValueError(
+                    f"Interaction component '{comp}' (from '{predictor_of_interest}') "
+                    f"not found in behavioral data. Available columns: {list(df_behavioral.columns)}"
+                )
+            if df_behavioral[comp].nunique() < 2:
+                raise ValueError(
+                    f"Interaction component '{comp}' has insufficient variation "
+                    f"(only {df_behavioral[comp].nunique()} unique values)"
+                )
+    else:
+        if predictor_of_interest not in df_behavioral.columns:
+            raise ValueError(f"Predictor '{predictor_of_interest}' not found in behavioral data. Available columns: {list(df_behavioral.columns)}")
+        
+        # Check for sufficient variation in predictor across all data
+        if df_behavioral[predictor_of_interest].nunique() < 2:
+            raise ValueError(f"Predictor '{predictor_of_interest}' has insufficient variation (only {df_behavioral[predictor_of_interest].nunique()} unique values)")
     
     # Check subjects
     n_subjects = df_behavioral['subject'].nunique()
@@ -227,7 +276,17 @@ def run_lmm_per_channel(
                 continue
             
             # Check for sufficient variation in predictor for this channel
-            if df_ch[predictor_of_interest].nunique() < 2:
+            # For interaction terms, check all constituent variables
+            _insufficient_variation = False
+            if is_interaction_term(predictor_of_interest):
+                for comp in get_interaction_components(predictor_of_interest):
+                    if comp in df_ch.columns and df_ch[comp].nunique() < 2:
+                        _insufficient_variation = True
+                        break
+            else:
+                if df_ch[predictor_of_interest].nunique() < 2:
+                    _insufficient_variation = True
+            if _insufficient_variation:
                 t_stats[ch_idx] = 0.0
                 p_values[ch_idx] = 1.0
                 diagnostics['n_insufficient_data'] += 1
@@ -501,19 +560,33 @@ def validate_design_matrix_structure(
         return False, f"Insufficient observations: {n_obs} < 10"
     
     # Check 2: Predictor exists and has variance
-    if predictor_of_interest not in df_behavioral.columns:
-        return False, f"Predictor '{predictor_of_interest}' not in data"
-    
-    predictor_vals = df_behavioral[predictor_of_interest].dropna()
-    if len(predictor_vals) < 5:
-        return False, f"Too few non-NaN values in predictor: {len(predictor_vals)}"
-    
-    if predictor_vals.nunique() < 2:
-        return False, f"Predictor has no variance: {predictor_vals.nunique()} unique values"
-    
-    # Check 3: Sufficient variance (avoid numerical issues)
-    if np.std(predictor_vals) < 1e-10:
-        return False, f"Predictor variance too small: std={np.std(predictor_vals)}"
+    # For interaction terms (e.g. "onoff:valence"), validate each constituent variable
+    if is_interaction_term(predictor_of_interest):
+        components = get_interaction_components(predictor_of_interest)
+        for comp in components:
+            if comp not in df_behavioral.columns:
+                return False, f"Interaction component '{comp}' not in data"
+            comp_vals = df_behavioral[comp].dropna()
+            if len(comp_vals) < 5:
+                return False, f"Too few non-NaN values in '{comp}': {len(comp_vals)}"
+            if comp_vals.nunique() < 2:
+                return False, f"Component '{comp}' has no variance: {comp_vals.nunique()} unique values"
+            if np.std(comp_vals) < 1e-10:
+                return False, f"Component '{comp}' variance too small: std={np.std(comp_vals)}"
+    else:
+        if predictor_of_interest not in df_behavioral.columns:
+            return False, f"Predictor '{predictor_of_interest}' not in data"
+        
+        predictor_vals = df_behavioral[predictor_of_interest].dropna()
+        if len(predictor_vals) < 5:
+            return False, f"Too few non-NaN values in predictor: {len(predictor_vals)}"
+        
+        if predictor_vals.nunique() < 2:
+            return False, f"Predictor has no variance: {predictor_vals.nunique()} unique values"
+        
+        # Check 3: Sufficient variance (avoid numerical issues)
+        if np.std(predictor_vals) < 1e-10:
+            return False, f"Predictor variance too small: std={np.std(predictor_vals)}"
     
     return True, ""
 
@@ -800,59 +873,85 @@ def fit_reduced_model_per_channel(
 def _create_reduced_formula(formula: str, predictor_to_remove: str) -> str:
     """
     Create reduced formula by removing a specific predictor.
-    
+
+    Handles both simple predictors and interaction terms:
+
+    - Simple: ``"power ~ onoff + valence + (1|subject)"`` minus ``"onoff"``
+      → ``"power ~ valence + (1|subject)"``
+    - Interaction from ``*``: ``"power ~ onoff * valence + (1|subject)"``
+      minus ``"onoff:valence"``
+      → ``"power ~ onoff + valence + (1|subject)"`` (main effects kept)
+
     Parameters
     ----------
     formula : str
-        Full formula (e.g., "power ~ onoff + valence + (1|subject)")
+        Full formula (e.g., ``"power ~ onoff * valence + (1|subject)"``)
     predictor_to_remove : str
-        Predictor to remove (e.g., "onoff")
-        
+        Predictor to remove (e.g., ``"onoff"``, ``"onoff:valence"``)
+
     Returns
     -------
     str
-        Reduced formula (e.g., "power ~ valence + (1|subject)")
-        
+        Reduced formula with the predictor removed.
+
     Examples
     --------
     >>> _create_reduced_formula("power ~ onoff + valence + (1|subject)", "onoff")
     'power ~ valence + (1|subject)'
     >>> _create_reduced_formula("power ~ onoff + (1|subject)", "onoff")
     'power ~ 1 + (1|subject)'
+    >>> _create_reduced_formula("power ~ onoff * valence + (1|subject)", "onoff:valence")
+    'power ~ onoff + valence + (1|subject)'
     """
     # Split formula into left and right sides
     parts = formula.split('~')
     if len(parts) != 2:
         raise ValueError(f"Invalid formula: {formula}")
-    
+
     left_side = parts[0].strip()
     right_side = parts[1].strip()
-    
+
     # Extract random effects part (e.g., "(1|subject)")
     random_effects = re.findall(r'\([^)]*\|[^)]*\)', right_side)
-    
+
     # Remove random effects from right side to get fixed effects
     fixed_effects = re.sub(r'\s*\+?\s*\([^)]*\|[^)]*\)', '', right_side).strip()
-    
-    # Split fixed effects by '+'
-    fixed_terms = [term.strip() for term in fixed_effects.split('+')]
-    
-    # Remove the predictor of interest
-    reduced_terms = [term for term in fixed_terms if term != predictor_to_remove and term != '']
-    
+
+    # Expand "*" (interaction shorthand) into explicit terms
+    # e.g. "onoff * valence" → "onoff + valence + onoff:valence"
+    expanded_terms = []
+    for raw_term in fixed_effects.split('+'):
+        raw_term = raw_term.strip()
+        if not raw_term:
+            continue
+        if '*' in raw_term:
+            vars_in_star = [v.strip() for v in raw_term.split('*')]
+            # Add main effects
+            for v in vars_in_star:
+                if v and v not in expanded_terms:
+                    expanded_terms.append(v)
+            # Add interaction term (two-way; extends naturally for higher-order)
+            interaction = ':'.join(vars_in_star)
+            if interaction not in expanded_terms:
+                expanded_terms.append(interaction)
+        else:
+            if raw_term not in expanded_terms:
+                expanded_terms.append(raw_term)
+
+    # Remove the predictor of interest (exact match on expanded terms)
+    reduced_terms = [t for t in expanded_terms if t != predictor_to_remove and t != '']
+
     # Reconstruct formula
     if len(reduced_terms) == 0:
-        # No fixed effects left, use intercept only
         reduced_fixed = '1'
     else:
         reduced_fixed = ' + '.join(reduced_terms)
-    
-    # Add back random effects
+
     if random_effects:
         reduced_formula = f"{left_side} ~ {reduced_fixed} + {' + '.join(random_effects)}"
     else:
         reduced_formula = f"{left_side} ~ {reduced_fixed}"
-    
+
     return reduced_formula
 
 

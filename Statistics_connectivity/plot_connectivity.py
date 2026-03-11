@@ -428,6 +428,673 @@ def plot_channel_contrast_matrix(
 
 
 # =============================================================================
+# CIRCULAR CONNECTIVITY PLOTS
+# =============================================================================
+
+# Channel positions for topographic ordering (approximate 10-20 angles in degrees)
+# Arranged anterior (top) -> posterior (bottom), left negative, right positive
+CHANNEL_ANGLES = {
+    # Frontal
+    "Fp1": 72, "Fp2": 108, "AF7": 58, "AF3": 68, "AFz": 90,
+    "AF4": 112, "AF8": 122,
+    # Frontal row
+    "F7": 36, "F5": 47, "F3": 58, "F1": 75, "Fz": 90,
+    "F2": 105, "F4": 122, "F6": 133, "F8": 144,
+    # Fronto-central
+    "FT9": 18, "FT7": 27, "FC5": 40, "FC3": 55, "FC1": 77,
+    "FCz": 90, "FC2": 103, "FC4": 125, "FC6": 140, "FT8": 153, "FT10": 162,
+    # Central
+    "T7": 18, "C5": 30, "C3": 50, "C1": 72, "Cz": 90,
+    "C2": 108, "C4": 130, "C6": 150, "T8": 162,
+    # Centro-parietal
+    "TP9": 342, "TP7": 351, "CP5": 320, "CP3": 305, "CP1": 285,
+    "CPz": 270, "CP2": 255, "CP4": 235, "CP6": 220, "TP8": 189, "TP10": 198,
+    # Parietal
+    "P7": 324, "P5": 313, "P3": 302, "P1": 285, "Pz": 270,
+    "P2": 255, "P4": 238, "P6": 227, "P8": 216,
+    # Parieto-occipital
+    "PO7": 315, "PO3": 295, "POz": 270, "PO4": 245, "PO8": 225,
+    # Occipital
+    "O1": 300, "Oz": 270, "O2": 240, "Iz": 270,
+}
+
+# ROI angular positions (center of each region, arranged on the circle)
+ROI_ANGLES = {
+    "frontal_left": 60,
+    "frontal_right": 120,
+    "central_left": 20,
+    "central_right": 160,
+    "midline": 270,
+    "posterior_left": 310,
+    "posterior_right": 230,
+}
+
+# ROI colors for circle plot
+ROI_COLORS = {
+    "frontal_left": "#E74C3C",
+    "frontal_right": "#E67E22",
+    "central_left": "#2ECC71",
+    "central_right": "#1ABC9C",
+    "posterior_left": "#3498DB",
+    "posterior_right": "#9B59B6",
+    "midline": "#F1C40F",
+}
+
+
+def plot_connectivity_circle(
+    results_df: pd.DataFrame,
+    node_names: Optional[List[str]] = None,
+    node_angles: Optional[Dict[str, float]] = None,
+    node_colors: Optional[Dict[str, str]] = None,
+    node_group: Optional[Dict[str, str]] = None,
+    value_col: str = "t_statistic",
+    sig_col: str = "significant_fdr",
+    title: str = "Connectivity Circle",
+    linewidth_range: Tuple[float, float] = (0.5, 4.0),
+    cmap: str = "RdBu_r",
+    figsize: Tuple[float, float] = (10, 10),
+    show_nonsig: bool = False,
+    nonsig_alpha: float = 0.05,
+    save_path: Optional[str] = None,
+    dpi: int = 300,
+) -> plt.Figure:
+    """
+    Plot a circular connectivity diagram (chord plot).
+
+    Nodes are arranged on a circle, significant connections are drawn as
+    curved lines between them, color-coded by t-statistic direction and
+    width-coded by effect magnitude.
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        LMM results with connection_id, t_statistic, significance columns.
+    node_names : Optional[List[str]]
+        Node names in desired circular order. None = auto-detect from data.
+    node_angles : Optional[Dict[str, float]]
+        Angle (degrees) for each node. None = use defaults or evenly space.
+    node_colors : Optional[Dict[str, str]]
+        Color for each node. None = assign by ROI group or default palette.
+    node_group : Optional[Dict[str, str]]
+        Group label for each node (for color grouping).
+    value_col : str
+        Column for edge color values.
+    sig_col : str
+        Column indicating significance.
+    title : str
+        Plot title.
+    linewidth_range : Tuple[float, float]
+        Min and max linewidth for connections.
+    cmap : str
+        Colormap for connection values.
+    figsize : Tuple[float, float]
+        Figure size.
+    show_nonsig : bool
+        If True, draw non-significant connections as faint grey lines.
+    nonsig_alpha : float
+        Opacity for non-significant connections.
+    save_path : Optional[str]
+        Path to save figure.
+    dpi : int
+        Figure DPI.
+
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure.
+    """
+    from matplotlib.path import Path as MplPath
+    from matplotlib.patches import FancyArrowPatch, PathPatch
+    import matplotlib.patches as mpatches
+
+    # ── Extract unique nodes ─────────────────────────────────────────────
+    all_nodes = set()
+    for conn_id in results_df["connection_id"]:
+        parts = conn_id.split(PAIR_SEPARATOR)
+        if len(parts) == 2:
+            all_nodes.add(parts[0].strip())
+            all_nodes.add(parts[1].strip())
+
+    if node_names is None:
+        # Try topographic ordering
+        if node_angles is None:
+            node_angles = _get_default_angles(all_nodes)
+        node_names = sorted(all_nodes, key=lambda n: node_angles.get(n, 0))
+
+    n_nodes = len(node_names)
+
+    # ── Compute node positions on the circle ─────────────────────────────
+    if node_angles is None:
+        # Evenly spaced
+        angles_deg = np.linspace(90, 90 + 360, n_nodes, endpoint=False)
+        node_angle_map = {name: ang for name, ang in zip(node_names, angles_deg)}
+    else:
+        node_angle_map = node_angles
+
+    radius = 1.0
+    node_positions = {}
+    for name in node_names:
+        ang = np.radians(node_angle_map.get(name, 0))
+        node_positions[name] = (radius * np.cos(ang), radius * np.sin(ang))
+
+    # ── Assign node colors ───────────────────────────────────────────────
+    if node_colors is None and node_group is not None:
+        group_names = sorted(set(node_group.values()))
+        palette = list(ROI_COLORS.values())
+        # Extend palette if needed
+        while len(palette) < len(group_names):
+            palette.extend(plt.cm.Set3(np.linspace(0, 1, 12)).tolist())
+        group_color_map = {g: palette[i % len(palette)] for i, g in enumerate(group_names)}
+        node_colors = {n: group_color_map[node_group[n]] for n in node_names if n in node_group}
+
+    if node_colors is None:
+        node_colors = {n: "#555555" for n in node_names}
+
+    # ── Create figure ────────────────────────────────────────────────────
+    fig, ax = plt.subplots(1, 1, figsize=figsize, subplot_kw={"aspect": "equal"})
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.axis("off")
+
+    # ── Draw connections ─────────────────────────────────────────────────
+    sig_rows = results_df[results_df[sig_col] == True] if sig_col in results_df.columns else results_df
+    all_values = results_df[value_col].dropna().values
+
+    if len(all_values) > 0:
+        abs_max = max(abs(v) for v in all_values)
+        if abs_max == 0:
+            abs_max = 1.0
+    else:
+        abs_max = 1.0
+
+    colormap = plt.get_cmap(cmap)
+    norm = mcolors.Normalize(vmin=-abs_max, vmax=abs_max)
+
+    # Draw non-significant first (background)
+    if show_nonsig:
+        nonsig_rows = results_df[results_df[sig_col] == False] if sig_col in results_df.columns else pd.DataFrame()
+        for _, row in nonsig_rows.iterrows():
+            parts = row["connection_id"].split(PAIR_SEPARATOR)
+            if len(parts) != 2:
+                continue
+            n1, n2 = parts[0].strip(), parts[1].strip()
+            if n1 not in node_positions or n2 not in node_positions:
+                continue
+            _draw_curved_edge(
+                ax, node_positions[n1], node_positions[n2],
+                color="#cccccc", linewidth=0.3, alpha=nonsig_alpha,
+            )
+
+    # Draw significant connections
+    for _, row in sig_rows.iterrows():
+        parts = row["connection_id"].split(PAIR_SEPARATOR)
+        if len(parts) != 2:
+            continue
+        n1, n2 = parts[0].strip(), parts[1].strip()
+        if n1 not in node_positions or n2 not in node_positions:
+            continue
+
+        val = row[value_col] if pd.notna(row[value_col]) else 0
+        color = colormap(norm(val))
+        # Scale linewidth by absolute value
+        lw_min, lw_max = linewidth_range
+        lw = lw_min + (lw_max - lw_min) * (abs(val) / abs_max)
+
+        _draw_curved_edge(
+            ax, node_positions[n1], node_positions[n2],
+            color=color, linewidth=lw, alpha=0.8,
+        )
+
+    # ── Draw nodes ───────────────────────────────────────────────────────
+    for name in node_names:
+        x, y = node_positions[name]
+        color = node_colors.get(name, "#555555")
+        ax.plot(x, y, "o", color=color, markersize=8, markeredgecolor="white",
+                markeredgewidth=0.5, zorder=5)
+
+        # Label
+        ang = node_angle_map.get(name, 0)
+        label_radius = radius + 0.08
+        lx = label_radius * np.cos(np.radians(ang))
+        ly = label_radius * np.sin(np.radians(ang))
+        ha = "left" if lx >= 0 else "right"
+        rotation = ang % 360
+        if 90 < rotation < 270:
+            rotation += 180
+        ax.text(
+            lx, ly, name, fontsize=7, ha=ha, va="center",
+            rotation=rotation % 360, rotation_mode="anchor",
+        )
+
+    # ── Draw outer ring arcs per group ───────────────────────────────────
+    if node_group is not None:
+        _draw_group_arcs(ax, node_names, node_angle_map, node_group, radius=1.12)
+
+    # ── Colorbar ─────────────────────────────────────────────────────────
+    sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
+    sm.set_array([])
+    cbar_ax = fig.add_axes([0.88, 0.25, 0.02, 0.5])
+    cbar = fig.colorbar(sm, cax=cbar_ax)
+    cbar.set_label(value_col.replace("_", " ").title(), fontsize=10)
+
+    ax.set_title(title, fontsize=14, fontweight="bold", y=1.05)
+
+    if save_path:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight",
+                    facecolor="white", edgecolor="none")
+        print(f"  Saved: {save_path}")
+
+    return fig
+
+
+def plot_roi_connectivity_circle(
+    results_df: pd.DataFrame,
+    value_col: str = "t_statistic",
+    sig_col: str = "significant_fdr",
+    title: str = "ROI Connectivity Circle",
+    figsize: Tuple[float, float] = (10, 10),
+    save_path: Optional[str] = None,
+    dpi: int = 300,
+) -> plt.Figure:
+    """
+    Plot a circular connectivity diagram for ROI-level results.
+
+    Convenience wrapper around plot_connectivity_circle with ROI-specific
+    defaults (colors, positions, labels).
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        ROI-level LMM results.
+    value_col : str
+        Column for edge color.
+    sig_col : str
+        Significance column.
+    title : str
+        Plot title.
+    figsize : Tuple[float, float]
+        Figure size.
+    save_path : Optional[str]
+        Save path.
+    dpi : int
+        DPI.
+
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure.
+    """
+    return plot_connectivity_circle(
+        results_df=results_df,
+        node_names=list(DEFAULT_ROI_ORDER),
+        node_angles=ROI_ANGLES,
+        node_colors=ROI_COLORS,
+        value_col=value_col,
+        sig_col=sig_col,
+        title=title,
+        linewidth_range=(1.5, 6.0),
+        figsize=figsize,
+        show_nonsig=True,
+        nonsig_alpha=0.08,
+        save_path=save_path,
+        dpi=dpi,
+    )
+
+
+def plot_channel_connectivity_circle(
+    results_df: pd.DataFrame,
+    rois: Optional[Dict[str, List[str]]] = None,
+    value_col: str = "t_statistic",
+    sig_col: str = "significant_fdr",
+    title: str = "Channel Connectivity Circle",
+    figsize: Tuple[float, float] = (14, 14),
+    save_path: Optional[str] = None,
+    dpi: int = 300,
+) -> plt.Figure:
+    """
+    Plot a circular connectivity diagram for channel-level results.
+
+    Channels are arranged topographically on the circle. If ROI definitions
+    are provided, channels are color-coded by ROI membership and grouped
+    with arcs on the outer ring.
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        Channel-level LMM results.
+    rois : Optional[Dict[str, List[str]]]
+        ROI definitions for grouping/coloring channels.
+    value_col : str
+        Column for edge color.
+    sig_col : str
+        Significance column.
+    title : str
+        Plot title.
+    figsize : Tuple[float, float]
+        Figure size.
+    save_path : Optional[str]
+        Save path.
+    dpi : int
+        DPI.
+
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure.
+    """
+    # Build channel-to-ROI mapping for coloring
+    node_group = None
+    node_colors = None
+    if rois is not None:
+        node_group = {}
+        for roi_name, channels in rois.items():
+            for ch in channels:
+                node_group[ch] = roi_name
+        # Build color map from ROI colors
+        node_colors = {}
+        for ch, roi in node_group.items():
+            node_colors[ch] = ROI_COLORS.get(roi, "#555555")
+
+    return plot_connectivity_circle(
+        results_df=results_df,
+        node_angles=CHANNEL_ANGLES,
+        node_colors=node_colors,
+        node_group=node_group,
+        value_col=value_col,
+        sig_col=sig_col,
+        title=title,
+        linewidth_range=(0.5, 3.0),
+        figsize=figsize,
+        show_nonsig=False,
+        save_path=save_path,
+        dpi=dpi,
+    )
+
+
+def plot_multi_band_circle_grid(
+    all_results: Dict[str, pd.DataFrame],
+    level: str = "roi",
+    rois: Optional[Dict[str, List[str]]] = None,
+    value_col: str = "t_statistic",
+    sig_col: str = "significant_fdr",
+    suptitle: str = "wSMI Connectivity Circles",
+    save_path: Optional[str] = None,
+    dpi: int = 300,
+) -> plt.Figure:
+    """
+    Plot a row of circular connectivity diagrams, one per band.
+
+    Parameters
+    ----------
+    all_results : Dict[str, pd.DataFrame]
+        {band: results_df} mapping.
+    level : str
+        "roi" or "channel".
+    rois : Optional[Dict[str, List[str]]]
+        ROI definitions (used for channel-level coloring).
+    value_col : str
+        Column for color values.
+    sig_col : str
+        Significance column.
+    suptitle : str
+        Super title.
+    save_path : Optional[str]
+        Save path.
+    dpi : int
+        DPI.
+
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure.
+    """
+    bands = list(all_results.keys())
+    n_bands = len(bands)
+
+    fig_width = 8 * n_bands
+    fig_height = 8
+    fig = plt.figure(figsize=(fig_width, fig_height))
+
+    for idx, band in enumerate(bands):
+        ax = fig.add_subplot(1, n_bands, idx + 1, aspect="equal")
+        ax.set_xlim(-1.5, 1.5)
+        ax.set_ylim(-1.5, 1.5)
+        ax.axis("off")
+
+        band_label = BAND_LABELS.get(band, band)
+        results = all_results[band]
+
+        # Extract nodes and build positions
+        all_nodes = set()
+        for conn_id in results["connection_id"]:
+            parts = conn_id.split(PAIR_SEPARATOR)
+            if len(parts) == 2:
+                all_nodes.update(p.strip() for p in parts)
+
+        if level == "roi":
+            node_names = [r for r in DEFAULT_ROI_ORDER if r in all_nodes]
+            angle_map = ROI_ANGLES
+            color_map = ROI_COLORS
+            lw_range = (1.5, 6.0)
+        else:
+            angle_map = _get_default_angles(all_nodes)
+            node_names = sorted(all_nodes, key=lambda n: angle_map.get(n, 0))
+            color_map = {}
+            if rois:
+                for roi_name, channels in rois.items():
+                    for ch in channels:
+                        color_map[ch] = ROI_COLORS.get(roi_name, "#555555")
+            lw_range = (0.5, 3.0)
+
+        # Compute positions
+        node_positions = {}
+        for name in node_names:
+            ang = np.radians(angle_map.get(name, 0))
+            node_positions[name] = (np.cos(ang), np.sin(ang))
+
+        # Get significant connections
+        sig_mask = results[sig_col] == True if sig_col in results.columns else pd.Series([True] * len(results))
+        sig_rows = results[sig_mask]
+        all_values = results[value_col].dropna().values
+        abs_max = max(abs(v) for v in all_values) if len(all_values) > 0 else 1.0
+        if abs_max == 0:
+            abs_max = 1.0
+
+        colormap = plt.get_cmap("RdBu_r")
+        norm = mcolors.Normalize(vmin=-abs_max, vmax=abs_max)
+
+        # Draw significant edges
+        for _, row in sig_rows.iterrows():
+            parts = row["connection_id"].split(PAIR_SEPARATOR)
+            if len(parts) != 2:
+                continue
+            n1, n2 = parts[0].strip(), parts[1].strip()
+            if n1 not in node_positions or n2 not in node_positions:
+                continue
+            val = row[value_col] if pd.notna(row[value_col]) else 0
+            color = colormap(norm(val))
+            lw_min, lw_max = lw_range
+            lw = lw_min + (lw_max - lw_min) * (abs(val) / abs_max)
+            _draw_curved_edge(ax, node_positions[n1], node_positions[n2],
+                              color=color, linewidth=lw, alpha=0.8)
+
+        # Draw nodes
+        for name in node_names:
+            x, y = node_positions[name]
+            c = color_map.get(name, "#555555")
+            ax.plot(x, y, "o", color=c, markersize=6, markeredgecolor="white",
+                    markeredgewidth=0.3, zorder=5)
+            # Labels
+            ang = angle_map.get(name, 0)
+            lx = 1.08 * np.cos(np.radians(ang))
+            ly = 1.08 * np.sin(np.radians(ang))
+            ha = "left" if lx >= 0 else "right"
+            fs = 8 if level == "roi" else 5
+            label_text = ROI_SHORT_LABELS.get(name, name) if level == "roi" else name
+            ax.text(lx, ly, label_text, fontsize=fs, ha=ha, va="center")
+
+        n_sig = len(sig_rows)
+        ax.set_title(f"wSMI {band_label}\n({n_sig} sig. edges)",
+                     fontsize=12, fontweight="bold")
+
+    fig.suptitle(suptitle, fontsize=14, fontweight="bold", y=1.02)
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight",
+                    facecolor="white", edgecolor="none")
+        print(f"  Saved: {save_path}")
+
+    return fig
+
+
+# =============================================================================
+# CIRCLE PLOT HELPERS
+# =============================================================================
+
+def _draw_curved_edge(
+    ax: plt.Axes,
+    pos1: Tuple[float, float],
+    pos2: Tuple[float, float],
+    color: str = "grey",
+    linewidth: float = 1.0,
+    alpha: float = 0.5,
+) -> None:
+    """
+    Draw a curved (Bezier) edge between two points, curving toward the center.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Axes to draw on.
+    pos1 : Tuple[float, float]
+        Start position (x, y).
+    pos2 : Tuple[float, float]
+        End position (x, y).
+    color : str
+        Line color.
+    linewidth : float
+        Line width.
+    alpha : float
+        Opacity.
+    """
+    from matplotlib.path import Path as MplPath
+    import matplotlib.patches as mpatches
+
+    x1, y1 = pos1
+    x2, y2 = pos2
+
+    # Control point: midpoint pulled toward center (origin)
+    # The pull factor controls how curved the line is
+    mid_x = (x1 + x2) / 2
+    mid_y = (y1 + y2) / 2
+
+    # Distance between points determines curvature
+    dist = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    pull = 0.3 + 0.3 * (dist / 2.0)  # More distant nodes → more curvature
+
+    ctrl_x = mid_x * (1 - pull)
+    ctrl_y = mid_y * (1 - pull)
+
+    verts = [(x1, y1), (ctrl_x, ctrl_y), (x2, y2)]
+    codes = [MplPath.MOVETO, MplPath.CURVE3, MplPath.CURVE3]
+    path = MplPath(verts, codes)
+
+    patch = mpatches.PathPatch(
+        path, facecolor="none", edgecolor=color,
+        linewidth=linewidth, alpha=alpha, capstyle="round",
+    )
+    ax.add_patch(patch)
+
+
+def _get_default_angles(nodes: set) -> Dict[str, float]:
+    """
+    Get default angular positions for nodes using CHANNEL_ANGLES or even spacing.
+
+    Parameters
+    ----------
+    nodes : set
+        Node names.
+
+    Returns
+    -------
+    Dict[str, float]
+        Angle (degrees) for each node.
+    """
+    angles = {}
+    unknown = []
+    for n in nodes:
+        if n in CHANNEL_ANGLES:
+            angles[n] = CHANNEL_ANGLES[n]
+        elif n in ROI_ANGLES:
+            angles[n] = ROI_ANGLES[n]
+        else:
+            unknown.append(n)
+
+    # Evenly space unknown nodes in remaining gaps
+    if unknown:
+        used_angles = set(angles.values())
+        for i, n in enumerate(sorted(unknown)):
+            angle = (360 / (len(unknown) + 1)) * (i + 1)
+            while angle in used_angles:
+                angle += 1
+            angles[n] = angle
+            used_angles.add(angle)
+
+    return angles
+
+
+def _draw_group_arcs(
+    ax: plt.Axes,
+    node_names: List[str],
+    node_angles: Dict[str, float],
+    node_group: Dict[str, str],
+    radius: float = 1.12,
+) -> None:
+    """
+    Draw colored arcs on the outer ring to indicate ROI groupings.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Axes to draw on.
+    node_names : List[str]
+        Ordered node names.
+    node_angles : Dict[str, float]
+        Angle for each node.
+    node_group : Dict[str, str]
+        Group label for each node.
+    radius : float
+        Radius of the outer arc.
+    """
+    from matplotlib.patches import Arc
+
+    # Group nodes by their group label
+    groups = {}
+    for name in node_names:
+        grp = node_group.get(name)
+        if grp is None:
+            continue
+        if grp not in groups:
+            groups[grp] = []
+        groups[grp].append(node_angles.get(name, 0))
+
+    for grp, grp_angles in groups.items():
+        if len(grp_angles) < 1:
+            continue
+        ang_min = min(grp_angles) - 3
+        ang_max = max(grp_angles) + 3
+        color = ROI_COLORS.get(grp, "#555555")
+
+        arc = Arc(
+            (0, 0), 2 * radius, 2 * radius,
+            angle=0, theta1=ang_min, theta2=ang_max,
+            color=color, linewidth=4, alpha=0.7,
+        )
+        ax.add_patch(arc)
+
+
+# =============================================================================
 # SUMMARY TABLE
 # =============================================================================
 
@@ -453,7 +1120,7 @@ def create_summary_table(
     rows = []
     for band, df in all_results.items():
         for _, row in df.iterrows():
-            rows.append({
+            entry = {
                 "band": band,
                 "connection_id": row["connection_id"],
                 "t_statistic": row.get("t_statistic", np.nan),
@@ -464,7 +1131,17 @@ def create_summary_table(
                 "n_observations": row.get("n_observations", 0),
                 "n_subjects": row.get("n_subjects", 0),
                 "converged": row.get("converged", False),
-            })
+            }
+            # NBS columns (channel-level)
+            if "p_value_nbs" in row.index:
+                entry["p_value_nbs"] = row.get("p_value_nbs", np.nan)
+                entry["significant_nbs"] = row.get("significant_nbs", False)
+                entry["nbs_component_id"] = row.get("nbs_component_id", -1)
+            # Max-t permutation columns
+            if "p_value_perm" in row.index:
+                entry["p_value_perm"] = row.get("p_value_perm", np.nan)
+                entry["significant_perm"] = row.get("significant_perm", False)
+            rows.append(entry)
 
     summary = pd.DataFrame(rows)
 

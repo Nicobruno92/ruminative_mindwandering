@@ -488,10 +488,16 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         if predictor_of_interest is None:
             raise ValueError("predictor_of_interest must be specified when using min_predictor_variability")
         
+        # For interaction terms (e.g. "onoff:valence"), filter on the first
+        # constituent variable — the interaction itself is not a column.
+        filter_col = predictor_of_interest
+        if ':' in predictor_of_interest:
+            filter_col = predictor_of_interest.split(':')[0].strip()
+        
         # Filter subjects by variability in the predictor
         marker_df = filter_subjects_by_variability(
             df=marker_df,
-            predictor_column=predictor_of_interest,
+            predictor_column=filter_col,
             min_variability=min_predictor_variability,
             subject_column='subject',
             verbose=True
@@ -499,17 +505,22 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         
         if len(marker_df) == 0:
             raise ValueError(
-                f"All subjects had insufficient variability in '{predictor_of_interest}'."
+                f"All subjects had insufficient variability in '{filter_col}'."
             )
 
     # Apply class balance filter if specified
     if min_minority_ratio is not None:
         if predictor_of_interest is None:
             raise ValueError("predictor_of_interest must be specified when using min_minority_ratio")
+        
+        # For interaction terms, filter on the first constituent variable
+        filter_col = predictor_of_interest
+        if ':' in predictor_of_interest:
+            filter_col = predictor_of_interest.split(':')[0].strip()
             
         marker_df = filter_subjects_by_class_balance(
             df=marker_df,
-            predictor_column=predictor_of_interest,
+            predictor_column=filter_col,
             min_minority_ratio=min_minority_ratio,
             subject_column='subject',
             verbose=True
@@ -518,7 +529,7 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         if len(marker_df) == 0:
             raise ValueError(
                 f"No observations remain after filtering by class balance. "
-                f"All subjects had minority class ratio < {min_minority_ratio} for '{predictor_of_interest}'."
+                f"All subjects had minority class ratio < {min_minority_ratio} for '{filter_col}'."
             )
     
     # Ensure we have only one marker type for this marker

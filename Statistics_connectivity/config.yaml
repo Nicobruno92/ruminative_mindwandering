@@ -90,14 +90,27 @@ preprocessing:
     predictors: ["onoff", "valence", "selfother", "confidence", "time"]
 
 
-# ── Multiple comparisons ────────────────────────────────────────────────────
+# ── Multiple comparisons correction ─────────────────────────────────────────
+# Correction method per analysis level:
+#   "fdr"   = Benjamini-Hochberg FDR (default for ROI level, ~28 tests)
+#   "nbs"   = Network-Based Statistic permutation (default for channel level)
+#             Graph analogue of cluster-based permutation (Zalesky et al., 2010)
+#   "max_t" = Max-t permutation (FWER, less conservative than Bonferroni)
+correction:
+  roi: "fdr"
+  channel: "nbs"
+
+# FDR settings (always computed as baseline, even when NBS is primary)
 fdr:
   method: "fdr_bh"      # Benjamini-Hochberg
   alpha: 0.05
-  # Correction scope: "per_band" or "global"
-  # per_band = correct within each band separately
-  # global = correct across all bands × connections
   scope: "per_band"
+
+# NBS / permutation settings
+nbs:
+  primary_threshold: 3.0    # |t| threshold for forming supra-threshold edges
+  n_permutations: 5000      # Number of permutations for null distribution
+  alpha: 0.05               # Significance level for component p-values
 
 
 # ── Output ───────────────────────────────────────────────────────────────────

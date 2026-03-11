@@ -1082,15 +1082,26 @@ def validate_cluster_data(
         True if data is valid for cluster testing
     """
     # Check if predictor exists
-    if predictor_of_interest not in df_behavioral.columns:
-        print(f"Predictor '{predictor_of_interest}' not found in data")
-        return False
-    
-    # Check for sufficient variation in predictor
-    unique_vals = df_behavioral[predictor_of_interest].unique()
-    if len(unique_vals) < 2:
-        print(f"Predictor '{predictor_of_interest}' has insufficient variation")
-        return False
+    # For interaction terms (e.g. "onoff:valence"), check constituent variables
+    if ':' in predictor_of_interest:
+        components = [v.strip() for v in predictor_of_interest.split(':')]
+        for comp in components:
+            if comp not in df_behavioral.columns:
+                print(f"Interaction component '{comp}' (from '{predictor_of_interest}') not found in data")
+                return False
+            if df_behavioral[comp].nunique() < 2:
+                print(f"Component '{comp}' has insufficient variation")
+                return False
+    else:
+        if predictor_of_interest not in df_behavioral.columns:
+            print(f"Predictor '{predictor_of_interest}' not found in data")
+            return False
+        
+        # Check for sufficient variation in predictor
+        unique_vals = df_behavioral[predictor_of_interest].unique()
+        if len(unique_vals) < 2:
+            print(f"Predictor '{predictor_of_interest}' has insufficient variation")
+            return False
     
     # Check for sufficient subjects
     n_subjects = df_behavioral['subject'].nunique()

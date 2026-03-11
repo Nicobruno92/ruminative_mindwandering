@@ -827,11 +827,21 @@ def _validate_cluster_parameters(
         )
     
     # Validate behavioral data
-    if predictor_of_interest not in df_behavioral.columns:
-        raise ValueError(
-            f"Predictor '{predictor_of_interest}' not found in df_behavioral. "
-            f"Available columns: {list(df_behavioral.columns)}"
-        )
+    # For interaction terms (e.g. "onoff:valence"), check constituent variables
+    from lmm_model import is_interaction_term, get_interaction_components
+    if is_interaction_term(predictor_of_interest):
+        for comp in get_interaction_components(predictor_of_interest):
+            if comp not in df_behavioral.columns:
+                raise ValueError(
+                    f"Interaction component '{comp}' (from '{predictor_of_interest}') "
+                    f"not found in df_behavioral. Available columns: {list(df_behavioral.columns)}"
+                )
+    else:
+        if predictor_of_interest not in df_behavioral.columns:
+            raise ValueError(
+                f"Predictor '{predictor_of_interest}' not found in df_behavioral. "
+                f"Available columns: {list(df_behavioral.columns)}"
+            )
     
     if 'subject' not in df_behavioral.columns:
         raise ValueError("df_behavioral must have a 'subject' column")
@@ -1853,19 +1863,28 @@ def _permute_within_subjects(
     df_perm = df.copy()
     np.random.seed(seed)
     
+    # For interaction terms (e.g. "onoff:valence"), permute the first
+    # constituent variable. This breaks the interaction while preserving
+    # each variable's marginal within-subject distribution.
+    from lmm_model import is_interaction_term, get_interaction_components
+    if is_interaction_term(predictor):
+        permute_col = get_interaction_components(predictor)[0]
+    else:
+        permute_col = predictor
+    
     # Permute within each subject to preserve subject-level structure
     for subject in df['subject'].unique():
         subject_mask = df['subject'] == subject
         subject_indices = df.loc[subject_mask].index
         
         # Get current values for this subject
-        subject_values = df.loc[subject_mask, predictor].values
+        subject_values = df.loc[subject_mask, permute_col].values
         
         # Permute the values
         permuted_values = np.random.permutation(subject_values)
         
         # Assign permuted values back
-        df_perm.loc[subject_indices, predictor] = permuted_values
+        df_perm.loc[subject_indices, permute_col] = permuted_values
     
     return df_perm
 
@@ -2195,8 +2214,17 @@ def spatial_cluster_test_tfce(
             f"df_behavioral has {len(df_behavioral)} rows"
         )
     
-    if predictor_of_interest not in df_behavioral.columns:
-        raise ValueError(f"Predictor '{predictor_of_interest}' not found in df_behavioral")
+    from lmm_model import is_interaction_term, get_interaction_components
+    if is_interaction_term(predictor_of_interest):
+        for comp in get_interaction_components(predictor_of_interest):
+            if comp not in df_behavioral.columns:
+                raise ValueError(
+                    f"Interaction component '{comp}' (from '{predictor_of_interest}') "
+                    f"not found in df_behavioral"
+                )
+    else:
+        if predictor_of_interest not in df_behavioral.columns:
+            raise ValueError(f"Predictor '{predictor_of_interest}' not found in df_behavioral")
     
     if adjacency.shape != (n_channels, n_channels):
         raise ValueError(

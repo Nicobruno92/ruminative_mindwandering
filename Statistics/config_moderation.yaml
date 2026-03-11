@@ -1,0 +1,78 @@
+# =============================================================================
+# MODERATION ANALYSIS: Phenomenological Dimensions × onoff → EEG
+# =============================================================================
+#
+# Extension of the main LMM cluster permutation pipeline.
+# Tests whether phenomenological probe dimensions MODERATE the effect
+# of onoff (mind-wandering) on EEG markers.
+#
+# For each moderator, fits:
+#   power ~ onoff * moderator + (1|subject)
+# and extracts the cluster-based permutation test for the interaction
+# term onoff:moderator.
+#
+# FDR-BH correction is applied across all moderator × marker tests
+# in the post-processing step.
+#
+# Usage:
+#   Local:   python Statistics/run_moderation_pipeline.py
+#   Cluster: sbatch Statistics/submit_moderation.sh
+# =============================================================================
+
+# Inherit most settings from the main config
+inherit_from: "Statistics/config.yaml"
+
+# =============================================================================
+# MODERATION-SPECIFIC SETTINGS
+# =============================================================================
+moderation:
+  # Moderators to test (phenomenological probe dimensions)
+  # Each will be tested in: power ~ onoff * moderator + (1|subject)
+  # The key test is the interaction term onoff:moderator
+  moderators:
+    - "valence"
+    - "selfother"
+    - "time"
+    - "confidence"
+    # - "time_on_task"  # Uncomment to include
+
+  # Base predictor whose effect is being moderated
+  base_predictor: "onoff"
+
+  # Multiple comparisons correction across ALL moderator × marker tests
+  # Applied after all individual cluster tests complete
+  mcc_method: "fdr_bh"
+  mcc_alpha: 0.05
+
+# =============================================================================
+# LMM OVERRIDES (formula is auto-generated per moderator)
+# =============================================================================
+# The formula is built automatically as:
+#   power ~ onoff * {moderator} + (1|subject)
+# predictor_of_interest is set to:
+#   onoff:{moderator}
+#
+# You can override other LMM settings here:
+lmm:
+  method: "powell"
+  maxiter: 500
+  random_state: 42
+
+# =============================================================================
+# CLUSTERING OVERRIDES (optional)
+# =============================================================================
+# Uncomment to override main config values:
+# clustering:
+#   method: "threshold"
+#   permutation_method: "freedman_lane"  # Recommended for interaction models
+#   threshold: 2.5
+#   n_permutations: 500
+#   n_jobs: -1
+
+# =============================================================================
+# OUTPUT
+# =============================================================================
+# Results are saved under:
+#   {output_path}/moderation_{base_predictor}_x_{moderator}/
+# A cross-moderator summary with FDR correction is saved in:
+#   {output_path}/moderation_summary/

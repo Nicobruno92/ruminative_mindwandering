@@ -16,12 +16,16 @@ TWO ANALYSES:
    Visualised as an interaction plot: onoff effect at Low vs High moderator
    (split at within-subject median).
 
+Note: This analysis intentionally does not discriminate between Controls and
+Risk of Depression (RoD) groups. For the purposes of this pipeline, all subjects
+are treated as a single group in the models and visualizations.
+
 Preprocessing mirrors objective_markers_analysis.py:
   - Merge objective markers with probe-level metadata (subject/task/probe)
   - Derive time_on_task = probe_number + 15 * (sart_number - 1)
   - Within-subject z-scoring of objective markers (APPLY_WITHIN_SUBJECT_Z)
 
-Outputs (saved under OUTPUT_DIR):
+Outputs (saved under OUTPUT_BASE_DIR):
   - <marker>_lmm_results.csv       — additive model results + FDR
   - <marker>_forest_plot.png        — coefficient forest plot
   - <marker>_scatter_grid.png       — scatter grid per predictor
@@ -48,15 +52,16 @@ from statsmodels.stats.multitest import multipletests
 # =============================================================================
 
 # Input data paths (same sources as objective_markers_analysis.py)
-OBJECTIVE_MARKERS_PATH = (
-    "results/Behavior/objective_markers/objective_markers_per_probe.csv"
-)
+OBJECTIVE_MARKERS_PATHS: dict[str, str] = {
+    "comunes": "results/Behavior/objective_markers/objective_markers_per_probe.csv",
+    "n10": "results/Behavior/objective_markers/objective_markers_per_probe_n10.csv",
+}
 PROBE_DATA_PATH = (
     "results/Behavior/probe_data/probe_level_aggregated_data.csv"
 )
 
 # Output directory
-OUTPUT_DIR = Path(
+OUTPUT_BASE_DIR = Path(
     "results/Behavior/objective_markers/lmm_probe_dimensions"
 )
 
@@ -444,7 +449,7 @@ def plot_scatter_grid(
     """Grid of scatter plots: one panel per predictor vs objective marker.
 
     Each panel shows:
-    - One dot per subject (mean across probes) with colour per group
+    - One dot per probe representing the individual observation
     - LMM-derived regression line (intercept + slope for that predictor)
 
     Parameters
@@ -464,19 +469,6 @@ def plot_scatter_grid(
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 4.5 * n_rows))
     axes_flat = axes.flatten()
 
-    # Subject-level means for scatter
-    agg_cols = ["subject"] + [c for c in ["group"] + PREDICTORS + [marker] if c in data.columns]
-    subj_df = data[agg_cols].groupby("subject").mean(numeric_only=True).reset_index()
-    if "group" in data.columns:
-        subj_df["group"] = data.groupby("subject")["group"].first().values
-
-    # Colour by group if available
-    group_colors_map = {}
-    if "group" in subj_df.columns:
-        unique_groups = subj_df["group"].dropna().unique()
-        palette = ["#2E86AB", "#F24236"]
-        group_colors_map = {g: palette[i % len(palette)] for i, g in enumerate(unique_groups)}
-
     # Extract intercept from LMM results
     intercept_row = results_df[results_df["predictor"] == "Intercept"]
     intercept = intercept_row["estimate"].values[0] if len(intercept_row) > 0 else 0.0
@@ -491,24 +483,15 @@ def plot_scatter_grid(
         p_fdr = pred_row["p_fdr"].values[0] if len(pred_row) > 0 else np.nan
         significant = pred_row["significant_fdr"].values[0] if len(pred_row) > 0 else False
 
-        if predictor not in subj_df.columns or marker not in subj_df.columns:
+        if predictor not in data.columns or marker not in data.columns:
             ax.set_visible(False)
             continue
 
-        valid = subj_df[[predictor, marker]].dropna()
+        valid = data[[predictor, marker]].dropna()
 
-        # Scatter per group
-        if group_colors_map:
-            for group, color in group_colors_map.items():
-                grp_mask = subj_df["group"] == group
-                grp_valid = subj_df[grp_mask][[predictor, marker]].dropna()
-                ax.scatter(
-                    grp_valid[predictor], grp_valid[marker],
-                    color=color, s=60, alpha=0.8, linewidths=0, label=group, zorder=3,
-                )
-        else:
-            ax.scatter(valid[predictor], valid[marker],
-                       color="#2E86AB", s=60, alpha=0.8, linewidths=0, zorder=3)
+        # Scatter of individual probe-level data points
+        ax.scatter(valid[predictor], valid[marker],
+                   color="#2E86AB", s=15, alpha=0.3, linewidths=0, zorder=3)
 
         # LMM regression line
         if len(valid) > 1:
@@ -533,15 +516,9 @@ def plot_scatter_grid(
     for ax_idx in range(len(PREDICTORS), len(axes_flat)):
         axes_flat[ax_idx].set_visible(False)
 
-    # Group legend (top-right of figure)
-    if group_colors_map:
-        from matplotlib.patches import Patch
-        handles = [Patch(facecolor=c, label=g) for g, c in group_colors_map.items()]
-        fig.legend(handles=handles, fontsize=10, loc="upper right", title="Group")
-
     fig.suptitle(
         f"{MARKER_LABELS[marker]}: LMM Coefficients by Predictor\n"
-        f"(dots = subject means, line = LMM slope)",
+        f"(dots = individual probes, line = LMM slope)",
         fontsize=13, fontweight="bold", y=1.01,
     )
     plt.tight_layout()
@@ -898,14 +875,19 @@ def run_moderation_analysis(
 # MAIN
 # =============================================================================
 
-def main() -> None:
-    """Run the full LMM pipeline for all objective markers."""
+def run_pipeline_for_dataset(dataset_name: str, markers_path: str, output_base: Path) -> None:
+    """Run the full LMM pipeline for a specific objective markers dataset."""
+    print(f"\n\n{'#'*80}")
+    print(f"### RUNNING PIPELINE FOR DATASET: {dataset_name.upper()}")
+    print(f"{'#'*80}\n")
+    
     np.random.seed(RANDOM_STATE)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir = output_base / dataset_name
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Load data -----------------------------------------------------------
     print("Loading objective markers data...")
-    df_markers = pd.read_csv(OBJECTIVE_MARKERS_PATH)
+    df_markers = pd.read_csv(markers_path)
     df_markers["total_errors"] = (
         df_markers["omission_rate"] + df_markers["commission_rate"]
     )
@@ -965,14 +947,14 @@ def main() -> None:
         all_results[marker] = results_df
 
         # Save CSV
-        csv_path = OUTPUT_DIR / f"{marker}_lmm_results.csv"
+        csv_path = output_dir / f"{marker}_lmm_results.csv"
         results_df.to_csv(csv_path, index=False)
         print(f"Saved results: {csv_path}")
 
     # --- Plots ---------------------------------------------------------------
     print("\nGenerating scatter grids...")
     for marker, results_df in all_results.items():
-        plot_scatter_grid(df, results_df, marker, OUTPUT_DIR)
+        plot_scatter_grid(df, results_df, marker, output_dir)
 
     # --- Summary table -------------------------------------------------------
     # Collect significant predictors across markers for quick inspection
@@ -991,7 +973,7 @@ def main() -> None:
             })
 
     summary_df = pd.DataFrame(summary_rows)
-    summary_path = OUTPUT_DIR / "lmm_summary_all_markers.csv"
+    summary_path = output_dir / "lmm_summary_all_markers.csv"
     summary_df.to_csv(summary_path, index=False)
     print(f"\nSummary table saved: {summary_path}")
 
@@ -1012,19 +994,24 @@ def main() -> None:
         moderators=MODERATORS,
         method=LMM_METHOD,
         maxiter=LMM_MAXITER,
-        output_dir=OUTPUT_DIR,
+        output_dir=output_dir,
     )
 
     # --- Combined forest plots (additive + moderation side-by-side) -----------
     print("\nGenerating combined forest plots...")
     for marker, results_df in all_results.items():
-        plot_combined_forest(results_df, moderation_df, marker, OUTPUT_DIR)
+        plot_combined_forest(results_df, moderation_df, marker, output_dir)
 
     print(f"\n{'='*60}")
-    print("PIPELINE COMPLETE")
-    print(f"Results in: {OUTPUT_DIR.resolve()}")
+    print(f"PIPELINE COMPLETE FOR {dataset_name.upper()}")
+    print(f"Results in: {output_dir.resolve()}")
     print("="*60)
 
+
+def main() -> None:
+    """Run the full LMM pipeline for all objective marker datasets."""
+    for name, path in OBJECTIVE_MARKERS_PATHS.items():
+        run_pipeline_for_dataset(name, path, OUTPUT_BASE_DIR)
 
 if __name__ == "__main__":
     main()
