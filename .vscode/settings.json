@@ -17,5 +17,7 @@
     "github.copilot.chat.languageContext.inline.typescript.enabled": true,
     "github.copilot.chat.languageContext.typescript.enabled": true,
     "github.copilot.chat.edits.temporalContext.enabled": true,
-    "github.copilot.chat.codesearch.enabled": true
+    "github.copilot.chat.codesearch.enabled": true,
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }

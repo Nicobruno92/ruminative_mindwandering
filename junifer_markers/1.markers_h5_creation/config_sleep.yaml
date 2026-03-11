@@ -222,16 +222,19 @@ markers:
   # ========================================
   - kind: SlowWavesDetection
     name: slowwaves
-    freq_sw: [0.3, 1.5]
-    amp_ptp_initial: 15.0
+    method: "custom"
     freq_threshold: 7.0
     artifact_threshold: 75.0
-    reference_channels: ["TP9", "TP10"]
+    ptp_threshold_mode: "adaptive"
+    ptp_percentile: 90.0
+    max_ptp_amplitude: 150.0
+    reference: ["TP9", "TP10"]
     # No aggregation: returns (features, epochs, channels)
     channel_aggregation_method: null
     epoch_aggregation_method: null
     on: EEG
 
+    
   - kind: SpindlesDetection
     name: spindles
     freq_sp: [12, 15]

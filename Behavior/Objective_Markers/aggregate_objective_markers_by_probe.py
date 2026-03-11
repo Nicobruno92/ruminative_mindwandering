@@ -25,10 +25,10 @@ warnings.filterwarnings('ignore')
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-# ROOT = "/network/iss/"
-ROOT = "/Volumes/"
+ROOT = "/network/iss/"
+# ROOT = "/Volumes/"
 BIDS_RAW_ROOT = ROOT + "cenir/analyse/meeg/CYBERSART/BIDS/raw"
-OUTPUT_DIR = ROOT + "levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/Behavior/objective_markers"
+OUTPUT_DIR = ROOT + "levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/Behavior/objective_markers_10"
 
 SUBJECTS = ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
             "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
@@ -38,7 +38,7 @@ TASKS = ["Sart1", "Sart2", "Sart3", "Sart4"]
 
 # Number of trials back from probe onset to include
 # Set to None to use all trials in the window
-N_BACK_TO_PROBE = None  # e.g., 10 means only last 10 trials before each probe
+N_BACK_TO_PROBE = 10  # e.g., 10 means only last 10 trials before each probe
 
 # =============================================================================
 # FUNCTIONS
