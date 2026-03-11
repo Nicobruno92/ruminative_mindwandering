@@ -213,7 +213,7 @@ def run_analysis_level(
 # MAIN PIPELINE
 # =============================================================================
 
-def main(config_path: str = "Statistics_connectivity/config.yaml"):
+def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: str = None):
     """
     Run the complete connectivity statistics pipeline.
 
@@ -221,6 +221,9 @@ def main(config_path: str = "Statistics_connectivity/config.yaml"):
     ----------
     config_path : str
         Path to configuration YAML file.
+    single_band : str, optional
+        If provided, only analyze this frequency band (for parallel execution).
+        Otherwise, analyze all bands sequentially.
     """
     print("=" * 70)
     print("  CONNECTIVITY STATISTICS PIPELINE")
@@ -233,6 +236,14 @@ def main(config_path: str = "Statistics_connectivity/config.yaml"):
     features_root = project["features_root"]
     rois = config.get("rois", {})
     bands = config.get("bands", ["theta", "alpha", "beta", "gamma"])
+    
+    # Override bands if single_band specified (for parallel execution)
+    if single_band:
+        if single_band not in bands:
+            raise ValueError(f"Band '{single_band}' not in config bands: {bands}")
+        bands = [single_band]
+        print(f"\n  PARALLEL MODE: Processing only {single_band} band")
+    
     analysis_level = config.get("analysis_level", "both")
     out_cfg = config.get("output", {})
 
@@ -442,6 +453,11 @@ if __name__ == "__main__":
         default="Statistics_connectivity/config.yaml",
         help="Path to configuration YAML file",
     )
+    parser.add_argument(
+        "--band",
+        type=str,
+        default=None,
+        help="Run analysis for a single band (for parallel execution)",
+    )
     args = parser.parse_args()
-
-    main(config_path=args.config)
+    main(config_path=args.config, single_band=args.band)
