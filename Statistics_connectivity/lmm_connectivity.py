@@ -381,46 +381,61 @@ def apply_nbs_correction(
     fixed_formula, re_formula = _parse_random_effects(formula)
     null_max_sizes = np.zeros(n_permutations)
 
-    print(f"  NBS: Running {n_permutations} permutations...")
-    for perm_i in range(n_permutations):
-        if (perm_i + 1) % 500 == 0:
-            print(f"    Permutation {perm_i + 1}/{n_permutations}")
+    # Memory-efficient batch processing
+    batch_size = 100  # Process permutations in batches to reduce peak memory
+    n_batches = (n_permutations + batch_size - 1) // batch_size
+    
+    print(f"  NBS: Running {n_permutations} permutations in {n_batches} batches...")
+    
+    for batch_idx in range(n_batches):
+        batch_start = batch_idx * batch_size
+        batch_end = min(batch_start + batch_size, n_permutations)
+        print(f"    Batch {batch_idx + 1}/{n_batches}: permutations {batch_start + 1}-{batch_end}")
+        
+        for perm_i in range(batch_start, batch_end):
+            # Permute predictor within subjects
+            df_perm = df_wide.copy()
+            for subj in df_perm["subject"].unique():
+                mask = df_perm["subject"] == subj
+                vals = df_perm.loc[mask, predictor_of_interest].values.copy()
+                rng.shuffle(vals)
+                df_perm.loc[mask, predictor_of_interest] = vals
 
-        # Permute predictor within subjects
-        df_perm = df_wide.copy()
-        for subj in df_perm["subject"].unique():
-            mask = df_perm["subject"] == subj
-            vals = df_perm.loc[mask, predictor_of_interest].values.copy()
-            rng.shuffle(vals)
-            df_perm.loc[mask, predictor_of_interest] = vals
+            # Re-fit LMMs (fast: only extract t-values)
+            perm_t = {}
+            for conn_id in connection_ids:
+                df_conn = df_perm[["subject", conn_id]].copy()
+                for col in _extract_formula_variables(formula):
+                    if col in df_perm.columns and col != "power":
+                        df_conn[col] = df_perm[col].values
+                df_conn = df_conn.rename(columns={conn_id: "power"})
+                df_conn = df_conn.dropna(subset=["power"])
+                if len(df_conn) < 10:
+                    continue
+                try:
+                    result = _fit_single_lmm(
+                        df_conn, fixed_formula, re_formula,
+                        predictor_of_interest, method, maxiter,
+                    )
+                    if result["converged"] and not np.isnan(result["t_statistic"]):
+                        perm_t[conn_id] = result["t_statistic"]
+                except Exception:
+                    continue
 
-        # Re-fit LMMs (fast: only extract t-values)
-        perm_t = {}
-        for conn_id in connection_ids:
-            df_conn = df_perm[["subject", conn_id]].copy()
-            for col in _extract_formula_variables(formula):
-                if col in df_perm.columns and col != "power":
-                    df_conn[col] = df_perm[col].values
-            df_conn = df_conn.rename(columns={conn_id: "power"})
-            df_conn = df_conn.dropna(subset=["power"])
-            if len(df_conn) < 10:
-                continue
-            try:
-                result = _fit_single_lmm(
-                    df_conn, fixed_formula, re_formula,
-                    predictor_of_interest, method, maxiter,
-                )
-                if result["converged"] and not np.isnan(result["t_statistic"]):
-                    perm_t[conn_id] = result["t_statistic"]
-            except Exception:
-                continue
-
-        # Find largest component in permuted data
-        perm_comps = _find_supra_threshold_components(
-            perm_t, nodes, primary_threshold
-        )
-        if perm_comps:
-            null_max_sizes[perm_i] = max(len(c) for c in perm_comps)
+            # Find largest component in permuted data
+            perm_comps = _find_supra_threshold_components(
+                perm_t, nodes, primary_threshold
+            )
+            if perm_comps:
+                null_max_sizes[perm_i] = max(len(c) for c in perm_comps)
+            
+            # Clear intermediate data
+            del df_conn, perm_t
+        
+        # Force garbage collection between batches
+        del df_perm
+        import gc
+        gc.collect()
 
     # ── Compute p-values for each observed component ─────────────────────
     df["p_value_nbs"] = np.nan
@@ -499,39 +514,52 @@ def apply_max_t_permutation(
     # Null distribution of max |t|
     null_max_t = np.zeros(n_permutations)
 
-    print(f"  Max-t permutation: Running {n_permutations} permutations...")
-    for perm_i in range(n_permutations):
-        if (perm_i + 1) % 500 == 0:
-            print(f"    Permutation {perm_i + 1}/{n_permutations}")
+    # Memory-efficient batch processing
+    batch_size = 100
+    n_batches = (n_permutations + batch_size - 1) // batch_size
+    
+    print(f"  Max-t permutation: Running {n_permutations} permutations in {n_batches} batches...")
+    
+    for batch_idx in range(n_batches):
+        batch_start = batch_idx * batch_size
+        batch_end = min(batch_start + batch_size, n_permutations)
+        print(f"    Batch {batch_idx + 1}/{n_batches}: permutations {batch_start + 1}-{batch_end}")
+        
+        for perm_i in range(batch_start, batch_end):
+            df_perm = df_wide.copy()
+            for subj in df_perm["subject"].unique():
+                mask = df_perm["subject"] == subj
+                vals = df_perm.loc[mask, predictor_of_interest].values.copy()
+                rng.shuffle(vals)
+                df_perm.loc[mask, predictor_of_interest] = vals
 
-        df_perm = df_wide.copy()
-        for subj in df_perm["subject"].unique():
-            mask = df_perm["subject"] == subj
-            vals = df_perm.loc[mask, predictor_of_interest].values.copy()
-            rng.shuffle(vals)
-            df_perm.loc[mask, predictor_of_interest] = vals
+            perm_max = 0.0
+            for conn_id in connection_ids:
+                df_conn = df_perm[["subject", conn_id]].copy()
+                for col in _extract_formula_variables(formula):
+                    if col in df_perm.columns and col != "power":
+                        df_conn[col] = df_perm[col].values
+                df_conn = df_conn.rename(columns={conn_id: "power"})
+                df_conn = df_conn.dropna(subset=["power"])
+                if len(df_conn) < 10:
+                    continue
+                try:
+                    result = _fit_single_lmm(
+                        df_conn, fixed_formula, re_formula,
+                        predictor_of_interest, method, maxiter,
+                    )
+                    if result["converged"] and not np.isnan(result["t_statistic"]):
+                        perm_max = max(perm_max, abs(result["t_statistic"]))
+                except Exception:
+                    continue
 
-        perm_max = 0.0
-        for conn_id in connection_ids:
-            df_conn = df_perm[["subject", conn_id]].copy()
-            for col in _extract_formula_variables(formula):
-                if col in df_perm.columns and col != "power":
-                    df_conn[col] = df_perm[col].values
-            df_conn = df_conn.rename(columns={conn_id: "power"})
-            df_conn = df_conn.dropna(subset=["power"])
-            if len(df_conn) < 10:
-                continue
-            try:
-                result = _fit_single_lmm(
-                    df_conn, fixed_formula, re_formula,
-                    predictor_of_interest, method, maxiter,
-                )
-                if result["converged"] and not np.isnan(result["t_statistic"]):
-                    perm_max = max(perm_max, abs(result["t_statistic"]))
-            except Exception:
-                continue
-
-        null_max_t[perm_i] = perm_max
+            null_max_t[perm_i] = perm_max
+            del df_conn
+        
+        # Force garbage collection between batches
+        del df_perm
+        import gc
+        gc.collect()
 
     # Compute p-values
     df["p_value_perm"] = np.nan

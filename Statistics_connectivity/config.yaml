@@ -96,9 +96,10 @@ preprocessing:
 #   "nbs"   = Network-Based Statistic permutation (default for channel level)
 #             Graph analogue of cluster-based permutation (Zalesky et al., 2010)
 #   "max_t" = Max-t permutation (FWER, less conservative than Bonferroni)
+# NOTE: For initial testing or memory-constrained runs, set channel to "fdr"
 correction:
   roi: "fdr"
-  channel: "nbs"
+  channel: "fdr"  # Use "nbs" for final analysis, "fdr" for testing/low-memory
 
 # FDR settings (always computed as baseline, even when NBS is primary)
 fdr:
@@ -109,7 +110,9 @@ fdr:
 # NBS / permutation settings
 nbs:
   primary_threshold: 3.0    # |t| threshold for forming supra-threshold edges
-  n_permutations: 5000      # Number of permutations for null distribution
+  n_permutations: 1000      # Number of permutations for null distribution
+                            # NOTE: 1000 is memory-efficient for cluster runs
+                            # Increase to 5000+ for final publication analyses
   alpha: 0.05               # Significance level for component p-values
 
 
