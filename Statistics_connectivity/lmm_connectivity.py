@@ -306,6 +306,7 @@ def apply_nbs_correction(
     n_permutations: int = 5000,
     alpha: float = 0.05,
     random_state: int = 42,
+    n_jobs: int = 1,
 ) -> pd.DataFrame:
     """
     Apply Network-Based Statistic (NBS) correction for channel-level connectivity.
@@ -345,6 +346,9 @@ def apply_nbs_correction(
         Significance level.
     random_state : int
         Random seed.
+    n_jobs : int
+        Number of parallel jobs for permutation testing.
+        -1 uses all available CPUs. Default=1 (no parallelization).
 
     Returns
     -------
@@ -353,6 +357,7 @@ def apply_nbs_correction(
         p_value_nbs, significant_nbs, nbs_component_id
     """
     import networkx as nx
+    from joblib import Parallel, delayed
 
     rng = np.random.RandomState(random_state)
     df = results_df.copy()
@@ -379,63 +384,56 @@ def apply_nbs_correction(
 
     # ── Null distribution via permutation ────────────────────────────────
     fixed_formula, re_formula = _parse_random_effects(formula)
-    null_max_sizes = np.zeros(n_permutations)
-
-    # Memory-efficient batch processing
-    batch_size = 100  # Process permutations in batches to reduce peak memory
-    n_batches = (n_permutations + batch_size - 1) // batch_size
     
-    print(f"  NBS: Running {n_permutations} permutations in {n_batches} batches...")
+    def _run_single_nbs_permutation(perm_seed):
+        """Run a single NBS permutation and return max component size."""
+        perm_rng = np.random.RandomState(perm_seed)
+        
+        # Permute predictor within subjects
+        df_perm = df_wide.copy()
+        for subj in df_perm["subject"].unique():
+            mask = df_perm["subject"] == subj
+            vals = df_perm.loc[mask, predictor_of_interest].values.copy()
+            perm_rng.shuffle(vals)
+            df_perm.loc[mask, predictor_of_interest] = vals
+
+        # Re-fit LMMs (fast: only extract t-values)
+        perm_t = {}
+        for conn_id in connection_ids:
+            df_conn = df_perm[["subject", conn_id]].copy()
+            for col in _extract_formula_variables(formula):
+                if col in df_perm.columns and col != "power":
+                    df_conn[col] = df_perm[col].values
+            df_conn = df_conn.rename(columns={conn_id: "power"})
+            df_conn = df_conn.dropna(subset=["power"])
+            if len(df_conn) < 10:
+                continue
+            try:
+                result = _fit_single_lmm(
+                    df_conn, fixed_formula, re_formula,
+                    predictor_of_interest, method, maxiter,
+                )
+                if result["converged"] and not np.isnan(result["t_statistic"]):
+                    perm_t[conn_id] = result["t_statistic"]
+            except Exception:
+                continue
+
+        # Find largest component in permuted data
+        perm_comps = _find_supra_threshold_components(
+            perm_t, nodes, primary_threshold
+        )
+        return max(len(c) for c in perm_comps) if perm_comps else 0
     
-    for batch_idx in range(n_batches):
-        batch_start = batch_idx * batch_size
-        batch_end = min(batch_start + batch_size, n_permutations)
-        print(f"    Batch {batch_idx + 1}/{n_batches}: permutations {batch_start + 1}-{batch_end}")
-        
-        for perm_i in range(batch_start, batch_end):
-            # Permute predictor within subjects
-            df_perm = df_wide.copy()
-            for subj in df_perm["subject"].unique():
-                mask = df_perm["subject"] == subj
-                vals = df_perm.loc[mask, predictor_of_interest].values.copy()
-                rng.shuffle(vals)
-                df_perm.loc[mask, predictor_of_interest] = vals
-
-            # Re-fit LMMs (fast: only extract t-values)
-            perm_t = {}
-            for conn_id in connection_ids:
-                df_conn = df_perm[["subject", conn_id]].copy()
-                for col in _extract_formula_variables(formula):
-                    if col in df_perm.columns and col != "power":
-                        df_conn[col] = df_perm[col].values
-                df_conn = df_conn.rename(columns={conn_id: "power"})
-                df_conn = df_conn.dropna(subset=["power"])
-                if len(df_conn) < 10:
-                    continue
-                try:
-                    result = _fit_single_lmm(
-                        df_conn, fixed_formula, re_formula,
-                        predictor_of_interest, method, maxiter,
-                    )
-                    if result["converged"] and not np.isnan(result["t_statistic"]):
-                        perm_t[conn_id] = result["t_statistic"]
-                except Exception:
-                    continue
-
-            # Find largest component in permuted data
-            perm_comps = _find_supra_threshold_components(
-                perm_t, nodes, primary_threshold
-            )
-            if perm_comps:
-                null_max_sizes[perm_i] = max(len(c) for c in perm_comps)
-            
-            # Clear intermediate data
-            del df_conn, perm_t
-        
-        # Force garbage collection between batches
-        del df_perm
-        import gc
-        gc.collect()
+    # Generate unique seeds for each permutation
+    perm_seeds = [random_state + i for i in range(n_permutations)]
+    
+    print(f"  NBS: Running {n_permutations} permutations with {n_jobs} parallel jobs...")
+    
+    # Run permutations in parallel
+    null_max_sizes = Parallel(n_jobs=n_jobs, verbose=10, backend='loky')(
+        delayed(_run_single_nbs_permutation)(seed) for seed in perm_seeds
+    )
+    null_max_sizes = np.array(null_max_sizes)
 
     # ── Compute p-values for each observed component ─────────────────────
     df["p_value_nbs"] = np.nan
@@ -469,6 +467,7 @@ def apply_max_t_permutation(
     n_permutations: int = 5000,
     alpha: float = 0.05,
     random_state: int = 42,
+    n_jobs: int = 1,
 ) -> pd.DataFrame:
     """
     Apply max-t permutation correction for FWER control.
@@ -498,12 +497,17 @@ def apply_max_t_permutation(
         Significance level.
     random_state : int
         Random seed.
+    n_jobs : int
+        Number of parallel jobs for permutation testing.
+        -1 uses all available CPUs. Default=1 (no parallelization).
 
     Returns
     -------
     pd.DataFrame
         Input DataFrame with added columns: p_value_perm, significant_perm.
     """
+    from joblib import Parallel, delayed
+    
     rng = np.random.RandomState(random_state)
     df = results_df.copy()
     fixed_formula, re_formula = _parse_random_effects(formula)
@@ -511,55 +515,49 @@ def apply_max_t_permutation(
     # Observed max |t|
     obs_t = df.set_index("connection_id")["t_statistic"].to_dict()
 
-    # Null distribution of max |t|
-    null_max_t = np.zeros(n_permutations)
-
-    # Memory-efficient batch processing
-    batch_size = 100
-    n_batches = (n_permutations + batch_size - 1) // batch_size
-    
-    print(f"  Max-t permutation: Running {n_permutations} permutations in {n_batches} batches...")
-    
-    for batch_idx in range(n_batches):
-        batch_start = batch_idx * batch_size
-        batch_end = min(batch_start + batch_size, n_permutations)
-        print(f"    Batch {batch_idx + 1}/{n_batches}: permutations {batch_start + 1}-{batch_end}")
+    def _run_single_max_t_permutation(perm_seed):
+        """Run a single max-t permutation and return max |t|."""
+        perm_rng = np.random.RandomState(perm_seed)
         
-        for perm_i in range(batch_start, batch_end):
-            df_perm = df_wide.copy()
-            for subj in df_perm["subject"].unique():
-                mask = df_perm["subject"] == subj
-                vals = df_perm.loc[mask, predictor_of_interest].values.copy()
-                rng.shuffle(vals)
-                df_perm.loc[mask, predictor_of_interest] = vals
+        df_perm = df_wide.copy()
+        for subj in df_perm["subject"].unique():
+            mask = df_perm["subject"] == subj
+            vals = df_perm.loc[mask, predictor_of_interest].values.copy()
+            perm_rng.shuffle(vals)
+            df_perm.loc[mask, predictor_of_interest] = vals
 
-            perm_max = 0.0
-            for conn_id in connection_ids:
-                df_conn = df_perm[["subject", conn_id]].copy()
-                for col in _extract_formula_variables(formula):
-                    if col in df_perm.columns and col != "power":
-                        df_conn[col] = df_perm[col].values
-                df_conn = df_conn.rename(columns={conn_id: "power"})
-                df_conn = df_conn.dropna(subset=["power"])
-                if len(df_conn) < 10:
-                    continue
-                try:
-                    result = _fit_single_lmm(
-                        df_conn, fixed_formula, re_formula,
-                        predictor_of_interest, method, maxiter,
-                    )
-                    if result["converged"] and not np.isnan(result["t_statistic"]):
-                        perm_max = max(perm_max, abs(result["t_statistic"]))
-                except Exception:
-                    continue
+        perm_max = 0.0
+        for conn_id in connection_ids:
+            df_conn = df_perm[["subject", conn_id]].copy()
+            for col in _extract_formula_variables(formula):
+                if col in df_perm.columns and col != "power":
+                    df_conn[col] = df_perm[col].values
+            df_conn = df_conn.rename(columns={conn_id: "power"})
+            df_conn = df_conn.dropna(subset=["power"])
+            if len(df_conn) < 10:
+                continue
+            try:
+                result = _fit_single_lmm(
+                    df_conn, fixed_formula, re_formula,
+                    predictor_of_interest, method, maxiter,
+                )
+                if result["converged"] and not np.isnan(result["t_statistic"]):
+                    perm_max = max(perm_max, abs(result["t_statistic"]))
+            except Exception:
+                continue
 
-            null_max_t[perm_i] = perm_max
-            del df_conn
-        
-        # Force garbage collection between batches
-        del df_perm
-        import gc
-        gc.collect()
+        return perm_max
+    
+    # Generate unique seeds for each permutation
+    perm_seeds = [random_state + i for i in range(n_permutations)]
+    
+    print(f"  Max-t permutation: Running {n_permutations} permutations with {n_jobs} parallel jobs...")
+    
+    # Run permutations in parallel
+    null_max_t = Parallel(n_jobs=n_jobs, verbose=10, backend='loky')(
+        delayed(_run_single_max_t_permutation)(seed) for seed in perm_seeds
+    )
+    null_max_t = np.array(null_max_t)
 
     # Compute p-values
     df["p_value_perm"] = np.nan

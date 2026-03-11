@@ -114,6 +114,10 @@ nbs:
                             # NOTE: 1000 is memory-efficient for cluster runs
                             # Increase to 5000+ for final publication analyses
   alpha: 0.05               # Significance level for component p-values
+  n_jobs: -1                # Parallel jobs for permutations
+                            # -1 = use all CPUs (reads SLURM_CPUS_PER_TASK)
+                            # 1 = sequential (for debugging)
+                            # N = use N parallel jobs
 
 
 # ── Output ───────────────────────────────────────────────────────────────────

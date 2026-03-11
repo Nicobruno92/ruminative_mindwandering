@@ -9,20 +9,19 @@
 # Connectivity Statistics Pipeline - SLURM script
 # Usage: sbatch Statistics_connectivity/run_lmm_pipeline_slurm.sh
 
-# Set threading environment variables early
+# Set threading environment variables
+# Restrict internal threading for numpy/scipy to avoid oversubscription
+# but allow joblib to use multiple processes for permutation testing
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
-export KMP_AFFINITY=disabled
-export ORT_DISABLE_THREAD_AFFINITY=1
-export ONNX_DISABLE_THREADPOOL_AFFINITY=1
-export ORT_NUM_THREADS=1
-export ONNXRUNTIME_NUM_THREADS=1
 export MKL_THREADING_LAYER=sequential
 export MKL_DYNAMIC=FALSE
-export TORCH_NUM_THREADS=1
+
+# Note: We do NOT restrict the number of processes joblib can spawn
+# joblib will read SLURM_CPUS_PER_TASK automatically
 
 # Load required modules
 module load proxy

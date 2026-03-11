@@ -165,6 +165,10 @@ def run_analysis_level(
         )
 
         # Apply additional correction based on level
+        # Get n_jobs from config or environment (SLURM_CPUS_PER_TASK)
+        import os
+        n_jobs = nbs_cfg.get("n_jobs", int(os.environ.get("SLURM_CPUS_PER_TASK", 1)))
+        
         if correction_method == "nbs":
             results = apply_nbs_correction(
                 results_df=results,
@@ -178,6 +182,7 @@ def run_analysis_level(
                 n_permutations=nbs_cfg.get("n_permutations", 5000),
                 alpha=nbs_cfg.get("alpha", 0.05),
                 random_state=lmm_cfg.get("random_state", 42),
+                n_jobs=n_jobs,
             )
         elif correction_method == "max_t":
             results = apply_max_t_permutation(
@@ -191,6 +196,7 @@ def run_analysis_level(
                 n_permutations=nbs_cfg.get("n_permutations", 5000),
                 alpha=nbs_cfg.get("alpha", 0.05),
                 random_state=lmm_cfg.get("random_state", 42),
+                n_jobs=n_jobs,
             )
 
         # Save per-band results
