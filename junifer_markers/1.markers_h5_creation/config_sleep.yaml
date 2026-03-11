@@ -243,7 +243,7 @@ markers:
     min_distance: 500
     thresh_rms: 1.5
     thresh_corr: 0.65
-    reference_channels: ["TP9", "TP10"]
+    reference: ["TP9", "TP10"]
     # No aggregation: returns (features, epochs, channels)
     channel_aggregation_method: null
     epoch_aggregation_method: null

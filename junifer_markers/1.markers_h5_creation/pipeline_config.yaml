@@ -31,8 +31,8 @@ tasks: []
 # Description/epoch types to process (required)
 # These determine which config_*.yaml files are used
 descriptions:
-  - evoked
-  - state
+  # - evoked
+  # - state
   - sleep
 
 # =============================================================================
