@@ -30,6 +30,7 @@ fi
 
 export MPLBACKEND=Agg
 
+echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Running LMM analysis on individual probe epochs"
 
 # Install statsmodels if not available
@@ -39,3 +40,4 @@ srun --cpu-bind=none --ntasks=1 python ERPs_new/lmm_analysis.py \
   --config ERPs_new/config.yaml
 
 echo "LMM analysis completed"
+echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"

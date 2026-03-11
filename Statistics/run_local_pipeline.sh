@@ -24,10 +24,32 @@ CONFIG_FILE="Statistics/config.yaml"
 SCRIPT_DIR="Statistics"
 LOG_DIR="logs"
 
+# ---------------------------------------------------------------------------
+# Optional argument: --predictor <name>
+# When provided, overrides lmm.predictor_of_interest from config.yaml.
+# ---------------------------------------------------------------------------
+PREDICTOR_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --predictor)
+            PREDICTOR_OVERRIDE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            echo "Usage: bash Statistics/run_local_pipeline.sh [--predictor <name>]"
+            exit 1
+            ;;
+    esac
+done
+
 mkdir -p ${LOG_DIR}
 
 echo "=========================================="
 echo "LMM Local Pipeline Execution"
+if [ -n "${PREDICTOR_OVERRIDE}" ]; then
+    echo "Predictor of interest: ${PREDICTOR_OVERRIDE}"
+fi
 echo "=========================================="
 
 # Activate Conda
@@ -131,7 +153,11 @@ do
     echo "------------------------------------------"
     echo "Processing Marker Index: $i / $((N_MARKERS-1))"
     echo "------------------------------------------"
-    python ${SCRIPT_DIR}/run_pipeline.py --config ${CONFIG_FILE} --marker-index $i
+    CLI_ARGS="--config ${CONFIG_FILE} --marker-index $i"
+    if [ -n "${PREDICTOR_OVERRIDE}" ]; then
+        CLI_ARGS="${CLI_ARGS} --predictor-of-interest ${PREDICTOR_OVERRIDE}"
+    fi
+    python ${SCRIPT_DIR}/run_pipeline.py ${CLI_ARGS}
 done
 
 echo "------------------------------------------"
@@ -142,13 +168,16 @@ MODEL_FOLDER=$(python -c "
 import yaml
 import sys
 sys.path.append('${SCRIPT_DIR}')
-from helpers import extract_fixed_effects_from_formula
+from helpers import get_model_folder_name
 
 with open('${CONFIG_FILE}', 'r') as f:
     config = yaml.safe_load(f)
 
 formula = config['lmm']['formula']
-print(extract_fixed_effects_from_formula(formula))
+predictor = '${PREDICTOR_OVERRIDE}' or config['lmm'].get('predictor_of_interest', 'auto')
+if isinstance(predictor, list):
+    predictor = 'auto'
+print(get_model_folder_name(formula, predictor))
 ")
 
 OUTPUT_PATH=$(python -c "

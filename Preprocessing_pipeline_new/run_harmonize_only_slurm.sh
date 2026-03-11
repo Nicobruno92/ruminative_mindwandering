@@ -63,6 +63,7 @@ fi
 subject=${subjects[$subject_idx]}
 task=${tasks[$task_idx]}
 
+echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Harmonization only for subject $subject task $task"
 
 # Paths
@@ -75,5 +76,6 @@ srun --cpu-bind=none --ntasks=1 python "$HARM_SCRIPT" \
   --config "$CONFIG_PATH" \
   --subject "$subject" \
   --task "$task"
+echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"
 
 

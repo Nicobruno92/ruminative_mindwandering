@@ -210,7 +210,16 @@ preprocessing:
 #
 lmm:
   formula: "power ~ onoff + valence + selfother + time  + confidence +  time_on_task + (1|subject)"
-  predictor_of_interest: "onoff"  # specify predictor name (e.g., "onoff") for clustering analysis
+  # predictor_of_interest can be a single string or a list.
+  # - Single string: run directly with python Statistics/run_pipeline.py
+  # - List: use submit_predictor_loop.sh to submit one SLURM job-set per predictor
+  predictor_of_interest:
+    - "onoff"
+    - "valence"
+    - "selfother"
+    # - "confidence"
+    - "time"
+    # - "time_on_task"
   method: "powell"  # Powell: gradient-free, more robust for complex models with numerical issues
   maxiter: 500     # High value to ensure convergence in difficult cases
   random_state: 42

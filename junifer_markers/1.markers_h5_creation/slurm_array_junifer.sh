@@ -110,6 +110,7 @@ else
     exit 1
 fi
 
+echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "[INFO] Job ${SLURM_ARRAY_JOB_ID:-NA}_${SLURM_ARRAY_TASK_ID:-NA} [${CONFIG_TYPE}] -> element: $ELEMENT"
 
 # Extract storage URI from config to determine output directory
@@ -129,3 +130,4 @@ junifer run "$CONFIG" --verbose info --element "$JUNIFER_ELEMENT"
 set +x
 
 echo "[INFO] Done [${CONFIG_TYPE}]: $SUBJECT,$SESSION,$TASK,$DESC"
+echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"

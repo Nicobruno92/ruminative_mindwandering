@@ -27,10 +27,10 @@ echo "=========================================="
 echo "MULTIPLE COMPARISONS CORRECTION"
 echo "=========================================="
 echo "Start time: $(date)"
-echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_valence_selfother_time_confidence_time_on_task"
+echo "Model directory: MODEL_DIR_PLACEHOLDER"
 echo ""
 
-python Statistics/apply_mcc_postprocessing.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_valence_selfother_time_confidence_time_on_task --config Statistics/config.yaml
+python Statistics/apply_mcc_postprocessing.py MODEL_DIR_PLACEHOLDER --config Statistics/config.yaml
 
 EXIT_CODE=$?
 

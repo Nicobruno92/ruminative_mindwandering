@@ -133,6 +133,52 @@ def extract_fixed_effects_from_formula(formula: str) -> str:
     return folder_name
 
 
+def get_model_folder_name(formula: str, predictor_of_interest: str) -> str:
+    """
+    Build the output folder name encoding both fixed effects and the predictor of interest.
+
+    The resulting name has the form::
+
+        {fixed_effects}__target_{predictor_of_interest}
+
+    This allows running the same formula with different predictors of interest
+    (e.g. "onoff", "valence") while saving results to separate directories.
+
+    Parameters
+    ----------
+    formula : str
+        LMM formula, e.g. ``"power ~ onoff + valence + (1|subject)"``.
+    predictor_of_interest : str
+        The single predictor whose t-statistic drives the cluster permutation
+        test, e.g. ``"onoff"`` or ``"valence"``.
+        Pass ``"auto"`` or an empty string to fall back to the legacy behaviour
+        (folder name = fixed effects only, no ``__target_`` suffix).
+
+    Returns
+    -------
+    str
+        Folder name to use as the model output directory.
+
+    Examples
+    --------
+    >>> get_model_folder_name(
+    ...     "power ~ onoff + valence + (1|subject)", "onoff")
+    'onoff_valence__target_onoff'
+    >>> get_model_folder_name(
+    ...     "power ~ onoff + (1|subject)", "auto")
+    'onoff'
+    """
+    fixed_effects_part = extract_fixed_effects_from_formula(formula)
+
+    # Legacy / auto-detect path: no suffix
+    if not predictor_of_interest or predictor_of_interest.strip().lower() == 'auto':
+        return fixed_effects_part
+
+    # Sanitize predictor name for filesystem use (handles interaction terms like onoff:valence)
+    pred_clean = predictor_of_interest.replace(':', '_').replace(' ', '_').strip('_')
+    return f"{fixed_effects_part}__target_{pred_clean}"
+
+
 def _apply_normalization_method(
     channel_data: np.ndarray,
     valid_data: np.ndarray,

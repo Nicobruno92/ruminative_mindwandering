@@ -74,12 +74,14 @@ fi
 subject=${subjects[$subject_idx]}
 task=${tasks[$task_idx]}
 
+echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Preprocessing subject $subject task $task"
 # Use srun to avoid CPU binding issues; no binding and one task
 srun --cpu-bind=none --ntasks=1 python Preprocessing_pipeline_new/preprocessing_pipeline.py \
   --config Preprocessing_pipeline_new/config.yaml \
   --subject "$subject" \
   --task "$task"
+echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"
 
 
 

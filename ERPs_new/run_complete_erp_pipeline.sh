@@ -29,6 +29,7 @@ fi
 
 export MPLBACKEND=Agg
 
+echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=== Running Complete ERP Analysis Pipeline ==="
 echo "Step 1: Generate probe evoked potentials..."
 
@@ -85,3 +86,4 @@ echo "Plot types generated depend on config.yaml plotting.plot_type setting:"
 echo "  - 'classic_erp': Traditional ERP averages (option A)"
 echo "  - 'beta_timecourse': Time-course of LMM betas (option B)"
 echo "  - 'both': Both plot types"
+echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"

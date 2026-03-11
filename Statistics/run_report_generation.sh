@@ -29,10 +29,10 @@ echo "=========================================="
 echo "GENERATING SUMMARY REPORT"
 echo "=========================================="
 echo "Start time: $(date)"
-echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_valence_selfother_time_confidence_time_on_task"
+echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_valence_selfother_time_confidence_time_on_task__target_onoff"
 echo ""
 
-python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_valence_selfother_time_confidence_time_on_task
+python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/lmm_cluster/onoff_valence_selfother_time_confidence_time_on_task__target_onoff
 
 EXIT_CODE=$?
 

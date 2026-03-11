@@ -8,11 +8,34 @@ CONFIG_FILE="Statistics/config.yaml"
 ARRAY_SCRIPT="Statistics/submit_marker_array.sh"
 SCRIPT_DIR="Statistics"
 
+# ---------------------------------------------------------------------------
+# Optional argument: --predictor <name>
+# When provided, overrides lmm.predictor_of_interest for this submission run.
+# This is set automatically by submit_predictor_loop.sh.
+# ---------------------------------------------------------------------------
+PREDICTOR_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --predictor)
+            PREDICTOR_OVERRIDE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            echo "Usage: bash Statistics/submit_parallel_markers.sh [--predictor <name>]"
+            exit 1
+            ;;
+    esac
+done
+
 # Set working directory
 cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 
 echo "=========================================="
 echo "LMM Parallel Marker Submission"
+if [ -n "${PREDICTOR_OVERRIDE}" ]; then
+    echo "Predictor of interest: ${PREDICTOR_OVERRIDE}"
+fi
 echo "=========================================="
 
 # Check if config file exists
@@ -170,7 +193,12 @@ echo "Submitting SLURM array job with ${N_MARKERS} tasks..."
 ARRAY_RANGE="0-$((N_MARKERS-1))"
 
 # Submit the array job and capture the job ID
-ARRAY_JOB_OUTPUT=$(sbatch --array=${ARRAY_RANGE} ${ARRAY_SCRIPT})
+# Propagate the predictor override via SLURM --export so each array task knows it
+SBATCH_EXPORT="ALL"
+if [ -n "${PREDICTOR_OVERRIDE}" ]; then
+    SBATCH_EXPORT="ALL,PREDICTOR_OF_INTEREST=${PREDICTOR_OVERRIDE}"
+fi
+ARRAY_JOB_OUTPUT=$(sbatch --array=${ARRAY_RANGE} --export=${SBATCH_EXPORT} ${ARRAY_SCRIPT})
 ARRAY_EXIT_CODE=$?
 
 if [ ${ARRAY_EXIT_CODE} -ne 0 ]; then
@@ -188,17 +216,22 @@ echo "  Total tasks: ${N_MARKERS}"
 echo ""
 
 # Get model folder name and output path from config
+# Use the predictor override (if any) to match the directory that run_pipeline.py will create
 MODEL_FOLDER=$(python -c "
 import yaml
 import sys
 sys.path.append('${SCRIPT_DIR}')
-from helpers import extract_fixed_effects_from_formula
+from helpers import get_model_folder_name
 
 with open('${CONFIG_FILE}', 'r') as f:
     config = yaml.safe_load(f)
 
 formula = config['lmm']['formula']
-model_folder = extract_fixed_effects_from_formula(formula)
+predictor = '${PREDICTOR_OVERRIDE}' or config['lmm'].get('predictor_of_interest', 'auto')
+# If config still has a list (not overridden), fall back to 'auto'
+if isinstance(predictor, list):
+    predictor = 'auto'
+model_folder = get_model_folder_name(formula, predictor)
 print(model_folder)
 ")
 

@@ -213,6 +213,7 @@ else
     exit 1
 fi
 
+echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=================================================="
 echo "SLURM Job ID: $SLURM_JOB_ID"
 echo "Array Task ID: ${SLURM_ARRAY_TASK_ID:-N/A}"
@@ -239,3 +240,4 @@ else
 fi
 
 echo "Done: ${SUBJECT_NUM}, ${task}"
+echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"

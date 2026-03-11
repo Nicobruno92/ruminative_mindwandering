@@ -161,13 +161,16 @@ MODEL_FOLDER=$(python -c "
 import yaml
 import sys
 sys.path.append('${SCRIPT_DIR}')
-from helpers import extract_fixed_effects_from_formula
+from helpers import get_model_folder_name
 
 with open('${CONFIG_FILE}', 'r') as f:
     config = yaml.safe_load(f)
 
 formula = config['lmm']['formula']
-model_folder = extract_fixed_effects_from_formula(formula)
+predictor = config['lmm'].get('predictor_of_interest', 'auto')
+if isinstance(predictor, list):
+    predictor = 'auto'
+model_folder = get_model_folder_name(formula, predictor)
 print(model_folder)
 ")
 

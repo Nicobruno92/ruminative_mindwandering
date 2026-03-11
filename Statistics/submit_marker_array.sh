@@ -110,11 +110,17 @@ MARKER_INDEX=${SLURM_ARRAY_TASK_ID}
 
 echo "Processing marker index: ${MARKER_INDEX}"
 
+# Build CLI arguments
+# PREDICTOR_OF_INTEREST may be injected via --export by submit_parallel_markers.sh
+CLI_ARGS="--config ${CONFIG_FILE} --marker-index ${MARKER_INDEX}"
+if [ -n "${PREDICTOR_OF_INTEREST:-}" ]; then
+    CLI_ARGS="${CLI_ARGS} --predictor-of-interest ${PREDICTOR_OF_INTEREST}"
+    echo "Predictor of interest: ${PREDICTOR_OF_INTEREST}"
+fi
+
 # Run the pipeline for this specific marker
 echo "Starting pipeline execution..."
-srun --cpu-bind=none --ntasks=1 python ${SCRIPT_DIR}/run_pipeline.py \
-    --config ${CONFIG_FILE} \
-    --marker-index ${MARKER_INDEX}
+srun --cpu-bind=none --ntasks=1 python ${SCRIPT_DIR}/run_pipeline.py ${CLI_ARGS}
 
 EXIT_CODE=$?
 

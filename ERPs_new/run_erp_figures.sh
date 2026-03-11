@@ -29,6 +29,7 @@ fi
 
 export MPLBACKEND=Agg
 
+echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Running complete ERP analysis: individual participants + group figures"
 
 # Run the complete pipeline: individual subjects + group aggregation
@@ -36,4 +37,5 @@ srun --cpu-bind=none --ntasks=1 python ERPs_new/make_erp_figures.py \
   --config ERPs_new/config.yaml
 
 echo "Complete ERP analysis finished"
+echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"
 

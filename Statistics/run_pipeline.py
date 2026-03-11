@@ -36,6 +36,7 @@ from plot_results import create_results_report, create_raw_topography_report
 from helpers import (
     parse_formula_components,
     extract_fixed_effects_from_formula,
+    get_model_folder_name,
     load_qa_summary,
     get_qa_exclusion_list,
     apply_preprocessing,
@@ -241,8 +242,8 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         # Create output directory structure: base / model_folder / marker_folder
         base_output_dir = Path(output_path)
         
-        # Extract fixed effects from formula to create model folder
-        model_folder_name = extract_fixed_effects_from_formula(formula)
+        # Build model folder name: fixed effects + active predictor of interest
+        model_folder_name = get_model_folder_name(formula, predictor_of_interest)
         
         # Create safe marker name for folder
         safe_marker_name = marker_name.replace('/', '_').replace(' ', '_')
@@ -597,18 +598,24 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         return {'success': True, 'result': results_dict}
 
 
-def main(config_path: str = "Statistics/config.yaml", 
-         marker_index: int = None) -> None:
+def main(config_path: str = "Statistics/config.yaml",
+         marker_index: int = None,
+         predictor_of_interest: str = None) -> None:
     """
     Execute complete LMM-based spatial cluster permutation pipeline.
-    
+
     Parameters
     ----------
     config_path : str
-        Path to YAML configuration file
+        Path to YAML configuration file.
     marker_index : int, optional
-        Index of specific marker to process (for SLURM array jobs)
-        If None, processes all markers configured in config.yaml
+        Index of specific marker to process (for SLURM array jobs).
+        If None, processes all markers configured in config.yaml.
+    predictor_of_interest : str, optional
+        Override for ``lmm.predictor_of_interest`` in config.yaml.
+        Required when the config entry is a list (multi-predictor loop mode).
+        When provided, this value is written back into the config dict so all
+        downstream functions (including process_single_marker) use it.
     """
     print("="*80)
     print("LMM-BASED SPATIAL CLUSTER PERMUTATION TESTING PIPELINE")
@@ -618,7 +625,28 @@ def main(config_path: str = "Statistics/config.yaml",
     # Load configuration
     print(f"Loading configuration from {config_path}...")
     config = load_config(config_path)
-    
+
+    # ------------------------------------------------------------------
+    # Resolve predictor_of_interest
+    # The config value may be a single string or a list (multi-predictor
+    # loop mode).  A CLI override always takes precedence.  When the
+    # config holds a list and no override is provided, raise immediately
+    # so the user knows they must use submit_predictor_loop.sh.
+    # ------------------------------------------------------------------
+    poi_in_config = config['lmm'].get('predictor_of_interest', 'auto')
+    if predictor_of_interest is not None:
+        # CLI / programmatic override
+        config['lmm']['predictor_of_interest'] = predictor_of_interest
+    elif isinstance(poi_in_config, list):
+        raise ValueError(
+            f"config.yaml 'lmm.predictor_of_interest' is a list {poi_in_config}. "
+            "When running directly, specify a single predictor via "
+            "'--predictor-of-interest <name>'.  To submit one SLURM job per "
+            "predictor automatically, use: "
+            "bash Statistics/submit_predictor_loop.sh"
+        )
+    # else: config already has a single string — nothing to do
+
     # Validate and display formula configuration
     formula = config['lmm']['formula']
     predictor_config = config['lmm'].get('predictor_of_interest', 'auto')
@@ -934,9 +962,9 @@ def main(config_path: str = "Statistics/config.yaml",
     if summary_data:
         summary_df = pd.DataFrame(summary_data)
         
-        # Extract model folder name from formula
+        # Build model folder name: fixed effects + active predictor of interest
         formula = config['lmm']['formula']
-        model_folder_name = extract_fixed_effects_from_formula(formula)
+        model_folder_name = get_model_folder_name(formula, config['lmm']['predictor_of_interest'])
         
         # Save summary to model-specific directory
         base_output_dir = Path(config['project']['output_path'])
@@ -960,7 +988,7 @@ def main(config_path: str = "Statistics/config.yaml",
         print("-"*80)
         
         formula = config['lmm']['formula']
-        model_folder_name = extract_fixed_effects_from_formula(formula)
+        model_folder_name = get_model_folder_name(formula, config['lmm']['predictor_of_interest'])
         base_output_dir = Path(config['project']['output_path'])
         model_output_dir = base_output_dir / model_folder_name
         
@@ -1004,7 +1032,7 @@ def main(config_path: str = "Statistics/config.yaml",
     
     # Show model-specific results directory
     formula = config['lmm']['formula']
-    model_folder_name = extract_fixed_effects_from_formula(formula)
+    model_folder_name = get_model_folder_name(formula, config['lmm']['predictor_of_interest'])
     base_output_dir = Path(config['project']['output_path'])
     model_output_dir = base_output_dir / model_folder_name
     print(f"Model: {model_folder_name}")
@@ -1038,10 +1066,22 @@ if __name__ == "__main__":
         default=None,
         help="Index of marker to process (for SLURM array jobs)"
     )
-    
+    parser.add_argument(
+        "--predictor-of-interest",
+        type=str,
+        default=None,
+        dest="predictor_of_interest",
+        help=(
+            "Override lmm.predictor_of_interest from config.yaml. "
+            "Required when the config value is a list (multi-predictor loop mode). "
+            "Example: --predictor-of-interest valence"
+        )
+    )
+
     args = parser.parse_args()
-    
+
     main(
         config_path=args.config,
-        marker_index=args.marker_index
+        marker_index=args.marker_index,
+        predictor_of_interest=args.predictor_of_interest
     )
