@@ -174,7 +174,8 @@ except Exception as e:
     echo "${SUBMIT_OUTPUT}"
     
     # Extract all job IDs from output (array job, MCC job, report job)
-    JIDS=$(echo "${SUBMIT_OUTPUT}" | grep -oP 'Submitted batch job \K[0-9]+' | tr '\n' ':')
+    # Use grep -o with sed for portability (grep -P not available on all systems)
+    JIDS=$(echo "${SUBMIT_OUTPUT}" | grep -o 'Job ID: [0-9]*' | sed 's/Job ID: //' | tr '\n' ':')
     
     if [ -n "${JIDS}" ]; then
         # Remove trailing ':'
