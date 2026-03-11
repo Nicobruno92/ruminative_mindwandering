@@ -9,24 +9,34 @@ ARRAY_SCRIPT="Statistics/submit_marker_array.sh"
 SCRIPT_DIR="Statistics"
 
 # ---------------------------------------------------------------------------
-# Optional argument: --predictor <name>
-# When provided, overrides lmm.predictor_of_interest for this submission run.
-# This is set automatically by submit_predictor_loop.sh.
+# Optional arguments:
+#   --predictor <name>  Override lmm.predictor_of_interest
+#   --config <path>     Use custom config file (default: Statistics/config.yaml)
 # ---------------------------------------------------------------------------
 PREDICTOR_OVERRIDE=""
+CONFIG_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --predictor)
             PREDICTOR_OVERRIDE="$2"
             shift 2
             ;;
+        --config)
+            CONFIG_OVERRIDE="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: bash Statistics/submit_parallel_markers.sh [--predictor <name>]"
+            echo "Usage: bash Statistics/submit_parallel_markers.sh [--predictor <name>] [--config <path>]"
             exit 1
             ;;
     esac
 done
+
+# Use custom config if provided
+if [ -n "${CONFIG_OVERRIDE}" ]; then
+    CONFIG_FILE="${CONFIG_OVERRIDE}"
+fi
 
 # Set working directory
 cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering

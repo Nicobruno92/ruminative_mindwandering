@@ -120,49 +120,67 @@ while IFS= read -r MODERATOR; do
     echo "  Predictor of interest: ${INTERACTION}"
     echo "------------------------------------------"
     
-    # Create temporary config override for this moderator
-    TMP_CONFIG="/tmp/mod_config_${MODERATOR}_$$.yaml"
+    # Create temporary config in project directory (not /tmp for cluster compatibility)
+    TMP_CONFIG="${SCRIPT_DIR}/.tmp_mod_config_${MODERATOR}.yaml"
     python -c "
 import yaml
 import sys
 
-# Load base config
-with open('${BASE_CONFIG}') as f:
-    config = yaml.safe_load(f)
+try:
+    # Load base config
+    with open('${BASE_CONFIG}') as f:
+        config = yaml.safe_load(f)
 
-# Load moderation config for overrides
-with open('${MOD_CONFIG}') as f:
-    mod_config = yaml.safe_load(f)
+    # Load moderation config for overrides
+    with open('${MOD_CONFIG}') as f:
+        mod_config = yaml.safe_load(f)
 
-# Apply moderation-specific LMM settings
-if 'lmm' in mod_config:
-    for key, val in mod_config['lmm'].items():
-        if key not in ['formula', 'predictor_of_interest']:
-            config['lmm'][key] = val
+    # Apply moderation-specific LMM settings
+    if 'lmm' in mod_config:
+        for key, val in mod_config['lmm'].items():
+            if key not in ['formula', 'predictor_of_interest']:
+                config['lmm'][key] = val
 
-# Apply clustering overrides if present
-if 'clustering' in mod_config and mod_config['clustering'] is not None:
-    for key, val in mod_config['clustering'].items():
-        config['clustering'][key] = val
+    # Apply clustering overrides if present
+    if 'clustering' in mod_config and mod_config['clustering'] is not None:
+        for key, val in mod_config['clustering'].items():
+            config['clustering'][key] = val
 
-# Set formula and predictor for this moderator
-config['lmm']['formula'] = '${FORMULA}'
-config['lmm']['predictor_of_interest'] = '${INTERACTION}'
+    # Set formula and predictor for this moderator
+    config['lmm']['formula'] = '${FORMULA}'
+    config['lmm']['predictor_of_interest'] = '${INTERACTION}'
 
-# Write temporary config
-with open('${TMP_CONFIG}', 'w') as f:
-    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    # Write temporary config
+    with open('${TMP_CONFIG}', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    
+    print('Config written to ${TMP_CONFIG}')
+except Exception as e:
+    print(f'ERROR creating config: {e}', file=sys.stderr)
+    sys.exit(1)
 "
     
-    # Submit via the standard parallel markers script
-    JID=$(bash ${SCRIPT_DIR}/submit_parallel_markers.sh \
-        --config "${TMP_CONFIG}" \
-        --predictor "${INTERACTION}" \
-        2>&1 | grep -oP 'Submitted batch job \K[0-9]+' | tail -1)
+    if [ ! -f "${TMP_CONFIG}" ]; then
+        echo "  ✗ Failed to create temporary config for '${MODERATOR}'"
+        continue
+    fi
     
-    if [ -n "${JID}" ]; then
-        echo "  ✓ Submitted job ${JID} for moderator '${MODERATOR}'"
-        ALL_JIDS="${ALL_JIDS}:${JID}"
+    # Submit via the standard parallel markers script
+    # Capture all output to parse job IDs
+    SUBMIT_OUTPUT=$(bash ${SCRIPT_DIR}/submit_parallel_markers.sh \
+        --config "${TMP_CONFIG}" \
+        --predictor "${INTERACTION}" 2>&1)
+    
+    echo "${SUBMIT_OUTPUT}"
+    
+    # Extract all job IDs from output (array job, MCC job, report job)
+    JIDS=$(echo "${SUBMIT_OUTPUT}" | grep -oP 'Submitted batch job \K[0-9]+' | tr '\n' ':')
+    
+    if [ -n "${JIDS}" ]; then
+        # Remove trailing ':'
+        JIDS="${JIDS%:}"
+        echo "  ✓ Submitted jobs ${JIDS} for moderator '${MODERATOR}'"
+        ALL_JIDS="${ALL_JIDS}:${JIDS}"
         SUBMITTED+=("${MODERATOR}")
     else
         echo "  ✗ Failed to submit jobs for moderator '${MODERATOR}'"
