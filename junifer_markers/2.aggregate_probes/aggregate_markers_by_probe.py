@@ -1358,10 +1358,18 @@ def process_epoch_type(
         # Extract probe metadata
         probe_row = filtered_df.iloc[0]
         probe_metadata = {
-            "ontask_label": probe_row.get("ontask_label", ""),
-            "content": probe_row.get("content", ""),
-            "confidence_level": probe_row.get("confidence_level", ""),
-            "depth_level": probe_row.get("depth_level", ""),
+            "ontask_label": probe_row.get("ontask_label", "unknown"),
+            # Legacy categorical fields (may be "unknown" if not present)
+            "content": probe_row.get("content", "unknown"),
+            "confidence_level": probe_row.get("confidence_level", "unknown"),
+            "depth_level": probe_row.get("depth_level", "unknown"),
+            # Harmonized continuous dimensions (0-100 scale)
+            "onoff": probe_row.get("onoff", np.nan),
+            "valence": probe_row.get("valence", np.nan),
+            "confidence": probe_row.get("confidence", np.nan),
+            "time": probe_row.get("time", np.nan),
+            "selfother": probe_row.get("selfother", np.nan),
+            "average": probe_row.get("average", np.nan),
         }
         
         # Convert to long format if requested

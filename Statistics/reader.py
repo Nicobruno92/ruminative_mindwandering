@@ -53,8 +53,10 @@ def load_all_probe_data(features_root: str,
         raise FileNotFoundError(f"Features root directory not found: {features_root}")
     
     # Find all CSV files matching the pattern
-    pattern = "**/sub-*_task-*_desc-probe-*_*_aggMarkers.csv"
-    csv_files = list(features_path.glob(pattern))
+    # Use rglob for reliable recursive search (handles symlinks better than glob with **)
+    csv_files = list(features_path.rglob("*_aggMarkers.csv"))
+    # Filter to only files matching the expected naming pattern
+    csv_files = [f for f in csv_files if f.name.startswith("sub-") and "_task-" in f.name and "_desc-probe-" in f.name]
     
     if verbose:
         print(f"Found {len(csv_files)} aggregated marker CSV files")

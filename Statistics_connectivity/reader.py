@@ -65,8 +65,10 @@ def load_connectivity_data(
     assert features_path.exists(), f"Features root not found: {features_root}"
 
     # Find all connectivity CSV files
-    pattern = "**/junifer_aggregated/*_connectivity.csv"
-    csv_files = sorted(features_path.glob(pattern))
+    # Use rglob for reliable recursive search (handles symlinks better than glob with **)
+    csv_files = sorted(features_path.rglob("*_connectivity.csv"))
+    # Filter to only files in junifer_aggregated directories
+    csv_files = [f for f in csv_files if "junifer_aggregated" in str(f)]
 
     if verbose:
         print(f"Found {len(csv_files)} connectivity CSV files")
