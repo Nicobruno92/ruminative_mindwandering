@@ -117,94 +117,97 @@ def run_analysis_level(
     correction_method = correction_cfg.get(level_name, default_method)
 
     all_results = {}
+    
+    # Get epoch types to analyze separately
+    epoch_types = config.get("epoch_types", None)
+    if not epoch_types:
+        # If no epoch types specified, analyze all data together
+        epoch_types = [None]
 
     for band in bands:
-        print(f"\n{'='*60}")
-        print(f"  [{level_name.upper()}] Band: {band}")
-        print(f"  Correction: {correction_method}")
-        print(f"{'='*60}")
+        for epoch_type in epoch_types:
+            epoch_label = epoch_type if epoch_type else "all"
+            print(f"\n{'='*60}")
+            print(f"  [{level_name.upper()}] Band: {band} | Epoch: {epoch_label}")
+            print(f"  Correction: {correction_method}")
+            print(f"{'='*60}")
 
-        # Prepare data
-        epoch_types = config.get("epoch_types", None)
-        # Combine epoch types if multiple
-        epoch_type_filter = None
-        if epoch_types and len(epoch_types) == 1:
-            epoch_type_filter = epoch_types[0]
+            df_wide, connection_ids = prepare_connectivity_for_lmm(
+                df=df,
+                band=band,
+                epoch_type=epoch_type,
+                onoff_max_value=project.get("onoff_max_value"),
+                min_predictor_variability=project.get("min_predictor_variability"),
+                min_minority_ratio=project.get("min_minority_ratio"),
+            )
 
-        df_wide, connection_ids = prepare_connectivity_for_lmm(
-            df=df,
-            band=band,
-            epoch_type=epoch_type_filter,
-            onoff_max_value=project.get("onoff_max_value"),
-            min_predictor_variability=project.get("min_predictor_variability"),
-            min_minority_ratio=project.get("min_minority_ratio"),
-        )
+            if df_wide.empty:
+                print(f"  [SKIP] No data for band={band}, epoch={epoch_label}")
+                continue
 
-        if df_wide.empty:
-            print(f"  [SKIP] No data for band={band}")
-            continue
-
-        # Run LMM
-        formula = lmm_cfg.get("formula", "power ~ onoff + (1|subject)")
-        predictor = lmm_cfg.get("predictor_of_interest", "onoff")
-        results = run_lmm_per_connection(
-            df_wide=df_wide,
-            connection_ids=connection_ids,
-            formula=formula,
-            predictor_of_interest=predictor,
-            method=lmm_cfg.get("method", "powell"),
-            maxiter=lmm_cfg.get("maxiter", 500),
-            random_state=lmm_cfg.get("random_state", 42),
-        )
-
-        # Always apply FDR as baseline reference
-        results = apply_fdr_correction(
-            results,
-            alpha=fdr_cfg.get("alpha", 0.05),
-            method=fdr_cfg.get("method", "fdr_bh"),
-        )
-
-        # Apply additional correction based on level
-        # Get n_jobs from config or environment (SLURM_CPUS_PER_TASK)
-        import os
-        n_jobs = nbs_cfg.get("n_jobs", int(os.environ.get("SLURM_CPUS_PER_TASK", 1)))
-        
-        if correction_method == "nbs":
-            results = apply_nbs_correction(
-                results_df=results,
+            # Run LMM
+            formula = lmm_cfg.get("formula", "power ~ onoff + (1|subject)")
+            predictor = lmm_cfg.get("predictor_of_interest", "onoff")
+            results = run_lmm_per_connection(
                 df_wide=df_wide,
                 connection_ids=connection_ids,
                 formula=formula,
                 predictor_of_interest=predictor,
                 method=lmm_cfg.get("method", "powell"),
                 maxiter=lmm_cfg.get("maxiter", 500),
-                primary_threshold=nbs_cfg.get("primary_threshold", 3.0),
-                n_permutations=nbs_cfg.get("n_permutations", 5000),
-                alpha=nbs_cfg.get("alpha", 0.05),
                 random_state=lmm_cfg.get("random_state", 42),
-                n_jobs=n_jobs,
-            )
-        elif correction_method == "max_t":
-            results = apply_max_t_permutation(
-                results_df=results,
-                df_wide=df_wide,
-                connection_ids=connection_ids,
-                formula=formula,
-                predictor_of_interest=predictor,
-                method=lmm_cfg.get("method", "powell"),
-                maxiter=lmm_cfg.get("maxiter", 500),
-                n_permutations=nbs_cfg.get("n_permutations", 5000),
-                alpha=nbs_cfg.get("alpha", 0.05),
-                random_state=lmm_cfg.get("random_state", 42),
-                n_jobs=n_jobs,
             )
 
-        # Save per-band results
-        band_csv = output_dir / f"lmm_results_{band}.csv"
-        results.to_csv(band_csv, index=False)
-        print(f"  Saved: {band_csv}")
+            # Always apply FDR as baseline reference
+            results = apply_fdr_correction(
+                results,
+                alpha=fdr_cfg.get("alpha", 0.05),
+                method=fdr_cfg.get("method", "fdr_bh"),
+            )
 
-        all_results[band] = results
+            # Apply additional correction based on level
+            # Get n_jobs from config or environment (SLURM_CPUS_PER_TASK)
+            import os
+            n_jobs = nbs_cfg.get("n_jobs", int(os.environ.get("SLURM_CPUS_PER_TASK", 1)))
+            
+            if correction_method == "nbs":
+                results = apply_nbs_correction(
+                    results_df=results,
+                    df_wide=df_wide,
+                    connection_ids=connection_ids,
+                    formula=formula,
+                    predictor_of_interest=predictor,
+                    method=lmm_cfg.get("method", "powell"),
+                    maxiter=lmm_cfg.get("maxiter", 500),
+                    primary_threshold=nbs_cfg.get("primary_threshold", 3.0),
+                    n_permutations=nbs_cfg.get("n_permutations", 5000),
+                    alpha=nbs_cfg.get("alpha", 0.05),
+                    random_state=lmm_cfg.get("random_state", 42),
+                    n_jobs=n_jobs,
+                )
+            elif correction_method == "max_t":
+                results = apply_max_t_permutation(
+                    results_df=results,
+                    df_wide=df_wide,
+                    connection_ids=connection_ids,
+                    formula=formula,
+                    predictor_of_interest=predictor,
+                    method=lmm_cfg.get("method", "powell"),
+                    maxiter=lmm_cfg.get("maxiter", 500),
+                    n_permutations=nbs_cfg.get("n_permutations", 5000),
+                    alpha=nbs_cfg.get("alpha", 0.05),
+                    random_state=lmm_cfg.get("random_state", 42),
+                    n_jobs=n_jobs,
+                )
+
+            # Save per-band-epoch results
+            epoch_suffix = f"_{epoch_type.replace('_connectivity', '')}" if epoch_type else ""
+            result_key = f"{band}{epoch_suffix}"
+            band_csv = output_dir / f"lmm_results_{result_key}.csv"
+            results.to_csv(band_csv, index=False)
+            print(f"  Saved: {band_csv}")
+
+            all_results[result_key] = results
 
     return all_results
 

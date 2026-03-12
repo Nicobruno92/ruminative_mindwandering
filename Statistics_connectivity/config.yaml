@@ -99,7 +99,7 @@ preprocessing:
 # NOTE: For initial testing or memory-constrained runs, set channel to "fdr"
 correction:
   roi: "fdr"
-  channel: "fdr"  # Use "nbs" for final analysis, "fdr" for testing/low-memory
+  channel: "nbs"  # NBS for channel-level (less aggressive than FDR for 2016 tests)
 
 # FDR settings (always computed as baseline, even when NBS is primary)
 fdr:
