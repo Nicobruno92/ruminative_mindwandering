@@ -166,25 +166,49 @@ except Exception as e:
     fi
     
     # Submit via the standard parallel markers script
-    # Capture all output to parse job IDs
-    SUBMIT_OUTPUT=$(bash ${SCRIPT_DIR}/submit_parallel_markers.sh \
+    # Run in background with timeout to avoid hanging
+    SUBMIT_LOG="${SCRIPT_DIR}/.tmp_submit_${MODERATOR}.log"
+    
+    echo "  Submitting jobs (this may take a moment)..."
+    bash ${SCRIPT_DIR}/submit_parallel_markers.sh \
         --config "${TMP_CONFIG}" \
-        --predictor "${INTERACTION}" 2>&1)
+        --predictor "${INTERACTION}" > "${SUBMIT_LOG}" 2>&1 &
     
-    echo "${SUBMIT_OUTPUT}"
+    SUBMIT_PID=$!
     
-    # Extract all job IDs from output (array job, MCC job, report job)
-    # Use grep -o with sed for portability (grep -P not available on all systems)
-    JIDS=$(echo "${SUBMIT_OUTPUT}" | grep -o 'Job ID: [0-9]*' | sed 's/Job ID: //' | tr '\n' ':')
+    # Wait up to 60 seconds for submission to complete
+    WAIT_COUNT=0
+    while kill -0 ${SUBMIT_PID} 2>/dev/null; do
+        sleep 2
+        WAIT_COUNT=$((WAIT_COUNT + 2))
+        if [ ${WAIT_COUNT} -ge 60 ]; then
+            echo "  ⚠ Submission taking longer than expected, continuing in background..."
+            break
+        fi
+    done
     
-    if [ -n "${JIDS}" ]; then
-        # Remove trailing ':'
-        JIDS="${JIDS%:}"
-        echo "  ✓ Submitted jobs ${JIDS} for moderator '${MODERATOR}'"
-        ALL_JIDS="${ALL_JIDS}:${JIDS}"
-        SUBMITTED+=("${MODERATOR}")
+    # Show output
+    if [ -f "${SUBMIT_LOG}" ]; then
+        cat "${SUBMIT_LOG}"
+        
+        # Extract all job IDs from output
+        JIDS=$(grep -o 'Job ID: [0-9]*' "${SUBMIT_LOG}" | sed 's/Job ID: //' | tr '\n' ':')
+        
+        if [ -n "${JIDS}" ]; then
+            # Remove trailing ':'
+            JIDS="${JIDS%:}"
+            echo "  ✓ Submitted jobs ${JIDS} for moderator '${MODERATOR}'"
+            ALL_JIDS="${ALL_JIDS}:${JIDS}"
+            SUBMITTED+=("${MODERATOR}")
+        else
+            echo "  ⚠ Could not parse job IDs, but submission may have succeeded"
+            echo "  Check squeue -u \$USER to verify"
+            SUBMITTED+=("${MODERATOR}")
+        fi
+        
+        rm -f "${SUBMIT_LOG}"
     else
-        echo "  ✗ Failed to submit jobs for moderator '${MODERATOR}'"
+        echo "  ✗ Failed to submit jobs for '${MODERATOR}'"
     fi
     
     # Clean up temporary config
