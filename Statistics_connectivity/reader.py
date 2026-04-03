@@ -16,8 +16,10 @@ from itertools import combinations_with_replacement
 # CONSTANTS
 # =============================================================================
 
-# Separator used in channel pair column names.
-# The Junifer H5 reader writes pairs as "Ch1-Ch2" (single hyphen).
+# Separator used in channel pair column names and ROI pair names.
+# The Junifer pipeline writes pairs as "Ch1-Ch2" (single hyphen).
+# EEG channel names (Fp1, AF3, FC1, …) never contain hyphens, and
+# ROI names use underscores, so a single hyphen is unambiguous.
 PAIR_SEPARATOR = "-"
 
 
@@ -225,6 +227,16 @@ def _parse_connectivity_csv(
     selfother = float(df["selfother"].iloc[0]) if "selfother" in df.columns else np.nan
     confidence = float(df["confidence"].iloc[0]) if "confidence" in df.columns else np.nan
     time_val = float(df["time"].iloc[0]) if "time" in df.columns else np.nan
+    
+    # Calculate time_on_task
+    task_to_sart_number = {
+        'Sart1': 1, 'Sart2': 2, 'Sart3': 3, 'Sart4': 4
+    }
+    sart_number = task_to_sart_number.get(task, np.nan)
+    if not np.isnan(sart_number):
+        time_on_task_val = int(probe_number + (15 * (sart_number - 1)))
+    else:
+        time_on_task_val = np.nan
 
     # ── Epoch type from filename ──────────────────────────────────────────
     fname = file_path.name.replace(".csv", "")
@@ -275,11 +287,12 @@ def _parse_connectivity_csv(
     result["selfother"] = selfother
     result["confidence"] = confidence
     result["time"] = time_val
+    result["time_on_task"] = time_on_task_val
     result["epoch_type"] = epoch_type
 
     out_cols = [
         "subject", "task", "probe_number", "label", "n_epochs",
-        "onoff", "valence", "selfother", "confidence", "time",
+        "onoff", "valence", "selfother", "confidence", "time", "time_on_task",
         "epoch_type", "band", "connection_id", "wsmi_value",
     ]
     return result[[c for c in out_cols if c in result.columns]]
@@ -412,7 +425,7 @@ def aggregate_to_roi_pairs(
     # Group by all metadata + ROI pair and average wSMI
     group_cols = [
         "subject", "task", "probe_number", "label", "n_epochs",
-        "onoff", "valence", "selfother", "confidence", "time",
+        "onoff", "valence", "selfother", "confidence", "time", "time_on_task",
         "epoch_type", "band", "connection_id",
     ]
     # Keep only columns that exist
@@ -495,6 +508,7 @@ def prepare_connectivity_for_lmm(
     candidate_meta = [
         "subject", "task", "probe_number", "label", "n_epochs",
         "onoff", "epoch_type", "valence", "selfother", "confidence", "time",
+        "time_on_task",
     ]
     metadata_cols = [
         c for c in candidate_meta
@@ -537,19 +551,21 @@ def prepare_connectivity_for_lmm(
     # value, making (x > median).mean() = 0 for everyone when one class
     # dominates globally, which would exclude all subjects.
     if min_minority_ratio is not None and "onoff" in pivot.columns:
-        subject_balance = pivot.groupby("subject")["onoff"].apply(
-            lambda x: min(
-                (x == 0.0).mean(),    # OFFTASK ratio
-                (x == 100.0).mean(),  # ONTASK ratio
+        unique_vals = pivot["onoff"].dropna().unique()
+        if len(unique_vals) > 10:
+            print(f"  Skipping class imbalance filter: 'onoff' is continuous ({len(unique_vals)} unique values)")
+        else:
+            # For discrete variables (like binary onoff), check if minority class has enough trials
+            subject_balance = pivot.groupby("subject")["onoff"].apply(
+                lambda x: x.value_counts(normalize=True).min() if len(x.dropna().unique()) > 1 else 0.0
             )
-        )
-        valid_subjects = subject_balance[
-            subject_balance >= min_minority_ratio
-        ].index
-        n_excluded = pivot["subject"].nunique() - len(valid_subjects)
-        pivot = pivot[pivot["subject"].isin(valid_subjects)]
-        if n_excluded > 0:
-            print(f"  Excluded {n_excluded} subjects (class imbalance)")
+            valid_subjects = subject_balance[
+                subject_balance >= min_minority_ratio
+            ].index
+            n_excluded = pivot["subject"].nunique() - len(valid_subjects)
+            pivot = pivot[pivot["subject"].isin(valid_subjects)]
+            if n_excluded > 0:
+                print(f"  Excluded {n_excluded} subjects (class imbalance)")
 
     print(
         f"  Ready for LMM: {len(pivot)} probes, "

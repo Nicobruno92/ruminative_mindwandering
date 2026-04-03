@@ -517,6 +517,8 @@ def build_model_pipeline(
     rf_params: dict = None,
     xgb_params: dict = None,
     lr_params: dict = None,
+    ocsvm_params: dict = None,
+    iforest_params: dict = None,
     feature_selection_method: str = 'f_classif',
     scaler: str = 'none',
     y=None,
@@ -536,7 +538,7 @@ def build_model_pipeline(
     X : pd.DataFrame
         Feature matrix (used for column inspection only).
     model_type : str
-        One of 'rf', 'xgb', 'lr'.
+        One of 'rf', 'xgb', 'lr', 'ocsvm', 'iforest'.
     use_smote : bool
         Whether to add oversampling step.
     oversampling_method : str
@@ -549,7 +551,7 @@ def build_model_pipeline(
         For XGBoost imbalance handling.
     k : int
         Number of features to select.
-    rf_params, xgb_params, lr_params : dict
+    rf_params, xgb_params, lr_params, ocsvm_params, iforest_params : dict
         Model-specific hyperparameter overrides.
     feature_selection_method : str
         One of 'mrmr', 'lmm', 'lmm_encoding', 'lmm_decoding', 'f_classif',
@@ -579,6 +581,8 @@ def build_model_pipeline(
     )
     steps = [('preprocessor', preprocessor)]
 
+    is_oneclass = model_type in ('ocsvm', 'iforest')
+
     # Scaling (before feature selection)
     if scaler == 'standard':
         steps.append(('scaler', StandardScaler()))
@@ -587,8 +591,8 @@ def build_model_pipeline(
     elif scaler == 'robust':
         steps.append(('scaler', RobustScaler()))
 
-    # Feature selection
-    if feature_selection_method != 'none':
+    # Feature selection (skipped for one-class models — supervised selectors require multiple classes)
+    if feature_selection_method != 'none' and not is_oneclass:
         actual_k = len(numeric_features) if k == 'all' else min(int(k), len(numeric_features))
 
         if feature_selection_method in ('lmm', 'lmm_decoding'):
@@ -608,8 +612,8 @@ def build_model_pipeline(
 
         steps.append(('feature_selection', feature_selector))
 
-    # PCA (optional, after feature selection)
-    if use_pca:
+    # PCA (optional, after feature selection — skipped for one-class models)
+    if use_pca and not is_oneclass:
         pca_transformer = (
             KernelPCA(n_components=pca_n_components, kernel=pca_kernel, random_state=random_state)
             if pca_type == 'kernel'
@@ -617,8 +621,8 @@ def build_model_pipeline(
         )
         steps.append(('pca', pca_transformer))
 
-    # Oversampling (after feature selection — important for LMM compatibility)
-    if use_smote:
+    # Oversampling (after feature selection — skipped for one-class models)
+    if use_smote and not is_oneclass:
         if not HAS_IMBLEARN:
             raise ImportError("imbalanced-learn is required. Install with: pip install imbalanced-learn")
         steps.append(('smote', get_oversampler(oversampling_method, k_neighbors=5,
@@ -691,507 +695,704 @@ def build_model_pipeline(
             lr_defaults.update(cleaned)
         steps.append(('clf', LogisticRegression(**lr_defaults)))
 
-    else:
-        raise ValueError(f"Unknown model_type: '{model_type}'. Choose from: 'rf', 'xgb', 'lr'")
+    elif model_type == 'ocsvm':
+        from sklearn.svm import OneClassSVM
+        ocsvm_defaults = {
+            'nu': 0.1,
+            'kernel': 'rbf',
+            'gamma': 'scale',
+        }
+        if ocsvm_params:
+            ocsvm_defaults.update({k: v for k, v in ocsvm_params.items() if v is not None})
+        steps.append(('clf', OneClassSVM(**ocsvm_defaults)))
 
-    return ImbPipeline(steps) if use_smote else Pipeline(steps)
+    elif model_type == 'iforest':
+        from sklearn.ensemble import IsolationForest
+        iforest_defaults = {
+            'n_estimators': 100,
+            'contamination': 'auto',
+            'random_state': random_state,
+            'n_jobs': -1,
+        }
+        if iforest_params:
+            iforest_defaults.update({k: v for k, v in iforest_params.items() if v is not None})
+        steps.append(('clf', IsolationForest(**iforest_defaults)))
+
+    else:
+        raise ValueError(f"Unknown model_type: '{model_type}'. Choose from: 'rf', 'xgb', 'lr', 'ocsvm', 'iforest'")
+
+    return ImbPipeline(steps) if (use_smote and not is_oneclass) else Pipeline(steps)
 
 
 # =============================================================================
 # CROSS-VALIDATION (LOSO ONLY)
 # =============================================================================
 
-def run_model_pipeline_cv(
+from joblib import Parallel, delayed
+
+def _process_cv_fold_loso(
+    fold_idx, train_idx, test_idx, X, y, groups, pipeline, scale_by_participant, scaler,
+    use_smote, oversampling_scope, oversampling_method, random_state
+):
+    train_subjects = set(groups.iloc[train_idx])
+    test_subjects = set(groups.iloc[test_idx])
+    overlap = train_subjects.intersection(test_subjects)
+    if overlap:
+        raise ValueError(f"CRITICAL: Subject leakage in fold {fold_idx}: {overlap}")
+
+    held_out_subject = list(test_subjects)[0]
+
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+    groups_train, groups_test = groups.iloc[train_idx], groups.iloc[test_idx]
+
+    if scale_by_participant and scale_by_participant != 'none':
+        X_train, X_test = _apply_fold_scaling(
+            X_train, X_test, groups_train, groups_test, scale_by_participant, scaler
+        )
+
+    if use_smote and oversampling_scope == 'within':
+        X_train, y_train = apply_within_subject_oversampling(
+            X_train, y_train, groups_train.values,
+            method=oversampling_method, k_neighbors=5, random_state=random_state
+        )
+
+    # Use clone from sklearn.base
+    from sklearn.base import clone
+    fold_pipeline = clone(pipeline)
+    fit_params = {}
+    feature_selector_step = fold_pipeline.named_steps.get('feature_selection', None)
+    if type(feature_selector_step).__name__ in ('LMMDecodingFeatureSelector', 'LMMEncodingFeatureSelector'):
+        fit_params['feature_selection__groups'] = groups_train
+
+    fold_pipeline.fit(X_train, y_train, **fit_params)
+
+    y_pred = fold_pipeline.predict(X_test)
+    y_score = None
+    auc = 0.5
+    fpr, tpr = None, None
+    auprc = 0.0
+    precision_curve, recall_curve = None, None
+
+    if hasattr(fold_pipeline, 'predict_proba'):
+        proba = fold_pipeline.predict_proba(X_test)
+        y_score = proba[:, 1]
+        if len(np.unique(y_test)) > 1:
+            from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score, precision_recall_curve
+            auc = roc_auc_score(y_test, y_score)
+            fpr, tpr, _ = roc_curve(y_test, y_score)
+            auprc = average_precision_score(y_test, y_score)
+            precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_score)
+
+    from sklearn.metrics import matthews_corrcoef, balanced_accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+    mcc = matthews_corrcoef(y_test, y_pred)
+    bal_acc = balanced_accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, zero_division=0)
+    rec = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    cm = confusion_matrix(y_test, y_pred)
+
+    loso_subject_metric = {
+        'subject': held_out_subject,
+        'fold_idx': fold_idx,
+        'auc': auc,
+        'auprc': auprc,
+        'mcc': mcc,
+        'balanced_accuracy': bal_acc,
+        'precision': prec,
+        'recall': rec,
+        'f1': f1,
+        'n_samples': len(y_test),
+        'n_positive': int(y_test.sum()),
+        'n_negative': int(len(y_test) - y_test.sum()),
+    }
+
+    import pandas as pd
+    label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
+    fold_detail = {
+        'fold_idx': fold_idx,
+        'subject': held_out_subject,
+        'y_true': y_test.tolist(),
+        'y_pred': y_pred.tolist(),
+        'y_proba': y_score.tolist() if y_score is not None else [],
+        'test_indices': test_idx.tolist(),
+        'label_percentages': label_counts,
+    }
+
+    importances = np.zeros(X.shape[1])
+    fs_step = fold_pipeline.named_steps.get('feature_selection', None)
+    clf_step = fold_pipeline.named_steps.get('clf', None)
+    if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
+        selected_indices = fs_step.get_support(indices=True)
+        importances_val = clf_step.feature_importances_
+        importances[selected_indices] = importances_val
+
+    return {
+        'fold_idx': fold_idx,
+        'auc': auc,
+        'auprc': auprc,
+        'mcc': mcc,
+        'bal_acc': bal_acc,
+        'prec': prec,
+        'rec': rec,
+        'f1': f1,
+        'cm': cm,
+        'fpr': fpr,
+        'tpr': tpr,
+        'prec_curve': precision_curve,
+        'rec_curve': recall_curve,
+        'importances': importances,
+        'fold_detail': fold_detail,
+        'loso_subject_metric': loso_subject_metric,
+        'estimator': fold_pipeline
+    }
+
+def _process_cv_fold_loso_oneclass(
+    fold_idx: int,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
     X: pd.DataFrame,
     y: pd.Series,
     groups: pd.Series,
-    model_type: str = 'rf',
-    use_smote: bool = True,
-    oversampling_method: str = 'SMOTE',
-    oversampling_scope: str = 'global',
-    fixed_random_state: int = None,
-    class_weight=None,
-    scale_pos_weight=None,
-    k: int = 20,
-    rf_params: dict = None,
-    xgb_params: dict = None,
-    lr_params: dict = None,
-    feature_selection_method: str = 'mrmr',
-    scaler: str = 'standard',
-    scale_by_participant: str = 'none',
-    lmm_n_jobs: int = -1,
-    use_pca: bool = False,
-    pca_n_components: int = None,
-    pca_type: str = 'standard',
-    pca_kernel: str = 'rbf',
-) -> pd.DataFrame:
-    """
-    Run Leave-One-Subject-Out cross-validation.
+    pipeline,
+    scale_by_participant: str,
+    scaler: str,
+    oneclass_target: str,
+    random_state: int,
+) -> dict:
+    """Process a single LOSO fold using a one-class (outlier detection) classifier.
 
-    One fold per subject: train on all others, test on the held-out subject.
+    Trains on the target class only from the N-1 training subjects, evaluates
+    on the held-out subject. Decision function scores are signed so that higher
+    values indicate the minority class.
 
     Parameters
     ----------
+    fold_idx : int
+        Index of the current fold.
+    train_idx, test_idx : np.ndarray
+        Integer position indices for train/test split.
     X : pd.DataFrame
-        Feature matrix (n_samples × n_features).
+        Full feature matrix.
     y : pd.Series
-        Binary target.
+        Binary target labels (0/1).
     groups : pd.Series
-        Subject ID for each sample (defines LOSO splits).
-    model_type : str
-        Classifier: 'rf', 'xgb', 'lr'.
-    use_smote : bool
-        Whether to apply oversampling.
-    oversampling_method : str
-        SMOTE variant.
-    oversampling_scope : str
-        'global' (in pipeline) or 'within' (per subject before fitting).
-    fixed_random_state : int
-        Seed for reproducibility.
-    class_weight : str or dict
-        Class weight for RF/LR.
-    scale_pos_weight : float or 'auto'
-        XGBoost class weight.
-    k : int
-        Number of features to select. Use 'all' to skip selection.
-    rf_params, xgb_params, lr_params : dict
-        Model hyperparameter overrides.
-    feature_selection_method : str
-        Feature ranking method.
-    scaler : str
-        Scaler type.
+        Subject IDs (defines LOSO folds).
+    pipeline : sklearn Pipeline
+        Unfitted pipeline with a one-class classifier as the final step.
     scale_by_participant : str
-        'none', 'global', or 'within' — participant-level scaling mode.
-    lmm_n_jobs : int
-        Parallel jobs for LMM selector.
-    use_pca, pca_n_components, pca_type, pca_kernel
-        PCA configuration.
+        Participant-level scaling strategy ('none', 'global', 'within').
+    scaler : str
+        Scaler type used in per-participant scaling.
+    oneclass_target : str
+        ``"minority"`` → train on class 1; inlier (+1) = minority.
+        ``"majority"`` → train on class 0; outlier (-1) = minority.
+    random_state : int
+        Kept for API consistency; unused here.
 
     Returns
     -------
-    pd.DataFrame
-        Single-row DataFrame with aggregated metrics and fold-level details.
+    dict
+        Fold-level metrics compatible with ``_process_cv_fold_loso``.
     """
-    random_state = fixed_random_state if fixed_random_state is not None else 42
+    train_subjects = set(groups.iloc[train_idx])
+    test_subjects = set(groups.iloc[test_idx])
+    overlap = train_subjects.intersection(test_subjects)
+    if overlap:
+        raise ValueError(f"CRITICAL: Subject leakage in fold {fold_idx}: {overlap}")
 
-    # If scaling by participant manually, skip pipeline-level scaling to avoid double-scaling
+    held_out_subject = list(test_subjects)[0]
+    X_train_full, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train_full, y_test = y.iloc[train_idx], y.iloc[test_idx]
+    groups_train, groups_test = groups.iloc[train_idx], groups.iloc[test_idx]
+
+    if scale_by_participant and scale_by_participant != 'none':
+        X_train_full, X_test = _apply_fold_scaling(
+            X_train_full, X_test, groups_train, groups_test, scale_by_participant, scaler
+        )
+
+    counts = y_train_full.value_counts()
+    if oneclass_target == "minority":
+        train_class_label = counts.idxmin()
+        score_sign = 1.0    # higher score → more inlier → more minority (class 1)
+        inlier_maps_to = 1
+    else:
+        train_class_label = counts.idxmax()
+        score_sign = -1.0   # lower score → more outlier → more minority (class 1)
+        inlier_maps_to = 0
+
+    X_train_oneclass = X_train_full[y_train_full == train_class_label].reset_index(drop=True)
+
+    from sklearn.base import clone
+    fold_pipeline = clone(pipeline)
+    fold_pipeline.fit(X_train_oneclass)
+
+    raw_pred = fold_pipeline.predict(X_test)          # +1 = inlier, -1 = outlier
+    y_pred = np.where(raw_pred == 1, inlier_maps_to, 1 - inlier_maps_to)
+
+    y_score = None
+    auc = 0.5
+    fpr, tpr = None, None
+    auprc = 0.0
+    precision_curve, recall_curve = None, None
+
+    if hasattr(fold_pipeline, 'decision_function'):
+        raw_scores = fold_pipeline.decision_function(X_test)
+        y_score = score_sign * raw_scores
+        if len(np.unique(y_test)) > 1:
+            from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score, precision_recall_curve
+            auc = roc_auc_score(y_test, y_score)
+            fpr, tpr, _ = roc_curve(y_test, y_score)
+            auprc = average_precision_score(y_test, y_score)
+            precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_score)
+
+    from sklearn.metrics import matthews_corrcoef, balanced_accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+    mcc = matthews_corrcoef(y_test, y_pred)
+    bal_acc = balanced_accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, zero_division=0)
+    rec = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    cm = confusion_matrix(y_test, y_pred)
+
+    loso_subject_metric = {
+        'subject': held_out_subject,
+        'fold_idx': fold_idx,
+        'auc': auc,
+        'auprc': auprc,
+        'mcc': mcc,
+        'balanced_accuracy': bal_acc,
+        'precision': prec,
+        'recall': rec,
+        'f1': f1,
+        'n_samples': len(y_test),
+        'n_positive': int(y_test.sum()),
+        'n_negative': int(len(y_test) - y_test.sum()),
+    }
+
+    label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
+    fold_detail = {
+        'fold_idx': fold_idx,
+        'subject': held_out_subject,
+        'y_true': y_test.tolist(),
+        'y_pred': y_pred.tolist(),
+        'y_proba': y_score.tolist() if y_score is not None else [],
+        'test_indices': test_idx.tolist(),
+        'label_percentages': label_counts,
+    }
+
+    return {
+        'fold_idx': fold_idx,
+        'auc': auc,
+        'auprc': auprc,
+        'mcc': mcc,
+        'bal_acc': bal_acc,
+        'prec': prec,
+        'rec': rec,
+        'f1': f1,
+        'cm': cm,
+        'fpr': fpr,
+        'tpr': tpr,
+        'prec_curve': precision_curve,
+        'rec_curve': recall_curve,
+        'importances': np.zeros(X.shape[1]),
+        'fold_detail': fold_detail,
+        'loso_subject_metric': loso_subject_metric,
+        'estimator': fold_pipeline,
+    }
+
+
+def _process_cv_fold_within_oneclass(
+    fold_idx: int,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    X: pd.DataFrame,
+    y: pd.Series,
+    pipeline,
+    oneclass_target: str,
+    random_state: int,
+) -> dict:
+    """Process a single CV fold using a one-class (outlier detection) classifier.
+
+    Trains the pipeline on a single class only, then predicts on the full test set.
+    Decision function scores are signed so that higher values indicate the minority class.
+
+    Parameters
+    ----------
+    fold_idx : int
+        Index of the current CV fold.
+    train_idx : np.ndarray
+        Integer position indices for the training split.
+    test_idx : np.ndarray
+        Integer position indices for the test split.
+    X : pd.DataFrame
+        Full feature matrix for this subject.
+    y : pd.Series
+        Binary target labels (0/1) for this subject.
+    pipeline : sklearn Pipeline
+        Unfitted pipeline whose final step is a one-class classifier
+        (OneClassSVM or IsolationForest).
+    oneclass_target : str
+        ``"minority"`` → train on class 1 (minority/MB); inlier (+1) = class 1.
+        ``"majority"`` → train on class 0 (majority); outlier (-1) = class 1.
+    random_state : int
+        Kept for API consistency; unused here.
+
+    Returns
+    -------
+    dict
+        Fold-level performance metrics compatible with ``_process_cv_fold_within``.
+    """
+    X_train_full = X.iloc[train_idx]
+    X_test = X.iloc[test_idx]
+    y_train_full = y.iloc[train_idx]
+    y_test = y.iloc[test_idx]
+
+    counts = y_train_full.value_counts()
+    if oneclass_target == "minority":
+        train_class_label = counts.idxmin()
+        score_sign = 1.0    # higher decision score → more inlier → more minority (class 1)
+        inlier_maps_to = 1
+    else:
+        train_class_label = counts.idxmax()
+        score_sign = -1.0   # lower decision score → more outlier → more minority (class 1)
+        inlier_maps_to = 0
+
+    X_train_oneclass = X_train_full[y_train_full == train_class_label].reset_index(drop=True)
+
+    from sklearn.base import clone
+    fold_pipeline = clone(pipeline)
+    fold_pipeline.fit(X_train_oneclass)
+
+    raw_pred = fold_pipeline.predict(X_test)          # +1 = inlier, -1 = outlier
+    y_pred = np.where(raw_pred == 1, inlier_maps_to, 1 - inlier_maps_to)
+
+    y_score = None
+    auc = 0.5
+    fpr, tpr = None, None
+    auprc = 0.0
+    precision_curve, recall_curve = None, None
+
+    if hasattr(fold_pipeline, 'decision_function'):
+        raw_scores = fold_pipeline.decision_function(X_test)
+        y_score = score_sign * raw_scores
+        if len(np.unique(y_test)) > 1:
+            from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score, precision_recall_curve
+            auc = roc_auc_score(y_test, y_score)
+            fpr, tpr, _ = roc_curve(y_test, y_score)
+            auprc = average_precision_score(y_test, y_score)
+            precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_score)
+
+    from sklearn.metrics import matthews_corrcoef, balanced_accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+    mcc = matthews_corrcoef(y_test, y_pred)
+    bal_acc = balanced_accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, zero_division=0)
+    rec = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    cm = confusion_matrix(y_test, y_pred)
+
+    label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
+    fold_detail = {
+        'fold_idx': fold_idx,
+        'y_true': y_test.tolist(),
+        'y_pred': y_pred.tolist(),
+        'y_proba': y_score.tolist() if y_score is not None else [],
+        'test_indices': test_idx.tolist(),
+        'label_percentages': label_counts,
+    }
+
+    return {
+        'fold_idx': fold_idx,
+        'auc': auc,
+        'auprc': auprc,
+        'mcc': mcc,
+        'bal_acc': bal_acc,
+        'prec': prec,
+        'rec': rec,
+        'f1': f1,
+        'cm': cm,
+        'fpr': fpr,
+        'tpr': tpr,
+        'prec_curve': precision_curve,
+        'rec_curve': recall_curve,
+        'importances': np.zeros(X.shape[1]),
+        'fold_detail': fold_detail,
+        'estimator': fold_pipeline,
+    }
+
+
+def run_model_pipeline_cv(
+    X: pd.DataFrame, y: pd.Series, groups: pd.Series, model_type: str = 'rf',
+    use_smote: bool = True, oversampling_method: str = 'SMOTE', oversampling_scope: str = 'global',
+    fixed_random_state: int = None, class_weight=None, scale_pos_weight=None, k: int = 20,
+    rf_params: dict = None, xgb_params: dict = None, lr_params: dict = None,
+    ocsvm_params: dict = None, iforest_params: dict = None,
+    oneclass_target: str = "minority",
+    feature_selection_method: str = 'mrmr', scaler: str = 'standard', scale_by_participant: str = 'none',
+    lmm_n_jobs: int = 1, use_pca: bool = False, pca_n_components: int = None,
+    pca_type: str = 'standard', pca_kernel: str = 'rbf', cv_n_jobs: int = -1
+) -> pd.DataFrame:
+
+    random_state = fixed_random_state if fixed_random_state is not None else 42
+    is_oneclass = model_type in ('ocsvm', 'iforest')
     pipeline_scaler = 'none' if (scale_by_participant and scale_by_participant != 'none') else scaler
 
+    # Fix to 1 for inner threads to avoid oversubscription
+    if rf_params is None: rf_params = {}
+    if xgb_params is None: xgb_params = {}
+    if lr_params is None: lr_params = {}
+    if ocsvm_params is None: ocsvm_params = {}
+    if iforest_params is None: iforest_params = {}
+    rf_params['n_jobs'] = 1
+    xgb_params['n_jobs'] = 1
+    lr_params['n_jobs'] = 1
+    iforest_params['n_jobs'] = 1
+
     pipeline = build_model_pipeline(
-        X,
-        model_type=model_type,
-        use_smote=(use_smote and oversampling_scope == 'global'),
-        oversampling_method=oversampling_method,
-        y=y,
-        random_state=random_state,
-        class_weight=class_weight,
-        scale_pos_weight=scale_pos_weight,
-        k=k,
-        rf_params=rf_params,
-        xgb_params=xgb_params,
-        lr_params=lr_params,
-        feature_selection_method=feature_selection_method,
-        scaler=pipeline_scaler,
-        lmm_n_jobs=lmm_n_jobs,
-        use_pca=use_pca,
-        pca_n_components=pca_n_components,
-        pca_type=pca_type,
-        pca_kernel=pca_kernel,
+        X, model_type=model_type, use_smote=(use_smote and oversampling_scope == 'global'),
+        oversampling_method=oversampling_method, y=y, random_state=random_state,
+        class_weight=class_weight, scale_pos_weight=scale_pos_weight, k=k,
+        rf_params=rf_params, xgb_params=xgb_params, lr_params=lr_params,
+        ocsvm_params=ocsvm_params, iforest_params=iforest_params,
+        feature_selection_method=feature_selection_method, scaler=pipeline_scaler,
+        lmm_n_jobs=1, use_pca=use_pca, pca_n_components=pca_n_components,
+        pca_type=pca_type, pca_kernel=pca_kernel
     )
 
+    from sklearn.model_selection import LeaveOneGroupOut
     cv = LeaveOneGroupOut()
     cv_splits = list(cv.split(X, y, groups))
 
-    fold_aucs = []
-    fold_auprcs = []
-    fold_mccs = []
-    fold_bal_accs = []
-    fold_precisions = []
-    fold_recalls = []
-    fold_f1s = []
-    fold_cms = []
-    fold_fprs = []
-    fold_tprs = []
-    fold_precisions_curve = []
-    fold_recalls_curve = []
-    feature_importances_dict = {feat: [] for feat in X.columns}
-    all_selected_features = set()
-    fold_details = []
-    estimators = []
-    loso_subject_metrics = []
-
-    for fold_idx, (train_idx, test_idx) in enumerate(cv_splits):
-        # Validate no subject leakage
-        train_subjects = set(groups.iloc[train_idx])
-        test_subjects = set(groups.iloc[test_idx])
-        overlap = train_subjects.intersection(test_subjects)
-        if overlap:
-            raise ValueError(
-                f"CRITICAL: Subject leakage in fold {fold_idx}: {overlap}"
+    # Parallel over folds
+    if is_oneclass:
+        results = Parallel(n_jobs=cv_n_jobs, backend='loky')(
+            delayed(_process_cv_fold_loso_oneclass)(
+                fold_idx, train_idx, test_idx, X, y, groups, pipeline,
+                scale_by_participant, scaler, oneclass_target, random_state
             )
-
-        held_out_subject = list(test_subjects)[0]  # Always exactly one subject per LOSO fold
-
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-        groups_train, groups_test = groups.iloc[train_idx], groups.iloc[test_idx]
-
-        # Participant-level scaling (no data leakage with LOSO)
-        if scale_by_participant and scale_by_participant != 'none':
-            X_train, X_test = _apply_fold_scaling(
-                X_train, X_test, groups_train, groups_test, scale_by_participant, scaler
+            for fold_idx, (train_idx, test_idx) in enumerate(cv_splits)
+        )
+    else:
+        results = Parallel(n_jobs=cv_n_jobs, backend='loky')(
+            delayed(_process_cv_fold_loso)(
+                fold_idx, train_idx, test_idx, X, y, groups, pipeline, scale_by_participant, scaler,
+                use_smote, oversampling_scope, oversampling_method, random_state
             )
+            for fold_idx, (train_idx, test_idx) in enumerate(cv_splits)
+        )
 
-        # Within-subject oversampling (on training set only)
-        if use_smote and oversampling_scope == 'within':
-            X_train, y_train = apply_within_subject_oversampling(
-                X_train, y_train, groups_train.values,
-                method=oversampling_method, k_neighbors=5, random_state=random_state
-            )
-
-        # Clone and fit pipeline
-        fold_pipeline = clone(pipeline)
-        fit_params = {}
-        feature_selector_step = fold_pipeline.named_steps.get('feature_selection', None)
-        if isinstance(feature_selector_step, (LMMDecodingFeatureSelector, LMMEncodingFeatureSelector)):
-            fit_params['feature_selection__groups'] = groups_train
-
-        fold_pipeline.fit(X_train, y_train, **fit_params)
-        estimators.append(fold_pipeline)
-
-        # Predictions
-        y_pred = fold_pipeline.predict(X_test)
-        y_score = None
-        auc = 0.5
-
-        if hasattr(fold_pipeline, 'predict_proba'):
-            proba = fold_pipeline.predict_proba(X_test)
-            y_score = proba[:, 1]
-            if len(np.unique(y_test)) > 1:
-                auc = roc_auc_score(y_test, y_score)
-                fpr, tpr, _ = roc_curve(y_test, y_score)
-                fold_fprs.append(fpr)
-                fold_tprs.append(tpr)
-
-        fold_aucs.append(auc)
-
-        # AUPRC and PR curve
-        if y_score is not None and len(np.unique(y_test)) > 1:
-            auprc = average_precision_score(y_test, y_score)
-            precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_score)
-            fold_precisions_curve.append(precision_curve)
-            fold_recalls_curve.append(recall_curve)
-        else:
-            auprc = 0.0
-        fold_auprcs.append(auprc)
-
-        # Other metrics
-        mcc = matthews_corrcoef(y_test, y_pred)
-        fold_mccs.append(mcc)
-        fold_bal_accs.append(balanced_accuracy_score(y_test, y_pred))
-        fold_precisions.append(precision_score(y_test, y_pred, zero_division=0))
-        fold_recalls.append(recall_score(y_test, y_pred, zero_division=0))
-        fold_f1s.append(f1_score(y_test, y_pred, zero_division=0))
-        fold_cms.append(confusion_matrix(y_test, y_pred))
-
-        # Per-subject metrics (LOSO = one subject per fold)
-        loso_subject_metrics.append({
-            'subject': held_out_subject,
-            'fold_idx': fold_idx,
-            'auc': auc,
-            'auprc': auprc,
-            'mcc': mcc,
-            'balanced_accuracy': balanced_accuracy_score(y_test, y_pred),
-            'precision': precision_score(y_test, y_pred, zero_division=0),
-            'recall': recall_score(y_test, y_pred, zero_division=0),
-            'f1': f1_score(y_test, y_pred, zero_division=0),
-            'n_samples': len(y_test),
-            'n_positive': int(y_test.sum()),
-            'n_negative': int(len(y_test) - y_test.sum()),
-        })
-
-        # Sample-level predictions (for probability-based saving)
-        label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
-        fold_details.append({
-            'fold_idx': fold_idx,
-            'subject': held_out_subject,
-            'y_true': y_test.tolist(),
-            'y_pred': y_pred.tolist(),
-            'y_proba': y_score.tolist() if y_score is not None else [],
-            'test_indices': test_idx.tolist(),
-            'label_percentages': label_counts,
-        })
-
-        # Feature importances (accumulated across folds)
-        fs_step = fold_pipeline.named_steps.get('feature_selection', None)
-        clf_step = fold_pipeline.named_steps.get('clf', None)
-        if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
-            selected_indices = fs_step.get_support(indices=True)
-            selected_feats = [X.columns[i] for i in selected_indices]
-            all_selected_features.update(selected_feats)
-            importances = clf_step.feature_importances_
-            for idx, feat in enumerate(selected_feats):
-                feature_importances_dict[feat].append(importances[idx])
-            for feat in X.columns:
-                if feat not in selected_feats:
-                    feature_importances_dict[feat].append(0.0)
-
-    # Aggregate feature importances
-    mean_feature_importances = np.zeros(len(X.columns))
-    for i, feat in enumerate(X.columns):
-        if feature_importances_dict[feat]:
-            mean_feature_importances[i] = np.mean(feature_importances_dict[feat])
-
-    result = {
-        'mean_auc': np.mean(fold_aucs),
-        'std_auc': np.std(fold_aucs),
-        'mean_auprc': np.mean(fold_auprcs),
-        'std_auprc': np.std(fold_auprcs),
-        'mean_mcc': np.mean(fold_mccs),
-        'std_mcc': np.std(fold_mccs),
-        'mean_balanced_accuracy': np.mean(fold_bal_accs),
-        'std_balanced_accuracy': np.std(fold_bal_accs),
-        'mean_precision': np.mean(fold_precisions),
-        'std_precision': np.std(fold_precisions),
-        'mean_recall': np.mean(fold_recalls),
-        'std_recall': np.std(fold_recalls),
-        'mean_f1': np.mean(fold_f1s),
-        'std_f1': np.std(fold_f1s),
-        'fold_aucs': fold_aucs,
-        'fold_auprcs': fold_auprcs,
-        'fold_mccs': fold_mccs,
-        'fold_bal_accs': fold_bal_accs,
-        'fold_cms': fold_cms,
-        'fold_fprs': fold_fprs,
-        'fold_tprs': fold_tprs,
-        'fold_precisions_curve': fold_precisions_curve,
-        'fold_recalls_curve': fold_recalls_curve,
-        'feature_importances': mean_feature_importances,
-        'fold_details': fold_details,
+    result_dict = {
+        'mean_auc': np.mean([r['auc'] for r in results]),
+        'std_auc': np.std([r['auc'] for r in results]),
+        'mean_auprc': np.mean([r['auprc'] for r in results]),
+        'std_auprc': np.std([r['auprc'] for r in results]),
+        'mean_mcc': np.mean([r['mcc'] for r in results]),
+        'std_mcc': np.std([r['mcc'] for r in results]),
+        'mean_balanced_accuracy': np.mean([r['bal_acc'] for r in results]),
+        'std_balanced_accuracy': np.std([r['bal_acc'] for r in results]),
+        'mean_precision': np.mean([r['prec'] for r in results]),
+        'std_precision': np.std([r['prec'] for r in results]),
+        'mean_recall': np.mean([r['rec'] for r in results]),
+        'std_recall': np.std([r['rec'] for r in results]),
+        'mean_f1': np.mean([r['f1'] for r in results]),
+        'std_f1': np.std([r['f1'] for r in results]),
+        'fold_aucs': [r['auc'] for r in results],
+        'fold_auprcs': [r['auprc'] for r in results],
+        'fold_mccs': [r['mcc'] for r in results],
+        'fold_bal_accs': [r['bal_acc'] for r in results],
+        'fold_cms': [r['cm'] for r in results],
+        'fold_fprs': [r['fpr'] for r in results if r['fpr'] is not None],
+        'fold_tprs': [r['tpr'] for r in results if r['tpr'] is not None],
+        'fold_precisions_curve': [r['prec_curve'] for r in results if r['prec_curve'] is not None],
+        'fold_recalls_curve': [r['rec_curve'] for r in results if r['rec_curve'] is not None],
+        'feature_importances': np.mean([r['importances'] for r in results], axis=0),
+        'fold_details': [r['fold_detail'] for r in results],
         'cv_splits': cv_splits,
-        'estimators': estimators,
-        'loso_subject_metrics': loso_subject_metrics,
+        'estimators': [r['estimator'] for r in results],
+        'loso_subject_metrics': [r['loso_subject_metric'] for r in results],
     }
-    return pd.DataFrame([result])
+    return pd.DataFrame([result_dict])
 
 
 # =============================================================================
 # CROSS-VALIDATION (WITHIN-SUBJECT)
 # =============================================================================
 
+def _process_cv_fold_within(
+    fold_idx, train_idx, test_idx, X, y, pipeline, use_smote, oversampling_scope,
+    oversampling_method, random_state
+):
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+    
+    if use_smote and oversampling_scope == 'within':
+        mock_groups = np.zeros(len(y_train))
+        X_train, y_train = apply_within_subject_oversampling(
+            X_train, y_train, mock_groups, method=oversampling_method,
+            k_neighbors=5, random_state=random_state
+        )
+
+    from sklearn.base import clone
+    fold_pipeline = clone(pipeline)
+    fold_pipeline.fit(X_train, y_train)
+
+    y_pred = fold_pipeline.predict(X_test)
+    y_score = None
+    auc = 0.5
+    fpr, tpr = None, None
+    auprc = 0.0
+    precision_curve, recall_curve = None, None
+
+    if hasattr(fold_pipeline, 'predict_proba'):
+        proba = fold_pipeline.predict_proba(X_test)
+        y_score = proba[:, 1]
+        if len(np.unique(y_test)) > 1:
+            from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score, precision_recall_curve
+            auc = roc_auc_score(y_test, y_score)
+            fpr, tpr, _ = roc_curve(y_test, y_score)
+            auprc = average_precision_score(y_test, y_score)
+            precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_score)
+
+    from sklearn.metrics import matthews_corrcoef, balanced_accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+    mcc = matthews_corrcoef(y_test, y_pred)
+    bal_acc = balanced_accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, zero_division=0)
+    rec = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    cm = confusion_matrix(y_test, y_pred)
+
+    import pandas as pd
+    label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
+    fold_detail = {
+        'fold_idx': fold_idx,
+        'y_true': y_test.tolist(),
+        'y_pred': y_pred.tolist(),
+        'y_proba': y_score.tolist() if y_score is not None else [],
+        'test_indices': test_idx.tolist(),
+        'label_percentages': label_counts,
+    }
+
+    importances = np.zeros(X.shape[1])
+    fs_step = fold_pipeline.named_steps.get('feature_selection', None)
+    clf_step = fold_pipeline.named_steps.get('clf', None)
+    if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
+        selected_indices = fs_step.get_support(indices=True)
+        importances_val = clf_step.feature_importances_
+        importances[selected_indices] = importances_val
+
+    return {
+        'fold_idx': fold_idx,
+        'auc': auc,
+        'auprc': auprc,
+        'mcc': mcc,
+        'bal_acc': bal_acc,
+        'prec': prec,
+        'rec': rec,
+        'f1': f1,
+        'cm': cm,
+        'fpr': fpr,
+        'tpr': tpr,
+        'prec_curve': precision_curve,
+        'rec_curve': recall_curve,
+        'importances': importances,
+        'fold_detail': fold_detail,
+        'estimator': fold_pipeline
+    }
+
 def run_within_subject_cv(
-    X: pd.DataFrame,
-    y: pd.Series,
-    groups: pd.Series = None,  # Optional: used ONLY if cv_strategy == 'group_kfold'
-    cv_strategy: str = 'stratified_kfold',
-    cv_folds: int = 5,
-    model_type: str = 'rf',
-    use_smote: bool = True,
-    oversampling_method: str = 'SMOTE',
-    oversampling_scope: str = 'within',
-    fixed_random_state: int = None,
-    class_weight=None,
-    scale_pos_weight=None,
-    k: int = 20,
-    rf_params: dict = None,
-    xgb_params: dict = None,
-    lr_params: dict = None,
-    feature_selection_method: str = 'mrmr',
-    scaler: str = 'standard',
-    use_pca: bool = False,
-    pca_n_components: int = None,
-    pca_type: str = 'standard',
-    pca_kernel: str = 'rbf',
+    X: pd.DataFrame, y: pd.Series, groups: pd.Series = None, cv_strategy: str = 'stratified_kfold',
+    cv_folds: int = 5, model_type: str = 'rf', use_smote: bool = True, oversampling_method: str = 'SMOTE',
+    oversampling_scope: str = 'within', fixed_random_state: int = None, class_weight=None,
+    scale_pos_weight=None, k: int = 20, rf_params: dict = None, xgb_params: dict = None,
+    lr_params: dict = None, ocsvm_params: dict = None, iforest_params: dict = None,
+    oneclass_target: str = "minority",
+    feature_selection_method: str = 'mrmr', scaler: str = 'standard',
+    use_pca: bool = False, pca_n_components: int = None, pca_type: str = 'standard',
+    pca_kernel: str = 'rbf', cv_n_jobs: int = -1
 ) -> pd.DataFrame:
-    """
-    Run within-subject cross-validation for a SINGLE subject's data.
 
-    Parameters
-    ----------
-    X : pd.DataFrame
-        Feature matrix for one subject.
-    y : pd.Series
-        Binary target for one subject.
-    groups : pd.Series, optional
-        Used only if cv_strategy == 'group_kfold' (e.g., task identifiers like 'Sart1', 'Sart2').
-    cv_strategy : str
-        'stratified_kfold', 'group_kfold', or 'repeated_stratified_kfold'.
-    cv_folds : int
-        Number of CV folds.
-    model_type ... pca_kernel : 
-        Same hyperparameters as run_model_pipeline_cv.
-
-    Returns
-    -------
-    pd.DataFrame
-        Single-row DataFrame with aggregated metrics and fold-level details.
-    """
     random_state = fixed_random_state if fixed_random_state is not None else 42
-    pipeline_scaler = scaler
+    is_oneclass = model_type in ('ocsvm', 'iforest')
 
-    # For within-subject, the oversampling "within" scope literally means applying it inside each CV fold.
-    # If set to global (pipeline), the SMOTE step lives inside the pipeline.
+    # Fix to 1 for inner threads to avoid oversubscription
+    if rf_params is None: rf_params = {}
+    if xgb_params is None: xgb_params = {}
+    if lr_params is None: lr_params = {}
+    if ocsvm_params is None: ocsvm_params = {}
+    if iforest_params is None: iforest_params = {}
+    rf_params['n_jobs'] = 1
+    xgb_params['n_jobs'] = 1
+    lr_params['n_jobs'] = 1
+    iforest_params['n_jobs'] = 1
+
     pipeline = build_model_pipeline(
-        X,
-        model_type=model_type,
-        use_smote=(use_smote and oversampling_scope == 'global'),
-        oversampling_method=oversampling_method,
-        y=y,
-        random_state=random_state,
-        class_weight=class_weight,
-        scale_pos_weight=scale_pos_weight,
-        k=k,
-        rf_params=rf_params,
-        xgb_params=xgb_params,
-        lr_params=lr_params,
-        feature_selection_method=feature_selection_method,
-        scaler=pipeline_scaler,
-        use_pca=use_pca,
-        pca_n_components=pca_n_components,
-        pca_type=pca_type,
-        pca_kernel=pca_kernel,
+        X, model_type=model_type, use_smote=(use_smote and oversampling_scope == 'global'),
+        oversampling_method=oversampling_method, y=y, random_state=random_state, class_weight=class_weight,
+        scale_pos_weight=scale_pos_weight, k=k, rf_params=rf_params, xgb_params=xgb_params,
+        lr_params=lr_params, ocsvm_params=ocsvm_params, iforest_params=iforest_params,
+        feature_selection_method=feature_selection_method, scaler=scaler,
+        use_pca=use_pca, pca_n_components=pca_n_components, pca_type=pca_type, pca_kernel=pca_kernel
     )
 
-    # Setup Cross-Validation
+    from sklearn.model_selection import StratifiedKFold, GroupKFold, RepeatedStratifiedKFold
     if cv_strategy == 'stratified_kfold':
         cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
         cv_splits = list(cv.split(X, y))
     elif cv_strategy == 'group_kfold':
-        if groups is None:
-            raise ValueError("groups array (e.g. task IDs) is required for group_kfold cv_strategy")
+        if groups is None: raise ValueError("groups array required for group_kfold cv_strategy")
         cv = GroupKFold(n_splits=cv_folds)
         cv_splits = list(cv.split(X, y, groups))
     elif cv_strategy == 'repeated_stratified_kfold':
         cv = RepeatedStratifiedKFold(n_splits=cv_folds, n_repeats=3, random_state=random_state)
         cv_splits = list(cv.split(X, y))
     else:
-        raise ValueError(f"Unknown cv_strategy for within_subject: {cv_strategy}")
+        raise ValueError(f"Unknown cv_strategy: {cv_strategy}")
 
-    fold_aucs = []
-    fold_auprcs = []
-    fold_mccs = []
-    fold_bal_accs = []
-    fold_precisions = []
-    fold_recalls = []
-    fold_f1s = []
-    fold_cms = []
-    fold_fprs = []
-    fold_tprs = []
-    fold_precisions_curve = []
-    fold_recalls_curve = []
-    feature_importances_dict = {feat: [] for feat in X.columns}
-    all_selected_features = set()
-    fold_details = []
-    estimators = []
-
-    for fold_idx, (train_idx, test_idx) in enumerate(cv_splits):
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-        
-        # Manual within-fold oversampling (analogous to LOSO approach if used outside pipeline)
-        if use_smote and oversampling_scope == 'within':
-            # Groups are irrelevant for within-subject SMOTE
-            mock_groups = np.zeros(len(y_train))
-            X_train, y_train = apply_within_subject_oversampling(
-                X_train, y_train, mock_groups,
-                method=oversampling_method, k_neighbors=5, random_state=random_state
+    if is_oneclass:
+        results = Parallel(n_jobs=cv_n_jobs, backend='loky')(
+            delayed(_process_cv_fold_within_oneclass)(
+                fold_idx, train_idx, test_idx, X, y, pipeline, oneclass_target, random_state
             )
+            for fold_idx, (train_idx, test_idx) in enumerate(cv_splits)
+        )
+    else:
+        results = Parallel(n_jobs=cv_n_jobs, backend='loky')(
+            delayed(_process_cv_fold_within)(
+                fold_idx, train_idx, test_idx, X, y, pipeline, use_smote, oversampling_scope,
+                oversampling_method, random_state
+            )
+            for fold_idx, (train_idx, test_idx) in enumerate(cv_splits)
+        )
 
-        fold_pipeline = clone(pipeline)
-        fold_pipeline.fit(X_train, y_train)
-        estimators.append(fold_pipeline)
-
-        y_pred = fold_pipeline.predict(X_test)
-        y_score = None
-        auc = 0.5
-
-        if hasattr(fold_pipeline, 'predict_proba'):
-            proba = fold_pipeline.predict_proba(X_test)
-            y_score = proba[:, 1]
-            if len(np.unique(y_test)) > 1:
-                auc = roc_auc_score(y_test, y_score)
-                fpr, tpr, _ = roc_curve(y_test, y_score)
-                fold_fprs.append(fpr)
-                fold_tprs.append(tpr)
-
-        fold_aucs.append(auc)
-
-        if y_score is not None and len(np.unique(y_test)) > 1:
-            auprc = average_precision_score(y_test, y_score)
-            precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_score)
-            fold_precisions_curve.append(precision_curve)
-            fold_recalls_curve.append(recall_curve)
-        else:
-            auprc = 0.0
-        fold_auprcs.append(auprc)
-
-        mcc = matthews_corrcoef(y_test, y_pred)
-        fold_mccs.append(mcc)
-        fold_bal_accs.append(balanced_accuracy_score(y_test, y_pred))
-        fold_precisions.append(precision_score(y_test, y_pred, zero_division=0))
-        fold_recalls.append(recall_score(y_test, y_pred, zero_division=0))
-        fold_f1s.append(f1_score(y_test, y_pred, zero_division=0))
-        fold_cms.append(confusion_matrix(y_test, y_pred))
-
-        label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
-        fold_details.append({
-            'fold_idx': fold_idx,
-            'y_true': y_test.tolist(),
-            'y_pred': y_pred.tolist(),
-            'y_proba': y_score.tolist() if y_score is not None else [],
-            'test_indices': test_idx.tolist(),
-            'label_percentages': label_counts,
-        })
-
-        fs_step = fold_pipeline.named_steps.get('feature_selection', None)
-        clf_step = fold_pipeline.named_steps.get('clf', None)
-        if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
-            selected_indices = fs_step.get_support(indices=True)
-            selected_feats = [X.columns[i] for i in selected_indices]
-            all_selected_features.update(selected_feats)
-            importances = clf_step.feature_importances_
-            for idx, feat in enumerate(selected_feats):
-                feature_importances_dict[feat].append(importances[idx])
-            for feat in X.columns:
-                if feat not in selected_feats:
-                    feature_importances_dict[feat].append(0.0)
-
-    mean_feature_importances = np.zeros(len(X.columns))
-    for i, feat in enumerate(X.columns):
-        if feature_importances_dict[feat]:
-            mean_feature_importances[i] = np.mean(feature_importances_dict[feat])
-
-    result = {
-        'mean_auc': np.mean(fold_aucs),
-        'std_auc': np.std(fold_aucs),
-        'mean_auprc': np.mean(fold_auprcs),
-        'std_auprc': np.std(fold_auprcs),
-        'mean_mcc': np.mean(fold_mccs),
-        'std_mcc': np.std(fold_mccs),
-        'mean_balanced_accuracy': np.mean(fold_bal_accs),
-        'std_balanced_accuracy': np.std(fold_bal_accs),
-        'mean_precision': np.mean(fold_precisions),
-        'std_precision': np.std(fold_precisions),
-        'mean_recall': np.mean(fold_recalls),
-        'std_recall': np.std(fold_recalls),
-        'mean_f1': np.mean(fold_f1s),
-        'std_f1': np.std(fold_f1s),
-        'fold_aucs': fold_aucs,
-        'fold_auprcs': fold_auprcs,
-        'fold_mccs': fold_mccs,
-        'fold_bal_accs': fold_bal_accs,
-        'fold_cms': fold_cms,
-        'fold_fprs': fold_fprs,
-        'fold_tprs': fold_tprs,
-        'fold_precisions_curve': fold_precisions_curve,
-        'fold_recalls_curve': fold_recalls_curve,
-        'feature_importances': mean_feature_importances,
-        'fold_details': fold_details,
+    result_dict = {
+        'mean_auc': np.mean([r['auc'] for r in results]),
+        'std_auc': np.std([r['auc'] for r in results]),
+        'mean_auprc': np.mean([r['auprc'] for r in results]),
+        'std_auprc': np.std([r['auprc'] for r in results]),
+        'mean_mcc': np.mean([r['mcc'] for r in results]),
+        'std_mcc': np.std([r['mcc'] for r in results]),
+        'mean_balanced_accuracy': np.mean([r['bal_acc'] for r in results]),
+        'std_balanced_accuracy': np.std([r['bal_acc'] for r in results]),
+        'mean_precision': np.mean([r['prec'] for r in results]),
+        'std_precision': np.std([r['prec'] for r in results]),
+        'mean_recall': np.mean([r['rec'] for r in results]),
+        'std_recall': np.std([r['rec'] for r in results]),
+        'mean_f1': np.mean([r['f1'] for r in results]),
+        'std_f1': np.std([r['f1'] for r in results]),
+        'fold_aucs': [r['auc'] for r in results],
+        'fold_auprcs': [r['auprc'] for r in results],
+        'fold_mccs': [r['mcc'] for r in results],
+        'fold_bal_accs': [r['bal_acc'] for r in results],
+        'fold_cms': [r['cm'] for r in results],
+        'fold_fprs': [r['fpr'] for r in results if r['fpr'] is not None],
+        'fold_tprs': [r['tpr'] for r in results if r['tpr'] is not None],
+        'fold_precisions_curve': [r['prec_curve'] for r in results if r['prec_curve'] is not None],
+        'fold_recalls_curve': [r['rec_curve'] for r in results if r['rec_curve'] is not None],
+        'feature_importances': np.mean([r['importances'] for r in results], axis=0),
+        'fold_details': [r['fold_detail'] for r in results],
         'cv_splits': cv_splits,
-        'estimators': estimators,
-        # Intentionally omitting loso_subject_metrics since this is a single subject
+        'estimators': [r['estimator'] for r in results],
     }
-    return pd.DataFrame([result])
+    return pd.DataFrame([result_dict])
 
 
 # =============================================================================

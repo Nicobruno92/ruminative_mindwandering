@@ -68,7 +68,10 @@ label_contrasts:
   #   threshold_high: 70
 
 # Which contrast to run (overridable with --contrast)
-contrast: ON_vs_OFF_within_median
+contrast: 
+  - ON_vs_OFF_within_median
+  - ON_vs_OFF_global_median
+  # - ON_vs_OFF
 
 # =============================================================================
 # EPOCH TYPES
@@ -89,9 +92,8 @@ contrast: ON_vs_OFF_within_median
 #   sleep: ["sleep"]
 
 epoch_types:
-  - state
+  - sleep
   - evoked: ['erp']
-  # - sleep
 
 # =============================================================================
 # MARKER DATA FORMAT
@@ -108,7 +110,10 @@ epoch_types:
 # junifer_markers/2.aggregate_probes/aggregate_markers_by_probe.py.
 # With channel_methods: null (default) → use per_channel.
 
-data_format: per_channel
+data_format: per_roi
+# Whether to include pair-wise connectivity features (e.g. Fp1-Fp2 wSMI).
+# If false, these features are dropped to reduce dimensionality.
+include_connectivity_pairs: false
 
 # =============================================================================
 # FEATURE FAMILIES
@@ -170,17 +175,17 @@ feature_families:
 # bash scripts (run_local.sh, run_cluster.sh) submit one job per family.
 # Use ["all"] to run once on all features.
 # Use multiple entries to get parallel independent runs per family.
-run_families: ["all", "spectral", "connectivity", "information_theory"]
+run_families: ["all"] # "spectral", "connectivity", "information_theory"
 
 
 # =============================================================================
 # EXPERIMENT SETUP
 # =============================================================================
 
-model_type: lr            # rf, xgb, lr
+model_type: ["rf", "iforest"]            # rf, xgb, lr, ocsvm, iforest
 
-n_runs: 20                # LOSO runs with different seeds
-permutation_runs: 100     # Label permutations for null distribution
+n_runs: 10                # LOSO runs with different seeds
+permutation_runs: 10     # Label permutations for null distribution
 
 random_seed: 42
 
@@ -246,6 +251,24 @@ lr_class_weight: balanced
 lr_C: 0.5
 lr_l1_ratio: 0.1
 lr_max_iter: 2000
+
+
+# =============================================================================
+# MODEL PARAMETERS — ONE-CLASS (OUTLIER DETECTION)
+# =============================================================================
+# One-class SVM (counterpart of 'lr'/'svm')
+ocsvm_nu: 0.1
+ocsvm_kernel: rbf
+ocsvm_gamma: scale
+
+# Isolation Forest (counterpart of 'rf')
+iforest_n_estimators: 100
+iforest_contamination: auto   # Expected fraction of outliers
+
+# Which class to use as training set for one-class models:
+# "minority" → train on minority class; inlier = minority.
+# "majority" → train on majority class; outlier = minority.
+oneclass_target: minority
 
 
 # =============================================================================

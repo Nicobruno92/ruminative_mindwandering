@@ -12,6 +12,7 @@ Orchestrates the analysis:
 
 import argparse
 import gc
+import os
 import yaml
 import numpy as np
 import pandas as pd
@@ -145,69 +146,75 @@ def run_analysis_level(
                 print(f"  [SKIP] No data for band={band}, epoch={epoch_label}")
                 continue
 
-            # Run LMM
+            # Run LMM for each predictor
             formula = lmm_cfg.get("formula", "power ~ onoff + (1|subject)")
-            predictor = lmm_cfg.get("predictor_of_interest", "onoff")
-            results = run_lmm_per_connection(
-                df_wide=df_wide,
-                connection_ids=connection_ids,
-                formula=formula,
-                predictor_of_interest=predictor,
-                method=lmm_cfg.get("method", "powell"),
-                maxiter=lmm_cfg.get("maxiter", 500),
-                random_state=lmm_cfg.get("random_state", 42),
-            )
-
-            # Always apply FDR as baseline reference
-            results = apply_fdr_correction(
-                results,
-                alpha=fdr_cfg.get("alpha", 0.05),
-                method=fdr_cfg.get("method", "fdr_bh"),
-            )
-
-            # Apply additional correction based on level
-            # Get n_jobs from config or environment (SLURM_CPUS_PER_TASK)
-            import os
-            n_jobs = nbs_cfg.get("n_jobs", int(os.environ.get("SLURM_CPUS_PER_TASK", 1)))
-            
-            if correction_method == "nbs":
-                results = apply_nbs_correction(
-                    results_df=results,
+            predictors = lmm_cfg.get("predictor_of_interest", ["onoff"])
+            if isinstance(predictors, str):
+                predictors = [predictors]
+                
+            for predictor in predictors:
+                print(f"  [{level_name.upper()}] Predictor: {predictor}")
+                results = run_lmm_per_connection(
                     df_wide=df_wide,
                     connection_ids=connection_ids,
                     formula=formula,
                     predictor_of_interest=predictor,
                     method=lmm_cfg.get("method", "powell"),
                     maxiter=lmm_cfg.get("maxiter", 500),
-                    primary_threshold=nbs_cfg.get("primary_threshold", 3.0),
-                    n_permutations=nbs_cfg.get("n_permutations", 5000),
-                    alpha=nbs_cfg.get("alpha", 0.05),
                     random_state=lmm_cfg.get("random_state", 42),
-                    n_jobs=n_jobs,
-                )
-            elif correction_method == "max_t":
-                results = apply_max_t_permutation(
-                    results_df=results,
-                    df_wide=df_wide,
-                    connection_ids=connection_ids,
-                    formula=formula,
-                    predictor_of_interest=predictor,
-                    method=lmm_cfg.get("method", "powell"),
-                    maxiter=lmm_cfg.get("maxiter", 500),
-                    n_permutations=nbs_cfg.get("n_permutations", 5000),
-                    alpha=nbs_cfg.get("alpha", 0.05),
-                    random_state=lmm_cfg.get("random_state", 42),
-                    n_jobs=n_jobs,
                 )
 
-            # Save per-band-epoch results
-            epoch_suffix = f"_{epoch_type.replace('_connectivity', '')}" if epoch_type else ""
-            result_key = f"{band}{epoch_suffix}"
-            band_csv = output_dir / f"lmm_results_{result_key}.csv"
-            results.to_csv(band_csv, index=False)
-            print(f"  Saved: {band_csv}")
+                # Always apply FDR as baseline reference
+                results = apply_fdr_correction(
+                    results,
+                    alpha=fdr_cfg.get("alpha", 0.05),
+                    method=fdr_cfg.get("method", "fdr_bh"),
+                )
 
-            all_results[result_key] = results
+                # Apply additional correction based on level
+                # Get n_jobs from config or environment (SLURM_CPUS_PER_TASK)
+                n_jobs = nbs_cfg.get("n_jobs", int(os.environ.get("SLURM_CPUS_PER_TASK", 1)))
+                
+                if correction_method == "nbs":
+                    results = apply_nbs_correction(
+                        results_df=results,
+                        df_wide=df_wide,
+                        connection_ids=connection_ids,
+                        formula=formula,
+                        predictor_of_interest=predictor,
+                        method=lmm_cfg.get("method", "powell"),
+                        maxiter=lmm_cfg.get("maxiter", 500),
+                        primary_threshold=nbs_cfg.get("primary_threshold", 3.0),
+                        n_permutations=nbs_cfg.get("n_permutations", 5000),
+                        alpha=nbs_cfg.get("alpha", 0.05),
+                        random_state=lmm_cfg.get("random_state", 42),
+                        n_jobs=n_jobs,
+                    )
+                elif correction_method == "max_t":
+                    results = apply_max_t_permutation(
+                        results_df=results,
+                        df_wide=df_wide,
+                        connection_ids=connection_ids,
+                        formula=formula,
+                        predictor_of_interest=predictor,
+                        method=lmm_cfg.get("method", "powell"),
+                        maxiter=lmm_cfg.get("maxiter", 500),
+                        n_permutations=nbs_cfg.get("n_permutations", 5000),
+                        alpha=nbs_cfg.get("alpha", 0.05),
+                        random_state=lmm_cfg.get("random_state", 42),
+                        n_jobs=n_jobs,
+                    )
+
+                # Save per-band-epoch-predictor results
+                epoch_suffix = f"_{epoch_type.replace('_connectivity', '')}" if epoch_type else ""
+                band_key = f"{band}{epoch_suffix}"
+                band_csv = output_dir / f"lmm_results_{band_key}_{predictor}.csv"
+                results.to_csv(band_csv, index=False)
+                print(f"  Saved: {band_csv}")
+
+                if predictor not in all_results:
+                    all_results[predictor] = {}
+                all_results[predictor][band_key] = results
 
     return all_results
 
@@ -294,7 +301,10 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
                 config=config,
                 output_dir=roi_output,
             )
-            roi_results.update(band_roi_results)
+            for p, p_res in band_roi_results.items():
+                if p not in roi_results:
+                    roi_results[p] = {}
+                roi_results[p].update(p_res)
             del roi_df
 
         # ── Channel-level analysis for this band ─────────────────────────
@@ -306,7 +316,10 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
                 config=config,
                 output_dir=channel_output,
             )
-            channel_results.update(band_channel_results)
+            for p, p_res in band_channel_results.items():
+                if p not in channel_results:
+                    channel_results[p] = {}
+                channel_results[p].update(p_res)
 
         # Free this band's data before loading the next
         del band_df
@@ -324,94 +337,103 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
         if roi_results:
             print("\n  Generating ROI-level figures...")
 
-            # Matrix grid
-            fig_path = roi_output / "connectivity_matrix_grid.png"
-            plot_multi_band_grid(
-                all_results=roi_results,
-                sig_col=roi_sig_col,
-                suptitle="wSMI Connectivity: Effect of Mind-Wandering (onoff)",
-                save_path=str(fig_path),
-                dpi=out_cfg.get("fig_dpi", 300),
-            )
-            plt.close("all")
-
-            # Per-band matrices
-            for band, results in roi_results.items():
-                fig_path = roi_output / f"connectivity_matrix_{band}.png"
-                fig = plot_contrast_matrix(
-                    results_df=results,
+            for predictor, p_roi_results in roi_results.items():
+                if not p_roi_results:
+                    continue
+                    
+                # Matrix grid
+                fig_path = roi_output / f"connectivity_matrix_grid_{predictor}.png"
+                plot_multi_band_grid(
+                    all_results=p_roi_results,
                     sig_col=roi_sig_col,
-                    title=f"wSMI {band} – LMM t-statistic (onoff)",
-                )
-                fig.savefig(fig_path, dpi=out_cfg.get("fig_dpi", 300), bbox_inches="tight")
-                plt.close(fig)
-
-            # Circle plots (ROI)
-            fig_path = roi_output / "connectivity_circle_grid.png"
-            plot_multi_band_circle_grid(
-                all_results=roi_results,
-                level="roi",
-                sig_col=roi_sig_col,
-                suptitle="wSMI Connectivity Circles: MW Effect (onoff)",
-                save_path=str(fig_path),
-                dpi=out_cfg.get("fig_dpi", 300),
-            )
-            plt.close("all")
-            for band, results in roi_results.items():
-                fig_path = roi_output / f"connectivity_circle_{band}.png"
-                plot_roi_connectivity_circle(
-                    results_df=results,
-                    sig_col=roi_sig_col,
-                    title=f"wSMI {band} – ROI Connectivity Circle",
+                    suptitle=f"wSMI Connectivity: Effect of {predictor}",
                     save_path=str(fig_path),
                     dpi=out_cfg.get("fig_dpi", 300),
                 )
                 plt.close("all")
 
-            summary_path = roi_output / "summary_all_bands.csv"
-            create_summary_table(roi_results, save_path=str(summary_path))
+                # Per-band matrices
+                for band, results in p_roi_results.items():
+                    fig_path = roi_output / f"connectivity_matrix_{band}_{predictor}.png"
+                    fig = plot_contrast_matrix(
+                        results_df=results,
+                        sig_col=roi_sig_col,
+                        title=f"wSMI {band} – LMM t-statistic ({predictor})",
+                    )
+                    fig.savefig(fig_path, dpi=out_cfg.get("fig_dpi", 300), bbox_inches="tight")
+                    plt.close(fig)
+
+                # Circle plots (ROI)
+                fig_path = roi_output / f"connectivity_circle_grid_{predictor}.png"
+                plot_multi_band_circle_grid(
+                    all_results=p_roi_results,
+                    level="roi",
+                    sig_col=roi_sig_col,
+                    suptitle=f"wSMI Connectivity Circles: Effect of {predictor}",
+                    save_path=str(fig_path),
+                    dpi=out_cfg.get("fig_dpi", 300),
+                )
+                plt.close("all")
+                
+                for band, results in p_roi_results.items():
+                    fig_path = roi_output / f"connectivity_circle_{band}_{predictor}.png"
+                    plot_roi_connectivity_circle(
+                        results_df=results,
+                        sig_col=roi_sig_col,
+                        title=f"wSMI {band} – ROI Connectivity Circle ({predictor})",
+                        save_path=str(fig_path),
+                        dpi=out_cfg.get("fig_dpi", 300),
+                    )
+                    plt.close("all")
+
+                summary_path = roi_output / f"summary_all_bands_{predictor}.csv"
+                create_summary_table(p_roi_results, save_path=str(summary_path))
 
         if channel_results:
             print("\n  Generating channel-level figures...")
-            for band, results in channel_results.items():
-                # Matrix plot
-                fig_path = channel_output / f"channel_matrix_{band}.png"
-                plot_channel_contrast_matrix(
-                    results_df=results,
-                    sig_col=ch_sig_col,
-                    title=f"wSMI {band} – Channel LMM t-stat ({ch_correction})",
-                    save_path=str(fig_path),
-                    dpi=out_cfg.get("fig_dpi", 300),
-                )
-                plt.close("all")
+            for predictor, p_channel_results in channel_results.items():
+                if not p_channel_results:
+                    continue
+                    
+                for band, results in p_channel_results.items():
+                    # Matrix plot
+                    fig_path = channel_output / f"channel_matrix_{band}_{predictor}.png"
+                    plot_channel_contrast_matrix(
+                        results_df=results,
+                        sig_col=ch_sig_col,
+                        title=f"wSMI {band} – Channel LMM t-stat ({ch_correction}, {predictor})",
+                        save_path=str(fig_path),
+                        dpi=out_cfg.get("fig_dpi", 300),
+                    )
+                    plt.close("all")
 
-                # Circle plot (channel)
-                fig_path = channel_output / f"channel_circle_{band}.png"
-                plot_channel_connectivity_circle(
-                    results_df=results,
+                    # Circle plot (channel)
+                    fig_path = channel_output / f"channel_circle_{band}_{predictor}.png"
+                    plot_channel_connectivity_circle(
+                        results_df=results,
+                        rois=rois,
+                        sig_col=ch_sig_col,
+                        title=f"wSMI {band} – Channel Connectivity ({ch_correction}, {predictor})",
+                        save_path=str(fig_path),
+                        dpi=out_cfg.get("fig_dpi", 300),
+                    )
+                    plt.close("all")
+
+                # Circle grid across bands
+                fig_path = channel_output / f"channel_circle_grid_{predictor}.png"
+                plot_multi_band_circle_grid(
+                    all_results=p_channel_results,
+                    level="channel",
                     rois=rois,
                     sig_col=ch_sig_col,
-                    title=f"wSMI {band} – Channel Connectivity ({ch_correction})",
+                    suptitle=f"Channel Connectivity Circles ({ch_correction}, {predictor})",
                     save_path=str(fig_path),
                     dpi=out_cfg.get("fig_dpi", 300),
                 )
                 plt.close("all")
 
-            # Circle grid across bands
-            fig_path = channel_output / "channel_circle_grid.png"
-            plot_multi_band_circle_grid(
-                all_results=channel_results,
-                level="channel",
-                rois=rois,
-                sig_col=ch_sig_col,
-                suptitle=f"Channel Connectivity Circles ({ch_correction})",
-                save_path=str(fig_path),
-                dpi=out_cfg.get("fig_dpi", 300),
-            )
-            plt.close("all")
-
-            summary_path = channel_output / "summary_all_bands.csv"
-            create_summary_table(channel_results, save_path=str(summary_path))
+                summary_path = channel_output / f"summary_all_bands_{predictor}.csv"
+                create_summary_table(p_channel_results, save_path=str(summary_path))
 
     # ── Done ──────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)

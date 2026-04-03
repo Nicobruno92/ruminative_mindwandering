@@ -135,9 +135,13 @@ def plot_contrast_matrix(
 
     # Set color limits
     if vmin is None or vmax is None:
-        abs_max = np.nanmax(np.abs(value_matrix))
-        if np.isnan(abs_max) or abs_max == 0:
+        abs_vals = np.abs(value_matrix)
+        if np.all(np.isnan(abs_vals)):
             abs_max = 1.0
+        else:
+            abs_max = float(np.nanmax(abs_vals))
+            if abs_max == 0:
+                abs_max = 1.0
         vmin = -abs_max
         vmax = abs_max
 
@@ -391,9 +395,13 @@ def plot_channel_contrast_matrix(
         sig_matrix[j, i] = sig
 
     # Color limits
-    abs_max = np.nanmax(np.abs(value_matrix))
-    if np.isnan(abs_max) or abs_max == 0:
+    abs_vals = np.abs(value_matrix)
+    if np.all(np.isnan(abs_vals)):
         abs_max = 1.0
+    else:
+        abs_max = float(np.nanmax(abs_vals))
+        if abs_max == 0:
+            abs_max = 1.0
 
     fig, ax = plt.subplots(1, 1, figsize=figsize)
 
@@ -431,31 +439,46 @@ def plot_channel_contrast_matrix(
 # CIRCULAR CONNECTIVITY PLOTS
 # =============================================================================
 
-# Channel positions for topographic ordering (approximate 10-20 angles in degrees)
-# Arranged anterior (top) -> posterior (bottom), left negative, right positive
+# Channel positions for topographic ordering (degrees, counterclockwise from top=90°)
+# Layout: Fz at top (90°), left hemisphere 90°→270°, occipital at bottom (270°),
+# right hemisphere 270°→90° (through 0°). All 64 BioSemi channels have unique angles,
+# evenly spaced at 5.625° intervals to prevent node overlap in circle plots.
+#
+# Counterclockwise order starting from Fz (frontal midline at top):
+# Fz → left-frontal → left-temporal → left-parietal → occipital-midline →
+# right-parietal → right-temporal → right-frontal → Fp2
 CHANNEL_ANGLES = {
-    # Frontal
-    "Fp1": 72, "Fp2": 108, "AF7": 58, "AF3": 68, "AFz": 90,
-    "AF4": 112, "AF8": 122,
-    # Frontal row
-    "F7": 36, "F5": 47, "F3": 58, "F1": 75, "Fz": 90,
-    "F2": 105, "F4": 122, "F6": 133, "F8": 144,
-    # Fronto-central
-    "FT9": 18, "FT7": 27, "FC5": 40, "FC3": 55, "FC1": 77,
-    "FCz": 90, "FC2": 103, "FC4": 125, "FC6": 140, "FT8": 153, "FT10": 162,
-    # Central
-    "T7": 18, "C5": 30, "C3": 50, "C1": 72, "Cz": 90,
-    "C2": 108, "C4": 130, "C6": 150, "T8": 162,
-    # Centro-parietal
-    "TP9": 342, "TP7": 351, "CP5": 320, "CP3": 305, "CP1": 285,
-    "CPz": 270, "CP2": 255, "CP4": 235, "CP6": 220, "TP8": 189, "TP10": 198,
-    # Parietal
-    "P7": 324, "P5": 313, "P3": 302, "P1": 285, "Pz": 270,
-    "P2": 255, "P4": 238, "P6": 227, "P8": 216,
-    # Parieto-occipital
-    "PO7": 315, "PO3": 295, "POz": 270, "PO4": 245, "PO8": 225,
-    # Occipital
-    "O1": 300, "Oz": 270, "O2": 240, "Iz": 270,
+    # Frontal midline at top
+    "Fz":   90,
+    # Left frontal
+    "Fp1":  96, "AF7": 101, "AF3": 107, "F7": 113, "F5": 118,
+    "F3":  124, "F1":  129, "AFz": 135,
+    # Left fronto-central / temporal
+    "FC1": 141, "FC3": 146, "FC5": 152, "FT7": 158, "FT9": 163,
+    # Left central
+    "T7":  169, "C5":  174, "C3":  180, "C1":  186,
+    # Left centro-parietal
+    "CP5": 191, "CP3": 197, "CP1": 203, "TP7": 208, "TP9": 214,
+    # Left parieto-occipital
+    "P7":  219, "P5":  225, "P3":  231, "P1":  236,
+    "PO7": 242, "PO3": 248, "O1":  253,
+    # Posterior midline (bottom)
+    "CPz": 259, "Cz":  264, "Pz":  270, "POz": 276,
+    "Oz":  281, "Iz":  287,
+    # Right parieto-occipital
+    "O2":  293, "PO4": 298, "PO8": 304,
+    "P2":  309, "P4":  315, "P6":  321, "P8":  326,
+    # Right centro-parietal
+    "TP10": 332, "TP8": 338, "CP6": 343, "CP4": 349, "CP2": 354,
+    # Right central
+    "T8":    0, "C6":    6, "C4":   11, "C2":   17,
+    # Right fronto-central / temporal
+    "FT10":  23, "FT8":  28, "FC6":  34, "FC4":  39, "FC2":  45,
+    # Right frontal
+    "F2":   51, "F4":   56, "F6":   62, "F8":   68,
+    "AF4":  73, "AF8":  79, "Fp2":  84,
+    # FCz not in data but kept for compatibility (between Fp2 and Fz)
+    "FCz":  87,
 }
 
 # ROI angular positions (center of each region, arranged on the circle)

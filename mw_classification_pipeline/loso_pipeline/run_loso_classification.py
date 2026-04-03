@@ -44,7 +44,11 @@ from utils.analysis_utils import (
     run_permutation_distribution_analysis,
 )
 from utils.logging_utils import AnalysisLogger
-from utils.plotting_utils import plot_subject_level_densities, plot_shap_comparative_boxplots
+from utils.plotting_utils import (
+    plot_subject_level_densities,
+    plot_shap_comparative_boxplots,
+    generate_all_comparison_plots,
+)
 
 
 # =============================================================================
@@ -78,8 +82,8 @@ Examples:
     parser.add_argument("--family", type=str, default=None,
                         help="Override: feature family name (must match a key in feature_families)")
     parser.add_argument("--model_type", type=str, default=None,
-                        choices=["rf", "xgb", "lr"],
-                        help="Override: model type (rf, xgb, lr)")
+                        choices=["rf", "xgb", "lr", "ocsvm", "iforest"],
+                        help="Override: model type (rf, xgb, lr, ocsvm, iforest)")
     parser.add_argument("--dry_run", action="store_true",
                         help="Load data and print info without running classification")
     parser.add_argument("--skip_permutation", action="store_true",
@@ -217,6 +221,8 @@ def extract_model_params(config: dict) -> dict:
                 'objective', 'seed', 'n_jobs', 'scale_pos_weight'],
         'lr': ['penalty', 'solver', 'class_weight', 'C',
                'l1_ratio', 'max_iter'],
+        'ocsvm': ['nu', 'kernel', 'gamma'],
+        'iforest': ['n_estimators', 'contamination'],
     }
     all_params = {}
     for model_key, param_names in param_specs.items():
@@ -275,7 +281,13 @@ def main():
     contrast_name = config.get("contrast", "ON_vs_OFF")
     family_name = config.get("active_family", "all")
     feature_families = config.get("feature_families", {"all": None})
-    model_type = config.get("model_type", "lr")
+    model_type_raw = config.get("model_type", "lr")
+    if isinstance(model_type_raw, list):
+        raise ValueError(
+            f"config 'model_type' is a list {model_type_raw}. "
+            "Pass a single model via --model_type or run via run_cluster.sh which iterates over the list."
+        )
+    model_type = model_type_raw
     n_runs = config.get("n_runs", 20)
     permutation_runs = config.get("permutation_runs", 100)
     verbose = config.get("verbose", True)
@@ -353,6 +365,9 @@ def main():
         rf_params=model_params['rf'],
         xgb_params=model_params['xgb'],
         lr_params=model_params['lr'],
+        ocsvm_params=model_params['ocsvm'],
+        iforest_params=model_params['iforest'],
+        oneclass_target=config.get("oneclass_target", "minority"),
         top_n_features_plot=config.get("top_n_features_plot", 20),
         save_pickle=config.get("save_pickle", False),
         save_csv=config.get("save_csv", True),
@@ -421,6 +436,9 @@ def main():
             rf_params=model_params['rf'],
             xgb_params=model_params['xgb'],
             lr_params=model_params['lr'],
+            ocsvm_params=model_params['ocsvm'],
+            iforest_params=model_params['iforest'],
+            oneclass_target=config.get("oneclass_target", "minority"),
             top_n_features_plot=config.get("top_n_features_plot", 20),
             save_pickle=config.get("save_pickle", False),
             save_csv=config.get("save_csv", True),
@@ -447,25 +465,19 @@ def main():
         )
         
         if config.get("save_plots", True):
-            print("\nGenerating advanced comparison plots...")
-            plot_subject_level_densities(
-                true_subject_metrics_list=true_all_results,
-                perm_subject_metrics_list=perm_all_results,
-                dimension_name=contrast_name,
-                save_path=results_path,
-                filename_base=f"{model_type}_loso",
-                metric='auc'
+            print("\nGenerating comparison plots via generate_pipeline_plots.py ...")
+            import subprocess
+            _plot_script = Path(__file__).resolve().parent.parent / "scripts" / "generate_pipeline_plots.py"
+            _conda_env = config.get("slurm", {}).get("conda_env", "ML")
+            _miniforge = Path(os.path.expanduser("~")) / "miniforge3"
+            _ml_python = _miniforge / "envs" / _conda_env / "bin" / "python"
+            _python = str(_ml_python) if _ml_python.exists() else sys.executable
+            subprocess.run(
+                [_python, str(_plot_script),
+                 "--results_dir", results_path,
+                 "--top_n_features", str(config.get("top_n_features_plot", 20))],
+                check=False,
             )
-            
-            if config.get("save_shap", False) and true_shap_values and perm_shap_values:
-                plot_shap_comparative_boxplots(
-                    true_shap_runs=true_shap_values,
-                    perm_shap_runs=perm_shap_values,
-                    feature_names=feature_cols,
-                    save_path=results_path,
-                    filename_base=f"{model_type}_loso",
-                    num_features=10
-                )
 
     print(f"\n{'='*60}")
     print(f"Done. Results → {results_path}")

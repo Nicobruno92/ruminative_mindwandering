@@ -10,6 +10,11 @@ import subprocess
 import sys
 import os
 
+# Full path to the ML conda environment Python — avoids conda activation issues
+# on systems where `conda run` or sys.executable resolves to system Python 3.6.
+_CONDA_PYTHON = "/network/iss/home/nicolas.bruno/miniforge3/envs/ML/bin/python"
+PYTHON_EXE = _CONDA_PYTHON if os.path.isfile(_CONDA_PYTHON) else sys.executable
+
 # =============================================================================
 # CONFIGURATION - modify if result dirs change
 # =============================================================================
@@ -63,7 +68,7 @@ def run_plots_for_dir(family_dir: str) -> bool:
         return False
 
     result = subprocess.run(
-        [sys.executable, SCRIPT, "--results_dir", family_dir,
+        [PYTHON_EXE, SCRIPT, "--results_dir", family_dir,
          "--top_n_features", str(TOP_N_FEATURES)],
         capture_output=False,  # stream output directly
         text=True,

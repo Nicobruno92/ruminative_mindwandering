@@ -19,6 +19,7 @@ def load_all_probe_data(features_root: str,
                        subjects: Optional[List[str]] = None,
                        tasks: Optional[List[str]] = None,
                        marker_types: Optional[List[str]] = None,
+                       specific_markers: Optional[List[str]] = None,
                        qa_exclusions: Optional[Dict[str, set]] = None,
                        verbose: bool = True) -> pd.DataFrame:
     """
@@ -52,25 +53,37 @@ def load_all_probe_data(features_root: str,
     if not features_path.exists():
         raise FileNotFoundError(f"Features root directory not found: {features_root}")
     
-    # Find all CSV files matching the pattern
-    # Use rglob for reliable recursive search (handles symlinks better than glob with **)
-    csv_files = list(features_path.rglob("*_aggMarkers.csv"))
-    # Filter to only files matching the expected naming pattern
-    csv_files = [f for f in csv_files if f.name.startswith("sub-") and "_task-" in f.name and "_desc-probe-" in f.name]
+    # Combined search for both old and new naming patterns
+    csv_files = []
+    # Pattern 1: Original naming
+    # sub-XX_task-YY_desc-probe-NNN_[evoked|state|mixed]_aggMarkers.csv
+    csv_files.extend(list(features_path.rglob("sub-*_task-*_desc-probe-*_aggMarkers.csv")))
+    
+    # Pattern 2: New naming format found in filesystem
+    # sub-26_task-Sart1_probe-001_onTask_evoked.csv
+    csv_files.extend(list(features_path.rglob("sub-*_task-*_probe-*_*.csv")))
+    
+    # Filter to unique files and exclude metadata/summary files
+    unique_files = {}
+    for f in csv_files:
+        if f.name.endswith(".csv") and not f.name.startswith("summary") and not f.name.startswith("qa"):
+            unique_files[str(f)] = f
+    
+    csv_files = list(unique_files.values())
     
     if verbose:
-        print(f"Found {len(csv_files)} aggregated marker CSV files")
+        print(f"Found {len(csv_files)} marker CSV files")
     
     if len(csv_files) == 0:
-        raise FileNotFoundError(f"No aggregated marker CSV files found in {features_root}")
+        raise FileNotFoundError(f"No marker CSV files found in {features_root}")
     
     # Filter files based on parameters
     filtered_files = []
     qa_excluded_files = []
     
+    import re
     for file_path in csv_files:
         # Extract subject, task, and marker_type from filename
-        # Format: sub-XX_task-YY_desc-probe-NNN_[evoked|state]_aggMarkers.csv
         filename = file_path.name
         
         # Parse subject
@@ -89,17 +102,15 @@ def load_all_probe_data(features_root: str,
         else:
             continue
             
-        # Parse marker type
-        if "_aggMarkers.csv" in filename:
-            marker_type = filename.split("_desc-probe-")[1].split("_aggMarkers.csv")[0]
-            if "_" in marker_type:
-                marker_type = marker_type.split("_")[-1]  # Get last part (evoked or state)
-            else:
-                marker_type = "mixed"  # No type specified
-                
-            if marker_types is not None and marker_type not in marker_types:
-                continue
+        # Parse marker type (epoch type: evoked, sleep, or state)
+        match = re.search(r'_(evoked|sleep|state)(?:_connectivity)?(?:_aggMarkers)?\.csv$', filename)
+        
+        if match:
+            marker_type = match.group(1)
         else:
+            marker_type = "mixed"
+                
+        if marker_types is not None and marker_type not in marker_types:
             continue
         
         # Check QA exclusions
@@ -130,12 +141,51 @@ def load_all_probe_data(features_root: str,
     
     # Load all CSV files
     all_data = []
+    import re
     for file_path in filtered_files:
-        if True:
-            df = pd.read_csv(file_path)
-            all_data.append(df)
-            if verbose and len(all_data) % 50 == 0:
-                print(f"  Loaded {len(all_data)} files...")
+        df = pd.read_csv(file_path)
+        
+        # Determine marker_type from filename if not present in CSV
+        if 'marker_type' not in df.columns:
+            filename = file_path.name
+            # Try parsing with precise epoch type pattern
+            match = re.search(r'_(evoked|sleep|state)(?:_connectivity)?(?:_aggMarkers)?\.csv$', filename)
+            
+            if match:
+                mtype = match.group(1)
+            else:
+                mtype = "mixed"
+            df['marker_type'] = mtype
+
+        # Handle wide-format files by melting them
+        # Identification columns (exclude anything ending in _trimmean)
+        all_cols = df.columns.tolist()
+        id_vars = [c for c in all_cols if not c.endswith('_trimmean')]
+        value_vars = [c for c in all_cols if c.endswith('_trimmean')]
+        
+        # If specific_markers is provided, filter the value_vars before melting
+        # or filter the long-format marker column
+        if value_vars:
+            if specific_markers is not None:
+                wanted_vars = [f"{m}_trimmean" for m in specific_markers]
+                value_vars = [v for v in value_vars if v in wanted_vars]
+                
+            if len(value_vars) > 0:
+                df = df.melt(id_vars=id_vars, value_vars=value_vars, 
+                            var_name='marker', value_name='value')
+                # Clean up marker names (remove _trimmean suffix)
+                df['marker'] = df['marker'].str.replace('_trimmean', '')
+            else:
+                # No relevant markers in this wide file
+                continue
+        elif 'marker' in df.columns and specific_markers is not None:
+            df = df[df['marker'].isin(specific_markers)]
+            if df.empty:
+                continue
+        
+        all_data.append(df)
+        if verbose and len(all_data) % 50 == 0:
+            print(f"  Loaded {len(all_data)} files...")
     
     if len(all_data) == 0:
         raise ValueError("No valid CSV files could be loaded")
@@ -145,12 +195,21 @@ def load_all_probe_data(features_root: str,
     
     if verbose:
         print(f"Combined dataset shape: {combined_df.shape}")
-        print(f"Subjects: {sorted(combined_df['subject'].unique())}")
-        print(f"Tasks: {sorted(combined_df['task'].unique())}")
-        print(f"Marker types: {sorted(combined_df['marker_type'].unique())}")
-        print(f"Markers: {sorted(combined_df['marker'].unique())}")
-        print(f"Channels: {len(combined_df['channel'].unique())} channels")
-        print(f"Probes per subject-task: {combined_df.groupby(['subject', 'task'])['probe_number'].nunique().describe()}")
+        if 'subject' in combined_df.columns:
+            print(f"Subjects: {sorted(combined_df['subject'].unique())}")
+        if 'task' in combined_df.columns:
+            print(f"Tasks: {sorted(combined_df['task'].unique())}")
+        if 'marker_type' in combined_df.columns:
+            print(f"Marker types: {sorted(combined_df['marker_type'].unique())}")
+        if 'marker' in combined_df.columns:
+            print(f"Markers: {sorted(combined_df['marker'].unique())}")
+        if 'channel' in combined_df.columns:
+            print(f"Channels: {len(combined_df['channel'].unique())} channels")
+        
+        # Probes per subject-task if mandatory columns exist
+        required_summary = ['subject', 'task', 'probe_number']
+        if all(c in combined_df.columns for c in required_summary):
+            print(f"Probes per subject-task: {combined_df.groupby(['subject', 'task'])['probe_number'].nunique().describe()}")
     
     return combined_df
 
@@ -467,6 +526,24 @@ def prepare_data_for_lmm(df: pd.DataFrame,
         available_markers = sorted(df['marker'].unique())
         raise ValueError(f"Marker '{marker_name}' not found in data. Available markers: {available_markers}")
     
+    # Compute time_on_task early so it can be used for variability/class-balance filtering
+    task_to_sart_number = {
+        'Sart1': 1,
+        'Sart2': 2,
+        'Sart3': 3,
+        'Sart4': 4
+    }
+    marker_df['sart_number'] = marker_df['task'].map(task_to_sart_number)
+    if marker_df['sart_number'].isna().any():
+        unknown_tasks = marker_df[marker_df['sart_number'].isna()]['task'].unique()
+        raise ValueError(f"Unknown task names found: {unknown_tasks}. Expected: Sart1, Sart2, Sart3, Sart4")
+    
+    marker_df['time_on_task'] = (
+        marker_df['probe_number'] + 
+        (15 * (marker_df['sart_number'] - 1))
+    ).astype(int)
+    marker_df = marker_df.drop('sart_number', axis=1)
+    
     # Apply onoff filter if specified
     if onoff_max_value is not None:
         if 'onoff' not in marker_df.columns:
@@ -510,29 +587,8 @@ def prepare_data_for_lmm(df: pd.DataFrame,
                 f"All subjects had insufficient variability in '{filter_col}'."
             )
 
-    # Apply class balance filter if specified
-    if min_minority_ratio is not None:
-        if predictor_of_interest is None:
-            raise ValueError("predictor_of_interest must be specified when using min_minority_ratio")
-        
-        # For interaction terms, filter on the first constituent variable
-        filter_col = predictor_of_interest
-        if ':' in predictor_of_interest:
-            filter_col = predictor_of_interest.split(':')[0].strip()
-            
-        marker_df = filter_subjects_by_class_balance(
-            df=marker_df,
-            predictor_column=filter_col,
-            min_minority_ratio=min_minority_ratio,
-            subject_column='subject',
-            verbose=True
-        )
-        
-        if len(marker_df) == 0:
-            raise ValueError(
-                f"No observations remain after filtering by class balance. "
-                f"All subjects had minority class ratio < {min_minority_ratio} for '{filter_col}'."
-            )
+    # Class balance filter has been moved to be executed after binarization in run_pipeline.py
+    # to avoid skipping continuous variables before they are binarized.
     
     # Ensure we have only one marker type for this marker
     marker_types_in_data = marker_df['marker_type'].unique()
@@ -607,32 +663,7 @@ def prepare_data_for_lmm(df: pd.DataFrame,
     # This prevents TypeError when statsmodels tries to perform bitwise operations
     df_behavioral['subject'] = df_behavioral['subject'].astype(str)
     
-    # Compute time_on_task directly from probe_number and task
-    # This is independent of PCA and should always be available
-    # Formula: probe_number + (15 * (sart_number - 1))
-    # Sart1: probes 1-15 -> time_on_task 1-15
-    # Sart2: probes 1-15 -> time_on_task 16-30
-    # Sart3: probes 1-15 -> time_on_task 31-45
-    # Sart4: probes 1-15 -> time_on_task 46-60
-    task_to_sart_number = {
-        'Sart1': 1,
-        'Sart2': 2,
-        'Sart3': 3,
-        'Sart4': 4
-    }
-    
-    df_behavioral['sart_number'] = df_behavioral['task'].map(task_to_sart_number)
-    if df_behavioral['sart_number'].isna().any():
-        unknown_tasks = df_behavioral[df_behavioral['sart_number'].isna()]['task'].unique()
-        raise ValueError(f"Unknown task names found: {unknown_tasks}. Expected: Sart1, Sart2, Sart3, Sart4")
-    
-    df_behavioral['time_on_task'] = (
-        df_behavioral['probe_number'] + 
-        (15 * (df_behavioral['sart_number'] - 1))
-    ).astype(int)
-    
-    # Drop temporary column
-    df_behavioral = df_behavioral.drop('sart_number', axis=1)
+    # time_on_task is already computed earlier on marker_df and preserved in df_behavioral
     
     # Merge PCA data if provided (for PC1, PC2, PC3 only - NOT time_on_task)
     if pca_data is not None:
@@ -805,10 +836,19 @@ def get_available_markers(features_root: str,
         raise FileNotFoundError(f"Features root directory not found: {features_root}")
     
     # Fast scan: find CSV files and extract marker info from filenames
-    # Pattern: sub-XX_task-SartX_desc-probe-XXX_TYPE_aggMarkers.csv
-    # where TYPE is like "evoked" or "state"
-    pattern = "**/sub-*_task-*_desc-probe-*_*_aggMarkers.csv"
-    csv_files = list(features_path.glob(pattern))
+    # Pattern 1: sub-XX_task-SartX_desc-probe-XXX_TYPE_aggMarkers.csv
+    csv_files = list(features_path.rglob("sub-*_task-*_desc-probe-*_aggMarkers.csv"))
+    
+    # Pattern 2: sub-XX_task-SartX_probe-XXX_onTask_TYPE.csv
+    csv_files.extend(list(features_path.rglob("sub-*_task-*_probe-*_*.csv")))
+    
+    # Filter to unique files and exclude metadata/summary files
+    unique_files = {}
+    for f in csv_files:
+        if f.name.endswith(".csv") and not f.name.startswith("summary") and not f.name.startswith("qa"):
+            unique_files[str(f)] = f
+            
+    csv_files = list(unique_files.values())
     
     if not csv_files:
         raise ValueError(f"No aggregated marker CSV files found in {features_root}")
@@ -821,24 +861,62 @@ def get_available_markers(features_root: str,
     
     # Group files by marker type (extracted from filename)
     for f in csv_files:
-        # Extract type from filename: ...desc-probe-XXX_TYPE_aggMarkers.csv
         fname = f.name
-        match = re.search(r'_desc-probe-\d+_(\w+)_aggMarkers\.csv$', fname)
+        match = re.search(r'_(evoked|sleep|state)(?:_connectivity)?(?:_aggMarkers)?\.csv$', fname)
+        
         if match:
             mtype = match.group(1)
-            if mtype not in files_by_type:
-                files_by_type[mtype] = f
+        else:
+            mtype = "mixed"
+
+        if mtype not in files_by_type:
+            files_by_type[mtype] = [f]
+        else:
+            files_by_type[mtype].append(f)
     
-    # Read one sample file per marker type to get marker names
-    for mtype, sample_file in files_by_type.items():
+    # Read sample files per marker type to get all unique marker names
+    # (We just need to check a representative sample of files, specifically we need to check both 
+    # regular and _connectivity files to get all markers for a type)
+    for mtype, type_files_list in files_by_type.items():
         if marker_types is not None and mtype not in marker_types:
             continue
-        try:
-            sample_df = pd.read_csv(sample_file, usecols=['marker'])
-            type_markers = sorted(sample_df['marker'].unique())
-            marker_info[mtype] = type_markers
-        except Exception as e:
-            raise ValueError(f"Failed to read marker info from {sample_file}: {e}")
+        
+        type_markers_set = set()
+        
+        # Find one standard file and one connectivity file (if exists) for this mtype to sample from
+        samples_to_read = []
+        regular_added = False
+        conn_added = False
+        
+        for f in type_files_list:
+            if "connectivity" in f.name and not conn_added:
+                samples_to_read.append(f)
+                conn_added = True
+            elif "connectivity" not in f.name and not regular_added:
+                samples_to_read.append(f)
+                regular_added = True
+            if regular_added and conn_added:
+                break
+                
+        for sample_file in samples_to_read:
+            try:
+                # Need to handle wide format here too
+                sample_df = pd.read_csv(sample_file, nrows=5) # read just top rows to get columns fast
+                
+                if 'marker' in sample_df.columns:
+                    type_markers_set.update(sample_df['marker'].unique())
+                else:
+                    # Wide format file, get columns ending with _trimmean
+                    all_cols = sample_df.columns.tolist()
+                    value_vars = [c for c in all_cols if c.endswith('_trimmean')]
+                    if value_vars:
+                        # Strip _trimmean to match load_all_probe_data
+                        type_markers_set.update([c.replace('_trimmean', '') for c in value_vars])
+            except Exception as e:
+                pass # skip unreadable files
+
+        if type_markers_set:
+            marker_info[mtype] = sorted(list(type_markers_set))
     
     return marker_info
 

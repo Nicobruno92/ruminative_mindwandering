@@ -2,76 +2,79 @@
 """
 Standalone Script for Generating Pipeline Plots.
 
-Generates Plotly visualisations for a completed WithinSubject or LOSO
-classification run without re-running the classification.
-
-Expected directory structure (WithinSubject):
-
-    {results_dir}/                  <-- family-level dir  (e.g. .../all/)
-    ├── lr/
-    │   ├── runs/
-    │   │   └── run0/
-    │   │       ├── lr_loso_ws_subject_metrics.csv
-    │   │       ├── lr_loso_summary.csv
-    │   │       ├── lr_loso_feature_importances.csv
-    │   │       └── lr_loso_shap_values_stacked.pkl  (if saved)
-    │   ├── permutations/
-    │   │   └── *_summary_averaged.csv          <-- WithinSubject pattern
-    │   ├── summaries/
-    │   │   └── lr_loso_ws_subject_metrics_averaged.csv
-    │   └── plots/                  <-- plots are written here
-    ├── rf/
-    └── xgb/
+Generates publication-quality matplotlib visualisations for a completed LOSO
+or Within-Subject classification run without re-running the classification.
 
 Expected directory structure (LOSO):
 
-    {results_dir}/                  <-- family-level dir  (e.g. .../all/)
+    {results_dir}/                  <-- family-level dir (e.g. .../all/)
     └── lr/
-        ├── runs/
-        │   └── run{n}/
+        ├── true_runs/
+        │   └── run_{n}/
         │       ├── lr_loso_20runs_summary.csv
+        │       ├── lr_loso_20runs_loso_subject_metrics.csv
+        │       ├── lr_loso_20runs_fold_predictions.csv
+        │       ├── lr_loso_20runs_feature_importances.csv
+        │       └── lr_loso_20runs_shap_values.pkl
+        ├── permuted_runs/
+        │   └── run_{n}/
+        │       ├── lr_loso_20runs_summary.csv
+        │       ├── lr_loso_20runs_loso_subject_metrics.csv
         │       └── lr_loso_20runs_feature_importances.csv
-        ├── permutations/
-        │   ├── lr_permutation_100perms_summary.csv   <-- LOSO pattern (all perms, one row each)
-        │   └── runs/
-        │       └── run{n}/
-        ├── summaries/
-        │   └── lr_loso_20runs_loso_subject_metrics.csv
-        └── plots/                  <-- plots are written here
+        └── plots/
+
+Expected directory structure (Within-Subject):
+
+    {results_dir}/                  <-- family-level dir (e.g. .../all/)
+    └── lr/
+        ├── true_runs/
+        │   └── run_{n}/
+        │       ├── lr_ws_10runs_summary.csv
+        │       ├── lr_ws_10runs_ws_subject_metrics.csv   <-- mean_ prefix on metrics
+        │       ├── lr_ws_10runs_fold_predictions.csv
+        │       ├── lr_ws_10runs_feature_importances.csv
+        │       └── lr_ws_10runs_shap_values_stacked.pkl  (if saved)
+        ├── permuted_runs/
+        │   └── run_{n}/
+        │       ├── lr_ws_10runs_summary.csv
+        │       ├── lr_ws_10runs_ws_subject_metrics.csv
+        │       └── lr_ws_10runs_feature_importances.csv
+        └── plots/
+
+Mode (loso/ws) is detected automatically from the files present in true_runs/.
 
 USAGE:
-    # All models under a family dir:
+    # LOSO:
     python mw_classification_pipeline/scripts/generate_pipeline_plots.py \
-        --results_dir mw_classification_pipeline/results/MW_Classification/WithinSubject/on_vs_off_within_median/all
+        --results_dir results/MW_Classification/LOSO/ON_vs_OFF_within_median/all
 
-    # Single model dir:
+    # Within-Subject:
     python mw_classification_pipeline/scripts/generate_pipeline_plots.py \
-        --results_dir mw_classification_pipeline/results/MW_Classification/WithinSubject/on_vs_off_within_median/all/rf
+        --results_dir results/MW_Classification/WithinSubject/ON_vs_OFF_within_median/all/lr
 
 Project: depressed_mindwandering
 """
 
+import ast
 import os
 import sys
 import argparse
 import pickle
+import warnings
 import numpy as np
 import pandas as pd
 from pathlib import Path
-import warnings
 
-# Allow importing utils/plotting_utils directly without loading the full
-# utils package (which pulls in ML-only dependencies like tqdm, imblearn, etc.)
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend — must be set before pyplot import
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "utils"))
 
 from plotting_utils import (
-    plot_feature_importances,
-    plot_feature_importances_true_vs_perm,
-    plot_global_permutation_histogram,
+    generate_all_comparison_plots,
     plot_shap_beeswarm_official,
-    plot_true_vs_perm_violins,
-    plot_subject_distribution_ridgelines,
     set_plot_style,
+    plot_probability_vs_raw,
 )
 
 warnings.filterwarnings("ignore")
@@ -111,226 +114,266 @@ def load_pkl(path: str):
         return pickle.load(fh)
 
 
-def collect_run_dataframes(model_dir: str, suffix: str) -> pd.DataFrame:
+def _detect_pipeline_mode(model_dir: str) -> str:
     """
-    Concatenate all CSVs matching *suffix* from all runs/run*/ subdirs.
+    Detect whether the model directory contains LOSO or Within-Subject results.
+
+    Detection is based on the files inside the first true_runs/run_*/ directory:
+    - ``_loso_subject_metrics.csv`` present → 'loso'
+    - ``_ws_subject_metrics.csv`` present   → 'ws'
+    - Fallback: 'loso' if 'WithinSubject' not in path, else 'ws'.
 
     Parameters
     ----------
     model_dir : str
-        Model root dir (e.g., .../lr/).
-    suffix : str
-        File suffix to match (e.g., '_ws_subject_metrics.csv').
-    """
-    runs_dir = os.path.join(model_dir, "runs")
-    if not os.path.isdir(runs_dir):
-        return pd.DataFrame()
-
-    frames = []
-    for run_folder in sorted(os.listdir(runs_dir)):
-        run_path = os.path.join(runs_dir, run_folder)
-        if not os.path.isdir(run_path):
-            continue
-        for fpath in find_files_by_suffix(run_path, suffix):
-            frames.append(pd.read_csv(fpath))
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
-
-def collect_feature_importances(model_dir: str) -> tuple:
-    """
-    Aggregate feature importances across all run subdirs.
+        Model root directory (e.g., .../all/lr/).
 
     Returns
     -------
-    feature_names : list[str]
-    mean_imp : np.ndarray
-    std_imp : np.ndarray
+    str
+        ``'loso'`` or ``'ws'``.
     """
-    runs_dir = os.path.join(model_dir, "runs")
-    if not os.path.isdir(runs_dir):
-        return [], np.array([]), np.array([])
-
-    all_values: list = []
-    feature_names: list = []
-
-    for run_folder in sorted(os.listdir(runs_dir)):
-        run_path = os.path.join(runs_dir, run_folder)
-        fpath = find_file_by_suffix(run_path, "_feature_importances.csv")
-        if fpath:
-            df = pd.read_csv(fpath)
-            if "feature" in df.columns and "importance" in df.columns:
-                feature_names = df["feature"].tolist()
-                all_values.append(df["importance"].values)
-
-    if not all_values:
-        return [], np.array([]), np.array([])
-
-    stacked = np.vstack(all_values)
-    return feature_names, stacked.mean(axis=0), stacked.std(axis=0)
-
-
-def collect_shap_values(model_dir: str) -> tuple:
-    """Collect stacked SHAP arrays and matching X_test from all runs/run*/ subdirs.
-
-    Handles two layouts:
-    - LOSO: one ``*_shap_values.pkl`` per run dir (whole-run SHAP matrix).
-    - WithinSubject: many ``*_{subject}_shap_values.pkl`` per run dir (one per
-      subject).  All subject-level arrays are concatenated within a run dir
-      before being added to the per-run list.
-
-    Returns
-    -------
-    shap_runs : list[np.ndarray]
-        Per-run SHAP arrays (rows = samples across all subjects in that run).
-    x_runs : list[np.ndarray] or list[None]
-        Per-run X_test arrays (None when not saved in older pkl files).
-    feature_names_from_shap : list[str] or []
-        Feature names extracted from the last loaded pkl.
-    """
-    runs_dir = os.path.join(model_dir, "runs")
-    if not os.path.isdir(runs_dir):
-        return [], [], []
-
-    shap_runs: list = []
-    x_runs: list = []
-    feature_names_from_shap: list = []
-
-    for run_folder in sorted(os.listdir(runs_dir)):
-        run_path = os.path.join(runs_dir, run_folder)
-        if not os.path.isdir(run_path):
+    base = os.path.join(model_dir, "true_runs")
+    run_dirs = collect_run_dirs_from_base(base)
+    for rd in run_dirs:
+        if not os.path.isdir(rd):
             continue
-
-        # Collect *all* _shap_values.pkl files in this run dir
-        all_pkl_files = sorted([
-            os.path.join(run_path, f)
-            for f in os.listdir(run_path)
-            if f.endswith("_shap_values.pkl") or f.endswith("_shap_values_stacked.pkl")
-        ])
-        if not all_pkl_files:
-            continue
-
-        run_shap_list: list = []
-        run_x_list: list = []
-
-        for pkl_f in all_pkl_files:
-            data = load_pkl(pkl_f)
-            if not isinstance(data, dict) or "shap_values" not in data:
-                continue
-            run_shap_list.append(data["shap_values"])
-            x_val = data.get("x_test", None)
-            if x_val is not None:
-                run_x_list.append(x_val)
-            if "feature_names" in data:
-                feature_names_from_shap = data["feature_names"]
-
-        if not run_shap_list:
-            continue
-
-        # Concatenate subject-level arrays within this run
-        combined_shap = np.concatenate(run_shap_list, axis=0)
-        shap_runs.append(combined_shap)
-        if len(run_x_list) == len(run_shap_list):
-            x_runs.append(np.concatenate(run_x_list, axis=0))
-        else:
-            x_runs.append(None)
-
-    return shap_runs, x_runs, feature_names_from_shap
+        for fname in os.listdir(rd):
+            if fname.endswith("_loso_subject_metrics.csv"):
+                return "loso"
+            if fname.endswith("_ws_subject_metrics.csv"):
+                return "ws"
+    return "ws" if "WithinSubject" in str(model_dir) else "loso"
 
 
-def collect_feature_importances_from_perm(model_dir: str) -> tuple:
-    """Aggregate feature importances from all permutations/runs/run*/ subdirs.
+def collect_run_dirs_from_base(base_dir: str) -> list:
+    """Return sorted list of run_{n}/ subdirectories inside *base_dir*."""
+    if not os.path.isdir(base_dir):
+        return []
+    dirs = []
+    for entry in os.listdir(base_dir):
+        entry_path = os.path.join(base_dir, entry)
+        if os.path.isdir(entry_path) and entry.startswith("run_"):
+            dirs.append(entry_path)
 
-    Returns
-    -------
-    feature_names : list[str]
-    mean_imp : np.ndarray
-    std_imp : np.ndarray
+    def _run_idx(p):
+        try:
+            return int(Path(p).name.split("_")[1])
+        except (IndexError, ValueError):
+            return 0
+
+    return sorted(dirs, key=_run_idx)
+
+
+# =============================================================================
+# RESULT RECONSTRUCTION FROM CSV
+# =============================================================================
+
+def _parse_list_col(val) -> np.ndarray:
     """
-    perm_runs_dir = os.path.join(model_dir, "permutations", "runs")
-    if not os.path.isdir(perm_runs_dir):
-        return [], np.array([]), np.array([])
+    Parse a CSV cell that holds a serialised Python list or numpy array.
 
-    all_values: list = []
-    feature_names: list = []
-    for run_folder in sorted(os.listdir(perm_runs_dir)):
-        run_path = os.path.join(perm_runs_dir, run_folder)
-        fpath = find_file_by_suffix(run_path, "_feature_importances.csv")
-        if fpath:
-            df = pd.read_csv(fpath)
-            if "feature" in df.columns and "importance" in df.columns:
-                feature_names = df["feature"].tolist()
-                all_values.append(df["importance"].values)
-
-    if not all_values:
-        return [], np.array([]), np.array([])
-
-    stacked = np.vstack(all_values)
-    return feature_names, stacked.mean(axis=0), stacked.std(axis=0)
-
-
-def load_perm_summary(model_dir: str) -> pd.DataFrame:
-    """Load permutation summary CSV from permutations/ dir.
-
-    WithinSubject saves ``*_summary_averaged.csv``; LOSO saves ``*_summary.csv``.
-    Both are tried in order.
+    Tries ast.literal_eval first, then json.loads. Returns an empty float
+    array if parsing fails.
     """
-    perm_dir = os.path.join(model_dir, "permutations")
-    if not os.path.isdir(perm_dir):
-        return pd.DataFrame()
-    # Try WS pattern first, then LOSO pattern
-    fpath = (
-        find_file_by_suffix(perm_dir, "_summary_averaged.csv")
-        or find_file_by_suffix(perm_dir, "_summary.csv")
+    if isinstance(val, (list, np.ndarray)):
+        return np.asarray(val, dtype=float)
+    if isinstance(val, str):
+        val = val.strip()
+        try:
+            return np.asarray(ast.literal_eval(val), dtype=float)
+        except Exception:
+            pass
+        try:
+            import json
+            return np.asarray(json.loads(val), dtype=float)
+        except Exception:
+            pass
+    return np.array([])
+
+
+def reconstruct_run_result(run_path: str) -> dict:
+    """
+    Build one all_results-compatible dict from the CSV files in a run dir.
+
+    Reconstructed keys
+    ------------------
+    mean_* / std_*        : from summary CSV (mean/std per metric)
+    loso_subject_metrics  : list of dicts from loso_subject_metrics CSV
+    fold_fprs / fold_tprs : lists of arrays reconstructed from fold_predictions
+    fold_cms              : list of 2×2 np.arrays from fold_predictions
+    feature_importances   : np.ndarray from feature_importances CSV
+    _feature_names        : list[str] extracted for the caller (popped before use)
+    """
+    from sklearn.metrics import roc_curve, confusion_matrix as sk_cm
+
+    result = {}
+
+    # -- Summary metrics -------------------------------------------------------
+    sf = find_file_by_suffix(run_path, "_summary.csv")
+    if sf:
+        df = pd.read_csv(sf)
+        if not df.empty:
+            for col in df.columns:
+                if col.startswith("mean_") or col.startswith("std_"):
+                    result[col] = float(
+                        pd.to_numeric(df[col].iloc[0], errors="coerce")
+                    )
+
+    # -- Per-subject metrics ---------------------------------------------------
+    # LOSO saves _loso_subject_metrics.csv (no mean_ prefix).
+    # Within-Subject saves _ws_subject_metrics.csv (mean_ prefix on metric cols).
+    subj_f = (
+        find_file_by_suffix(run_path, "_loso_subject_metrics.csv")
+        or find_file_by_suffix(run_path, "_ws_subject_metrics.csv")
     )
-    return pd.read_csv(fpath) if fpath else pd.DataFrame()
+    if subj_f:
+        sdf = pd.read_csv(subj_f)
+        # Strip mean_ prefix so both formats share the same key names (e.g. 'auc')
+        sdf.columns = [c.replace("mean_", "", 1) for c in sdf.columns]
+        result["loso_subject_metrics"] = sdf.to_dict("records")
+
+    # -- Fold predictions → ROC curves + confusion matrices -------------------
+    # Prefer _fold_predictions.csv (lists per fold); fall back to
+    # _sample_predictions.csv (one row per sample, used in WS permuted runs).
+    fold_fprs, fold_tprs, fold_cms = [], [], []
+
+    preds_f = find_file_by_suffix(run_path, "_fold_predictions.csv")
+    if preds_f:
+        pdf = pd.read_csv(preds_f)
+        for fold_idx in sorted(pdf["fold_idx"].unique()):
+            fdata = pdf[pdf["fold_idx"] == fold_idx]
+            y_true_parts, y_proba_parts, y_pred_parts = [], [], []
+            for _, row in fdata.iterrows():
+                y_true_parts.append(_parse_list_col(row.get("y_true", "")))
+                y_proba_parts.append(_parse_list_col(row.get("y_proba", "")))
+                y_pred_parts.append(_parse_list_col(row.get("y_pred", "")))
+            yt  = np.concatenate(y_true_parts)  if y_true_parts  else np.array([])
+            yp  = np.concatenate(y_proba_parts) if y_proba_parts else np.array([])
+            ypr = np.concatenate(y_pred_parts)  if y_pred_parts  else np.array([])
+            if len(yt) < 2 or len(np.unique(yt)) < 2:
+                continue
+            fpr, tpr, _ = roc_curve(yt, yp)
+            fold_fprs.append(fpr.tolist())
+            fold_tprs.append(tpr.tolist())
+            cm = sk_cm(yt.astype(int), ypr.astype(int))
+            fold_cms.append(cm)
+
+    elif find_file_by_suffix(run_path, "_sample_predictions.csv"):
+        # WS permuted runs store one row per sample; reconstruct per-(subject,fold).
+        sdf = pd.read_csv(find_file_by_suffix(run_path, "_sample_predictions.csv"))
+        group_cols = [c for c in ("subject", "fold_idx") if c in sdf.columns]
+        for _, grp in sdf.groupby(group_cols):
+            yt  = grp["y_true"].values.astype(float)
+            yp  = grp["y_proba"].values.astype(float)
+            ypr = grp["y_pred"].values.astype(float)
+            if len(yt) < 2 or len(np.unique(yt)) < 2:
+                continue
+            fpr, tpr, _ = roc_curve(yt, yp)
+            fold_fprs.append(fpr.tolist())
+            fold_tprs.append(tpr.tolist())
+            cm = sk_cm(yt.astype(int), ypr.astype(int))
+            fold_cms.append(cm)
+
+    result["fold_fprs"] = fold_fprs
+    result["fold_tprs"] = fold_tprs
+    result["fold_cms"]  = fold_cms
+
+    # -- Feature importances ---------------------------------------------------
+    fi_f = find_file_by_suffix(run_path, "_feature_importances.csv")
+    if fi_f:
+        fi_df = pd.read_csv(fi_f)
+        if "importance" in fi_df.columns:
+            result["feature_importances"] = fi_df["importance"].values
+        if "feature" in fi_df.columns:
+            result["_feature_names"] = fi_df["feature"].tolist()
+
+    return result
 
 
-def collect_subject_metrics_stacked(
+def load_all_results_from_model_dir(
     model_dir: str, from_perms: bool = False
-) -> pd.DataFrame:
+) -> tuple:
     """
-    Stack per-subject metric rows from all run subdirs.
+    Load (all_results, shap_runs, feature_names) from disk.
 
-    Parameters
-    ----------
-    model_dir : str
-        Model root (e.g. ``.../all/lr/``). When *from_perms* is True,
-        looks inside ``permutations/`` instead.
-    from_perms : bool
-        When True, read from ``permutations/runs/`` instead of ``runs/``.
+    True runs   → ``model_dir/true_runs/run_{n}/``
+    Perm runs   → ``model_dir/permuted_runs/run_{n}/``
 
     Returns
     -------
-    pd.DataFrame
-        Stacked rows with columns ``subject`` + metric columns (bare names,
-        ``mean_`` prefix stripped).
+    all_results : list of dict
+        Compatible with generate_all_comparison_plots.
+    shap_runs : list of np.ndarray
+        Per-run SHAP value matrices (n_samples × n_features).
+    feature_names : list of str
+        Feature names extracted from FI CSV or SHAP pkl.
     """
-    base = os.path.join(model_dir, "permutations") if from_perms else model_dir
-    # WithinSubject perm saves *_ws_subject_metrics.csv inside perm run dirs
-    df = collect_run_dataframes(base, "_ws_subject_metrics.csv")
-    if df.empty:
-        df = collect_run_dataframes(base, "_loso_subject_metrics.csv")
-    # Fallback: legacy flat file at model_dir level (from old code, last-run only)
-    if df.empty and not from_perms:
-        flat = find_file_by_suffix(model_dir, "_loso_subject_metrics.csv")
-        if flat:
-            df = pd.read_csv(flat)
-    if not df.empty:
-        df = df.rename(columns={c: c.replace("mean_", "", 1) for c in df.columns})
-    return df
+    sub_dir = "permuted_runs" if from_perms else "true_runs"
+    base = os.path.join(model_dir, sub_dir)
+    run_dirs = collect_run_dirs_from_base(base)
 
+    all_results:   list = []
+    shap_runs:     list = []
+    feature_names: list = []
+
+    for rd in run_dirs:
+        r = reconstruct_run_result(rd)
+        if not r:
+            continue
+        fn = r.pop("_feature_names", [])
+        if fn:
+            feature_names = fn
+        all_results.append(r)
+
+        # SHAP pkl — loaded for both true and permuted runs.
+        # LOSO true:  single _shap_values.pkl per run (all test subjects stacked)
+        # LOSO perm:  single _shap_values.pkl per run
+        # WS true:    one _shap_values.pkl per subject → stacked here
+        # WS perm:    one _shap_values.pkl per subject → stacked here
+        shap_pkl_single = find_file_by_suffix(rd, "_shap_values_stacked.pkl")
+        if not shap_pkl_single:
+            # Collect all per-subject pkl files ending with _shap_values.pkl
+            all_shap_pkls = find_files_by_suffix(rd, "_shap_values.pkl")
+            if len(all_shap_pkls) == 1:
+                shap_pkl_single = all_shap_pkls[0]
+            elif len(all_shap_pkls) > 1:
+                # WS: stack per-subject arrays into one (n_all_samples, n_features)
+                shap_arrays, fn_candidate = [], []
+                for sp in all_shap_pkls:
+                    d = load_pkl(sp)
+                    if isinstance(d, dict) and "shap_values" in d:
+                        shap_arrays.append(d["shap_values"])
+                        if not fn_candidate and "feature_names" in d:
+                            fn_candidate = d["feature_names"]
+                if shap_arrays:
+                    shap_runs.append(np.concatenate(shap_arrays, axis=0))
+                    if not feature_names and fn_candidate:
+                        feature_names = fn_candidate
+                shap_pkl_single = None  # already handled
+
+        if shap_pkl_single:
+            data = load_pkl(shap_pkl_single)
+            if isinstance(data, dict) and "shap_values" in data:
+                shap_runs.append(data["shap_values"])
+                if not feature_names and "feature_names" in data:
+                    feature_names = data["feature_names"]
+
+    return all_results, shap_runs, feature_names
+
+
+# =============================================================================
+# MODEL DETECTION
+# =============================================================================
 
 def detect_model_dirs(results_dir: str) -> list:
     """
     Detect per-model subdirs under *results_dir*.
 
-    If *results_dir* already is a model dir (contains runs/ or summaries/)
-    it is returned directly.  Otherwise the function scans for known model
-    type subdirs (lr/, rf/, xgb/).
+    If *results_dir* itself contains ``true_runs/`` it is returned directly.
+    Otherwise scans for known model-type subdirs (lr/, rf/, xgb/).
     """
-    has_runs = os.path.isdir(os.path.join(results_dir, "runs"))
-    has_summaries = os.path.isdir(os.path.join(results_dir, "summaries"))
-    if has_runs or has_summaries:
+    if os.path.isdir(os.path.join(results_dir, "true_runs")):
         return [results_dir]
 
     model_dirs = []
@@ -353,14 +396,18 @@ def generate_model_plots(
     dimension_name: str,
 ) -> None:
     """
-    Generate all available plots for a single model directory.
+    Generate all comparison plots for a single model directory.
+
+    Reads true runs from ``true_runs/`` and permuted runs from
+    ``permuted_runs/``, reconstructs the all_results list, then calls
+    the full matplotlib comparison plot suite.
 
     Parameters
     ----------
     model_dir : str
-        Path to the model root (e.g., .../all/rf/).
+        Path to the model root (e.g., .../all/lr/).
     top_n_features : int
-        Number of top features to show in importance plots.
+        Number of top features to show in importance / SHAP plots.
     positive_class : str
         Positive-class label for confusion-matrix / ROC plots.
     negative_class : str
@@ -368,149 +415,106 @@ def generate_model_plots(
     dimension_name : str
         Contrast name used in plot titles.
     """
-    model_type = Path(model_dir).name
-    plots_dir = os.path.join(model_dir, "plots")
+    model_type    = Path(model_dir).name
+    plots_dir     = os.path.join(model_dir, "plots")
     Path(plots_dir).mkdir(parents=True, exist_ok=True)
 
-    # Filename prefix that analysis_utils uses when saving (single-run default)
-    filename_base = f"{model_type}_loso"
+    pipeline_mode = _detect_pipeline_mode(model_dir)
+    filename_base = f"{model_type}_{'ws' if pipeline_mode == 'ws' else 'loso'}"
 
-    print(f"\n  [Model: {model_type.upper()}]  {model_dir}")
+    print(f"\n  [Model: {model_type.upper()} | Mode: {pipeline_mode.upper()}]  {model_dir}")
 
-    # ------------------------------------------------------------------
-    # A. Feature Importances (averaged across all runs) + True vs Perm
-    # ------------------------------------------------------------------
-    feature_names, mean_imp, std_imp = collect_feature_importances(model_dir)
-    if feature_names:
-        print("    -> Feature Importances")
-        plot_feature_importances(
-            feature_names, mean_imp, std_imp,
-            plots_dir, filename_base,
-            top_n=top_n_features,
-        )
-        # Compare true importances against permuted importances
-        perm_fi_names, perm_fi_mean, perm_fi_std = collect_feature_importances_from_perm(model_dir)
-        print("    -> Feature Importances True vs Permuted")
-        plot_feature_importances_true_vs_perm(
-            true_feature_names=feature_names,
-            true_mean=mean_imp,
-            true_std=std_imp,
-            perm_feature_names=perm_fi_names,
-            perm_mean=perm_fi_mean,
-            perm_std=perm_fi_std,
-            save_path=plots_dir,
-            filename_base=filename_base,
-            top_n=top_n_features,
-        )
-    else:
-        print("    ! Feature importances not found — skipping")
+    # Load data from disk
+    true_all_results, true_shap_runs, feature_names = load_all_results_from_model_dir(
+        model_dir, from_perms=False
+    )
+    perm_all_results, perm_shap_runs, _ = load_all_results_from_model_dir(
+        model_dir, from_perms=True
+    )
+
+    if not true_all_results:
+        print("    ! No true run data found in true_runs/ — skipping")
+        return
+
+    print(
+        f"    -> Loaded {len(true_all_results)} true runs, "
+        f"{len(perm_all_results)} perm runs, "
+        f"{len(feature_names)} features"
+    )
 
     # ------------------------------------------------------------------
-    # B. Subject-Level Distribution Ridgelines  (True vs Permuted)
+    # Main comparison plot suite (global dist, subject violins,
+    # ROC, confusion matrix, feature importance)
     # ------------------------------------------------------------------
-    true_sub_df  = collect_subject_metrics_stacked(model_dir, from_perms=False)
-    perm_sub_df  = collect_subject_metrics_stacked(model_dir, from_perms=True)
-
-    if not true_sub_df.empty:
-        print("    -> Subject-Level Ridgelines")
-        metrics_to_plot = [
-            m for m in ("auc", "balanced_accuracy", "auprc", "mcc")
-            if m in true_sub_df.columns
-        ]
-        for metric in metrics_to_plot:
-            plot_subject_distribution_ridgelines(
-                true_df=true_sub_df,
-                perm_df=perm_sub_df,
-                metric=metric,
-                save_path=plots_dir,
-                filename_base=filename_base,
-                dimension=dimension_name,
-            )
-    else:
-        print("    ! Subject metrics not found — skipping subject ridgelines")
+    generate_all_comparison_plots(
+        true_all_results=true_all_results,
+        perm_all_results=perm_all_results,
+        feature_names=feature_names,
+        save_path=plots_dir,
+        filename_base=filename_base,
+        dimension=dimension_name,
+        positive_class_name=positive_class,
+        negative_class_name=negative_class,
+        top_n_features=top_n_features,
+        true_shap_runs=true_shap_runs if true_shap_runs else None,
+        perm_shap_runs=perm_shap_runs if perm_shap_runs else None,
+    )
 
     # ------------------------------------------------------------------
-    # C. Permutation Distributions
+    # SHAP beeswarm (official shap library)
     # ------------------------------------------------------------------
-    perm_summary_df = load_perm_summary(model_dir)
-    run_summaries_df = collect_run_dataframes(model_dir, "_summary.csv")
-
-    if not perm_summary_df.empty and not run_summaries_df.empty:
-        print("    -> True vs Permuted violin plots")
-        from scipy import stats as scipy_stats
-
-        metric_map = {
-            "mean_auc": "AUC",
-            "mean_balanced_accuracy": "Balanced Accuracy",
-            "mean_auprc": "AUPRC",
-            "mean_mcc": "MCC",
-        }
-        results_for_plotting = {}
-        for col, label in metric_map.items():
-            if col in run_summaries_df.columns and col in perm_summary_df.columns:
-                true_vals = run_summaries_df[col].dropna().values
-                perm_vals = perm_summary_df[col].dropna().values
-                if len(true_vals) > 0 and len(perm_vals) > 0:
-                    _, mwu_p = scipy_stats.mannwhitneyu(
-                        true_vals, perm_vals, alternative="greater"
-                    )
-                    empirical_p = float(np.mean(perm_vals >= np.mean(true_vals)))
-                    results_for_plotting[label] = {
-                        "true_values": true_vals,
-                        "perm_values": perm_vals,
-                        "p_value": mwu_p,
-                        "empirical_p": empirical_p,
-                    }
-        if results_for_plotting:
-            print("    -> True vs Permuted violin plots")
-            plot_true_vs_perm_violins(
-                results_for_plotting,
-                dimension_name,
-                model_type.upper(),
-                plots_dir,
-                filename_base,
-            )
-            print("    -> Permutation null-distribution histograms")
-            plot_global_permutation_histogram(
-                results_for_plotting,
-                dimension_name,
-                model_type.upper(),
-                plots_dir,
-                filename_base,
-            )
-        else:
-            print(
-                "    ! No shared metric columns between true and perm found — "
-                "skipping permutation plots"
-            )
-    else:
-        print("    ! No permutation data — skipping permutation plots")
-
-    # ------------------------------------------------------------------
-    # D. SHAP Visualisations (official shap library beeswarm)
-    # ------------------------------------------------------------------
-    shap_runs, x_runs, shap_feature_names = collect_shap_values(model_dir)
-    # Prefer feature names from the pkl over the FI csv (may be more complete)
-    effective_feature_names = shap_feature_names if shap_feature_names else feature_names
-    if shap_runs and effective_feature_names:
+    if true_shap_runs and feature_names:
         print("    -> SHAP beeswarm (official)")
-        combined_shap = np.concatenate(shap_runs, axis=0)
-        # Concatenate x_test arrays; fill zeros for runs that pre-date the fix
-        x_arrays = [
-            xr if xr is not None else np.zeros((s.shape[0], s.shape[1]))
-            for xr, s in zip(x_runs, shap_runs)
-        ]
+        combined_shap = np.concatenate(true_shap_runs, axis=0)
+
+        # Build X_test for colour coding — load from each run's pkl (not just run_0)
+        run_dirs_true = collect_run_dirs_from_base(os.path.join(model_dir, "true_runs"))
+        x_arrays = []
+        for rd in run_dirs_true:
+            # LOSO: one _shap_values.pkl per run; WS: multiple per-subject pkls
+            all_shap_pkls = find_files_by_suffix(rd, "_shap_values.pkl")
+            stacked_pkl = find_file_by_suffix(rd, "_shap_values_stacked.pkl")
+            if stacked_pkl:
+                all_shap_pkls = [stacked_pkl]
+            if all_shap_pkls:
+                x_parts = []
+                for sp in all_shap_pkls:
+                    d = load_pkl(sp)
+                    if isinstance(d, dict) and d.get("x_test") is not None:
+                        x_parts.append(np.asarray(d["x_test"]))
+                if x_parts:
+                    x_arrays.append(np.concatenate(x_parts, axis=0))
+        # If any runs had no x_test, fill with zeros of the right shape
+        if not x_arrays or len(x_arrays) != len(true_shap_runs):
+            x_arrays = [
+                np.zeros_like(sv) for sv in true_shap_runs
+            ]
+
         combined_x = np.concatenate(x_arrays, axis=0)
         plot_shap_beeswarm_official(
             shap_values=combined_shap,
             x_test=combined_x,
-            feature_names=effective_feature_names,
+            feature_names=feature_names,
             save_path=plots_dir,
             filename_base=filename_base,
             max_display=top_n_features,
         )
     else:
-        print("    ! SHAP values not available — skipping SHAP plots")
+        print("    ! SHAP values not available — skipping SHAP beeswarm")
+
+    # Add probability vs raw score plots
+    import glob
+    matching_files = glob.glob(os.path.join(model_dir, "*_consolidated_sample_predictions.csv"))
+    if matching_files:
+        consolidated_predictions_file = Path(matching_files[0])
+        print(f"    -> Plotting Probability vs Raw Score from {consolidated_predictions_file.name}")
+        try:
+            df_consolidated = pd.read_csv(consolidated_predictions_file)
+            plot_probability_vs_raw(df_consolidated, model_dir, filename_base)
+        except Exception as e:
+            print(f"    ! Failed to plot probability vs raw score: {e}")
+    else:
+        print(f"    ! Consolidated predictions not found in {model_dir} — skipping scatter plots")
 
     print(f"    Plots saved -> {plots_dir}")
 
@@ -521,22 +525,22 @@ def generate_model_plots(
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Generate plots from WithinSubject pipeline results."
+        description="Generate plots from LOSO pipeline results."
     )
     parser.add_argument(
         "--results_dir",
         type=str,
         required=True,
         help=(
-            "Family-level dir (e.g., .../on_vs_off_within_median/all/) "
-            "or a single model dir (e.g., .../all/rf/)."
+            "Family-level dir (e.g., .../all/) "
+            "or a single model dir (e.g., .../all/lr/)."
         ),
     )
     parser.add_argument(
         "--top_n_features",
         type=int,
         default=20,
-        help="Number of top features shown in importance plots.",
+        help="Number of top features shown in importance / SHAP plots.",
     )
     parser.add_argument(
         "--positive_class",
@@ -575,7 +579,7 @@ def main():
     assert model_dirs, (
         f"No model directories found under {results_dir}.\n"
         f"Expected subdirs named one of {KNOWN_MODEL_TYPES}, "
-        f"or a directory that itself contains runs/ or summaries/."
+        f"or a directory containing true_runs/."
     )
 
     print(f"Results dir : {results_dir}")

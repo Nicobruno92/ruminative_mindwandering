@@ -23,7 +23,7 @@ project:
   onoff_max_value: 100
 
   # Predictor variability filter
-  min_predictor_variability: 50
+  min_predictor_variability: 30
   min_minority_ratio: 0.2
 
 
@@ -31,7 +31,7 @@ project:
 # "roi" = aggregate channel pairs into ROI pairs (28 connections)
 # "channel" = keep all individual channel pairs (~300+ connections)
 # "both" = run both levels separately
-analysis_level: "both"
+analysis_level: "channel"
 
 
 # ── ROI definitions ──────────────────────────────────────────────────────────
@@ -60,18 +60,22 @@ bands:
 
 # ── Epoch types to include ───────────────────────────────────────────────────
 # Which epoch types to load connectivity data from
-# Options: state_connectivity, evoked_connectivity, sleep_connectivity
+# Options: evoked_connectivity, sleep_connectivity
 epoch_types:
-  - state_connectivity
-  - evoked_connectivity
+  - sleep_connectivity
 
 
 # ── LMM configuration ───────────────────────────────────────────────────────
 lmm:
   # Formula for per-connection LMM
   # "power" is the placeholder for wSMI value (replaced internally)
-  formula: "power ~ onoff + (1|subject)"
-  predictor_of_interest: "onoff"
+  formula: "power ~ onoff + valence + selfother + time + time_on_task + confidence + (1|subject)"
+  predictor_of_interest: 
+    - "onoff"
+    - "valence"
+    - "selfother"
+    - "confidence"
+    - "time"
   method: "powell"
   maxiter: 500
   random_state: 42
@@ -79,13 +83,13 @@ lmm:
 
 # ── Preprocessing ────────────────────────────────────────────────────────────
 preprocessing:
-  normalize_by_subject: false
+  normalize_by_subject: true
   subject_column: "subject"
   normalization_method: "zscore"
   channel_wise: false
 
   predictor_normalization:
-    enabled: true
+    enabled: false
     method: "zscore"
     predictors: ["onoff", "valence", "selfother", "confidence", "time"]
 
@@ -110,7 +114,7 @@ fdr:
 # NBS / permutation settings
 nbs:
   primary_threshold: 3.0    # |t| threshold for forming supra-threshold edges
-  n_permutations: 1000      # Number of permutations for null distribution
+  n_permutations: 100      # Number of permutations for null distribution
                             # NOTE: 1000 is memory-efficient for cluster runs
                             # Increase to 5000+ for final publication analyses
   alpha: 0.05               # Significance level for component p-values

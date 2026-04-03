@@ -40,7 +40,11 @@ from utils.analysis_utils import (
     run_within_subject_permutation_analysis,
 )
 from utils.logging_utils import AnalysisLogger
-from utils.plotting_utils import plot_subject_level_densities, plot_shap_comparative_boxplots
+from utils.plotting_utils import (
+    plot_subject_level_densities,
+    plot_shap_comparative_boxplots,
+    generate_all_comparison_plots,
+)
 
 # Reuse LOSO's filter_features_by_family function by importing or replicating
 def filter_features_by_family(X: pd.DataFrame, family_name: str, feature_families: dict) -> pd.DataFrame:
@@ -87,13 +91,21 @@ def extract_model_params(config: dict) -> dict:
     """Extract model-specific parameter dicts from the flat config."""
     # We parse from classifiers inside config for within-subject
     cls_config = config.get('classifiers', {})
-    
+
     # Defaults in case not defined in yaml block
     rf_params = cls_config.get('rf', {})
     xgb_params = cls_config.get('xgb', {})
     lr_params = cls_config.get('lr', {})
+    ocsvm_params = cls_config.get('ocsvm', {})
+    iforest_params = cls_config.get('iforest', {})
 
-    return {'rf': rf_params, 'xgb': xgb_params, 'lr': lr_params}
+    return {
+        'rf': rf_params,
+        'xgb': xgb_params,
+        'lr': lr_params,
+        'ocsvm': ocsvm_params,
+        'iforest': iforest_params,
+    }
 
 
 def build_results_path(config: dict, contrast_name: str, family_name: str, model_type: str) -> str:
@@ -189,6 +201,8 @@ def main():
     # In within-subject, df_prepared["task"] holds the tasks which map to groups if using group_kfold
     tasks = df_prepared["task"] if "task" in df_prepared.columns else groups
 
+    oneclass_target = config.get("classifiers", {}).get("oneclass_target", "minority")
+
     true_ws_metrics_list, true_shap_values = run_within_subject_distribution_analysis(
         dimension=contrast_name,
         df=df_prepared,
@@ -214,6 +228,9 @@ def main():
         rf_params=model_params['rf'],
         xgb_params=model_params['xgb'],
         lr_params=model_params['lr'],
+        ocsvm_params=model_params['ocsvm'],
+        iforest_params=model_params['iforest'],
+        oneclass_target=oneclass_target,
         top_n_features_plot=config.get("top_n_features_plot", 20),
         save_pickle=outputs_cfg.get("save_pickle", False),
         save_csv=True,
@@ -280,6 +297,9 @@ def main():
             rf_params=model_params['rf'],
             xgb_params=model_params['xgb'],
             lr_params=model_params['lr'],
+            ocsvm_params=model_params['ocsvm'],
+            iforest_params=model_params['iforest'],
+            oneclass_target=oneclass_target,
             top_n_features_plot=config.get("top_n_features_plot", 20),
             save_pickle=outputs_cfg.get("save_pickle", False),
             save_csv=True,
@@ -293,26 +313,20 @@ def main():
             logger=logger,
         )
         
-        if outputs_cfg.get("save_plots", False):
-            print("\nGenerating advanced comparison plots...")
-            plot_subject_level_densities(
-                true_subject_metrics_list=[true_ws_metrics_df],  # WS has a flat DataFrame per run, we wrap in list
-                perm_subject_metrics_list=[perm_all_results],    # Wrap the full perm structures
-                dimension_name=contrast_name,
-                save_path=results_path,
-                filename_base=f"{model_type}_ws_permutation",
-                metric='auc'
+        if outputs_cfg.get("save_plots", True):
+            print("\nGenerating comparison plots via generate_pipeline_plots.py ...")
+            import subprocess
+            _plot_script = Path(__file__).resolve().parent.parent / "scripts" / "generate_pipeline_plots.py"
+            _conda_env = config.get("slurm", {}).get("conda_env", "ML")
+            _miniforge = Path(os.path.expanduser("~")) / "miniforge3"
+            _ml_python = _miniforge / "envs" / _conda_env / "bin" / "python"
+            _python = str(_ml_python) if _ml_python.exists() else sys.executable
+            subprocess.run(
+                [_python, str(_plot_script),
+                 "--results_dir", results_path,
+                 "--top_n_features", str(config.get("top_n_features_plot", 20))],
+                check=False,
             )
-            
-            if outputs_cfg.get("save_shap", False) and true_shap_values and perm_shap_values:
-                plot_shap_comparative_boxplots(
-                    true_shap_runs=true_shap_values,
-                    perm_shap_runs=perm_shap_values,
-                    feature_names=feature_cols,
-                    save_path=results_path,
-                    filename_base=f"{model_type}_ws_permutation",
-                    num_features=10
-                )
 
     print(f"\n{'='*60}")
     print(f"Done. Results → {results_path}")

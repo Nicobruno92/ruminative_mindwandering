@@ -66,6 +66,13 @@ Examples:
         help="Marker index for array job processing (alternative to --marker)"
     )
     
+    parser.add_argument(
+        "--predictor-of-interest",
+        type=str,
+        default=None,
+        help="Override predictor to analyze list configs"
+    )
+    
     args = parser.parse_args()
     
     # Validate config file exists
@@ -74,16 +81,29 @@ Examples:
         print(f"Error: Configuration file not found: {config_path}")
         sys.exit(1)
     
+    # Read config and override predictor if needed
+    import yaml
+    with open(config_path, 'r') as f:
+        config_data = yaml.safe_load(f)
+        
+    if args.predictor_of_interest:
+        config_data['lmm']['predictor_of_interest'] = args.predictor_of_interest
+        # Use a temporary config path to pass the modified config
+        # Alternatively, we could modify `run_andrillon_pipeline` to take config directly
+        # For now, it's easiest just to rewrite it to a temporary file
+        import tempfile
+        import os
+        fd, temp_config_path = tempfile.mkstemp(suffix='.yaml')
+        with os.fdopen(fd, 'w') as f:
+            yaml.dump(config_data, f)
+        config_path = Path(temp_config_path)
+
     # Determine marker name from index if provided
     marker_name = args.marker
     if args.marker_index is not None:
-        import yaml
         from andrillon_pipeline import get_marker_list
         
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        markers = get_marker_list(config)
+        markers = get_marker_list(config_data)
         
         if args.marker_index < 0 or args.marker_index >= len(markers):
             print(f"Error: Marker index {args.marker_index} out of range (0-{len(markers)-1})")
@@ -103,16 +123,23 @@ Examples:
         print("\n" + "="*80)
         print("SUCCESS!")
         print("="*80)
-        print(f"Analyzed {len(results)} marker(s)")
-        
-        total_clusters = sum(len(r['clusters']) for r in results.values())
-        print(f"Total significant clusters: {total_clusters}")
-        
+        if isinstance(results, dict):
+            print(f"Analyzed {len(results)} marker(s)")
+            total_clusters = sum(len(r.get('clusters', [])) for r in results.values() if isinstance(r, dict))
+            print(f"Total significant clusters: {total_clusters}")
+            
     except Exception as e:
         print(f"\nError running pipeline: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        # Cleanup temporary config file if created
+        if args.predictor_of_interest and 'temp_config_path' in locals():
+            try:
+                os.remove(temp_config_path)
+            except:
+                pass
 
 
 if __name__ == "__main__":

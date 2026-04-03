@@ -21,6 +21,7 @@ from reader import (
     load_all_probe_data, 
     prepare_data_for_lmm,
     filter_subjects_by_variability,
+    filter_subjects_by_class_balance,
     validate_formula_variables,
     get_channel_names,
     get_available_markers
@@ -42,7 +43,8 @@ from helpers import (
     apply_preprocessing,
     load_pca_data,
     summarize_clusters,
-    normalize_predictors
+    normalize_predictors,
+    binarize_predictors
 )
 from generate_summary_report import generate_summary_report, generate_pipeline_qa_html_report
 
@@ -238,7 +240,54 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
             preprocessing_info['steps_applied'].append(
                 f"normalize_predictors_{predictor_norm_config.get('method', 'zscore')}"
             )
-        
+            
+        # Apply predictor binarization if enabled
+        # This converts continuous predictors to binary (e.g., high vs low)
+        predictor_bin_config = config['preprocessing'].get('predictor_binarization', {})
+        if predictor_bin_config.get('enabled', False):
+            df_behavioral = binarize_predictors(
+                df=df_behavioral,
+                method=predictor_bin_config.get('method', 'within_subject_median'),
+                subject_col='subject',
+                predictors=predictor_bin_config.get('predictors', []),
+                verbose=True
+            )
+            
+            preprocessing_info['steps_applied'].append(
+                f"binarize_predictors_{predictor_bin_config.get('method', 'median')}"
+            )
+
+        # Apply class balance filter *after* binarization
+        if min_minority_ratio is not None:
+            if predictor_of_interest is None:
+                raise ValueError("predictor_of_interest must be specified when using min_minority_ratio")
+            
+            # For interaction terms, filter on the first constituent variable
+            filter_col = predictor_of_interest
+            if ':' in predictor_of_interest:
+                filter_col = predictor_of_interest.split(':')[0].strip()
+                
+            df_filtered = filter_subjects_by_class_balance(
+                df=df_behavioral,
+                predictor_column=filter_col,
+                min_minority_ratio=min_minority_ratio,
+                subject_column='subject',
+                verbose=True
+            )
+            
+            if len(df_filtered) == 0:
+                print(f"Skipping {marker_name} - no observations remain after filtering by class balance.")
+                return None
+                
+            if len(df_filtered) < len(df_behavioral):
+                # Filter power_data to match remaining rows
+                valid_indices = df_filtered.index.values
+                power_data = power_data[valid_indices]
+                df_behavioral = df_filtered.reset_index(drop=True)
+                
+                n_observations, _ = power_data.shape
+                print(f"Data adjusted for class balance: {n_observations} observations remaining")
+
         # Create output directory structure: base / model_folder / marker_folder
         base_output_dir = Path(output_path)
         
@@ -727,27 +776,6 @@ def main(config_path: str = "Statistics/config.yaml",
     else:
         print("\nNo QA filtering configured")
     
-    # Load all aggregated probe data
-    print("\nLoading all aggregated probe data...")
-    df_all = load_all_probe_data(
-        features_root=features_root,
-        subjects=subjects,
-        tasks=tasks,
-        marker_types=list(selected_markers.keys()) if selected_markers else None,
-        qa_exclusions=qa_exclusions_dict if qa_exclusions_dict else None,
-        verbose=True
-    )
-    
-    # Load PCA data if path is provided in config
-    pca_data = None
-    pca_results_path = config['project'].get('pca_results_path', None)
-    if pca_results_path:
-        print("\nLoading PCA data...")
-        pca_data = load_pca_data(pca_results_path, verbose=True)
-        print("✓ PCA data loaded successfully")
-    else:
-        print("\nNo PCA data path provided in config. Skipping PCA data loading.")
-    
     # Determine which markers to process based on configured selected_markers
     markers_to_process = []
     
@@ -784,11 +812,16 @@ def main(config_path: str = "Statistics/config.yaml",
             resolved_fragments.extend(feature_families[family_name])
         
         # Filter available markers: include if any fragment is a substring of the marker name
-        matched = [
-            m for m in available_type_markers
-            if any(frag in m for frag in resolved_fragments)
-        ]
-        
+        matched = []
+        for m in available_type_markers:
+            for frag in resolved_fragments:
+                if frag in m:
+                    # Skip massive pair-wise matrices unless explicitly requested as a fragment
+                    if m.endswith('_pairs') and not frag.endswith('_pairs'):
+                        continue
+                    matched.append(m)
+                    break  # Found a match, no need to check other fragments
+                    
         markers_to_process.extend([(m, marker_type) for m in matched])
         print(
             f"  {marker_type}: families={family_list} → "
@@ -802,6 +835,7 @@ def main(config_path: str = "Statistics/config.yaml",
         "Check that marker names in the data contain the configured fragments."
     
     # If marker_index is provided (SLURM array job), process only that marker
+    # This allows us to load ONLY the data we need for this specific marker
     if marker_index is not None:
         if marker_index < 0 or marker_index >= len(markers_to_process):
             print(f"Error: marker_index {marker_index} out of range (0-{len(markers_to_process)-1})")
@@ -809,14 +843,41 @@ def main(config_path: str = "Statistics/config.yaml",
         selected_marker = markers_to_process[marker_index]
         markers_to_process = [selected_marker]
         print(f"SLURM array mode: Processing marker {marker_index}: {selected_marker[0]} ({selected_marker[1]})")
+
+    # Determine subset of types and markers to load
+    # To save massive amounts of memory, we filter at load time
+    types_to_load = list({ptype for _, ptype in markers_to_process})
+    specific_markers_to_load = list({mk for mk, _ in markers_to_process})
+        
+    # Load PCA data if path is provided in config
+    pca_data = None
+    pca_results_path = config['project'].get('pca_results_path', None)
+    if pca_results_path:
+        print("\nLoading PCA data...")
+        pca_data = load_pca_data(pca_results_path, verbose=True)
+        print("✓ PCA data loaded successfully")
+    else:
+        print("\nNo PCA data path provided in config. Skipping PCA data loading.")
+        
+    # Load aggregated probe data - heavily filtered to save memory!
+    print("\nLoading aggregated probe data...")
+    df_all = load_all_probe_data(
+        features_root=features_root,
+        subjects=subjects,
+        tasks=tasks,
+        marker_types=types_to_load,
+        specific_markers=specific_markers_to_load,
+        qa_exclusions=qa_exclusions_dict if qa_exclusions_dict else None,
+        verbose=True
+    )
     
     # Step 2: Set up channel information (do this once for all markers)
     print("\n" + "-"*80)
     print("STEP 2: Setting up channel information")
     print("-"*80)
     
-    # Get channel names from the data (deterministic)
-    data_channels = get_channel_names(features_root)
+    # Get channel names strictly from the loaded data to avoid reloading everything
+    data_channels = sorted(df_all['channel'].unique().tolist())
     print(f"Data channels: {len(data_channels)} channels")
     
     # Load montage and get adjacency matrix

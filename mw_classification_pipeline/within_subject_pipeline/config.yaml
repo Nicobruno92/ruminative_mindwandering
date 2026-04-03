@@ -52,7 +52,7 @@ slurm:
 # =============================================================================
 random_seed: 42
 n_runs: 10                      # Base ML training passes — gives 10 data points per subject for distribution plots
-n_permutations: 100             # Runs per permutation pass (useful: 100 or 1000)
+n_permutations: 10             # Runs per permutation pass (useful: 100 or 1000)
 
 # =============================================================================
 # EPOCH TYPES
@@ -70,7 +70,8 @@ n_permutations: 100             # Runs per permutation pass (useful: 100 or 1000
 #   evoked: ["erp"]
 #   sleep: ["sleep"]
 epoch_types:
-  - "state"
+  - sleep
+  - evoked: ['erp']
 
 # =============================================================================
 # DATA FORMAT
@@ -79,6 +80,8 @@ epoch_types:
 # Determines if the pipeline expects channel-level columns (e.g., Fz, Cz) 
 # or spatial ROI-level columns (e.g., frontal, parietal).
 data_format: "per_roi"
+# Whether to include pair-wise connectivity features.
+include_connectivity_pairs: false
 
 # =============================================================================
 # CROSS-VALIDATION SETTINGS (WITHIN-SUBJECT)
@@ -103,6 +106,7 @@ cv:
 # =============================================================================
 run_contrasts:
   - on_vs_off_within_median
+  - on_vs_off_threshold
 
 # Mapping of what each contrast actually means for data extraction.
 # The keys correspond to run_contrasts. The values are dicts specifying the
@@ -180,16 +184,16 @@ feature_families:
 # Which families to run automatically via local/cluster bash scripts.
 run_families:
   - all
-  - evoked
-  - spectral
-  - connectivity
+  # - evoked
+  # - spectral
+  # - connectivity
 
 # =============================================================================
 # ML PIPELINE SETTINGS
 # =============================================================================
 
 classifiers:
-  run_models: ["rf", "xgb", "lr"]
+  run_models: ["rf", "iforest"]
   rf:
     n_estimators: 100
     max_depth: 10
@@ -205,9 +209,25 @@ classifiers:
     solver: "lbfgs"
     class_weight: "balanced"
 
+  # --- One-class (outlier detection) models ---
+  # One-class counterpart of SVM (analogous to 'lr'/'svm')
+  ocsvm:
+    nu: 0.1          # Upper bound on fraction of training outliers / lower bound on support vectors
+    kernel: "rbf"
+    gamma: "scale"
+  # One-class counterpart of RandomForest
+  iforest:
+    n_estimators: 100
+    contamination: "auto"  # Expected fraction of outliers; "auto" uses 0.1
+
+  # Which class to use as the training set for one-class models.
+  # "minority" → train on minority class (MB); inlier = minority.
+  # "majority" → train on majority class; outlier = minority.
+  oneclass_target: "minority"
+
 preprocessing:
   # Imputation strategy for NaNs: 'mean', 'median', 'knn', or 'none'
-  imputation: 'mean'
+  imputation: 'none'
   
   # Standardize features (mean 0, std 1)
   scaler: "standard"
@@ -229,7 +249,7 @@ feature_selection:
   # Number of features to select. (Use "all" to skip selection completely).
   # For within subject, 'k' may need to be strictly restricted 
   # (e.g. k=10) due to low n_samples per subject
-  k: 10
+  k: 20
   
   # For LMM:
   lmm_n_jobs: -1
@@ -263,7 +283,7 @@ outputs:
   scoring_metrics: ["auc", "balanced_accuracy", "f1", "mcc", "precision", "recall"]
   
   # Generate visual plots (ROC curves, confusion matrices) -> Note: single-subject average logic applies
-  save_plots: false
+  save_plots: true
 
   # Run SHAP explainer
   save_shap: true

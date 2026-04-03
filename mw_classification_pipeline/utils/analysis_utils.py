@@ -48,19 +48,19 @@ def get_run_dir(dimension_results_path: str, run_idx: int, n_runs: int) -> str:
     Return per-run output directory.
 
     For single-run LOSO: uses dimension_results_path directly.
-    For multi-run: uses runs/runN subdirectory.
+    For multi-run: uses true_runs/run_{n} subdirectory.
     """
     if n_runs == 1:
         run_dir = dimension_results_path
     else:
-        run_dir = os.path.join(dimension_results_path, "runs", f"run{run_idx}")
+        run_dir = os.path.join(dimension_results_path, "true_runs", f"run_{run_idx}")
     Path(run_dir).mkdir(parents=True, exist_ok=True)
     return run_dir
 
 
 def get_permutation_run_dir(dimension_results_path: str, run_idx: int) -> str:
-    """Return per-permutation output directory (inside permutation/ subfolder)."""
-    perm_dir = os.path.join(dimension_results_path, "permutation", f"run{run_idx}")
+    """Return per-permutation output directory (inside permuted_runs/ subfolder)."""
+    perm_dir = os.path.join(dimension_results_path, "permuted_runs", f"run_{run_idx}")
     Path(perm_dir).mkdir(parents=True, exist_ok=True)
     return perm_dir
 
@@ -326,34 +326,32 @@ def _save_shap_values(
 
 
 def _consolidate_sample_predictions(
-    dimension_results_path: str,
+    true_runs_path: str,
     filename_base: str,
-    output_dir: str = None,
+    output_dir: str,
 ) -> None:
     """
-    Merge sample-level predictions across all runs and compute per-probe statistics.
+    Merge sample-level predictions across all true_runs and compute per-probe statistics.
 
     Parameters
     ----------
-    dimension_results_path : str
-        Root directory containing the ``runs/`` subfolder.
+    true_runs_path : str
+        Path to the ``true_runs/`` subfolder containing run_0/, run_1/, etc.
     filename_base : str
-        Prefix used to find ``*_sample_predictions.csv`` files.
-    output_dir : str, optional
-        Directory where consolidated files are written. Defaults to
-        ``dimension_results_path``.
+        Prefix used to find ``*_sample_predictions.csv`` files inside each run folder.
+    output_dir : str
+        Directory where consolidated files are written (typically the model_type/ root).
 
     Saves two files:
-    - all_sample_predictions.csv: raw stack of all runs
-    - consolidated_sample_predictions.csv: averaged per probe
+    - {filename_base}_all_sample_predictions.csv: raw stack of all runs
+    - {filename_base}_consolidated_sample_predictions.csv: averaged per probe
     """
-    runs_dir = os.path.join(dimension_results_path, "runs")
-    if not os.path.exists(runs_dir):
+    if not os.path.exists(true_runs_path):
         return
 
     all_preds = []
-    for run_folder in sorted(os.listdir(runs_dir)):
-        sample_file = os.path.join(runs_dir, run_folder, f"{filename_base}_sample_predictions.csv")
+    for run_folder in sorted(os.listdir(true_runs_path)):
+        sample_file = os.path.join(true_runs_path, run_folder, f"{filename_base}_sample_predictions.csv")
         if os.path.exists(sample_file):
             all_preds.append(pd.read_csv(sample_file))
 
@@ -380,14 +378,13 @@ def _consolidate_sample_predictions(
     if "proba_mean" in summary.columns:
         summary["y_pred_avg"] = (summary["proba_mean"] >= 0.5).astype(int)
 
-    save_dir = output_dir if output_dir else dimension_results_path
-    Path(save_dir).mkdir(parents=True, exist_ok=True)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     all_df.to_csv(
-        os.path.join(save_dir, f"{filename_base}_all_sample_predictions.csv"),
+        os.path.join(output_dir, f"{filename_base}_all_sample_predictions.csv"),
         index=False
     )
     summary.to_csv(
-        os.path.join(save_dir, f"{filename_base}_consolidated_sample_predictions.csv"),
+        os.path.join(output_dir, f"{filename_base}_consolidated_sample_predictions.csv"),
         index=False
     )
     print(f"Consolidated predictions: {len(summary)} unique probes across {len(all_preds)} runs")
@@ -465,7 +462,7 @@ def _generate_plots(
 
     # LOSO per-subject barplot
     if loso_subject_df is not None:
-        from plotting_utils import plot_loso_subject_metrics
+        from utils.plotting_utils import plot_loso_subject_metrics
         plot_loso_subject_metrics(loso_subject_df, dimension_results_path, filename_base)
         print("  ✓ LOSO per-subject metrics")
 
@@ -516,6 +513,9 @@ def run_distribution_analysis(
     rf_params: dict = None,
     xgb_params: dict = None,
     lr_params: dict = None,
+    ocsvm_params: dict = None,
+    iforest_params: dict = None,
+    oneclass_target: str = "minority",
     top_n_features_plot: int = 20,
     save_pickle: bool = False,
     save_csv: bool = True,
@@ -611,11 +611,12 @@ def run_distribution_analysis(
         mean_auprc, mean_mcc, etc.
     """
     n_subjects = len(np.unique(groups))
-    # LOSO directory structure: {results_path}/{model_type}/
+    # LOSO directory structure: {results_path}/{feature_type}/{model_type}/
+    # results_path already includes the feature_type (family) component.
     dimension_results_path = os.path.join(results_path, model_type)
     Path(dimension_results_path).mkdir(parents=True, exist_ok=True)
-    summaries_dir = os.path.join(dimension_results_path, "summaries")
-    Path(summaries_dir).mkdir(parents=True, exist_ok=True)
+    # Consolidated outputs go directly in dimension_results_path (no summaries/ subdir).
+    summaries_dir = dimension_results_path
 
     filename_base = _build_filename_base(model_type, n_runs)
     random_states = np.random.default_rng(config.get("random_seed", 42)).integers(
@@ -662,6 +663,9 @@ def run_distribution_analysis(
                 rf_params=rf_params,
                 xgb_params=xgb_params,
                 lr_params=lr_params,
+                ocsvm_params=ocsvm_params,
+                iforest_params=iforest_params,
+                oneclass_target=oneclass_target,
                 feature_selection_method=feature_selection_method,
                 scaler=scaler,
                 scale_by_participant=config.get("scale_by_participant", "none"),
@@ -730,9 +734,10 @@ def run_distribution_analysis(
                                f"{filename_base}_all_shap_values.pkl"), "wb") as f:
             pickle.dump(shap_values_all_runs, f)
 
-    # Consolidate sample-level predictions across runs
+    # Consolidate sample-level predictions across true_runs/
     if save_probabilities and n_runs > 1:
-        _consolidate_sample_predictions(dimension_results_path, filename_base, output_dir=summaries_dir)
+        true_runs_path = os.path.join(dimension_results_path, "true_runs")
+        _consolidate_sample_predictions(true_runs_path, filename_base, output_dir=dimension_results_path)
 
     # LOSO per-subject metrics (from the last completed run)
     loso_subject_df = None
@@ -816,6 +821,9 @@ def run_permutation_distribution_analysis(
     rf_params: dict = None,
     xgb_params: dict = None,
     lr_params: dict = None,
+    ocsvm_params: dict = None,
+    iforest_params: dict = None,
+    oneclass_target: str = "minority",
     top_n_features_plot: int = 20,
     save_pickle: bool = False,
     save_csv: bool = True,
@@ -875,8 +883,8 @@ def run_permutation_distribution_analysis(
     true_auprc_list = np.asarray(true_auprc_list or [])
     true_mcc_list = np.asarray(true_mcc_list or [])
 
-    # Permutation results: {results_path}/{model_type}/permutations/
-    perm_base_path = os.path.join(results_path, model_type, "permutations")
+    # Permuted runs: {results_path}/{feature_type}/{model_type}/permuted_runs/
+    perm_base_path = os.path.join(results_path, model_type, "permuted_runs")
     Path(perm_base_path).mkdir(parents=True, exist_ok=True)
 
     filename_base = f"{model_type}_permutation_{n_permutations}perms"
@@ -894,7 +902,7 @@ def run_permutation_distribution_analysis(
         range(n_permutations), desc=f"Permutation [{model_type}] {dimension}"
     ):
         run_start = time.time()
-        perm_run_dir = os.path.join(perm_base_path, "runs", f"run{run_idx}")
+        perm_run_dir = os.path.join(perm_base_path, f"run_{run_idx}")
         Path(perm_run_dir).mkdir(parents=True, exist_ok=True)
 
         # Shuffle labels
@@ -924,6 +932,9 @@ def run_permutation_distribution_analysis(
                 rf_params=rf_params,
                 xgb_params=xgb_params,
                 lr_params=lr_params,
+                ocsvm_params=ocsvm_params,
+                iforest_params=iforest_params,
+                oneclass_target=oneclass_target,
                 feature_selection_method=feature_selection_method,
                 scaler=scaler,
                 scale_by_participant=config.get("scale_by_participant", "none"),
@@ -1002,13 +1013,15 @@ def run_permutation_distribution_analysis(
     for i, feat in enumerate(feature_names):
         results_df[f"importance_{feat}"] = [r["feature_importances"][i] for r in all_results]
 
+    # Consolidated permutation summary goes to the model_type root (one level up from permuted_runs/)
+    perm_consolidated_dir = os.path.join(results_path, model_type)
     if save_csv:
         results_df.to_csv(
-            os.path.join(perm_base_path, f"{filename_base}_summary.csv"), index=False
+            os.path.join(perm_consolidated_dir, f"{filename_base}_summary.csv"), index=False
         )
 
     if save_pickle:
-        with open(os.path.join(perm_base_path, f"{filename_base}_detailed.pkl"), "wb") as f:
+        with open(os.path.join(perm_consolidated_dir, f"{filename_base}_detailed.pkl"), "wb") as f:
             pickle.dump(all_results, f)
 
     # P-value computation
@@ -1053,12 +1066,13 @@ def run_permutation_distribution_analysis(
             }
 
         if results_for_plotting:
-            from plotting_utils import plot_consolidated_permutation_results
+            from utils.plotting_utils import plot_consolidated_permutation_results
+            # Plots comparing true vs permuted distributions go to the model_type root.
             plot_consolidated_permutation_results(
                 results_dict=results_for_plotting,
                 dimension=dimension,
                 model_type=model_type,
-                save_path=perm_base_path,
+                save_path=perm_consolidated_dir,
                 filename_base=filename_base,
             )
             print("  ✓ Permutation distribution plots")
@@ -1097,6 +1111,9 @@ def run_within_subject_distribution_analysis(
     rf_params: dict = None,
     xgb_params: dict = None,
     lr_params: dict = None,
+    ocsvm_params: dict = None,
+    iforest_params: dict = None,
+    oneclass_target: str = "minority",
     top_n_features_plot: int = 20,
     save_pickle: bool = False,
     save_csv: bool = True,
@@ -1115,15 +1132,15 @@ def run_within_subject_distribution_analysis(
 ):
     """
     Run within-subject classification (independently per subject).
-    Generates a single comprehensive output matching the LOSO structure, 
+    Generates a single comprehensive output matching the LOSO structure,
     where each row represents one subject's CV performance.
     """
     if plot_style and save_plots:
         from utils.plotting_utils import set_plot_style
         set_plot_style(plot_style)
 
-    # Clean per-model directory: {results_path}/{model_type}/
-    # Avoids the redundant nested WithinSubject/{dimension} that the caller already handles.
+    # Per-model directory: {results_path}/{feature_type}/{model_type}/
+    # results_path already includes the feature_type (family) component.
     dimension_results_path = os.path.join(results_path, model_type)
     Path(dimension_results_path).mkdir(parents=True, exist_ok=True)
 
@@ -1151,8 +1168,8 @@ def run_within_subject_distribution_analysis(
     for run_idx in range(n_runs):
         run_start = time.time()
         random_state = int(rng.integers(1, 10000))
-        # Always use runs/run{n} subfolder — keeps run-level data isolated from summaries.
-        run_dir = os.path.join(dimension_results_path, "runs", f"run{run_idx}")
+        # Always use true_runs/run_{n}/ — keeps run-level data isolated from consolidated outputs.
+        run_dir = os.path.join(dimension_results_path, "true_runs", f"run_{run_idx}")
         Path(run_dir).mkdir(parents=True, exist_ok=True)
         
         run_subject_results = []
@@ -1206,6 +1223,9 @@ def run_within_subject_distribution_analysis(
                 rf_params=rf_params,
                 xgb_params=xgb_params,
                 lr_params=lr_params,
+                ocsvm_params=ocsvm_params,
+                iforest_params=iforest_params,
+                oneclass_target=oneclass_target,
                 feature_selection_method=feature_selection_method,
                 scaler=scaler,
                 use_pca=use_pca,
@@ -1333,13 +1353,13 @@ def run_within_subject_distribution_analysis(
     summary_df = all_runs_df.groupby('subject').mean(numeric_only=True).reset_index()
     
     if save_csv:
-        summaries_dir = os.path.join(dimension_results_path, "summaries")
-        Path(summaries_dir).mkdir(parents=True, exist_ok=True)
+        # Consolidated outputs go directly to dimension_results_path (model_type root).
         summary_df.to_csv(
-            os.path.join(summaries_dir, f"{filename_base}_ws_subject_metrics_averaged.csv"),
+            os.path.join(dimension_results_path, f"{filename_base}_ws_subject_metrics_averaged.csv"),
             index=False,
         )
-        _consolidate_sample_predictions(dimension_results_path, filename_base, output_dir=summaries_dir)
+        true_runs_path = os.path.join(dimension_results_path, "true_runs")
+        _consolidate_sample_predictions(true_runs_path, filename_base, output_dir=dimension_results_path)
         
     # TODO Plotting for within subject specific layout
     # (Typically plotting is bypassed or modified for purely subject-level lists compared to LOSO folds)
@@ -1378,6 +1398,9 @@ def run_within_subject_permutation_analysis(
     rf_params: dict = None,
     xgb_params: dict = None,
     lr_params: dict = None,
+    ocsvm_params: dict = None,
+    iforest_params: dict = None,
+    oneclass_target: str = "minority",
     top_n_features_plot: int = 20,
     save_pickle: bool = False,
     save_csv: bool = True,
@@ -1392,7 +1415,7 @@ def run_within_subject_permutation_analysis(
     pca_n_components: int = None,
     pca_type: str = "standard",
     pca_kernel: str = "rbf",
-    true_ws_metrics_df=None, # Passed from the real run to compute specific p-values
+    true_ws_metrics_df=None,  # Passed from the real run to compute specific p-values
     logger=None,
 ):
     """
@@ -1402,9 +1425,8 @@ def run_within_subject_permutation_analysis(
     if n_permutations < 1:
         return pd.DataFrame(), {}, [], []
 
-    # Save permutation runs inside permutations/ subfolder of the per-model directory.
-    # Structure: {results_path}/{model_type}/permutations/runs/run{n}/
-    perm_base_path = os.path.join(results_path, model_type, "permutations")
+    # Permuted runs: {results_path}/{feature_type}/{model_type}/permuted_runs/run_{n}/
+    perm_base_path = os.path.join(results_path, model_type, "permuted_runs")
     Path(perm_base_path).mkdir(parents=True, exist_ok=True)
 
     filename_base = f"{model_type}_ws_permutation_{n_permutations}perms"
@@ -1422,7 +1444,7 @@ def run_within_subject_permutation_analysis(
     for run_idx in tqdm(range(n_permutations), desc=f"Permutation [{model_type}] WS {dimension}"):
         run_start = time.time()
         random_state = int(rng.integers(1, 10000))
-        perm_run_dir = os.path.join(perm_base_path, "runs", f"run{run_idx}")
+        perm_run_dir = os.path.join(perm_base_path, f"run_{run_idx}")
         Path(perm_run_dir).mkdir(parents=True, exist_ok=True)
 
         # Shuffle labels explicitly within each subject only
@@ -1469,6 +1491,9 @@ def run_within_subject_permutation_analysis(
                     rf_params=rf_params,
                     xgb_params=xgb_params,
                     lr_params=lr_params,
+                    ocsvm_params=ocsvm_params,
+                    iforest_params=iforest_params,
+                    oneclass_target=oneclass_target,
                     feature_selection_method=feature_selection_method,
                     scaler=scaler,
                     use_pca=use_pca,
@@ -1562,9 +1587,11 @@ def run_within_subject_permutation_analysis(
         return pd.DataFrame(), {}, [], []
 
     perm_df = pd.DataFrame(all_perm_results)
+    # Consolidated permutation outputs go to the model_type root (one level up from permuted_runs/).
+    perm_consolidated_dir = os.path.join(results_path, model_type)
     if save_csv:
-        perm_df.to_csv(os.path.join(perm_base_path, f"{filename_base}_summary_averaged.csv"), index=False)
-        _consolidate_sample_predictions(perm_base_path, f"{model_type}_ws_permutation", output_dir=perm_base_path)
+        perm_df.to_csv(os.path.join(perm_consolidated_dir, f"{filename_base}_summary_averaged.csv"), index=False)
+        _consolidate_sample_predictions(perm_base_path, f"{model_type}_ws_permutation", output_dir=perm_consolidated_dir)
 
     # Compute p-values against actual real data if provided
     perm_summary = {}

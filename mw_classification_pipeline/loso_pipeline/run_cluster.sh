@@ -49,11 +49,12 @@ with open('$CONFIG') as f:
     cfg = yaml.safe_load(f)
 
 slurm = cfg.get('slurm', {})
-model = cfg.get('model_type', 'lr')
+model_raw = cfg.get('model_type', 'lr')
+models = model_raw if isinstance(model_raw, list) else [model_raw]
 contrasts = list(cfg.get('label_contrasts', {}).keys())
 families = cfg.get('run_families', ['all'])
 
-combos = [f'{model}:{c}:{fam}' for c in contrasts for fam in families]
+combos = [f'{m}:{c}:{fam}' for m in models for c in contrasts for fam in families]
 n = len(combos)
 
 # Write combinations file (trailing newline so wc -l returns correct count)
@@ -62,7 +63,7 @@ with open('logs/.combinations.txt', 'w') as out:
 
 # Print human-readable summary to stderr so it reaches the terminal
 import sys
-print(f'Model     : {model}', file=sys.stderr)
+print(f'Models    : {models}', file=sys.stderr)
 print(f'Contrasts : {contrasts}', file=sys.stderr)
 print(f'Families  : {families}', file=sys.stderr)
 print(f'Combos    : {n}', file=sys.stderr)

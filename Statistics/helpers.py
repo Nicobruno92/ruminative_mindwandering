@@ -1170,3 +1170,81 @@ def summarize_clusters(
         })
     
     return pd.DataFrame(summary)
+
+def binarize_predictors(
+    df: pd.DataFrame,
+    method: Union[str, float, int] = 'within_subject_median',
+    subject_col: str = 'subject',
+    predictors: List[str] = None,
+    verbose: bool = True
+) -> pd.DataFrame:
+    """
+    Binarize predictor columns based on a specified method.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing behavioral data
+    method : str or numeric
+        Binarization method. Options: 
+        - 'within_subject_median' (split at each subject's median)
+        - 'global_median' (split at the global median)
+        - float/int value (fixed threshold)
+    subject_col : str
+        Column name containing subject identifiers
+    predictors : list of str
+        List of column names to binarize.
+    verbose : bool
+        Whether to print progress
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with binarized predictors
+    """
+    if not predictors:
+        return df.copy()
+
+    df_bin = df.copy()
+    
+    # Check which columns exist
+    cols_to_bin = [c for c in predictors if c in df.columns]
+    missing = [c for c in predictors if c not in df.columns]
+    if missing and verbose:
+        print(f"Warning: Predictors not found for binarization: {missing}")
+        
+    if not cols_to_bin:
+        if verbose:
+            print("No predictors to binarize found.")
+        return df_bin
+        
+    if verbose:
+        print(f"Binarizing predictors (method: {method})...")
+        print(f"  Predictors: {cols_to_bin}")
+
+    for col in cols_to_bin:
+        if isinstance(method, (int, float)) or (isinstance(method, str) and method.replace('.','',1).isdigit()):
+            # Fixed threshold
+            threshold = float(method)
+            df_bin[col] = (df_bin[col] >= threshold).astype(float)
+            
+        elif method == 'global_median':
+            # Split by global median
+            threshold = df_bin[col].median()
+            df_bin[col] = (df_bin[col] > threshold).astype(float)
+            
+        elif method == 'within_subject_median':
+            # Split by subject-specific median
+            # Ensure col is float
+            if not np.issubdtype(df_bin[col].dtype, np.floating):
+                 df_bin[col] = df_bin[col].astype(float)
+                 
+            for subject in df_bin[subject_col].unique():
+                subj_mask = df_bin[subject_col] == subject
+                if subj_mask.sum() > 0:
+                    subj_median = df_bin.loc[subj_mask, col].median()
+                    df_bin.loc[subj_mask, col] = (df_bin.loc[subj_mask, col] > subj_median).astype(float)
+        else:
+            raise ValueError(f"Unknown binarization method: {method}")
+
+    return df_bin

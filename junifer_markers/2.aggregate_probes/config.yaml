@@ -138,7 +138,7 @@ aggregation:
     P3a: [frontal_left, frontal_right]
     P3b: [central_left, central_right, posterior_left, posterior_right]
   
-  channel_methods: null #['trimmean', 'std']  # Level 2: ROI aggregation (null = keep per-channel, no ROI aggregation)
+  channel_methods: ["trimmean"] #['trimmean', 'std']  # Level 2: ROI aggregation (null = keep per-channel, no ROI aggregation)
   trimmean_percent: 20
 
 

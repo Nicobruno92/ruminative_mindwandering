@@ -37,7 +37,7 @@ sys.path.insert(0, str(stats_dir))
 from reader import load_all_probe_data, prepare_data_for_lmm, get_available_markers
 from cluster_test import get_channel_adjacency, find_clusters_from_pvalues
 from lmm_model import run_lmm_per_channel
-from helpers import extract_fixed_effects_from_formula
+from helpers import get_model_folder_name
 
 # Import from local Stats_andrillon modules
 from plot_results import create_results_report, create_raw_topography_report
@@ -82,6 +82,9 @@ def get_marker_list(config: Dict) -> List[str]:
         formatted_markers = []
         for marker_type, marker_names in markers.items():
             for marker_name in marker_names:
+                # Exclude pair-wise matrix markers to avoid memory & channel count issues
+                if marker_name.endswith('_pairs'):
+                    continue
                 formatted_markers.append(f"{marker_type}/{marker_name}")
         
         logger.info(f"Auto-discovered {len(formatted_markers)} markers across {len(markers)} types")
@@ -141,6 +144,7 @@ def run_marker_analysis(
             subjects=config['project'].get('subjects'),
             tasks=config['project'].get('tasks'),
             marker_types=marker_types_to_load,
+            specific_markers=[marker_base_name],
         )
         
         # Filter by marker type if specified
@@ -175,7 +179,10 @@ def run_marker_analysis(
         
         # Create output directory consistent with main Statistics pipeline
         output_root = Path(config['project']['output_path'])
-        model_folder = extract_fixed_effects_from_formula(config['lmm']['formula'])
+        
+        predictor = config['lmm'].get('predictor_of_interest', 'auto')
+        model_folder = get_model_folder_name(config['lmm']['formula'], predictor)
+        
         if marker_type:
             safe_marker_name = marker_base_name.replace('/', '_').replace(' ', '_')
             marker_folder = f"{marker_type}_{safe_marker_name}"
@@ -574,7 +581,8 @@ def run_andrillon_pipeline(
     # Determine model folder name from formula using the same helper
     # as the main Statistics pipeline to ensure identical directory names
     formula = config['lmm']['formula']
-    model_folder = extract_fixed_effects_from_formula(formula)
+    predictor = config['lmm'].get('predictor_of_interest', 'auto')
+    model_folder = get_model_folder_name(formula, predictor)
     
     # Run analysis for each marker
     all_results = {}

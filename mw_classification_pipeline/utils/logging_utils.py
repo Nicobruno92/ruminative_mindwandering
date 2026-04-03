@@ -27,6 +27,10 @@ class AnalysisLogger:
             print(f"[{timestamp}] {message}")
             sys.stdout.flush()
 
+    def warning(self, message):
+        """Print warning message with timestamp."""
+        self.log(f"WARNING: {message}")
+
     def log_section(self, title):
         """Print a section header."""
         if self.verbose:

@@ -89,12 +89,13 @@ def find_probe_csvs(
     subject: str,
     task: str,
     marker_types: Union[str, List[str]],
+    data_format: str = "per_channel",
+    include_connectivity_pairs: bool = False,
 ) -> Dict[str, List[str]]:
     """
     Find aggregated probe CSV files for a subject/task.
 
-    File pattern: sub-XX_task-YY_desc-probe-NNN_TYPE_aggMarkers.csv
-    Located in: features_root/sub-XX/eeg/junifer/
+    Supports both old format in `junifer` and new format in `junifer_aggregated`.
 
     Parameters
     ----------
@@ -106,6 +107,8 @@ def find_probe_csvs(
         Task name (e.g., "Sart1").
     marker_types : str or List[str]
         Marker type(s) to load: "evoked", "state", "sleep".
+    data_format : str
+        "per_channel" or "per_roi"
 
     Returns
     -------
@@ -115,14 +118,54 @@ def find_probe_csvs(
     if isinstance(marker_types, str):
         marker_types = [marker_types]
 
-    base_dir = Path(features_root) / f"sub-{subject}" / "eeg" / "junifer"
+    base_dir = Path(features_root) / f"sub-{subject}" / "eeg"
     found = {}
 
     for mtype in marker_types:
-        pattern = f"sub-{subject}_task-{task}_desc-probe-*_{mtype}_aggMarkers.csv"
-        files = sorted(glob.glob(str(base_dir / pattern)))
-        if files:
-            found[mtype] = files
+        for folder in ["junifer", "junifer_aggregated"]:
+            search_dir = base_dir / folder
+            if not search_dir.exists():
+                continue
+            
+            # Pattern 1: old style
+            old_pattern = f"sub-{subject}_task-{task}_desc-probe-*_{mtype}_aggMarkers.csv"
+            # Pattern 2: new style (e.g., onTask_evoked.csv or onTask_evoked_connectivity.csv)
+            new_pattern = f"sub-{subject}_task-{task}_probe-*_*{mtype}*.csv"
+
+            files = []
+            files.extend(glob.glob(str(search_dir / old_pattern)))
+            # Gather all new pattern files then filter by data_format
+            all_new = glob.glob(str(search_dir / new_pattern))
+            for fpath in all_new:
+                is_agg = fpath.endswith("_agg.csv")
+                is_connectivity_agg = fpath.endswith("_connectivity_agg.csv")
+                is_connectivity_base = fpath.endswith("_connectivity.csv")
+                
+                # If per_roi, we only want the _agg.csv files
+                if data_format == "per_roi":
+                    # Some connectivity might be aggregated. We accept anything ending in _agg.csv
+                    # If connectivity doesn't have an _agg version, it might just not be included?
+                    if is_agg or is_connectivity_agg:
+                        files.append(fpath)
+                    elif include_connectivity_pairs and is_connectivity_base:
+                        files.append(fpath)
+                    elif fpath.endswith("aggMarkers.csv"):
+                        files.append(fpath) # fallback for old
+                else:
+                    # per_channel: we skip _agg.csv files
+                    if not is_agg and not is_connectivity_agg and not fpath.endswith("aggMarkers.csv"):
+                        if not include_connectivity_pairs and is_connectivity_base:
+                            continue # skip connectivity if not requested
+                        files.append(fpath)
+            
+            if files:
+                if mtype not in found:
+                    found[mtype] = []
+                found[mtype].extend(files)
+
+    # De-duplicate files list per marker type
+    for mtype in found:
+        found[mtype] = sorted(list(set(found[mtype])))
 
     return found
 
@@ -130,9 +173,6 @@ def find_probe_csvs(
 def load_probe_csv(filepath: str) -> pd.DataFrame:
     """
     Load a single aggregated probe CSV file.
-
-    Expected columns: subject, task, probe_number, marker_type, marker,
-                      channel, value, onoff, + other behavioral columns.
 
     Parameters
     ----------
@@ -150,6 +190,32 @@ def load_probe_csv(filepath: str) -> pd.DataFrame:
     if "subject" in df.columns:
         df["subject"] = df["subject"].astype(str).str.zfill(2)
 
+    # Convert new wide format (markers as columns) to long format if needed
+    if "marker" not in df.columns and "value" not in df.columns:
+        metadata_cols = ["subject", "task", "probe_number", "label", "n_epochs", "channel", "ontask_label", "content", "confidence_level", "depth_level", "onoff", "valence", "confidence", "time", "selfother", "average"]
+        present_meta = [c for c in metadata_cols if c in df.columns]
+        marker_cols = [c for c in df.columns if c not in present_meta]
+        
+        if marker_cols:
+            df = pd.melt(
+                df, 
+                id_vars=present_meta, 
+                value_vars=marker_cols, 
+                var_name="marker", 
+                value_name="value"
+            )
+            
+            # Infer marker_type from filename
+            fname = Path(filepath).name
+            if "evoked" in fname:
+                df["marker_type"] = "evoked"
+            elif "sleep" in fname:
+                df["marker_type"] = "sleep"
+            elif "state" in fname:
+                df["marker_type"] = "state"
+            else:
+                df["marker_type"] = "unknown"
+
     return df
 
 
@@ -160,6 +226,8 @@ def load_subject_data(
     marker_types: Union[str, List[str], Dict[str, List[str]]],
     verbose: bool = False,
     feature_families_config: Optional[Dict] = None,
+    data_format: str = "per_channel",
+    include_connectivity_pairs: bool = False,
 ) -> pd.DataFrame:
     """
     Load all probe CSVs for a subject/task combination.
@@ -188,7 +256,7 @@ def load_subject_data(
     else:
         mtypes_to_load = marker_types
 
-    csv_files = find_probe_csvs(features_root, subject, task, mtypes_to_load)
+    csv_files = find_probe_csvs(features_root, subject, task, mtypes_to_load, data_format=data_format, include_connectivity_pairs=include_connectivity_pairs)
 
     if not csv_files:
         return pd.DataFrame()
@@ -234,6 +302,8 @@ def load_all_subjects(
     marker_types: Union[str, List[str], Dict[str, List[str]]],
     verbose: bool = True,
     feature_families_config: Optional[Dict] = None,
+    data_format: str = "per_channel",
+    include_connectivity_pairs: bool = False,
 ) -> pd.DataFrame:
     """
     Load and concatenate data across all subjects and tasks.
@@ -261,7 +331,7 @@ def load_all_subjects(
     for subject in subjects:
         for task in tasks:
             df = load_subject_data(
-                features_root, subject, task, marker_types, verbose, feature_families_config
+                features_root, subject, task, marker_types, verbose, feature_families_config, data_format=data_format, include_connectivity_pairs=include_connectivity_pairs
             )
             if not df.empty:
                 all_dfs.append(df)
@@ -727,12 +797,26 @@ def prepare_data_for_contrast(
     if verbose:
         print("Loading aggregated probe marker CSVs...")
 
+    include_connectivity_pairs = config.get("include_connectivity_pairs", False)
+
     df_long = load_all_subjects(
-        features_root, subjects, tasks, epoch_types, verbose, feature_families_config
+        features_root, subjects, tasks, epoch_types, verbose, feature_families_config, data_format=data_format, include_connectivity_pairs=include_connectivity_pairs
     )
 
     if df_long.empty:
         raise ValueError("No data loaded! Check paths and file existence.")
+
+    # Exclude connectivity pairs if requested
+    if not include_connectivity_pairs and "marker" in df_long.columns:
+        mask = df_long["marker"].astype(str).str.contains("_pairs", na=False)
+        dropped = mask.sum()
+        if dropped > 0:
+            if verbose:
+                print(f"Excluding {dropped} pairwise connectivity features... ({len(df_long) - dropped} rows remaining)")
+            df_long = df_long[~mask]
+
+    if df_long.empty:
+        raise ValueError("No data left after excluding connectivity pairs.")
 
     # Pivot to wide format (one row per probe)
     if verbose:

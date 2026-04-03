@@ -8,6 +8,36 @@
 CONFIG_FILE="Stats_andrillon/config_andrillon.yaml"
 SCRIPT_DIR="Stats_andrillon"
 
+# ---------------------------------------------------------------------------
+# Optional arguments:
+#   --predictor <name>  Override lmm.predictor_of_interest
+#   --config <path>     Use custom config file
+# ---------------------------------------------------------------------------
+PREDICTOR_OVERRIDE=""
+CONFIG_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --predictor)
+            PREDICTOR_OVERRIDE="$2"
+            shift 2
+            ;;
+        --config)
+            CONFIG_OVERRIDE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            echo "Usage: bash Stats_andrillon/submit_parallel_andrillon_markers.sh [--predictor <name>] [--config <path>]"
+            exit 1
+            ;;
+    esac
+done
+
+# Use custom config if provided
+if [ -n "${CONFIG_OVERRIDE}" ]; then
+    CONFIG_FILE="${CONFIG_OVERRIDE}"
+fi
+
 # Set working directory to project root on the cluster
 cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 
@@ -16,6 +46,9 @@ mkdir -p logs
 
 echo "=========================================="
 echo "Andrillon Parallel Marker Submission"
+if [ -n "${PREDICTOR_OVERRIDE}" ]; then
+    echo "Predictor of interest: ${PREDICTOR_OVERRIDE}"
+fi
 echo "=========================================="
 
 # Check if config file exists
@@ -95,7 +128,7 @@ ARRAY_RANGE="0-$((N_MARKERS-1))"
 # Create Andrillon array job script
 ARRAY_SCRIPT="${SCRIPT_DIR}/run_andrillon_marker_array.sh"
 
-cat > ${ARRAY_SCRIPT} << 'EOFARRAY'
+cat > ${ARRAY_SCRIPT} << EOFARRAY
 #!/bin/bash
 #SBATCH --job-name=andrillon_marker
 #SBATCH --cpus-per-task=2
@@ -108,14 +141,14 @@ cat > ${ARRAY_SCRIPT} << 'EOFARRAY'
 module load proxy
 
 # Activate conda environment
-if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-  . "$HOME/miniconda3/etc/profile.d/conda.sh"
+if [ -f "\$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+  . "\$HOME/miniconda3/etc/profile.d/conda.sh"
   conda activate eeg
-elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
-  . "$HOME/anaconda3/etc/profile.d/conda.sh"
+elif [ -f "\$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+  . "\$HOME/anaconda3/etc/profile.d/conda.sh"
   conda activate eeg
 elif command -v conda >/dev/null 2>&1; then
-  eval "$(conda shell.bash hook)"
+  eval "\$(conda shell.bash hook)"
   conda activate eeg
 fi
 
@@ -124,22 +157,29 @@ cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 echo "=========================================="
 echo "ANDRILLON MARKER JOB"
 echo "=========================================="
-echo "Start time: $(date)"
-echo "Task ID: ${SLURM_ARRAY_TASK_ID}"
+echo "Start time: \$(date)"
+echo "Task ID: \${SLURM_ARRAY_TASK_ID}"
 echo ""
 
-python Stats_andrillon/run_andrillon_pipeline.py \
-  --config Stats_andrillon/config_andrillon.yaml \
-  --marker-index ${SLURM_ARRAY_TASK_ID}
+# Build arguments for Python script
+CLI_ARGS="--config ${CONFIG_FILE} --marker-index \${SLURM_ARRAY_TASK_ID}"
 
-EXIT_CODE=$?
+# PREDICTOR_OF_INTEREST may be injected via --export by the submit script
+if [ -n "\${PREDICTOR_OF_INTEREST:-}" ]; then
+    CLI_ARGS="\${CLI_ARGS} --predictor-of-interest \${PREDICTOR_OF_INTEREST}"
+    echo "Predictor of interest: \${PREDICTOR_OF_INTEREST}"
+fi
 
-if [ ${EXIT_CODE} -eq 0 ]; then
+python Stats_andrillon/run_andrillon_pipeline.py \${CLI_ARGS}
+
+EXIT_CODE=\$?
+
+if [ \${EXIT_CODE} -eq 0 ]; then
     echo ""
-    echo "✓ Andrillon marker job completed successfully at $(date)"
+    echo "✓ Andrillon marker job completed successfully at \$(date)"
 else
     echo ""
-    echo "✗ Andrillon marker job failed with exit code ${EXIT_CODE} at $(date)"
+    echo "✗ Andrillon marker job failed with exit code \${EXIT_CODE} at \$(date)"
 fi
 
 echo "=========================================="
@@ -149,7 +189,12 @@ EOFARRAY
 chmod +x ${ARRAY_SCRIPT}
 
 # Submit the array job and capture the job ID
-ARRAY_JOB_OUTPUT=$(sbatch --array=${ARRAY_RANGE} ${ARRAY_SCRIPT})
+# Propagate the predictor override via SLURM --export so each array task knows it
+SBATCH_EXPORT="ALL"
+if [ -n "${PREDICTOR_OVERRIDE}" ]; then
+    SBATCH_EXPORT="ALL,PREDICTOR_OF_INTEREST=${PREDICTOR_OVERRIDE}"
+fi
+ARRAY_JOB_OUTPUT=$(sbatch --array=${ARRAY_RANGE} --export=${SBATCH_EXPORT} ${ARRAY_SCRIPT})
 ARRAY_EXIT_CODE=$?
 
 if [ ${ARRAY_EXIT_CODE} -ne 0 ]; then
@@ -169,16 +214,19 @@ echo ""
 # Get model folder name and output path from Andrillon config
 MODEL_FOLDER=$(python -c "
 import yaml
+import sys
+import os
 from pathlib import Path
+sys.path.append(os.path.join('${SCRIPT_DIR}', '..', 'Statistics'))
+from helpers import get_model_folder_name
 
 CONFIG_PATH = Path('${CONFIG_FILE}')
 with open(CONFIG_PATH, 'r') as f:
     config = yaml.safe_load(f)
 
 formula = config['lmm']['formula']
-fixed_effects = formula.split('~')[1].split('(')[0].strip()
-predictors = [p.strip() for p in fixed_effects.split('+') if p.strip()]
-model_folder = '_'.join(predictors)
+predictor = '${PREDICTOR_OVERRIDE}' or config['lmm'].get('predictor_of_interest', 'auto')
+model_folder = get_model_folder_name(formula, predictor)
 print(model_folder)
 ")
 
@@ -198,7 +246,7 @@ echo "Submitting Andrillon summary report job (will run after all markers comple
 
 REPORT_SCRIPT="${SCRIPT_DIR}/run_andrillon_report_generation.sh"
 
-cat > ${REPORT_SCRIPT} << 'EOFREPORT'
+cat > ${REPORT_SCRIPT} << EOFREPORT
 #!/bin/bash
 #SBATCH --job-name=andrillon_report
 #SBATCH --cpus-per-task=2
@@ -211,14 +259,14 @@ cat > ${REPORT_SCRIPT} << 'EOFREPORT'
 module load proxy
 
 # Activate conda environment
-if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-  . "$HOME/miniconda3/etc/profile.d/conda.sh"
+if [ -f "\$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+  . "\$HOME/miniconda3/etc/profile.d/conda.sh"
   conda activate eeg
-elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
-  . "$HOME/anaconda3/etc/profile.d/conda.sh"
+elif [ -f "\$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+  . "\$HOME/anaconda3/etc/profile.d/conda.sh"
   conda activate eeg
 elif command -v conda >/dev/null 2>&1; then
-  eval "$(conda shell.bash hook)"
+  eval "\$(conda shell.bash hook)"
   conda activate eeg
 fi
 
@@ -227,22 +275,29 @@ export MPLBACKEND=Agg
 cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 
 echo "=========================================="
+echo "RUNNING MCC POST-PROCESSING"
+echo "=========================================="
+python Statistics/apply_mcc_postprocessing.py MODEL_DIR_PLACEHOLDER \
+    --config ${CONFIG_FILE}
+
+echo ""
+echo "=========================================="
 echo "GENERATING ANDRILLON SUMMARY REPORT"
 echo "=========================================="
-echo "Start time: $(date)"
+echo "Start time: \$(date)"
 echo "Model directory: MODEL_DIR_PLACEHOLDER"
 echo ""
 
 python Statistics/generate_summary_report.py MODEL_DIR_PLACEHOLDER
 
-EXIT_CODE=$?
+EXIT_CODE=\$?
 
-if [ ${EXIT_CODE} -eq 0 ]; then
+if [ \${EXIT_CODE} -eq 0 ]; then
     echo ""
-    echo "✓ Andrillon report generation completed successfully at $(date)"
+    echo "✓ Andrillon report generation completed successfully at \$(date)"
 else
     echo ""
-    echo "✗ Andrillon report generation failed with exit code ${EXIT_CODE} at $(date)"
+    echo "✗ Andrillon report generation failed with exit code \${EXIT_CODE} at \$(date)"
 fi
 
 echo "=========================================="

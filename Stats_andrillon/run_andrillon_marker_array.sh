@@ -30,9 +30,16 @@ echo "Start time: $(date)"
 echo "Task ID: ${SLURM_ARRAY_TASK_ID}"
 echo ""
 
-python Stats_andrillon/run_andrillon_pipeline.py \
-  --config Stats_andrillon/config_andrillon.yaml \
-  --marker-index ${SLURM_ARRAY_TASK_ID}
+# Build arguments for Python script
+CLI_ARGS="--config Stats_andrillon/config_andrillon.yaml --marker-index ${SLURM_ARRAY_TASK_ID}"
+
+# PREDICTOR_OF_INTEREST may be injected via --export by the submit script
+if [ -n "${PREDICTOR_OF_INTEREST:-}" ]; then
+    CLI_ARGS="${CLI_ARGS} --predictor-of-interest ${PREDICTOR_OF_INTEREST}"
+    echo "Predictor of interest: ${PREDICTOR_OF_INTEREST}"
+fi
+
+python Stats_andrillon/run_andrillon_pipeline.py ${CLI_ARGS}
 
 EXIT_CODE=$?
 

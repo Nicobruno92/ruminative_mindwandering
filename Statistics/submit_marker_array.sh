@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=lmm_marker_array
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#SBATCH --mem=32G
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/lmm_marker_%A_%a.out
 #SBATCH --error=logs/lmm_marker_%A_%a.err

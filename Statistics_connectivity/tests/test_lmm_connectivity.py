@@ -26,17 +26,17 @@ def mock_lmm_data():
                 "task": "Sart1",
                 "probe_number": p + 1,
                 "onoff": np.random.uniform(0, 100),
-                "Fp1--F3": np.random.normal(0.5, 0.1),
-                "F3--C3": np.random.normal(0.3, 0.1),
-                "C3--P3": np.random.normal(0.4, 0.1)
+                "Fp1-F3": np.random.normal(0.5, 0.1),
+                "F3-C3": np.random.normal(0.3, 0.1),
+                "C3-P3": np.random.normal(0.4, 0.1)
             })
             
     df = pd.DataFrame(data)
     
-    # Induce an effect in Fp1--F3 based on onoff
-    df["Fp1--F3"] += df["onoff"] * 0.05
-    
-    connection_ids = ["Fp1--F3", "F3--C3", "C3--P3"]
+    # Induce an effect in Fp1-F3 based on onoff
+    df["Fp1-F3"] += df["onoff"] * 0.05
+
+    connection_ids = ["Fp1-F3", "F3-C3", "C3-P3"]
     return df, connection_ids
 
 def test_run_lmm_per_connection(mock_lmm_data):
@@ -56,7 +56,7 @@ def test_run_lmm_per_connection(mock_lmm_data):
     assert "converged" in results.columns
     
     # Fp1--F3 should have a stronger effect
-    fp1_f3 = results[results["connection_id"] == "Fp1--F3"].iloc[0]
+    fp1_f3 = results[results["connection_id"] == "Fp1-F3"].iloc[0]
     assert not np.isnan(fp1_f3["t_statistic"])
     assert fp1_f3["converged"]
 

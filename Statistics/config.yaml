@@ -84,20 +84,20 @@ feature_families:
     - "P3b"                      # P3b component [300-500 ms, parietal]
 
   spectral:                     # Absolute band power in dB (SpectralPower, normalize=false)
-    - "power_delta"              # 1-4 Hz
-    - "power_theta"              # 4-8 Hz
-    - "power_alpha"              # 8-12 Hz
-    - "power_beta"               # 12-25 Hz
-    - "power_iota"               # 25-35 Hz
-    - "power_gamma"              # 35-45 Hz
+    - "psd_bands_delta"              # 1-4 Hz
+    - "psd_bands_theta"              # 4-8 Hz
+    - "psd_bands_alpha"              # 8-12 Hz
+    - "psd_bands_beta"               # 12-25 Hz
+    - "psd_bands_jota"               # 25-35 Hz
+    - "psd_bands_gamma"              # 35-45 Hz
 
   spectral_relative:            # Relative (normalized) band power (SpectralPower, normalize=true)
-    - "power_normalized_delta"
-    - "power_normalized_theta"
-    - "power_normalized_alpha"
-    - "power_normalized_beta"
-    - "power_normalized_iota"
-    - "power_normalized_gamma"
+    - "psd_relative_delta"
+    - "psd_relative_theta"
+    - "psd_relative_alpha"
+    - "psd_relative_beta"
+    - "psd_relative_jota"
+    - "psd_relative_gamma"
 
   connectivity:                 # wSMI — Weighted Symbolic Mutual Information
     - "wsmi_theta"               # tau=8  (theta band)
@@ -148,7 +148,7 @@ selected_markers:
 preprocessing:
   # Subject-level normalization to account for individual baseline differences
   # Recommended when focusing on within-subject effects (e.g., on-task vs off-task)
-  normalize_by_subject: false  # Set to true to enable normalization
+  normalize_by_subject: true  # Set to true to enable normalization
   # Column name containing subject identifiers (usually "subject")
   subject_column: "subject"
 
@@ -174,10 +174,22 @@ preprocessing:
   # - "minmax": Range 0-1 per subject
   # - false: Use raw values
   predictor_normalization:
-    enabled: true
+    enabled: false
     method: "zscore"  # "zscore" or "minmax"
     # List of predictors to normalize, or "all" to normalize all continuous predictors
-    predictors: ["onoff", "valence", "selfother", "confidence", "time"]
+    predictors: ["valence", "selfother", "confidence", "time"]
+
+  # Predictor binarization
+  # Convert continuous predictors into binary (categorical) predictors.
+  # Useful for comparing high vs low states instead of continuous gradients.
+  # - "within_subject_median": Split at each subject's median (balances classes per subject)
+  # - "global_median": Split at the global median across all subjects
+  # - <number>: Fixed numeric threshold (e.g., 50)
+  predictor_binarization:
+    enabled: false
+    method: "global_median"  # "within_subject_median", "global_median", or a float (e.g., 50.0)
+    # List of predictors to binarize
+    predictors: ["onoff"]
 
 # Linear mixed model parameters
 # ================================
@@ -215,10 +227,10 @@ lmm:
   # - List: use submit_predictor_loop.sh to submit one SLURM job-set per predictor
   predictor_of_interest:
     - "onoff"
-    - "valence"
-    - "selfother"
+    # - "valence"
+    # - "selfother"
     # - "confidence"
-    - "time"
+    # - "time"
     # - "time_on_task"
   method: "powell"  # Powell: gradient-free, more robust for complex models with numerical issues
   maxiter: 500     # High value to ensure convergence in difficult cases
@@ -239,7 +251,7 @@ clustering:
   permutation_method: "freedman_lane"
   
   # Threshold-based parameters (only used if method="threshold")
-  threshold: 2.5
+  threshold: 3
   tail: 0  # two-sided: 0, one-sided greater: 1, one-sided less: -1
   stat_fun: "sum"  # "sum" or "max"
   t_power: 1.0  # Power to raise t-values by (1.0=standard, >1 weights stronger effects more)
@@ -259,7 +271,7 @@ clustering:
     n_steps: 500  # Number of integration steps (higher = more accurate but slower)
   
   # Common parameters
-  n_permutations: 500  # INCREASED from 100 for stable p-values and reliable clusters
+  n_permutations: 1000  # INCREASED from 100 for stable p-values and reliable clusters
   alpha: 0.05
   seed: 42
   

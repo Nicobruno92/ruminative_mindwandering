@@ -1536,21 +1536,7 @@ def plot_consolidated_permutation_results(
 
     # Save consolidated CSVs
     if all_data_list:
-        pd.concat(all_data_list).to_csv(f"{out_path}_data.csv", index=False)      # Collect stats
-        stats_entry = {
-            'dimension': dimension,
-            'model_type': model_type,
-            'metric': metric_name,
-            'true_mean': np.mean(true_values) if len(true_values) > 0 else np.nan,
-            'true_std': np.std(true_values) if len(true_values) > 0 else np.nan,
-            'perm_mean': np.mean(perm_values) if len(perm_values) > 0 else np.nan,
-            'perm_std': np.std(perm_values) if len(perm_values) > 0 else np.nan,
-            'p_value_mwu': p_val,
-            'p_value_empirical': emp_p,
-            'n_true': len(true_values),
-            'n_perm': len(perm_values)
-        }
-        stats_list.append(stats_entry)
+        pd.concat(all_data_list).to_csv(f"{out_path}_data.csv", index=False)
 
     return fig
 
@@ -2712,7 +2698,1098 @@ def plot_shap_beeswarm_official(
     shap.plots.beeswarm(explanation, max_display=max_display, show=False)
 
     os.makedirs(save_path, exist_ok=True)
-    out_path = os.path.join(save_path, f"{filename_base}_shap_beeswarm_official")
+    out_path = os.path.join(save_path, f"{filename_base}_shap_beeswarm")
     plt.savefig(f"{out_path}.png", dpi=200, bbox_inches="tight")
     plt.savefig(f"{out_path}.pdf", bbox_inches="tight")
     plt.close()
+
+
+# =============================================================================
+# TRUE vs PERMUTED COMPARISON PLOTS
+# =============================================================================
+
+def _sig_stars(p: float) -> str:
+    """Convert empirical p-value to asterisk notation."""
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return ""
+
+
+def _empirical_p(true_vals: np.ndarray, perm_vals: np.ndarray) -> float:
+    """
+    Empirical p-value: fraction of permuted values >= mean of true values.
+
+    Parameters
+    ----------
+    true_vals : np.ndarray
+        Metric values from true (non-shuffled) runs.
+    perm_vals : np.ndarray
+        Metric values from permuted runs (null distribution).
+
+    Returns
+    -------
+    float
+        Empirical p-value in [0, 1].
+    """
+    if len(true_vals) == 0 or len(perm_vals) == 0:
+        return 1.0
+    return float(np.mean(np.array(perm_vals) >= np.mean(true_vals)))
+
+
+def _extract_per_run_metric(all_results: list, metric: str) -> np.ndarray:
+    """
+    Extract one metric value per run from the all_results list.
+
+    Each element of all_results is a run-summary dict. For LOSO, the run's
+    average metric is stored as ``mean_{metric}``.
+
+    Parameters
+    ----------
+    all_results : list of dict
+        Output from run_distribution_analysis or run_permutation_distribution_analysis.
+    metric : str
+        Metric key (e.g. 'auc', 'balanced_accuracy').
+
+    Returns
+    -------
+    np.ndarray
+        One value per run, shape (n_runs,).
+    """
+    col = f"mean_{metric}"
+    values = []
+    for r in all_results:
+        v = r.get(col)
+        if v is not None and np.isfinite(float(v)):
+            values.append(float(v))
+    return np.array(values)
+
+
+def _extract_subject_metric_distributions(
+    all_results: list,
+    metric: str,
+) -> dict:
+    """
+    Build per-subject metric distributions across runs.
+
+    For each run in all_results, the per-subject metrics are stored in
+    ``loso_subject_metrics`` — a list of dicts with keys like 'subject',
+    'auc', 'balanced_accuracy', 'mcc', etc.
+
+    Parameters
+    ----------
+    all_results : list of dict
+        Run-summary dicts from analysis_utils.
+    metric : str
+        Metric key (without 'mean_' prefix, matches loso_subject_metrics keys).
+
+    Returns
+    -------
+    dict
+        {subject_id: np.ndarray of values, one per run}
+    """
+    subject_data: dict = {}
+    for run in all_results:
+        sub_metrics = run.get("loso_subject_metrics")
+        if not sub_metrics:
+            continue
+        for entry in sub_metrics:
+            sub = str(entry.get("subject", ""))
+            val = entry.get(metric, entry.get(f"mean_{metric}"))
+            if val is None or not np.isfinite(float(val)):
+                continue
+            subject_data.setdefault(sub, []).append(float(val))
+    return {k: np.array(v) for k, v in subject_data.items()}
+
+
+def _extract_roc_data(all_results: list) -> tuple:
+    """
+    Collect all per-fold TPR/FPR arrays from across all runs.
+
+    Returns
+    -------
+    tuple
+        (all_fprs, all_tprs) — lists of arrays, one per fold × run.
+    """
+    all_fprs, all_tprs = [], []
+    for r in all_results:
+        for fpr, tpr in zip(r.get("fold_fprs", []), r.get("fold_tprs", [])):
+            if len(fpr) > 1:
+                all_fprs.append(np.asarray(fpr))
+                all_tprs.append(np.asarray(tpr))
+    return all_fprs, all_tprs
+
+
+def _extract_confusion_matrices(all_results: list) -> list:
+    """Collect all per-fold confusion matrices across all runs."""
+    cms = []
+    for r in all_results:
+        for cm in r.get("fold_cms", []):
+            if cm is not None:
+                cms.append(np.asarray(cm))
+    return cms
+
+
+def _extract_feature_importances_matrix(all_results: list) -> np.ndarray:
+    """
+    Stack feature importances: shape (n_runs, n_features).
+
+    Returns empty array if none are found.
+    """
+    rows = []
+    for r in all_results:
+        fi = r.get("feature_importances")
+        if fi is not None and len(fi) > 0:
+            rows.append(np.asarray(fi, dtype=float))
+    if not rows:
+        return np.empty((0,))
+    return np.vstack(rows)
+
+
+def _save_fig_formats(fig, out_path: str) -> None:
+    """Save a matplotlib figure to PNG and PDF."""
+    fig.savefig(f"{out_path}.png", dpi=200, bbox_inches="tight")
+    fig.savefig(f"{out_path}.pdf", bbox_inches="tight")
+    plt.close(fig)
+
+
+# -----------------------------------------------------------------------------
+# 1) GLOBAL DISTRIBUTION COMPARISON — histogram per metric
+# -----------------------------------------------------------------------------
+
+def plot_global_distribution_comparison(
+    true_all_results: list,
+    perm_all_results: list,
+    save_path: str,
+    filename_base: str,
+    metrics: list = None,
+    chance_values: dict = None,
+) -> None:
+    """
+    Stacked ridgeline KDE comparison: true vs permuted for each metric.
+
+    One row per metric. True distribution is filled deep pink; permuted is
+    filled grey. A vertical dashed line marks the chance level. The true
+    median is marked with a solid line and the empirical p-value is annotated
+    on the right of each row.
+
+    Parameters
+    ----------
+    true_all_results, perm_all_results : list of dict
+        Run-summary dicts returned by the analysis functions.
+    save_path : str
+        Output directory.
+    filename_base : str
+        File name prefix.
+    metrics : list of str, optional
+        Metric keys to plot. Defaults to auc, balanced_accuracy, mcc, auprc.
+    chance_values : dict, optional
+        Mapping metric → chance level. Defaults to auc=0.5, balanced_accuracy=0.5, mcc=0.0.
+    """
+    if metrics is None:
+        metrics = ["auc", "balanced_accuracy", "mcc", "auprc"]
+    if chance_values is None:
+        chance_values = {"auc": 0.5, "balanced_accuracy": 0.5, "mcc": 0.0, "auprc": None}
+
+    from scipy.stats import gaussian_kde
+
+    COLOR_TRUE = "#DE237B"
+    COLOR_PERM = "#AAAAAA"
+    ALPHA_TRUE = 0.55
+    ALPHA_PERM = 0.35
+
+    label_map = {
+        "auc": "AUC",
+        "balanced_accuracy": "Balanced Accuracy",
+        "mcc": "MCC",
+        "auprc": "AUPRC",
+        "f1": "F1",
+        "precision": "Precision",
+        "recall": "Recall",
+    }
+
+    # Collect metrics that have at least some data
+    valid = []
+    for m in metrics:
+        tv = _extract_per_run_metric(true_all_results, m)
+        pv = _extract_per_run_metric(perm_all_results, m)
+        if len(tv) > 0 or len(pv) > 0:
+            valid.append((m, tv, pv))
+    if not valid:
+        return
+
+    n = len(valid)
+    row_h = 2.8
+    fig, axes = plt.subplots(n, 1, figsize=(7, row_h * n), sharey=False)
+    if n == 1:
+        axes = [axes]
+
+    legend_added = False
+
+    for ax, (metric, true_vals, perm_vals) in zip(axes, valid):
+        ml = label_map.get(metric, metric.upper())
+
+        all_vals = np.concatenate([v for v in [true_vals, perm_vals] if len(v) > 0])
+        if len(all_vals) == 0:
+            ax.set_visible(False)
+            continue
+
+        spread = all_vals.max() - all_vals.min()
+        pad = max(0.04, 0.06 * spread)
+        x_min = float(all_vals.min()) - pad
+        x_max = float(all_vals.max()) + pad
+        x_grid = np.linspace(x_min, x_max, 300)
+
+        # Permuted KDE (drawn first so true overlaps it)
+        if len(perm_vals) >= 3:
+            kde_p = gaussian_kde(perm_vals, bw_method="scott")
+            y_p = kde_p(x_grid)
+            ax.fill_between(
+                x_grid, y_p, alpha=ALPHA_PERM, color=COLOR_PERM,
+                label="Shuffled Distribution" if not legend_added else "_nolegend_",
+            )
+            ax.plot(x_grid, y_p, color=COLOR_PERM, lw=1.5, alpha=0.85)
+
+        # True KDE
+        if len(true_vals) >= 3:
+            kde_t = gaussian_kde(true_vals, bw_method="scott")
+            y_t = kde_t(x_grid)
+            ax.fill_between(
+                x_grid, y_t, alpha=ALPHA_TRUE, color=COLOR_TRUE,
+                label="True Distribution" if not legend_added else "_nolegend_",
+            )
+            ax.plot(x_grid, y_t, color=COLOR_TRUE, lw=2)
+            legend_added = True
+
+        # Chance dashed vertical line
+        chance = chance_values.get(metric)
+        if chance is not None:
+            ax.axvline(chance, color="#333333", ls="--", lw=1.2, alpha=0.7)
+            ax.text(
+                chance, 0, "Chance", ha="center", va="bottom",
+                fontsize=7, color="#555555",
+                transform=ax.get_xaxis_transform(),
+            )
+
+        # True median + empirical p-value annotation
+        if len(true_vals) > 0:
+            med = float(np.median(true_vals))
+            p_emp = _empirical_p(true_vals, perm_vals) if len(perm_vals) > 0 else None
+            ax.axvline(med, color=COLOR_TRUE, ls="-", lw=2.5, alpha=0.9)
+            # Numerical median label on the vertical line
+            ax.text(
+                med, 0.97, f"{med:.3f}",
+                transform=ax.get_xaxis_transform(), ha="center", va="top",
+                fontsize=8, color=COLOR_TRUE, fontweight="bold",
+            )
+            if p_emp is not None:
+                stars  = _sig_stars(p_emp)
+                p_str  = f"p={p_emp:.3f}" if p_emp >= 0.001 else "p<0.001"
+                label_str = f"  {p_str}" if not stars else f"  {stars}  {p_str}"
+                ax.text(
+                    0.98, 0.88, label_str,
+                    transform=ax.transAxes, ha="right", va="top",
+                    fontsize=9, color=COLOR_TRUE, fontweight="bold",
+                )
+
+        # Metric label as rotated y-axis title
+        ax.set_ylabel(ml, fontsize=11, fontweight="bold", rotation=0,
+                      ha="right", va="center", labelpad=10)
+        ax.set_yticks([])
+        ax.spines[["top", "right", "left"]].set_visible(False)
+        ax.tick_params(axis="x", labelsize=9)
+
+    axes[-1].set_xlabel("Performance", fontsize=11)
+
+    # Legend attached to first subplot
+    from matplotlib.patches import Patch
+    handles = [
+        Patch(facecolor=COLOR_TRUE, alpha=ALPHA_TRUE, label="True Distribution"),
+        Patch(facecolor=COLOR_PERM, alpha=ALPHA_PERM, label="Shuffled Distribution"),
+    ]
+    axes[0].legend(handles=handles, fontsize=9, loc="upper left",
+                   frameon=False, bbox_to_anchor=(0.0, 1.15))
+
+    fig.tight_layout(h_pad=1.5)
+
+    os.makedirs(save_path, exist_ok=True)
+    out_path = os.path.join(save_path, f"{filename_base}_global_distributions")
+    _save_fig_formats(fig, out_path)
+
+    # Save underlying data
+    rows = []
+    for m, tv, pv in valid:
+        for val in tv:
+            rows.append({"metric": m, "type": "true", "value": val})
+        for val in pv:
+            rows.append({"metric": m, "type": "permuted", "value": val})
+    pd.DataFrame(rows).to_csv(f"{out_path}_data.csv", index=False)
+    print(f"  ✓ Global distribution comparison → {out_path}.png")
+
+
+# -----------------------------------------------------------------------------
+# 2) SUBJECT-LEVEL VIOLIN COMPARISON
+# -----------------------------------------------------------------------------
+
+def plot_subject_violin_comparison(
+    true_all_results: list,
+    perm_all_results: list,
+    save_path: str,
+    filename_base: str,
+    metrics: list = None,
+    min_perm_values: int = 5,
+) -> None:
+    """
+    Per-subject violin comparing true vs permuted distributions across runs.
+
+    For each metric produces a figure with:
+    - Horizontal violins per subject (true = pink, permuted = grey)
+    - Significance stars based on empirical p-value (fraction of perm >= mean(true))
+    - Donut chart showing % of subjects with p < 0.05
+    - CSV with per-subject p-values
+
+    Parameters
+    ----------
+    true_all_results, perm_all_results : list of dict
+        Run-summary dicts.
+    save_path : str
+        Output directory.
+    filename_base : str
+        File name prefix.
+    metrics : list of str, optional
+        Metrics to plot. Defaults to ['auc', 'balanced_accuracy', 'mcc', 'auprc'].
+    min_perm_values : int
+        Minimum permuted values required to test a subject.
+    """
+    if metrics is None:
+        metrics = ["auc", "balanced_accuracy", "mcc", "auprc"]
+
+    COLOR_TRUE = "#DE237B"
+    COLOR_PERM = "#AAAAAA"
+    CHANCE = {"auc": 0.5, "balanced_accuracy": 0.5, "mcc": 0.0, "auprc": None}
+
+    os.makedirs(save_path, exist_ok=True)
+
+    for metric in metrics:
+        true_sub = _extract_subject_metric_distributions(true_all_results, metric)
+        perm_sub = _extract_subject_metric_distributions(perm_all_results, metric)
+
+        # Keep subjects present in BOTH
+        subjects = sorted(
+            set(true_sub.keys()) & set(perm_sub.keys()),
+            key=lambda x: int(x) if str(x).isdigit() else x,
+        )
+        if not subjects:
+            continue
+
+        # Per-subject empirical p-values
+        p_vals = {}
+        for sub in subjects:
+            tv = true_sub[sub]
+            pv = perm_sub.get(sub, np.array([]))
+            if len(tv) > 0 and len(pv) >= min_perm_values:
+                p_vals[sub] = _empirical_p(tv, pv)
+            else:
+                p_vals[sub] = 1.0
+
+        n_sig = sum(1 for p in p_vals.values() if p < 0.05)
+        pct_sig = 100 * n_sig / len(subjects) if subjects else 0
+
+        # Figure layout: left panel = violins, right panel = donut
+        fig = plt.figure(figsize=(10, max(6, 0.55 * len(subjects) + 2)))
+        gs = fig.add_gridspec(1, 2, width_ratios=[3.5, 1.2], wspace=0.25)
+        ax_v = fig.add_subplot(gs[0])
+        ax_d = fig.add_subplot(gs[1])
+
+        label_map = {
+            "auc": "AUC", "balanced_accuracy": "Balanced Accuracy",
+            "mcc": "MCC", "auprc": "AUPRC", "f1": "F1",
+        }
+        metric_label = label_map.get(metric, metric.upper())
+
+        # Draw half-violin (split violin) density plots per subject.
+        # True distribution fills the top half (above center); Permuted fills the bottom.
+        from scipy.stats import gaussian_kde
+
+        positions = list(range(len(subjects)))
+        HALF_HEIGHT = 0.38   # maximum half-violin height in axis units
+        N_GRID = 200
+
+        # Global x-range for consistent KDE grids
+        all_metric_vals = np.concatenate(
+            [v for sub in subjects
+             for v in [true_sub.get(sub, np.array([])),
+                       perm_sub.get(sub, np.array([]))]]
+        )
+        if len(all_metric_vals) == 0:
+            continue
+        x_pad = max(0.03, 0.05 * (all_metric_vals.max() - all_metric_vals.min()))
+        x_min_g = float(all_metric_vals.min()) - x_pad
+        x_max_g = float(all_metric_vals.max()) + x_pad
+        x_grid = np.linspace(x_min_g, x_max_g, N_GRID)
+
+        x_star_max = x_max_g  # track right edge for star placement
+
+        for pos, sub in zip(positions, subjects):
+            tv = true_sub[sub]
+            pv = perm_sub.get(sub, np.array([]))
+
+            for vals, color, sign in [(pv, COLOR_PERM, -1), (tv, COLOR_TRUE, +1)]:
+                if len(vals) < 2 or np.std(vals) == 0:
+                    if len(vals) >= 1:
+                        ax_v.scatter(float(np.mean(vals)), pos + sign * 0.12,
+                                     color=color, s=25, zorder=5, alpha=0.85)
+                    continue
+                kde = gaussian_kde(vals, bw_method="scott")
+                density = kde(x_grid)
+                density_scaled = density / density.max() * HALF_HEIGHT
+                # Half-violin: fill between center y=pos and y=pos ± density
+                y_outer = pos + sign * density_scaled
+                # fill_between(x, y1, y2): at each x, fill between y1 and y2
+                ax_v.fill_between(x_grid, pos, y_outer,
+                                  color=color, alpha=0.72, linewidth=0)
+                ax_v.plot(x_grid, y_outer, color=color, lw=1.2, alpha=0.9)
+                # Median tick (vertical line from center to density boundary)
+                med_x = float(np.median(vals))
+                med_y = pos + sign * float(kde([med_x])[0] / density.max() * HALF_HEIGHT)
+                ax_v.plot([med_x, med_x], [pos, med_y],
+                          color=color, lw=2.0, solid_capstyle="round", zorder=4)
+
+            # Connect true and permuted medians with a thin line
+            if len(tv) > 0 and len(pv) > 0:
+                ax_v.plot(
+                    [float(np.median(tv)), float(np.median(pv))],
+                    [pos, pos],
+                    color="#555555", lw=0.8, alpha=0.35, zorder=2,
+                )
+
+            # Significance star to the right
+            p = p_vals.get(sub, 1.0)
+            star = _sig_stars(p)
+            if star:
+                ax_v.text(
+                    x_star_max + 0.01, pos, star,
+                    va="center", ha="left", fontsize=13,
+                    color=COLOR_TRUE, fontweight="bold",
+                )
+
+        # Chance line
+        chance = CHANCE.get(metric)
+        if chance is not None:
+            ax_v.axvline(chance, color="black", ls="--", lw=1.2, alpha=0.5, label="Chance")
+
+        ax_v.set_yticks(positions)
+        ax_v.set_yticklabels([f"Sub-{s}" for s in subjects], fontsize=9)
+        ax_v.set_xlabel(metric_label, fontsize=11)
+        ax_v.set_title(f"Subject-Level True vs Permuted\n{metric_label}", fontsize=12, fontweight="bold")
+        ax_v.spines[["top", "right"]].set_visible(False)
+
+        # Legend
+        from matplotlib.patches import Patch
+        legend_handles = [
+            Patch(facecolor=COLOR_TRUE, label="True"),
+            Patch(facecolor=COLOR_PERM, label="Permuted"),
+        ]
+        ax_v.legend(handles=legend_handles, fontsize=9, loc="lower right")
+
+        # Donut chart
+        ax_d.axis("equal")
+        wedge_sizes = [pct_sig, 100 - pct_sig]
+        wedge_colors = [COLOR_TRUE, "#E0E0E0"]
+        wedges, _ = ax_d.pie(
+            wedge_sizes, colors=wedge_colors,
+            startangle=90, wedgeprops=dict(width=0.55, edgecolor="white", linewidth=1.5),
+        )
+        ax_d.text(0, 0, f"{pct_sig:.0f}%", ha="center", va="center",
+                  fontsize=16, fontweight="bold", color=COLOR_TRUE)
+        ax_d.set_title(f"Sig. subjects\n(p<0.05)", fontsize=10)
+
+        fig.suptitle(
+            f"True vs Permuted — {metric_label}  |  n={len(subjects)} subjects",
+            fontsize=13, fontweight="bold", y=1.01,
+        )
+        fig.tight_layout()
+
+        out_path = os.path.join(save_path, f"{filename_base}_subject_ridgelines_{metric}")
+        _save_fig_formats(fig, out_path)
+
+        # Save p-value CSV
+        p_df = pd.DataFrame([
+            {
+                "subject": sub,
+                "true_mean": float(np.mean(true_sub[sub])) if len(true_sub[sub]) else np.nan,
+                "true_median": float(np.median(true_sub[sub])) if len(true_sub[sub]) else np.nan,
+                "perm_mean": float(np.mean(perm_sub.get(sub, np.array([])))) if sub in perm_sub else np.nan,
+                "perm_median": float(np.median(perm_sub.get(sub, np.array([])))) if sub in perm_sub else np.nan,
+                "empirical_p": p_vals.get(sub, 1.0),
+                "significant": int(p_vals.get(sub, 1.0) < 0.05),
+                "stars": _sig_stars(p_vals.get(sub, 1.0)),
+            }
+            for sub in subjects
+        ])
+        p_df.to_csv(f"{out_path}_pvalues.csv", index=False)
+        print(f"  ✓ Subject violin comparison ({metric}) → {out_path}.png")
+
+
+# -----------------------------------------------------------------------------
+# 3) ROC CURVE COMPARISON
+# -----------------------------------------------------------------------------
+
+def plot_roc_comparison(
+    true_all_results: list,
+    perm_all_results: list,
+    save_path: str,
+    filename_base: str,
+    positive_class_name: str = "ON-task",
+    negative_class_name: str = "OFF-task",
+) -> None:
+    """
+    Two-curve ROC plot: true mean ± CI in color, permuted mean ± CI in grey.
+
+    Each fold from each run contributes one ROC curve. The mean is computed
+    by interpolating all curves onto a common FPR grid.
+
+    Parameters
+    ----------
+    true_all_results, perm_all_results : list of dict
+        Run-summary dicts.
+    save_path, filename_base : str
+        Output path and file prefix.
+    positive_class_name, negative_class_name : str
+        Human-readable class labels for the plot title.
+    """
+    COLOR_TRUE = "#DE237B"
+    COLOR_PERM = "#888888"
+    FPR_GRID = np.linspace(0, 1, 200)
+
+    def _interpolate_rocs(all_results):
+        """Interpolate all fold ROC curves onto the common FPR grid."""
+        fprs, tprs = _extract_roc_data(all_results)
+        interp_tprs, aucs = [], []
+        for fpr, tpr in zip(fprs, tprs):
+            interp = np.interp(FPR_GRID, fpr, tpr)
+            interp[0] = 0.0
+            interp_tprs.append(interp)
+            aucs.append(float(np.trapz(interp, FPR_GRID)))
+        return interp_tprs, aucs
+
+    true_tprs, true_aucs = _interpolate_rocs(true_all_results)
+    perm_tprs, perm_aucs = _interpolate_rocs(perm_all_results)
+
+    if not true_tprs:
+        print("  ROC comparison: no true ROC data available — skipping")
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Permuted band (drawn first, behind)
+    if perm_tprs:
+        pm = np.mean(perm_tprs, axis=0)
+        ps = np.std(perm_tprs, axis=0)
+        ax.fill_between(FPR_GRID, pm - ps, pm + ps, alpha=0.15, color=COLOR_PERM)
+        ax.plot(FPR_GRID, pm, color=COLOR_PERM, lw=1.5, ls="--",
+                label=f"Permuted (AUC={np.mean(perm_aucs):.3f}±{np.std(perm_aucs):.3f})")
+
+    # True band
+    tm = np.mean(true_tprs, axis=0)
+    ts = np.std(true_tprs, axis=0)
+    tm[-1] = 1.0
+    ax.fill_between(FPR_GRID, tm - ts, tm + ts, alpha=0.18, color=COLOR_TRUE)
+    ax.plot(FPR_GRID, tm, color=COLOR_TRUE, lw=2.5,
+            label=f"True (AUC={np.mean(true_aucs):.3f}±{np.std(true_aucs):.3f})")
+
+    # Empirical p-value at run level
+    true_run_aucs = _extract_per_run_metric(true_all_results, "auc")
+    perm_run_aucs = _extract_per_run_metric(perm_all_results, "auc")
+    p_emp = _empirical_p(true_run_aucs, perm_run_aucs) if len(perm_run_aucs) > 0 else None
+
+    # Chance diagonal
+    ax.plot([0, 1], [0, 1], "k--", lw=1, alpha=0.5, label="Chance")
+
+    ax.set_xlabel("False Positive Rate", fontsize=12)
+    ax.set_ylabel("True Positive Rate", fontsize=12)
+    title_p = f"  (p_emp={p_emp:.4f}{' ' + _sig_stars(p_emp) if _sig_stars(p_emp) else ''})" if p_emp is not None else ""
+    ax.set_title(f"ROC Curve — True vs Permuted{title_p}", fontsize=12, fontweight="bold")
+    ax.legend(fontsize=9, loc="lower right")
+    ax.set_xlim([-0.01, 1.01])
+    ax.set_ylim([-0.01, 1.01])
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+
+    os.makedirs(save_path, exist_ok=True)
+    out_path = os.path.join(save_path, f"{filename_base}_roc_curve")
+    _save_fig_formats(fig, out_path)
+
+    # Save data
+    roc_df = pd.DataFrame({
+        "fpr": FPR_GRID,
+        "true_mean_tpr": tm,
+        "true_std_tpr": ts,
+    })
+    if perm_tprs:
+        roc_df["perm_mean_tpr"] = pm
+        roc_df["perm_std_tpr"] = ps
+    roc_df.to_csv(f"{out_path}_data.csv", index=False)
+    print(f"  ✓ ROC comparison → {out_path}.png")
+
+
+# -----------------------------------------------------------------------------
+# 4) CONFUSION MATRIX COMPARISON (2-panel)
+# -----------------------------------------------------------------------------
+
+def plot_confusion_matrix_comparison(
+    true_all_results: list,
+    perm_all_results: list,
+    save_path: str,
+    filename_base: str,
+    negative_class_name: str = "OFF-task",
+    positive_class_name: str = "ON-task",
+) -> None:
+    """
+    Side-by-side normalized confusion matrices: true (left) vs permuted (right).
+
+    Both matrices are averaged across all folds × runs and displayed on the
+    same color scale for direct comparison.
+
+    Parameters
+    ----------
+    true_all_results, perm_all_results : list of dict
+        Run-summary dicts.
+    save_path, filename_base : str
+        Output path and file prefix.
+    negative_class_name, positive_class_name : str
+        Human-readable class labels.
+    """
+    true_cms = _extract_confusion_matrices(true_all_results)
+    perm_cms = _extract_confusion_matrices(perm_all_results)
+
+    if not true_cms:
+        print("  CM comparison: no confusion matrices available — skipping")
+        return
+
+    def _normalize_cm(cms_list):
+        avg = np.mean(cms_list, axis=0)
+        row_sums = avg.sum(axis=1, keepdims=True)
+        row_sums = np.where(row_sums == 0, 1, row_sums)
+        return avg / row_sums, avg
+
+    true_norm, true_avg = _normalize_cm(true_cms)
+    perm_has_data = bool(perm_cms)
+    if perm_has_data:
+        perm_norm, perm_avg = _normalize_cm(perm_cms)
+
+    labels = [negative_class_name, positive_class_name]
+    vmax = 1.0
+    cmap = "RdPu"
+
+    n_panels = 2 if perm_has_data else 1
+    fig, axes = plt.subplots(1, n_panels, figsize=(5.5 * n_panels, 4.5))
+    if n_panels == 1:
+        axes = [axes]
+
+    def _draw_cm(ax, norm_cm, avg_cm, title):
+        im = ax.imshow(norm_cm, cmap=cmap, vmin=0, vmax=vmax, aspect="equal")
+        for i in range(2):
+            for j in range(2):
+                color = "white" if norm_cm[i, j] > 0.6 else "black"
+                ax.text(
+                    j, i,
+                    f"{norm_cm[i, j]:.2f}\n(n={avg_cm[i, j]:.1f})",
+                    ha="center", va="center", fontsize=11,
+                    color=color, fontweight="bold",
+                )
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
+        ax.set_xticklabels([f"Pred\n{l}" for l in labels], fontsize=9)
+        ax.set_yticklabels([f"True\n{l}" for l in labels], fontsize=9)
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    _draw_cm(axes[0], true_norm, true_avg, "True Labels")
+    if perm_has_data:
+        _draw_cm(axes[1], perm_norm, perm_avg, "Permuted Labels")
+
+    fig.suptitle("Confusion Matrix — True vs Permuted", fontsize=13, fontweight="bold")
+    fig.tight_layout()
+
+    os.makedirs(save_path, exist_ok=True)
+    out_path = os.path.join(save_path, f"{filename_base}_confusion_matrix")
+    _save_fig_formats(fig, out_path)
+
+    # Save CSVs
+    pd.DataFrame(true_norm, index=labels, columns=labels).to_csv(
+        f"{out_path}_true_normalized.csv"
+    )
+    if perm_has_data:
+        pd.DataFrame(perm_norm, index=labels, columns=labels).to_csv(
+            f"{out_path}_perm_normalized.csv"
+        )
+    print(f"  ✓ Confusion matrix comparison → {out_path}.png")
+
+
+# -----------------------------------------------------------------------------
+# 5) FEATURE IMPORTANCE + SHAP COMPARISON
+# -----------------------------------------------------------------------------
+
+def plot_feature_importance_comparison(
+    true_all_results: list,
+    perm_all_results: list,
+    feature_names,
+    save_path: str,
+    filename_base: str,
+    top_n: int = 15,
+    true_shap_runs: list = None,
+    perm_shap_runs: list = None,
+) -> None:
+    """
+    Paired horizontal bar chart: true vs permuted feature importances.
+
+    For each of the top-N features (ranked by true mean importance) shows:
+    - True importance (bright pink bar)
+    - Permuted importance of the SAME feature (grey, muted bar)
+    - Rank of that feature in the permuted distribution (annotated)
+
+    If SHAP values are provided, an identical second panel is generated for SHAP.
+
+    Also produces a rank-stability CSV comparing true ranks vs permuted ranks.
+
+    Parameters
+    ----------
+    true_all_results, perm_all_results : list of dict
+        Run-summary dicts.
+    feature_names : array-like
+        Feature name list.
+    save_path, filename_base : str
+        Output path and prefix.
+    top_n : int
+        Number of top features to display.
+    true_shap_runs, perm_shap_runs : list of np.ndarray, optional
+        Per-run stacked SHAP matrices (n_runs, n_samples, n_features).
+        If provided, a second panel with SHAP values is generated.
+    """
+    feature_names = list(feature_names)
+    COLOR_TRUE = "#DE237B"
+    COLOR_PERM = "#AAAAAA"
+    COLOR_PERM_RANK = "#D3E0A3"  # light greenish for same-rank permuted feature
+
+    true_fi = _extract_feature_importances_matrix(true_all_results)
+    perm_fi = _extract_feature_importances_matrix(perm_all_results)
+
+    # Only use coefficient-based FI when at least some values are non-zero.
+    has_fi = (
+        true_fi.ndim == 2
+        and true_fi.shape[0] > 0
+        and np.any(true_fi != 0)
+    )
+    has_shap = (
+        true_shap_runs is not None
+        and perm_shap_runs is not None
+        and len(true_shap_runs) > 0
+        and len(perm_shap_runs) > 0
+    )
+
+    def _build_importance_arrays(fi_matrix):
+        """Return (mean, std) per feature."""
+        if fi_matrix.ndim < 2 or fi_matrix.shape[0] == 0:
+            return np.zeros(len(feature_names)), np.zeros(len(feature_names))
+        return fi_matrix.mean(axis=0), fi_matrix.std(axis=0)
+
+    def _build_shap_arrays(shap_runs):
+        """Mean |SHAP| per feature across all runs."""
+        per_run = np.array([np.mean(np.abs(r), axis=0) for r in shap_runs
+                            if r is not None and hasattr(r, "shape") and r.ndim == 2])
+        if per_run.shape[0] == 0:
+            return np.zeros(len(feature_names)), np.zeros(len(feature_names))
+        return per_run.mean(axis=0), per_run.std(axis=0)
+
+    os.makedirs(save_path, exist_ok=True)
+
+    for mode, true_means, true_stds, perm_means, perm_stds in [
+        *([("fi",
+            *(_build_importance_arrays(true_fi)),
+            *(_build_importance_arrays(perm_fi)))]
+           if has_fi else []),
+        *([("shap",
+            *(_build_shap_arrays(true_shap_runs)),
+            *(_build_shap_arrays(perm_shap_runs)))]
+           if has_shap else []),
+    ]:
+        # Top N features by true mean importance
+        top_idx = np.argsort(true_means)[::-1][:top_n]
+        # Reverse so highest is at top of horizontal bar chart
+        top_idx_plot = top_idx[::-1]
+
+        feat_labels = [feature_names[i] for i in top_idx_plot]
+        t_mean = true_means[top_idx_plot]
+        t_std = true_stds[top_idx_plot]
+        p_mean = perm_means[top_idx_plot]
+        p_std = perm_stds[top_idx_plot]
+
+        # Permuted same-rank values: for each true rank, what was the perm value at that rank?
+        # In SHAP mode: use per-run mean |SHAP| per feature; in FI mode: use FI matrix.
+        perm_rank_means = np.full(len(top_idx_plot), np.nan)
+        perm_rank_stds = np.full(len(top_idx_plot), np.nan)
+        if mode == "shap" and perm_shap_runs is not None and len(perm_shap_runs) > 0:
+            perm_rank_per_run = []
+            for r in perm_shap_runs:
+                if r is not None and hasattr(r, "shape") and r.ndim == 2:
+                    run_mean_abs = np.mean(np.abs(r), axis=0)
+                    ranked_vals = np.sort(run_mean_abs)[::-1]
+                    perm_rank_per_run.append(ranked_vals[:top_n])
+            if perm_rank_per_run:
+                perm_rank_matrix = np.vstack(perm_rank_per_run)
+                for plot_pos, orig_rank in enumerate(range(len(top_idx_plot) - 1, -1, -1)):
+                    perm_rank_means[plot_pos] = perm_rank_matrix[:, orig_rank].mean()
+                    perm_rank_stds[plot_pos] = perm_rank_matrix[:, orig_rank].std()
+        elif perm_fi.ndim == 2 and perm_fi.shape[0] > 0 and np.any(perm_fi != 0):
+            perm_rank_per_run = []
+            for run_fi in perm_fi:
+                ranked_vals = np.sort(run_fi)[::-1]
+                perm_rank_per_run.append(ranked_vals[:top_n])
+            perm_rank_matrix = np.vstack(perm_rank_per_run)
+            for plot_pos, orig_rank in enumerate(range(len(top_idx_plot) - 1, -1, -1)):
+                perm_rank_means[plot_pos] = perm_rank_matrix[:, orig_rank].mean()
+                perm_rank_stds[plot_pos] = perm_rank_matrix[:, orig_rank].std()
+
+        y_pos = np.arange(len(feat_labels))
+        bar_h = 0.26
+
+        fig, ax = plt.subplots(figsize=(10, max(5, 0.55 * len(feat_labels) + 2)))
+
+        # True bars
+        ax.barh(y_pos + bar_h, t_mean, xerr=t_std, height=bar_h,
+                color=COLOR_TRUE, alpha=0.9, label="True", error_kw=dict(ecolor="#AA1060", lw=1))
+        # Permuted same-feature bars
+        ax.barh(y_pos, p_mean, xerr=p_std, height=bar_h,
+                color=COLOR_PERM, alpha=0.75, label="Permuted (same feature)",
+                error_kw=dict(ecolor="#666666", lw=1))
+        # Permuted same-rank bars
+        if not np.all(np.isnan(perm_rank_means)):
+            ax.barh(y_pos - bar_h, perm_rank_means, xerr=perm_rank_stds, height=bar_h,
+                    color=COLOR_PERM_RANK, alpha=0.75, label="Permuted (same rank)",
+                    error_kw=dict(ecolor="#888888", lw=1))
+
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(feat_labels, fontsize=9)
+        xlabel = "Mean |SHAP value|" if mode == "shap" else "Mean Importance"
+        ax.set_xlabel(xlabel, fontsize=11)
+        title_mode = "SHAP" if mode == "shap" else "Feature Importance"
+        ax.set_title(f"Top {len(feat_labels)} Features — {title_mode}\nTrue vs Permuted (same feature & same rank)",
+                     fontsize=11, fontweight="bold")
+        ax.legend(fontsize=9, loc="lower right")
+        ax.spines[["top", "right"]].set_visible(False)
+        fig.tight_layout()
+
+        suffix = "shap_importance" if mode == "shap" else "feature_importance"
+        out_path = os.path.join(save_path, f"{filename_base}_{suffix}")
+        _save_fig_formats(fig, out_path)
+
+        # Rank stability CSV
+        rank_df = pd.DataFrame({
+            "feature": feat_labels[::-1],  # re-reverse to descending rank order
+            "true_rank": list(range(1, len(feat_labels) + 1)),
+            "true_mean": t_mean[::-1],
+            "true_std": t_std[::-1],
+            "perm_mean_same_feature": p_mean[::-1],
+            "perm_std_same_feature": p_std[::-1],
+            "perm_mean_same_rank": perm_rank_means[::-1],
+            "perm_std_same_rank": perm_rank_stds[::-1],
+        })
+        rank_df.to_csv(f"{out_path}_data.csv", index=False)
+        print(f"  ✓ {title_mode} comparison → {out_path}.png")
+
+
+# -----------------------------------------------------------------------------
+# ORCHESTRATOR — call after permutation analysis completes
+# -----------------------------------------------------------------------------
+
+def generate_all_comparison_plots(
+    true_all_results: list,
+    perm_all_results: list,
+    feature_names,
+    save_path: str,
+    filename_base: str,
+    dimension: str = "",
+    positive_class_name: str = "ON-task",
+    negative_class_name: str = "OFF-task",
+    metrics: list = None,
+    top_n_features: int = 15,
+    true_shap_runs: list = None,
+    perm_shap_runs: list = None,
+) -> None:
+    """
+    Generate the complete suite of true-vs-permuted comparison plots.
+
+    This function orchestrates all comparison plots after both the true
+    classification runs and permutation runs have completed. It reads
+    exclusively from the in-memory all_results lists (no disk re-reading).
+
+    Plots generated
+    ---------------
+    1. Global metric distribution histograms with empirical p-value
+    2. Per-subject violin plots with significance stars and donut chart
+    3. ROC curve comparison (true vs permuted)
+    4. 2-panel confusion matrix comparison
+    5. Feature importance comparison (true vs permuted, same feature & same rank)
+    6. SHAP comparison (if SHAP values provided)
+
+    Parameters
+    ----------
+    true_all_results : list of dict
+        Run-summary dicts from ``run_distribution_analysis``.
+    perm_all_results : list of dict
+        Run-summary dicts from ``run_permutation_distribution_analysis``.
+    feature_names : array-like
+        Feature name list.
+    save_path : str
+        Root directory where plots are saved.
+    filename_base : str
+        File name prefix (e.g., 'lr_loso_20runs').
+    dimension : str
+        Contrast name, for plot titles.
+    positive_class_name, negative_class_name : str
+        Human-readable class labels.
+    metrics : list of str, optional
+        Metrics to plot. Defaults to auc, balanced_accuracy, mcc, auprc.
+    top_n_features : int
+        Number of top features for the importance comparison.
+    true_shap_runs, perm_shap_runs : list of np.ndarray, optional
+        Stacked SHAP values. If provided, SHAP comparison is generated.
+    """
+    if metrics is None:
+        metrics = ["auc", "balanced_accuracy", "mcc", "auprc"]
+
+    print(f"\n{'='*60}")
+    print(f"Generating True vs Permuted comparison plots...")
+    print(f"  Save path: {save_path}")
+    print(f"{'='*60}")
+
+    os.makedirs(save_path, exist_ok=True)
+
+    plot_global_distribution_comparison(
+        true_all_results, perm_all_results,
+        save_path, filename_base, metrics=metrics,
+    )
+
+    plot_subject_violin_comparison(
+        true_all_results, perm_all_results,
+        save_path, filename_base, metrics=metrics,
+    )
+
+    plot_roc_comparison(
+        true_all_results, perm_all_results,
+        save_path, filename_base,
+        positive_class_name=positive_class_name,
+        negative_class_name=negative_class_name,
+    )
+
+    plot_confusion_matrix_comparison(
+        true_all_results, perm_all_results,
+        save_path, filename_base,
+        negative_class_name=negative_class_name,
+        positive_class_name=positive_class_name,
+    )
+
+    plot_feature_importance_comparison(
+        true_all_results, perm_all_results,
+        feature_names, save_path, filename_base,
+        top_n=top_n_features,
+        true_shap_runs=true_shap_runs,
+        perm_shap_runs=perm_shap_runs,
+    )
+
+    print(f"\n  All comparison plots saved to: {save_path}")
+def plot_probability_vs_raw(consolidated_df: pd.DataFrame, comparison_results_path: str, filename_base: str, proba_col: str = "proba_mean"):
+    '''
+    Plot relationship between the assigned probability and the raw dimension score.
+    Creates a general plot and a subject-faceted plot with beta, r, p-values and y-limits restricted to [0, 1].
+    '''
+    plots_dir = os.path.join(comparison_results_path, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    possible_raw = [c for c in consolidated_df.columns if c.endswith("_first") and c != "y_true_first"]
+    if not possible_raw:
+        print("No raw dimension column found for probability scatter plots.")
+        return
+    raw_col = possible_raw[0]
+
+    # Clean data to compute stats
+    mask = ~consolidated_df[raw_col].isna() & ~consolidated_df[proba_col].isna()
+    df_clean = consolidated_df[mask]
+
+    # 1. General Plot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Calculate global stats
+    if len(df_clean) > 1:
+        slope, intercept, r_value, p_value, std_err = stats.linregress(df_clean[raw_col], df_clean[proba_col])
+        stats_text = f"$\\beta$ = {slope:.3f}\n$r$ = {r_value:.2f}\n$p$ = {p_value:.1e}"
+    else:
+        stats_text = "Not enough data"
+
+    sns.regplot(data=df_clean, x=raw_col, y=proba_col,
+                scatter_kws={'alpha': 0.5, 's': 20, 'color': get_comparison_color("")},
+                line_kws={'color': 'black', 'lw': 2},
+                ax=ax)
+    
+    ax.set_ylim(-0.05, 1.05)
+    ax.set_xlabel(f'Raw Score ({raw_col.replace("_first", "")})')
+    ax.set_ylabel('Mean Predicted Probability')
+    ax.set_title('Overall: Probability vs Raw Score')
+    
+    ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
+    
+    sns.despine()
+    plt.tight_layout()
+    general_path = os.path.join(plots_dir, f"{filename_base}_prob_vs_raw_general.png")
+    plt.savefig(general_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    
+    # 2. Faceted Plot by Subject
+    if "subject" not in df_clean.columns:
+        print("No subject column found. Skipping faceted plot.")
+        return
+    
+    n_subj = df_clean['subject'].nunique()
+    cols = min(6, n_subj)
+    if cols < 1: cols = 1
+    
+    g = sns.lmplot(
+        data=df_clean, 
+        x=raw_col, 
+        y=proba_col, 
+        col="subject",
+        col_wrap=cols,
+        height=3.5, 
+        aspect=1,
+        sharex=True,
+        sharey=True,
+        scatter_kws={'alpha': 0.6, 's': 15, 'color': get_comparison_color("")},
+        line_kws={'color': 'black', 'lw': 1.5}
+    )
+    
+    g.set(ylim=(-0.05, 1.05))
+    
+    def annotate_stats(data, **kws):
+        ax = plt.gca()
+        x = data[raw_col]
+        y = data[proba_col]
+        if len(x) > 1:
+            s, i, r, p, se = stats.linregress(x, y)
+            text = f"$\\beta$={s:.3f}\n$r$={r:.2f}\n$p$={p:.1e}"
+            ax.text(0.05, 0.95, text, transform=ax.transAxes, fontsize=8,
+                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.7, edgecolor='none'))
+
+    g.map_dataframe(annotate_stats)
+    
+    g.set_axis_labels(f'Raw ({raw_col.replace("_first", "")})', 'Pred Probability')
+    g.fig.subplots_adjust(top=0.92)
+    g.fig.suptitle('By Subject: Probability vs Raw Score', fontsize=16)
+    
+    faceted_path = os.path.join(plots_dir, f"{filename_base}_prob_vs_raw_faceted.png")
+    g.savefig(faceted_path, dpi=300, bbox_inches='tight')
+    plt.close(g.fig)
