@@ -1,0 +1,93 @@
+# =============================================================================
+# TYPE I ERROR EVALUATION — LOSO PIPELINE
+# Simulation-specific configuration.
+#
+# This file is loaded ALONGSIDE the parent loso_pipeline/config.yaml.
+# Values defined here under the 'simulation' block override the
+# corresponding top-level keys in the parent config for the purpose of
+# each simulation run (n_runs, permutation_runs).
+#
+# All other pipeline settings (model params, feature selection, SMOTE,
+# scaler, etc.) are inherited unchanged from the parent config, ensuring
+# the simulation runs the EXACT same pipeline procedure.
+#
+# USAGE:
+#   # Single simulation (SLURM array):
+#   python run_type1_error_loso.py \
+#       --config config_type1_error.yaml \
+#       --contrast ON_vs_OFF_within_median \
+#       --family all \
+#       --model_type rf \
+#       --sim_idx 5
+#
+#   # Aggregate after all jobs complete:
+#   python run_type1_error_loso.py \
+#       --config config_type1_error.yaml \
+#       --contrast ON_vs_OFF_within_median \
+#       --family all \
+#       --model_type rf \
+#       --aggregate
+#
+#   # Local sequential run (testing, small n):
+#   python run_type1_error_loso.py \
+#       --config config_type1_error.yaml \
+#       --contrast ON_vs_OFF_within_median \
+#       --family all \
+#       --model_type rf
+# =============================================================================
+
+simulation:
+
+  # ---------------------------------------------------------------------------
+  # Number of null simulations.
+  # At alpha=0.05: N=200 gives 95% CI of ±2.2% on the FPR estimate.
+  # At alpha=0.05: N=100 gives 95% CI of ±4.4%.
+  # Minimum recommended: 100. Default: 200.
+  # ---------------------------------------------------------------------------
+  n_simulations: 200
+
+  # ---------------------------------------------------------------------------
+  # Alpha levels at which to report empirical FPR.
+  # ---------------------------------------------------------------------------
+  alpha_levels: [0.01, 0.05, 0.10]
+
+  # ---------------------------------------------------------------------------
+  # Compute budget per simulation.
+  # These override n_runs and permutation_runs from the parent config.
+  #
+  # Rationale for lighter settings:
+  #   - n_runs=3  : fewer true-run seeds per simulation (vs. 10 in main pipeline).
+  #     The true AUC distribution serves only to define one "true_mean" for the
+  #     permutation comparison; 3 runs is sufficient.
+  #   - permutation_runs=50 : more permutations than the parent default (10)
+  #     to get better p-value resolution. With 50 perms, the coarsest p-value
+  #     is 1/50 = 0.02, which is below alpha=0.05.
+  # ---------------------------------------------------------------------------
+  n_runs: 3
+  permutation_runs: 50
+
+  # ---------------------------------------------------------------------------
+  # Synthetic data generation.
+  #
+  # covariance_scope:
+  #   'per_participant' (recommended) — fit a separate Ledoit-Wolf covariance
+  #     matrix per subject. Preserves individual neural structure.
+  #     Requires n_samples_per_subject > ~20 (satisfied in this dataset).
+  #   'global' — one covariance matrix across all subjects. More stable with
+  #     very few samples per subject.
+  #   'diag' — diagonal covariance (independent features). Degenerate baseline
+  #     to verify the pipeline does not inflate FPR under maximum null.
+  #
+  # covariance_method:
+  #   'ledoit_wolf' (recommended) — regularized estimator for wide matrices.
+  #   'full' — unregularized sample covariance (may be singular).
+  #   'diag' — overrides covariance_scope.
+  # ---------------------------------------------------------------------------
+  covariance_scope: "per_participant"
+  covariance_method: "ledoit_wolf"
+
+  # ---------------------------------------------------------------------------
+  # Results subdirectory (under results_root from parent config).
+  # Full path: {results_root}/Type1Error/LOSO/{contrast}/{family}/{model}/
+  # ---------------------------------------------------------------------------
+  results_subdir: "Type1Error/LOSO"

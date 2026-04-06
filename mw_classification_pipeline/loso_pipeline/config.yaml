@@ -51,10 +51,10 @@ label_contrasts:
   #   threshold: 50
   #   positive_above: true
 
-  ON_vs_OFF_within_median:
-    label_source: onoff
-    split_method: "within_subject_median"
-    positive_above: true
+  # ON_vs_OFF_within_median:
+  #   label_source: onoff
+  #   split_method: "within_subject_median"
+  #   positive_above: true
 
   ON_vs_OFF_global_median:
     label_source: onoff
@@ -68,9 +68,9 @@ label_contrasts:
   #   threshold_high: 70
 
 # Which contrast to run (overridable with --contrast)
-contrast: 
-  - ON_vs_OFF_within_median
+contrast:
   - ON_vs_OFF_global_median
+  # - ON_vs_OFF_within_median
   # - ON_vs_OFF
 
 # =============================================================================
@@ -182,7 +182,7 @@ run_families: ["all"] # "spectral", "connectivity", "information_theory"
 # EXPERIMENT SETUP
 # =============================================================================
 
-model_type: ["rf", "iforest"]            # rf, xgb, lr, ocsvm, iforest
+model_type: ["rf", "lr"]            # rf, xgb, lr, ocsvm, iforest
 
 n_runs: 10                # LOSO runs with different seeds
 permutation_runs: 10     # Label permutations for null distribution

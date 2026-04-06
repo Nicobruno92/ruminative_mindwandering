@@ -1,0 +1,81 @@
+# =============================================================================
+# TYPE I ERROR EVALUATION — WITHIN-SUBJECT PIPELINE
+# Simulation-specific configuration.
+#
+# Loaded alongside the parent within_subject_pipeline/config.yaml.
+# Values in the 'simulation' block override n_runs and n_permutations
+# from the parent config for each simulation run.
+#
+# All other pipeline settings (classifiers, feature_selection, oversampling,
+# preprocessing, cv, etc.) are inherited from the parent config unchanged,
+# ensuring the simulation runs the EXACT same pipeline procedure.
+#
+# USAGE:
+#   # Single simulation (SLURM array):
+#   python run_type1_error_within.py \
+#       --config config_type1_error.yaml \
+#       --contrast on_vs_off_within_median \
+#       --family all \
+#       --model_type rf \
+#       --sim_idx 5
+#
+#   # Aggregate after all jobs complete:
+#   python run_type1_error_within.py \
+#       --config config_type1_error.yaml \
+#       --contrast on_vs_off_within_median \
+#       --family all \
+#       --model_type rf \
+#       --aggregate
+#
+#   # Local sequential run (testing):
+#   python run_type1_error_within.py \
+#       --config config_type1_error.yaml \
+#       --contrast on_vs_off_within_median \
+#       --family all \
+#       --model_type rf
+# =============================================================================
+
+simulation:
+
+  # ---------------------------------------------------------------------------
+  # Number of null simulations.
+  # N=200 gives 95% CI of ±2.2% on FPR at alpha=0.05.
+  # ---------------------------------------------------------------------------
+  n_simulations: 200
+
+  # ---------------------------------------------------------------------------
+  # Alpha levels at which to report empirical FPR.
+  # ---------------------------------------------------------------------------
+  alpha_levels: [0.01, 0.05, 0.10]
+
+  # ---------------------------------------------------------------------------
+  # Compute budget per simulation (overrides parent config).
+  #
+  # n_runs=3: fewer true-run seeds per simulation (vs. 10 in main pipeline).
+  # n_permutations=50: more permutations than parent default for finer
+  #   p-value resolution (coarsest p = 1/50 = 0.02 < alpha=0.05).
+  # ---------------------------------------------------------------------------
+  n_runs: 3
+  n_permutations: 50
+
+  # ---------------------------------------------------------------------------
+  # Synthetic data generation.
+  #
+  # covariance_scope:
+  #   'per_participant' (recommended) — separate Ledoit-Wolf covariance per
+  #     subject. Preserves individual neural covariance structure.
+  #   'global' — single covariance matrix across all subjects.
+  #   'diag' — diagonal (independent features). Degenerate baseline.
+  #
+  # covariance_method:
+  #   'ledoit_wolf' (recommended) — regularized for wide feature matrices.
+  #   'full' — unregularized sample covariance.
+  # ---------------------------------------------------------------------------
+  covariance_scope: "per_participant"
+  covariance_method: "ledoit_wolf"
+
+  # ---------------------------------------------------------------------------
+  # Results subdirectory (under data_paths.results_root from parent config).
+  # Full path: {results_root}/Type1Error/WithinSubject/{contrast}/{family}/{model}/
+  # ---------------------------------------------------------------------------
+  results_subdir: "Type1Error/WithinSubject"

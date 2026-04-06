@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from sklearn.covariance import LedoitWolf
-from scipy.stats import proportion_confint
+from statsmodels.stats.proportion import proportion_confint
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 

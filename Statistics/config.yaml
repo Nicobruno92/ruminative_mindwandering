@@ -251,7 +251,7 @@ clustering:
   permutation_method: "freedman_lane"
   
   # Threshold-based parameters (only used if method="threshold")
-  threshold: 3
+  threshold: 2.5
   tail: 0  # two-sided: 0, one-sided greater: 1, one-sided less: -1
   stat_fun: "sum"  # "sum" or "max"
   t_power: 1.0  # Power to raise t-values by (1.0=standard, >1 weights stronger effects more)

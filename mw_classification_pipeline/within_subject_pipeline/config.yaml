@@ -92,10 +92,6 @@ cv:
   strategy: "stratified_kfold"
   folds: 5
   
-  # Minimum ratio of the minority class to the total samples required to run the subject
-  # Examples: 0.0 runs all, 0.2 requires at least 20% of the minority class
-  min_minority_ratio: 0.2
-  
   # Absolute minimum samples in the minority class to prevent 
   # StratifiedKFold from throwing errors due to split size > class size.
   # Must be >= cv.folds

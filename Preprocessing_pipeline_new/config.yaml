@@ -32,7 +32,7 @@ tasks: ["Sart1", "Sart2", "Sart3", 'Sart4']
 # Target resampling rate and basic filtering
 sr_target: 250  # target resampling rate for the pipeline
 notch_freqs: [50, 100]  # line noise removal frequencies
-avg_ref_projector: false  # apply average reference
+avg_ref_projector: true  # apply average reference
 
 # =============================================================================
 # 3. ARTIFACT SUBSPACE RECONSTRUCTION (ASR)
