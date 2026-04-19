@@ -143,6 +143,57 @@ multiple_comparison_correction:
     # - Cluster method controls FWER (family-wise error rate) while
     #   being more sensitive than Bonferroni for temporally extended effects
   
+# ============================================================
+# Cluster ERP plot configuration (used by plot_cluster_erp.py)
+# ============================================================
+cluster_erp:
+  # --- Channel selection ---
+  # Option A: auto-load from LMM cluster-summary CSV (takes precedence)
+  cluster_csv: "results/lmm_cluster/onoff_valence_selfother_time_confidence_time_on_task__target_onoff/evoked_P3b/cluster_summary_corrected.csv"
+  cluster_name: "P3b"           # marker_name value to select from the CSV
+
+  # Option B: explicit channel list (used only when cluster_csv is null or missing)
+  cluster_channels:
+    - "C1"
+    - "C2"
+    - "C4"
+    - "CP1"
+    - "CP2"
+    - "CP4"
+    - "CP6"
+    - "CPz"
+    - "Cz"
+    - "FC1"
+    - "FC2"
+    - "P1"
+    - "P2"
+    - "P4"
+    - "PO3"
+    - "POz"
+    - "Pz"
+
+  # --- Probe selection ---
+  # When true (default), use the junifer aggregated summary CSVs as the
+  # authoritative probe list — the exact same probes used by the LMM
+  # clustering pipeline.  Onoff scores also come from junifer.
+  # When false, probes are re-selected from the events.tsv (may differ slightly).
+  use_junifer_probe_selection: true
+
+  # --- Classification method ---
+  # Options:
+  #   "global_median"         threshold = median of all probe onoff scores
+  #   "within_subject_median" threshold = per-subject median
+  #   "fixed"                 threshold = fixed_threshold below
+  classification_method: "global_median"
+  fixed_threshold: 50            # used only when classification_method = "fixed"
+
+  # --- Quality control ---
+  # Minimum probes per condition required to include a subject in the plot
+  min_probes_per_condition: 3
+
+  # --- Output ---
+  output_dir: "results/ERPs_new/cluster_erp"
+
 # Plotting options
 plotting:
   # Available plot types:

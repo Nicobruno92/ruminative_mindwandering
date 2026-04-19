@@ -179,12 +179,17 @@ def run_lmm_per_channel(
     - Supports both continuous and binary predictors
     """
     n_channels = power_data.shape[1]
-    t_stats = np.zeros(n_channels)
-    p_values = np.ones(n_channels)
-    
+    # NaN initialization: failed/excluded channels are properly masked out of cluster
+    # formation in both observed and permuted data (via _find_clusters valid_mask).
+    # Using 0 was wrong: a channel that fails in observed but not in permuted (or vice
+    # versa) creates an asymmetric null distribution that inflates or deflates p-values.
+    t_stats = np.full(n_channels, np.nan)
+    p_values = np.full(n_channels, np.nan)
+
     # Initialize diagnostics tracking
     diagnostics = {
         'n_converged': 0,
+        'n_warnings': 0,   # converged but with ConvergenceWarning (kept separate)
         'n_failed': 0,
         'n_insufficient_data': 0,
         'convergence_rate': 0.0,
@@ -263,18 +268,19 @@ def run_lmm_per_channel(
             
             # Check minimum observations threshold
             if len(df_ch) < 10:
-                t_stats[ch_idx] = 0.0
-                p_values[ch_idx] = 1.0
+                # NaN: excluded from clusters in both observed and permuted
+                t_stats[ch_idx] = np.nan
+                p_values[ch_idx] = np.nan
                 diagnostics['n_insufficient_data'] += 1
                 continue
-            
+
             # Check if we have multiple subjects for this channel
             if df_ch['subject'].nunique() < 2:
-                t_stats[ch_idx] = 0.0
-                p_values[ch_idx] = 1.0
+                t_stats[ch_idx] = np.nan
+                p_values[ch_idx] = np.nan
                 diagnostics['n_insufficient_data'] += 1
                 continue
-            
+
             # Check for sufficient variation in predictor for this channel
             # For interaction terms, check all constituent variables
             _insufficient_variation = False
@@ -287,8 +293,8 @@ def run_lmm_per_channel(
                 if df_ch[predictor_of_interest].nunique() < 2:
                     _insufficient_variation = True
             if _insufficient_variation:
-                t_stats[ch_idx] = 0.0
-                p_values[ch_idx] = 1.0
+                t_stats[ch_idx] = np.nan
+                p_values[ch_idx] = np.nan
                 diagnostics['n_insufficient_data'] += 1
                 continue
             
@@ -339,9 +345,9 @@ def run_lmm_per_channel(
                 # Handle degenerate cases (inspired by MNE's robust approach)
                 # Check for NaN or Inf values that could propagate
                 if np.isnan(t_val) or np.isinf(t_val):
-                    # Degenerate case: set conservative values
-                    t_stats[ch_idx] = 0.0
-                    p_values[ch_idx] = 1.0
+                    # Degenerate case: NaN so the channel is excluded from clustering
+                    t_stats[ch_idx] = np.nan
+                    p_values[ch_idx] = np.nan
                     diagnostics['n_failed'] += 1
                     diagnostics['failed_channels'].append(ch_idx)
                     if return_diagnostics:
@@ -355,10 +361,11 @@ def run_lmm_per_channel(
                 
                 # Track convergence status
                 if has_convergence_warning:
-                    # Model fit but with convergence warning - log it but keep the values
+                    # Model ran but did NOT cleanly converge — kept separate from n_converged
+                    # so the convergence_rate reflects only clean fits.
                     warning_msgs = [str(warning.message) for warning in convergence_warnings]
                     convergence_warning_count += 1
-                    diagnostics['n_converged'] += 1  # Still count as converged (model ran)
+                    diagnostics['n_warnings'] += 1
                     if return_diagnostics:
                         diagnostics['convergence_warnings'].append(f"Channel {ch_idx}: {'; '.join(warning_msgs)}")
                 else:
@@ -367,14 +374,9 @@ def run_lmm_per_channel(
                 
                 # Collect model quality metrics
                 # Note: AIC/BIC may be NaN for REML estimation (only valid for ML)
-                try:
-                    aic_val = float(result.aic) if hasattr(result, 'aic') else np.nan
-                    bic_val = float(result.bic) if hasattr(result, 'bic') else np.nan
-                    llf_val = float(result.llf) if hasattr(result, 'llf') else np.nan
-                except (ValueError, TypeError):
-                    aic_val = np.nan
-                    bic_val = np.nan
-                    llf_val = np.nan
+                aic_val = float(result.aic) if hasattr(result, 'aic') else np.nan
+                bic_val = float(result.bic) if hasattr(result, 'bic') else np.nan
+                llf_val = float(result.llf) if hasattr(result, 'llf') else np.nan
                 
                 diagnostics['aic'].append(aic_val)
                 diagnostics['bic'].append(bic_val)
@@ -392,50 +394,55 @@ def run_lmm_per_channel(
                 # Check residual normality (Shapiro-Wilk test)
                 # Only test if we have enough residuals (3 <= n <= 5000)
                 if 3 <= len(residuals) <= 5000:
-                    try:
-                        _, shapiro_p = stats.shapiro(residuals)
-                        diagnostics['shapiro_p_values'].append(float(shapiro_p))
-                    except (ValueError, RuntimeError):
-                        diagnostics['shapiro_p_values'].append(np.nan)
+                    _, shapiro_p = stats.shapiro(residuals)
+                    diagnostics['shapiro_p_values'].append(float(shapiro_p))
                 else:
                     diagnostics['shapiro_p_values'].append(np.nan)
-                
+
                 # Check homoscedasticity (Breusch-Pagan test approximation)
                 # Test if residual variance is related to fitted values
                 fitted = result.fittedvalues
                 if len(fitted) > 10:
-                    try:
-                        # Simple correlation test between |residuals| and fitted values
-                        abs_resid = np.abs(residuals)
-                        corr, bp_p = stats.spearmanr(fitted, abs_resid)
-                        diagnostics['breusch_pagan_p'].append(float(bp_p))
-                    except (ValueError, RuntimeError):
-                        diagnostics['breusch_pagan_p'].append(np.nan)
+                    abs_resid = np.abs(residuals)
+                    _, bp_p = stats.spearmanr(fitted, abs_resid)
+                    diagnostics['breusch_pagan_p'].append(float(bp_p))
                 else:
                     diagnostics['breusch_pagan_p'].append(np.nan)
             else:
-                t_stats[ch_idx] = 0.0
-                p_values[ch_idx] = 1.0
+                # Predictor not found in model output (e.g. perfect collinearity dropped it)
+                t_stats[ch_idx] = np.nan
+                p_values[ch_idx] = np.nan
                 diagnostics['n_failed'] += 1
                 diagnostics['failed_channels'].append(ch_idx)
-            
-        except Exception as e:
-            # Convergence failure or other error: set t=0, p=1
-            t_stats[ch_idx] = 0.0
-            p_values[ch_idx] = 1.0
+
+        except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
+            # Specific numerical/model failures: singular matrix, degenerate data,
+            # or statsmodels internal errors during REML optimisation.
+            # NaN ensures this channel is excluded from cluster formation in both
+            # observed and permuted data, keeping the null distribution symmetric.
+            t_stats[ch_idx] = np.nan
+            p_values[ch_idx] = np.nan
             diagnostics['n_failed'] += 1
             diagnostics['failed_channels'].append(ch_idx)
-            if ch_idx < 5 or return_diagnostics:  # Print first few errors or all if diagnostics requested
-                error_msg = f"Channel {ch_idx} LMM failed: {e}"
-                if return_diagnostics:
-                    diagnostics['convergence_warnings'].append(error_msg)
-                else:
-                    print(error_msg)
-    
-    # Calculate convergence rate
+            error_msg = f"Channel {ch_idx} LMM failed ({type(e).__name__}): {e}"
+            diagnostics['convergence_warnings'].append(error_msg)
+            print(f"  WARNING: {error_msg}")
+
+    # Abort early if failure rate is too high — results would be unreliable.
+    n_attempted = n_channels - diagnostics['n_insufficient_data']
+    if n_attempted > 0 and diagnostics['n_failed'] / n_attempted > 0.5:
+        raise RuntimeError(
+            f"LMM failed on {diagnostics['n_failed']}/{n_attempted} channels "
+            f"({100 * diagnostics['n_failed'] / n_attempted:.1f}%). "
+            "Investigate convergence issues before proceeding. "
+            f"First failures: {diagnostics['failed_channels'][:5]}"
+        )
+
+    # Calculate convergence rate (only clean fits, warnings counted separately)
     n_attempted = n_channels - diagnostics['n_insufficient_data']
     if n_attempted > 0:
         diagnostics['convergence_rate'] = diagnostics['n_converged'] / n_attempted
+        diagnostics['warning_rate'] = diagnostics['n_warnings'] / n_attempted
     
     # Compute summary statistics for model quality and assumptions
     if diagnostics['n_converged'] > 0:
@@ -470,14 +477,17 @@ def run_lmm_per_channel(
     if return_diagnostics:
         print("\nLMM Convergence Summary:")
         print(f"  Total channels: {n_channels}")
-        print(f"  Converged: {diagnostics['n_converged']}")
-        print(f"  Failed: {diagnostics['n_failed']}")
-        print(f"  Insufficient data: {diagnostics['n_insufficient_data']}")
-        print(f"  Convergence rate: {100*diagnostics['convergence_rate']:.1f}%")
-        if convergence_warning_count > 0:
-            print(f"  Convergence warnings: {convergence_warning_count}")
+        print(f"  Converged (clean): {diagnostics['n_converged']}")
+        print(f"  Converged with warnings: {diagnostics['n_warnings']}")
+        print(f"  Failed (NaN t-stat, excluded from clusters): {diagnostics['n_failed']}")
+        print(f"  Insufficient data (excluded): {diagnostics['n_insufficient_data']}")
+        print(f"  Clean convergence rate: {100*diagnostics['convergence_rate']:.1f}%")
+        if diagnostics['n_warnings'] > 0:
+            warning_rate = diagnostics.get('warning_rate', 0.0)
+            print(f"  Warning rate: {100*warning_rate:.1f}%  "
+                  f"(t-stats kept but reliability uncertain)")
         if len(diagnostics['convergence_warnings']) > 0:
-            print(f"  Total warnings captured: {len(diagnostics['convergence_warnings'])}")
+            print(f"  Logged warnings/errors: {len(diagnostics['convergence_warnings'])}")
         
         # Print model quality metrics
         if diagnostics['n_converged'] > 0:
@@ -784,89 +794,95 @@ def fit_reduced_model_per_channel(
     it becomes: "power ~ 1 + (1|subject)"
     """
     n_observations, n_channels = power_data.shape
-    residuals = np.zeros((n_observations, n_channels))
-    fitted_values = np.zeros((n_observations, n_channels))
-    
+    # NaN initialization: rows that were not fitted (NaN power or behavioral data)
+    # remain NaN so freedman_lane_permutation can identify and skip them, preserving
+    # the same observation set as the full model.
+    residuals = np.full((n_observations, n_channels), np.nan)
+    fitted_values = np.full((n_observations, n_channels), np.nan)
+
     np.random.seed(random_state)
-    
+
     # Create reduced formula by removing predictor of interest
     reduced_formula = _create_reduced_formula(formula, predictor_of_interest)
-    
-    # Suppress convergence warnings
-    warnings.filterwarnings('ignore', category=ConvergenceWarning)
-    
-    for ch_idx in range(n_channels):
-        try:
-            # Prepare data for this channel
-            df_ch = df_behavioral.copy()
-            df_ch['power'] = power_data[:, ch_idx]
-            
-            # Remove NaN values
-            df_ch = df_ch.dropna(subset=['power', 'subject'])
-            df_ch['subject'] = df_ch['subject'].astype(str)
-            
-            # Check minimum observations
-            if len(df_ch) < 10 or df_ch['subject'].nunique() < 2:
-                # Use raw data as residuals (no model fit)
-                residuals[:, ch_idx] = power_data[:, ch_idx]
-                fitted_values[:, ch_idx] = 0.0
-                continue
-            
-            # Parse random effects to check for random slopes
-            formula_fixed, re_formula = parse_random_effects(reduced_formula)
-            
-            # IMPORTANT: Freedman-Lane with random slopes
-            # The reduced model must have the SAME random effects structure as the full model
-            # to preserve the correlation structure under the null hypothesis
-            if re_formula is not None:
-                warnings.warn(
-                    "Using Freedman-Lane permutation with random slopes. "
-                    "Ensure the reduced model preserves the random effects structure. "
-                    "Consider using 'simple' permutation method if convergence issues occur.",
-                    UserWarning
+
+    # Parse random effects once (same for all channels)
+    formula_fixed, re_formula = parse_random_effects(reduced_formula)
+
+    # IMPORTANT: Freedman-Lane with random slopes
+    # The reduced model must have the SAME random effects structure as the full model
+    # to preserve the correlation structure under the null hypothesis
+    if re_formula is not None:
+        warnings.warn(
+            "Using Freedman-Lane permutation with random slopes. "
+            "Ensure the reduced model preserves the random effects structure. "
+            "Consider using 'simple' permutation method if convergence issues occur.",
+            UserWarning
+        )
+
+    # Use a context manager so the ConvergenceWarning filter is scoped and does not
+    # corrupt the global warnings state for the rest of the pipeline.
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', ConvergenceWarning)
+
+        for ch_idx in range(n_channels):
+            try:
+                # Prepare data for this channel
+                df_ch = df_behavioral.copy()
+                df_ch['power'] = power_data[:, ch_idx]
+
+                # Remove NaN values (same logic as run_lmm_per_channel)
+                df_ch = df_ch.dropna(subset=['power', 'subject'])
+                df_ch['subject'] = df_ch['subject'].astype(str)
+
+                # Check minimum observations
+                if len(df_ch) < 10 or df_ch['subject'].nunique() < 2:
+                    # Leave residuals/fitted_values as NaN for this channel.
+                    # freedman_lane_permutation will propagate NaN → power_permuted NaN
+                    # → channel excluded in permuted LMM, consistent with observed.
+                    continue
+
+                # Fit reduced model with same random effects structure and REML
+                if re_formula is None:
+                    model = mixedlm(
+                        formula=formula_fixed,
+                        data=df_ch,
+                        groups=df_ch["subject"]
+                    )
+                else:
+                    model = mixedlm(
+                        formula=formula_fixed,
+                        data=df_ch,
+                        groups=df_ch["subject"],
+                        re_formula=re_formula
+                    )
+
+                result = model.fit(
+                    method=method.upper(),
+                    maxiter=maxiter,
+                    reml=True,   # explicit: must match full-model estimation
+                    disp=False
                 )
-            
-            # Fit reduced model with same random effects structure
-            if re_formula is None:
-                # Random intercept only
-                model = mixedlm(
-                    formula=formula_fixed,
-                    data=df_ch,
-                    groups=df_ch["subject"]
-                )
-            else:
-                # Random slopes - preserve structure
-                model = mixedlm(
-                    formula=formula_fixed,
-                    data=df_ch,
-                    groups=df_ch["subject"],
-                    re_formula=re_formula
-                )
-            
-            result = model.fit(
-                method=method.upper(),
-                maxiter=maxiter,
-                disp=False
-            )
-            
-            # Extract fitted values and residuals
-            # Map back to original indices
-            fitted_ch = np.zeros(n_observations)
-            residuals_ch = np.zeros(n_observations)
-            
-            fitted_ch[df_ch.index] = result.fittedvalues.values
-            residuals_ch[df_ch.index] = result.resid.values
-            
-            fitted_values[:, ch_idx] = fitted_ch
-            residuals[:, ch_idx] = residuals_ch
-            
-        except Exception as e:
-            # If model fails, use raw data as residuals
-            residuals[:, ch_idx] = power_data[:, ch_idx]
-            fitted_values[:, ch_idx] = 0.0
-    
-    warnings.filterwarnings('default', category=ConvergenceWarning)
-    
+
+                # Map fitted values and residuals back to original row positions.
+                # Rows not in df_ch.index (NaN-dropped) stay NaN, which correctly
+                # excludes them from permutation in freedman_lane_permutation.
+                fitted_ch = np.full(n_observations, np.nan)
+                residuals_ch = np.full(n_observations, np.nan)
+
+                fitted_ch[df_ch.index] = result.fittedvalues.values
+                residuals_ch[df_ch.index] = result.resid.values
+
+                fitted_values[:, ch_idx] = fitted_ch
+                residuals[:, ch_idx] = residuals_ch
+
+            except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
+                # Specific numerical/model failures in the reduced model.
+                # Keep residuals/fitted_values as NaN: this channel will be NaN in
+                # power_permuted and excluded in the permuted LMM, consistent
+                # with the observed LMM (which will also fail for the same reason).
+                print(f"  WARNING: reduced model failed at ch {ch_idx} "
+                      f"({type(e).__name__}): {e}")
+
     return residuals, fitted_values
 
 
@@ -1011,31 +1027,49 @@ def freedman_lane_permutation(
             f"but residuals has {n_observations} observations"
         )
     
-    power_permuted = np.zeros((n_observations, n_channels))
-    
+    # NaN initialization: rows that had no valid reduced model fit (NaN residuals)
+    # stay NaN in power_permuted and are consequently excluded by dropna in the
+    # permuted full LMM, matching exactly what happens in the observed LMM.
+    power_permuted = np.full((n_observations, n_channels), np.nan)
+
     np.random.seed(seed)
-    
-    # Permute residuals within each subject
-    # This preserves within-subject correlation structure
+
+    # Guard: if ALL channels have all-NaN residuals, the reduced model failed entirely.
+    if np.all(np.isnan(residuals)):
+        return power_permuted
+
+    # Permute residuals within each subject using only valid rows
     for subject in df_behavioral['subject'].unique():
         subject_mask = df_behavioral['subject'] == subject
         subject_indices = df_behavioral.loc[subject_mask].index.to_numpy()
-        
-        if len(subject_indices) < 2:
-            # Can't permute single observation, keep as is
-            power_permuted[subject_indices, :] = (
-                fitted_values[subject_indices, :] + residuals[subject_indices, :]
-            )
+
+        # Valid rows: rows where at least one channel has a non-NaN residual.
+        # Using the UNION (any channel) rather than a single reference channel
+        # ensures rows that are valid for some channels but not others (e.g. when
+        # the reduced model failed only for specific channels) are still included
+        # in the permutation.  Channels with NaN residuals at those rows will
+        # produce NaN in power_permuted automatically (NaN + anything = NaN).
+        any_valid_mask = ~np.all(np.isnan(residuals[subject_indices, :]), axis=1)
+        valid_indices = subject_indices[any_valid_mask]
+        # Rows not fitted for ANY channel (behavioral NaN etc.) stay NaN.
+
+        if len(valid_indices) < 2:
+            # Single valid observation — cannot permute, reconstruct in place
+            if len(valid_indices) == 1:
+                power_permuted[valid_indices, :] = (
+                    fitted_values[valid_indices, :] + residuals[valid_indices, :]
+                )
             continue
-        
-        # Permute indices within subject
-        permuted_indices = np.random.permutation(subject_indices)
-        
-        # Reconstruct Y*: fitted values + permuted residuals
+
+        # One permutation order for ALL channels — preserves spatial correlation
+        permuted_valid_indices = np.random.permutation(valid_indices)
+
+        # Reconstruct Y* = Ŷ_reduced + permuted residuals
+        # Channels with NaN residuals at a given row: NaN + NaN = NaN → excluded
         for ch_idx in range(n_channels):
-            power_permuted[subject_indices, ch_idx] = (
-                fitted_values[subject_indices, ch_idx] + 
-                residuals[permuted_indices, ch_idx]
+            power_permuted[valid_indices, ch_idx] = (
+                fitted_values[valid_indices, ch_idx]
+                + residuals[permuted_valid_indices, ch_idx]
             )
-    
+
     return power_permuted

@@ -137,514 +137,516 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
     print(f"PROCESSING MARKER: {marker_name} ({marker_type})")
     print(f"{'='*60}")
     
-    if True:
-        # Extract parameters
-        formula = config['lmm']['formula']
-        predictor_of_interest = config['lmm'].get('predictor_of_interest')
-        
-        method = config['lmm']['method']
-        maxiter = config['lmm']['maxiter']
-        random_state = config['lmm']['random_state']
-        
-        clustering_method = config['clustering'].get('method', 'threshold')
-        threshold = config['clustering']['threshold']
-        n_permutations = config['clustering']['n_permutations']
-        alpha = config['clustering']['alpha']
-        tail = config['clustering']['tail']
-        seed = config['clustering']['seed']
-        n_jobs = config['clustering']['n_jobs']
-        permutation_method = config['clustering'].get('permutation_method')
-        t_power = config['clustering'].get('t_power', 1.0)  # Default to 1.0 if not specified
-        
-        # TFCE parameters (only used if method='tfce')
-        tfce_E = config['clustering'].get('tfce', {}).get('E', 0.5)
-        tfce_H = config['clustering'].get('tfce', {}).get('H', 2.0)
-        tfce_n_steps = config['clustering'].get('tfce', {}).get('n_steps', 100)
-        
-        save_pickle = config['output']['save_pickle']
-        save_csv = config['output']['save_csv']
-        save_figures = config['output']['save_figures']
-        output_path = config['project']['output_path']
-        
-        # Filter data for this specific marker type
-        print(f"Preparing data for marker: {marker_name} ({marker_type})")
-        df_marker_type = df_all[df_all['marker_type'] == marker_type]
-        
-        # Get filtering parameters from config
-        onoff_max_value = config['project'].get('onoff_max_value', None)
-        min_predictor_variability = config['project'].get('min_predictor_variability', None)
-        min_minority_ratio = config['project'].get('min_minority_ratio', None)
-        
-        power_data, df_behavioral, channels = prepare_data_for_lmm(
-            df=df_marker_type,
-            marker_name=marker_name,
-            formula=formula,
-            include_channels=None,
-            exclude_channels=None,
-            pca_data=pca_data,
-            onoff_max_value=onoff_max_value,
-            min_predictor_variability=min_predictor_variability,
-            min_minority_ratio=min_minority_ratio,
-            predictor_of_interest=predictor_of_interest
-        )
-        
-        # CRITICAL: Project data to info order (canonical order established in main())
-        # The info object contains the canonical channel order that must be preserved
-        info_order = [ch for ch in info['ch_names'] if ch in channels]
-        
-        if len(info_order) == 0:
-            raise ValueError(f"No common channels between data ({len(channels)} channels) and info ({len(info['ch_names'])} channels)")
-        
-        if len(info_order) < len(channels) * 0.8:  # Less than 80% overlap
-            missing_data = sorted(list(set(channels) - set(info['ch_names'])))
-            missing_info = sorted(list(set(info['ch_names']) - set(channels)))
-            raise ValueError(f"Insufficient channel overlap. Missing from info: {missing_data[:5]}... Missing from data: {missing_info[:5]}...")
-        
-        # Project data to canonical info order
-        idx_in_data = [channels.index(ch) for ch in info_order]
-        power_data = power_data[:, idx_in_data]
-        ch_names_final = info_order  # Use info order as final order
-        n_observations, n_channels = power_data.shape
-        
-        # CRITICAL ASSERTION: Ensure data and info are aligned
-        assert list(ch_names_final) == list(info['ch_names']), \
-            f"Channel order mismatch between data and info. Data: {ch_names_final[:5]}..., Info: {info['ch_names'][:5]}..."
-        assert power_data.shape[1] == len(info['ch_names']), \
-            f"Data shape mismatch: power_data has {power_data.shape[1]} channels, info has {len(info['ch_names'])} channels"
-        
-        print(f"✓ Data prepared: {n_observations} observations × {n_channels} channels")
-        
-        # Apply preprocessing (e.g., subject-level normalization)
-        power_data, preprocessing_info = apply_preprocessing(
-            power_data=power_data,
-            df_behavioral=df_behavioral,
-            config=config,
+    # Extract parameters
+    formula = config['lmm']['formula']
+    predictor_of_interest = config['lmm'].get('predictor_of_interest')
+    
+    method = config['lmm']['method']
+    maxiter = config['lmm']['maxiter']
+    random_state = config['lmm']['random_state']
+    
+    clustering_method = config['clustering'].get('method', 'threshold')
+    threshold = config['clustering']['threshold']
+    n_permutations = config['clustering']['n_permutations']
+    alpha = config['clustering']['alpha']
+    tail = config['clustering']['tail']
+    seed = config['clustering']['seed']
+    n_jobs = config['clustering']['n_jobs']
+    permutation_method = config['clustering'].get('permutation_method')
+    t_power = config['clustering'].get('t_power', 1.0)  # Default to 1.0 if not specified
+    
+    # TFCE parameters (only used if method='tfce')
+    tfce_E = config['clustering'].get('tfce', {}).get('E', 0.5)
+    tfce_H = config['clustering'].get('tfce', {}).get('H', 2.0)
+    tfce_n_steps = config['clustering'].get('tfce', {}).get('n_steps', 100)
+    
+    save_pickle = config['output']['save_pickle']
+    save_csv = config['output']['save_csv']
+    save_figures = config['output']['save_figures']
+    output_path = config['project']['output_path']
+    
+    # Filter data for this specific marker type
+    print(f"Preparing data for marker: {marker_name} ({marker_type})")
+    df_marker_type = df_all[df_all['marker_type'] == marker_type]
+    
+    # Get filtering parameters from config
+    onoff_max_value = config['project'].get('onoff_max_value', None)
+    min_predictor_variability = config['project'].get('min_predictor_variability', None)
+    min_minority_ratio = config['project'].get('min_minority_ratio', None)
+    
+    power_data, df_behavioral, channels = prepare_data_for_lmm(
+        df=df_marker_type,
+        marker_name=marker_name,
+        formula=formula,
+        include_channels=None,
+        exclude_channels=None,
+        pca_data=pca_data,
+        onoff_max_value=onoff_max_value,
+        min_predictor_variability=min_predictor_variability,
+        min_minority_ratio=min_minority_ratio,
+        predictor_of_interest=predictor_of_interest
+    )
+    
+    # CRITICAL: Project data to info order (canonical order established in main())
+    # The info object contains the canonical channel order that must be preserved
+    info_order = [ch for ch in info['ch_names'] if ch in channels]
+    
+    if len(info_order) == 0:
+        raise ValueError(f"No common channels between data ({len(channels)} channels) and info ({len(info['ch_names'])} channels)")
+    
+    if len(info_order) < len(channels) * 0.8:  # Less than 80% overlap
+        missing_data = sorted(list(set(channels) - set(info['ch_names'])))
+        missing_info = sorted(list(set(info['ch_names']) - set(channels)))
+        raise ValueError(f"Insufficient channel overlap. Missing from info: {missing_data[:5]}... Missing from data: {missing_info[:5]}...")
+    
+    # Project data to canonical info order
+    idx_in_data = [channels.index(ch) for ch in info_order]
+    power_data = power_data[:, idx_in_data]
+    ch_names_final = info_order  # Use info order as final order
+    n_observations, n_channels = power_data.shape
+    
+    # CRITICAL ASSERTION: Ensure data and info are aligned
+    assert list(ch_names_final) == list(info['ch_names']), \
+        f"Channel order mismatch between data and info. Data: {ch_names_final[:5]}..., Info: {info['ch_names'][:5]}..."
+    assert power_data.shape[1] == len(info['ch_names']), \
+        f"Data shape mismatch: power_data has {power_data.shape[1]} channels, info has {len(info['ch_names'])} channels"
+    
+    print(f"✓ Data prepared: {n_observations} observations × {n_channels} channels")
+    
+    # Apply preprocessing (e.g., subject-level normalization)
+    power_data, preprocessing_info = apply_preprocessing(
+        power_data=power_data,
+        df_behavioral=df_behavioral,
+        config=config,
+        verbose=True
+    )
+    
+    # Apply predictor normalization if enabled
+    # This normalizes independent variables (like onoff, confidence) within subjects
+    predictor_norm_config = config['preprocessing'].get('predictor_normalization', {})
+    if predictor_norm_config.get('enabled', False):
+        # Apply normalization to the behavioral dataframe
+        # This is done INPLACE on the copy or returns a new df
+        df_behavioral = normalize_predictors(
+            df=df_behavioral,
+            method=predictor_norm_config.get('method', 'zscore'),
+            subject_col='subject',
+            predictors=predictor_norm_config.get('predictors', 'all'),
             verbose=True
         )
         
-        # Apply predictor normalization if enabled
-        # This normalizes independent variables (like onoff, confidence) within subjects
-        predictor_norm_config = config['preprocessing'].get('predictor_normalization', {})
-        if predictor_norm_config.get('enabled', False):
-            # Apply normalization to the behavioral dataframe
-            # This is done INPLACE on the copy or returns a new df
-            df_behavioral = normalize_predictors(
-                df=df_behavioral,
-                method=predictor_norm_config.get('method', 'zscore'),
-                subject_col='subject',
-                predictors=predictor_norm_config.get('predictors', 'all'),
-                verbose=True
-            )
-            
-            # Log this step
-            preprocessing_info['steps_applied'].append(
-                f"normalize_predictors_{predictor_norm_config.get('method', 'zscore')}"
-            )
-            
-        # Apply predictor binarization if enabled
-        # This converts continuous predictors to binary (e.g., high vs low)
-        predictor_bin_config = config['preprocessing'].get('predictor_binarization', {})
-        if predictor_bin_config.get('enabled', False):
-            df_behavioral = binarize_predictors(
-                df=df_behavioral,
-                method=predictor_bin_config.get('method', 'within_subject_median'),
-                subject_col='subject',
-                predictors=predictor_bin_config.get('predictors', []),
-                verbose=True
-            )
-            
-            preprocessing_info['steps_applied'].append(
-                f"binarize_predictors_{predictor_bin_config.get('method', 'median')}"
-            )
-
-        # Apply class balance filter *after* binarization
-        if min_minority_ratio is not None:
-            if predictor_of_interest is None:
-                raise ValueError("predictor_of_interest must be specified when using min_minority_ratio")
-            
-            # For interaction terms, filter on the first constituent variable
-            filter_col = predictor_of_interest
-            if ':' in predictor_of_interest:
-                filter_col = predictor_of_interest.split(':')[0].strip()
-                
-            df_filtered = filter_subjects_by_class_balance(
-                df=df_behavioral,
-                predictor_column=filter_col,
-                min_minority_ratio=min_minority_ratio,
-                subject_column='subject',
-                verbose=True
-            )
-            
-            if len(df_filtered) == 0:
-                print(f"Skipping {marker_name} - no observations remain after filtering by class balance.")
-                return None
-                
-            if len(df_filtered) < len(df_behavioral):
-                # Filter power_data to match remaining rows
-                valid_indices = df_filtered.index.values
-                power_data = power_data[valid_indices]
-                df_behavioral = df_filtered.reset_index(drop=True)
-                
-                n_observations, _ = power_data.shape
-                print(f"Data adjusted for class balance: {n_observations} observations remaining")
-
-        # Create output directory structure: base / model_folder / marker_folder
-        base_output_dir = Path(output_path)
-        
-        # Build model folder name: fixed effects + active predictor of interest
-        model_folder_name = get_model_folder_name(formula, predictor_of_interest)
-        
-        # Create safe marker name for folder
-        safe_marker_name = marker_name.replace('/', '_').replace(' ', '_')
-        marker_folder_name = f"{marker_type}_{safe_marker_name}"
-        
-        # Create full output directory: base / model / marker
-        output_dir = base_output_dir / model_folder_name / marker_folder_name
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate raw topography report (before statistical analysis)
-        print("\nCreating raw topography report...")
-        create_raw_topography_report(
-            power_data=power_data,
-            df_behavioral=df_behavioral,
-            ch_names=ch_names_final,
-            info=info,
-            marker_name=marker_name,
-            output_dir=str(output_dir),
-            subject_col='subject',
-            predictor_of_interest=predictor_of_interest
+        # Log this step
+        preprocessing_info['steps_applied'].append(
+            f"normalize_predictors_{predictor_norm_config.get('method', 'zscore')}"
         )
         
-        # Validate formula variables
-        validate_formula_variables(df_behavioral, formula)
+    # Apply predictor binarization if enabled
+    # This converts continuous predictors to binary (e.g., high vs low)
+    predictor_bin_config = config['preprocessing'].get('predictor_binarization', {})
+    if predictor_bin_config.get('enabled', False):
+        df_behavioral = binarize_predictors(
+            df=df_behavioral,
+            method=predictor_bin_config.get('method', 'within_subject_median'),
+            subject_col='subject',
+            predictors=predictor_bin_config.get('predictors', []),
+            verbose=True
+        )
         
-        # Run LMM for each channel
-        print(f"Running LMM for {n_channels} channels...")
-        t_stats, p_values, lmm_diagnostics = run_lmm_per_channel(
+        preprocessing_info['steps_applied'].append(
+            f"binarize_predictors_{predictor_bin_config.get('method', 'median')}"
+        )
+
+    # Apply class balance filter *after* binarization
+    if min_minority_ratio is not None:
+        if predictor_of_interest is None:
+            raise ValueError("predictor_of_interest must be specified when using min_minority_ratio")
+        
+        # For interaction terms, filter on the first constituent variable
+        filter_col = predictor_of_interest
+        if ':' in predictor_of_interest:
+            filter_col = predictor_of_interest.split(':')[0].strip()
+            
+        df_filtered = filter_subjects_by_class_balance(
+            df=df_behavioral,
+            predictor_column=filter_col,
+            min_minority_ratio=min_minority_ratio,
+            subject_column='subject',
+            verbose=True
+        )
+        
+        if len(df_filtered) == 0:
+            print(f"Skipping {marker_name} - no observations remain after filtering by class balance.")
+            return None
+            
+        if len(df_filtered) < len(df_behavioral):
+            # Filter power_data to match remaining rows
+            valid_indices = df_filtered.index.values
+            power_data = power_data[valid_indices]
+            df_behavioral = df_filtered.reset_index(drop=True)
+            
+            n_observations, _ = power_data.shape
+            print(f"Data adjusted for class balance: {n_observations} observations remaining")
+
+    # Create output directory structure: base / model_folder / marker_folder
+    base_output_dir = Path(output_path)
+    
+    # Build model folder name: fixed effects + active predictor of interest
+    model_folder_name = get_model_folder_name(formula, predictor_of_interest)
+    
+    # Create safe marker name for folder
+    safe_marker_name = marker_name.replace('/', '_').replace(' ', '_')
+    marker_folder_name = f"{marker_type}_{safe_marker_name}"
+    
+    # Create full output directory: base / model / marker
+    output_dir = base_output_dir / model_folder_name / marker_folder_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate raw topography report (before statistical analysis)
+    print("\nCreating raw topography report...")
+    create_raw_topography_report(
+        power_data=power_data,
+        df_behavioral=df_behavioral,
+        ch_names=ch_names_final,
+        info=info,
+        marker_name=marker_name,
+        output_dir=str(output_dir),
+        subject_col='subject',
+        predictor_of_interest=predictor_of_interest
+    )
+    
+    # Validate formula variables
+    validate_formula_variables(df_behavioral, formula)
+    
+    # Run LMM for each channel
+    print(f"Running LMM for {n_channels} channels...")
+    t_stats, p_values, lmm_diagnostics = run_lmm_per_channel(
+        power_data=power_data,
+        df_behavioral=df_behavioral,
+        formula=formula,
+        predictor_of_interest=predictor_of_interest,
+        method=method,
+        maxiter=maxiter,
+        random_state=random_state,
+        return_diagnostics=True
+    )
+    
+    # Print LMM convergence summary
+    n_warnings = lmm_diagnostics.get('n_warnings', 0)
+    print(f"✓ LMM completed: {lmm_diagnostics['n_converged']}/{n_channels} channels converged "
+          f"({100*lmm_diagnostics['convergence_rate']:.1f}%)")
+    if n_warnings > 0:
+        print(f"  Channels with convergence warnings (t-stats kept): {n_warnings}")
+    if lmm_diagnostics['n_failed'] > 0:
+        print(f"  Channels failed (NaN, excluded from clusters): {lmm_diagnostics['n_failed']}")
+
+    print(f"✓ LMM completed")
+    # Use nanmin/nanmax: failed channels are NaN and must not crash the summary
+    print(f"  T-statistics range: [{np.nanmin(t_stats):.3f}, {np.nanmax(t_stats):.3f}]")
+    if clustering_method == 'threshold':
+        print(f"  Channels with |t| > {threshold}: {np.nansum(np.abs(t_stats) > threshold)}")
+    
+    # ========== CREATE EXCLUDE MASK (if configured) ==========
+    # This prevents boundary artifacts from edge channels
+    exclude_mask = None
+    exclude_config = config['clustering'].get('exclude_channels', {})
+    if exclude_config.get('enabled', False):
+        exclude_method = exclude_config.get('method', 'manual')
+        
+        if exclude_method == 'manual':
+            # Exclude specific channel names
+            channel_names_to_exclude = exclude_config.get('channel_names', [])
+            if channel_names_to_exclude:
+                exclude_mask = np.zeros(n_channels, dtype=bool)
+                for ch_name in channel_names_to_exclude:
+                    if ch_name in ch_names_final:
+                        ch_idx = ch_names_final.index(ch_name)
+                        exclude_mask[ch_idx] = True
+                
+                n_excluded = np.sum(exclude_mask)
+                print(f"\n✓ Excluding {n_excluded}/{n_channels} channels from clustering (manual method)")
+                print(f"  Excluded channels: {[ch for ch in channel_names_to_exclude if ch in ch_names_final]}")
+                
+        elif exclude_method == 'auto_position':
+            # Exclude outermost channels by position
+            percentile = exclude_config.get('auto_percentile', 10)
+            from mne.channels import find_layout
+            if True:
+                layout = find_layout(info)
+                pos = layout.pos[:, :2]  # x, y positions
+                
+                # Calculate distance from center
+                center = pos.mean(axis=0)
+                distances = np.linalg.norm(pos - center, axis=1)
+                
+                # Channels in outer percentile
+                threshold_dist = np.percentile(distances, 100 - percentile)
+                exclude_mask = distances >= threshold_dist
+                
+                n_excluded = np.sum(exclude_mask)
+                excluded_names = [ch_names_final[i] for i in range(n_channels) if exclude_mask[i]]
+                print(f"\n✓ Excluding {n_excluded}/{n_channels} channels from clustering (auto_position method, {percentile}th percentile)")
+                print(f"  Excluded channels: {excluded_names}")
+    
+    # Spatial cluster permutation test - choose method
+    if clustering_method == 'tfce':
+        print(f"Running TFCE-based spatial permutation test...")
+        print(f"  TFCE parameters: E={tfce_E}, H={tfce_H}, n_steps={tfce_n_steps}")
+        
+        # TFCE returns channel-wise results (not clusters)
+        tfce_map, tfce_p_values, cluster_diagnostics = spatial_cluster_test_tfce(
+            observed_t_stats=t_stats,
             power_data=power_data,
             df_behavioral=df_behavioral,
             formula=formula,
             predictor_of_interest=predictor_of_interest,
+            adjacency=adjacency,
+            n_permutations=n_permutations,
+            E=tfce_E,
+            H=tfce_H,
+            n_tfce_steps=tfce_n_steps,
+            seed=seed,
+            n_jobs=n_jobs,
             method=method,
             maxiter=maxiter,
-            random_state=random_state,
-            return_diagnostics=True
+            verbose=True,
+            return_diagnostics=True,
+            exclude=exclude_mask
         )
         
-        # Print LMM convergence summary
-        print(f"✓ LMM completed: {lmm_diagnostics['n_converged']}/{n_channels} channels converged ({100*lmm_diagnostics['convergence_rate']:.1f}%)")
-        if lmm_diagnostics['n_failed'] > 0:
-            print(f"  Warning: {lmm_diagnostics['n_failed']} channels failed to converge")
-        
-        print(f"✓ LMM completed")
-        print(f"  T-statistics range: [{np.min(t_stats):.3f}, {np.max(t_stats):.3f}]")
-        if clustering_method == 'threshold':
-            print(f"  Channels with |t| > {threshold}: {np.sum(np.abs(t_stats) > threshold)}")
-        
-        # ========== CREATE EXCLUDE MASK (if configured) ==========
-        # This prevents boundary artifacts from edge channels
-        exclude_mask = None
-        exclude_config = config['clustering'].get('exclude_channels', {})
-        if exclude_config.get('enabled', False):
-            exclude_method = exclude_config.get('method', 'manual')
+        # For TFCE, create spatially-connected clusters from significant channels
+        sig_channels = np.where(tfce_p_values < alpha)[0]
+        if len(sig_channels) > 0:
+            # Find spatially connected components using adjacency matrix
+            from scipy.sparse import csr_matrix
+            from scipy.sparse.csgraph import connected_components
             
-            if exclude_method == 'manual':
-                # Exclude specific channel names
-                channel_names_to_exclude = exclude_config.get('channel_names', [])
-                if channel_names_to_exclude:
-                    exclude_mask = np.zeros(n_channels, dtype=bool)
-                    for ch_name in channel_names_to_exclude:
-                        if ch_name in ch_names_final:
-                            ch_idx = ch_names_final.index(ch_name)
-                            exclude_mask[ch_idx] = True
-                    
-                    n_excluded = np.sum(exclude_mask)
-                    print(f"\n✓ Excluding {n_excluded}/{n_channels} channels from clustering (manual method)")
-                    print(f"  Excluded channels: {[ch for ch in channel_names_to_exclude if ch in ch_names_final]}")
-                    
-            elif exclude_method == 'auto_position':
-                # Exclude outermost channels by position
-                percentile = exclude_config.get('auto_percentile', 10)
-                from mne.channels import find_layout
-                if True:
-                    layout = find_layout(info)
-                    pos = layout.pos[:, :2]  # x, y positions
-                    
-                    # Calculate distance from center
-                    center = pos.mean(axis=0)
-                    distances = np.linalg.norm(pos - center, axis=1)
-                    
-                    # Channels in outer percentile
-                    threshold_dist = np.percentile(distances, 100 - percentile)
-                    exclude_mask = distances >= threshold_dist
-                    
-                    n_excluded = np.sum(exclude_mask)
-                    excluded_names = [ch_names_final[i] for i in range(n_channels) if exclude_mask[i]]
-                    print(f"\n✓ Excluding {n_excluded}/{n_channels} channels from clustering (auto_position method, {percentile}th percentile)")
-                    print(f"  Excluded channels: {excluded_names}")
-        
-        # Spatial cluster permutation test - choose method
-        if clustering_method == 'tfce':
-            print(f"Running TFCE-based spatial permutation test...")
-            print(f"  TFCE parameters: E={tfce_E}, H={tfce_H}, n_steps={tfce_n_steps}")
-            
-            # TFCE returns channel-wise results (not clusters)
-            tfce_map, tfce_p_values, cluster_diagnostics = spatial_cluster_test_tfce(
-                observed_t_stats=t_stats,
-                power_data=power_data,
-                df_behavioral=df_behavioral,
-                formula=formula,
-                predictor_of_interest=predictor_of_interest,
-                adjacency=adjacency,
-                n_permutations=n_permutations,
-                E=tfce_E,
-                H=tfce_H,
-                n_tfce_steps=tfce_n_steps,
-                seed=seed,
-                n_jobs=n_jobs,
-                method=method,
-                maxiter=maxiter,
-                verbose=True,
-                return_diagnostics=True,
-                exclude=exclude_mask
-            )
-            
-            # For TFCE, create spatially-connected clusters from significant channels
-            sig_channels = np.where(tfce_p_values < alpha)[0]
-            if len(sig_channels) > 0:
-                # Find spatially connected components using adjacency matrix
-                from scipy.sparse import csr_matrix
-                from scipy.sparse.csgraph import connected_components
-                
-                # CRITICAL FIX: Mask the full adjacency matrix instead of creating subgraph
-                # This preserves true spatial adjacency relationships
-                # Convert to dense if sparse
-                if issparse(adjacency):
-                    adj_array = adjacency.toarray()
-                else:
-                    adj_array = adjacency.copy()
-                
-                # Create masked adjacency: zero out rows/cols for non-significant channels
-                masked_adj = np.zeros_like(adj_array)
-                masked_adj[np.ix_(sig_channels, sig_channels)] = \
-                    adj_array[np.ix_(sig_channels, sig_channels)]
-                
-                # Find connected components on the masked adjacency
-                n_components, labels = connected_components(
-                    csgraph=csr_matrix(masked_adj),
-                    directed=False,
-                    return_labels=True
-                )
-                
-                # Create clusters (one per connected component)
-                # Note: labels has length n_channels (full size), not just sig_channels
-                clusters = []
-                cluster_stats = []
-                cluster_p_values = []
-                
-                for comp_idx in range(n_components):
-                    # Get all channels in this component
-                    comp_channels = np.where(labels == comp_idx)[0]
-                    
-                    # Filter to only significant channels
-                    sig_mask = np.isin(comp_channels, sig_channels)
-                    comp_channels = comp_channels[sig_mask]
-                    
-                    if len(comp_channels) > 0:
-                        clusters.append(comp_channels)
-                        cluster_stats.append(np.sum(tfce_map[comp_channels]))
-                        cluster_p_values.append(np.min(tfce_p_values[comp_channels]))
-                
-                cluster_stats = np.array(cluster_stats)
-                cluster_p_values = np.array(cluster_p_values)
+            # CRITICAL FIX: Mask the full adjacency matrix instead of creating subgraph
+            # This preserves true spatial adjacency relationships
+            # Convert to dense if sparse
+            if issparse(adjacency):
+                adj_array = adjacency.toarray()
             else:
-                clusters = []
-                cluster_stats = np.array([])
-                cluster_p_values = np.array([])
-                
-        else:  # threshold-based clustering
-            print("Running threshold-based spatial cluster permutation test...")
-            clusters, cluster_stats, cluster_p_values, cluster_diagnostics = spatial_cluster_permutation_test(
-                observed_t_stats=t_stats,
-                power_data=power_data,
-                df_behavioral=df_behavioral,
-                formula=formula,
-                predictor_of_interest=predictor_of_interest,
-                adjacency=adjacency,
-                threshold=threshold,
-                n_permutations=n_permutations,
-                tail=tail,
-                seed=seed,
-                n_jobs=n_jobs,
-                method=method,
-                maxiter=maxiter,
-                t_power=t_power,
-                permutation_method=permutation_method,
-                exclude=exclude_mask
+                adj_array = adjacency.copy()
+            
+            # Create masked adjacency: zero out rows/cols for non-significant channels
+            masked_adj = np.zeros_like(adj_array)
+            masked_adj[np.ix_(sig_channels, sig_channels)] = \
+                adj_array[np.ix_(sig_channels, sig_channels)]
+            
+            # Find connected components on the masked adjacency
+            n_components, labels = connected_components(
+                csgraph=csr_matrix(masked_adj),
+                directed=False,
+                return_labels=True
             )
+            
+            # Create clusters (one per connected component)
+            # Note: labels has length n_channels (full size), not just sig_channels
+            clusters = []
+            cluster_stats = []
+            cluster_p_values = []
+            
+            for comp_idx in range(n_components):
+                # Get all channels in this component
+                comp_channels = np.where(labels == comp_idx)[0]
+                
+                # Filter to only significant channels
+                sig_mask = np.isin(comp_channels, sig_channels)
+                comp_channels = comp_channels[sig_mask]
+                
+                if len(comp_channels) > 0:
+                    clusters.append(comp_channels)
+                    cluster_stats.append(np.sum(tfce_map[comp_channels]))
+                    cluster_p_values.append(np.min(tfce_p_values[comp_channels]))
+            
+            cluster_stats = np.array(cluster_stats)
+            cluster_p_values = np.array(cluster_p_values)
+        else:
+            clusters = []
+            cluster_stats = np.array([])
+            cluster_p_values = np.array([])
+            
+    else:  # threshold-based clustering
+        print("Running threshold-based spatial cluster permutation test...")
+        clusters, cluster_stats, cluster_p_values, cluster_diagnostics = spatial_cluster_permutation_test(
+            observed_t_stats=t_stats,
+            power_data=power_data,
+            df_behavioral=df_behavioral,
+            formula=formula,
+            predictor_of_interest=predictor_of_interest,
+            adjacency=adjacency,
+            threshold=threshold,
+            n_permutations=n_permutations,
+            tail=tail,
+            seed=seed,
+            n_jobs=n_jobs,
+            method=method,
+            maxiter=maxiter,
+            t_power=t_power,
+            permutation_method=permutation_method,
+            exclude=exclude_mask
+        )
+    
+    n_clusters = len(clusters)
+    n_sig_clusters = np.sum(cluster_p_values < alpha)
+    
+    print(f"✓ Cluster analysis completed")
+    print(f"  Total clusters: {n_clusters}")
+    print(f"  Significant clusters (α={alpha}): {n_sig_clusters}")
+    
+    # Output directory already created above
+    print(f"Model: {model_folder_name}")
+    print(f"Output directory: {output_dir}")
+    
+    # Save config file to marker-specific directory for reproducibility
+    config_save_path = output_dir / "config.yaml"
+    import yaml
+    with open(config_save_path, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    print(f"✓ Config saved to {config_save_path}")
+    
+    # Save results with comprehensive metadata
+    results_dict = {
+        'target_variable': predictor_of_interest,  # Explicitly highlight target variable
+        'config': config,
+        'marker_name': marker_name,
+        'marker_type': marker_type,
+        't_stats': t_stats,
+        'p_values': p_values,
+        'clusters': clusters,
+        'cluster_stats': cluster_stats,
+        'cluster_p_values': cluster_p_values,
+        'ch_names': ch_names_final,
+        'info': info,
+        'power_data_shape': power_data.shape,
+        'n_subjects': df_behavioral['subject'].nunique(),
+        'n_observations': n_observations,
+        'formula': formula,
+        'predictor_of_interest': predictor_of_interest,
+        'n_clusters': n_clusters,
+        'n_sig_clusters': n_sig_clusters,
+        'analysis_timestamp': datetime.now().isoformat(),
+        'clustering_method': clustering_method,
+        'threshold': threshold if clustering_method == 'threshold' else None,
+        'tfce_params': {'E': tfce_E, 'H': tfce_H, 'n_steps': tfce_n_steps} if clustering_method == 'tfce' else None,
+        'alpha': alpha,
+        'n_permutations': n_permutations,
+        'preprocessing_info': preprocessing_info,
+        'qa_filtering_applied': qa_exclusions_dict is not None and len(qa_exclusions_dict) > 0,
+        'qa_exclusions_count': len(qa_exclusions_dict.get(marker_type, set())) if qa_exclusions_dict else 0,
+        'lmm_diagnostics': lmm_diagnostics
+    }
+    
+    # Save pickle (simplified filename since we're in marker-specific folder)
+    if save_pickle:
+        pickle_path = output_dir / "results.pkl"
+        with open(pickle_path, 'wb') as f:
+            pickle.dump(results_dict, f)
+        print(f"✓ Results saved to {pickle_path}")
+    
+    # Save CSV summary (UNCORRECTED p-values)
+    if save_csv and n_clusters > 0:
+        cluster_summary = summarize_clusters(
+            clusters, cluster_stats, cluster_p_values, ch_names_final, alpha
+        )
         
-        n_clusters = len(clusters)
-        n_sig_clusters = np.sum(cluster_p_values < alpha)
+        # Add metadata columns
+        cluster_summary['target_variable'] = predictor_of_interest
+        cluster_summary['marker_name'] = marker_name
+        cluster_summary['marker_type'] = marker_type
         
-        print(f"✓ Cluster analysis completed")
-        print(f"  Total clusters: {n_clusters}")
-        print(f"  Significant clusters (α={alpha}): {n_sig_clusters}")
+        # Reorder columns to highlight the target variable
+        cols = cluster_summary.columns.tolist()
+        if 'p_value' in cols:
+            # Move key metadata/results up so the target variable is visually prominent
+            base_cols = ['target_variable', 'marker_name', 'marker_type', 'cluster_id', 'p_value', 'statistic']
+            other_cols = [c for c in cols if c not in base_cols]
+            cluster_summary = cluster_summary[base_cols + other_cols]
         
-        # Output directory already created above
-        print(f"Model: {model_folder_name}")
-        print(f"Output directory: {output_dir}")
-        
-        # Save config file to marker-specific directory for reproducibility
-        config_save_path = output_dir / "config.yaml"
-        import yaml
-        with open(config_save_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        print(f"✓ Config saved to {config_save_path}")
-        
-        # Save results with comprehensive metadata
-        results_dict = {
-            'target_variable': predictor_of_interest,  # Explicitly highlight target variable
-            'config': config,
+        csv_path = output_dir / "cluster_summary_uncorrected.csv"
+        cluster_summary.to_csv(csv_path, index=False)
+        print(f"✓ Cluster summary (uncorrected) saved to {csv_path}")
+    
+    # Save t-statistics per channel
+    if save_csv:
+        t_stats_df = pd.DataFrame({
+            'target_variable': predictor_of_interest,
             'marker_name': marker_name,
             'marker_type': marker_type,
-            't_stats': t_stats,
-            'p_values': p_values,
-            'clusters': clusters,
-            'cluster_stats': cluster_stats,
-            'cluster_p_values': cluster_p_values,
-            'ch_names': ch_names_final,
-            'info': info,
-            'power_data_shape': power_data.shape,
-            'n_subjects': df_behavioral['subject'].nunique(),
-            'n_observations': n_observations,
-            'formula': formula,
             'predictor_of_interest': predictor_of_interest,
-            'n_clusters': n_clusters,
-            'n_sig_clusters': n_sig_clusters,
-            'analysis_timestamp': datetime.now().isoformat(),
-            'clustering_method': clustering_method,
-            'threshold': threshold if clustering_method == 'threshold' else None,
-            'tfce_params': {'E': tfce_E, 'H': tfce_H, 'n_steps': tfce_n_steps} if clustering_method == 'tfce' else None,
-            'alpha': alpha,
-            'n_permutations': n_permutations,
-            'preprocessing_info': preprocessing_info,
-            'qa_filtering_applied': qa_exclusions_dict is not None and len(qa_exclusions_dict) > 0,
-            'qa_exclusions_count': len(qa_exclusions_dict.get(marker_type, set())) if qa_exclusions_dict else 0,
-            'lmm_diagnostics': lmm_diagnostics
-        }
+            'formula': formula,
+            'channel': ch_names_final,
+            't_statistic': t_stats,
+            'p_value': p_values,
+            'analysis_timestamp': datetime.now().isoformat()
+        })
+        t_stats_path = output_dir / "t_statistics.csv"
+        t_stats_df.to_csv(t_stats_path, index=False)
+        print(f"✓ T-statistics saved to {t_stats_path}")
         
-        # Save pickle (simplified filename since we're in marker-specific folder)
-        if save_pickle:
-            pickle_path = output_dir / "results.pkl"
-            with open(pickle_path, 'wb') as f:
-                pickle.dump(results_dict, f)
-            print(f"✓ Results saved to {pickle_path}")
-        
-        # Save CSV summary (UNCORRECTED p-values)
-        if save_csv and n_clusters > 0:
-            cluster_summary = summarize_clusters(
-                clusters, cluster_stats, cluster_p_values, ch_names_final, alpha
-            )
-            
-            # Add metadata columns
-            cluster_summary['target_variable'] = predictor_of_interest
-            cluster_summary['marker_name'] = marker_name
-            cluster_summary['marker_type'] = marker_type
-            
-            # Reorder columns to highlight the target variable
-            cols = cluster_summary.columns.tolist()
-            if 'p_value' in cols:
-                # Move key metadata/results up so the target variable is visually prominent
-                base_cols = ['target_variable', 'marker_name', 'marker_type', 'cluster_id', 'p_value', 'statistic']
-                other_cols = [c for c in cols if c not in base_cols]
-                cluster_summary = cluster_summary[base_cols + other_cols]
-            
-            csv_path = output_dir / "cluster_summary_uncorrected.csv"
-            cluster_summary.to_csv(csv_path, index=False)
-            print(f"✓ Cluster summary (uncorrected) saved to {csv_path}")
-        
-        # Save t-statistics per channel
-        if save_csv:
-            t_stats_df = pd.DataFrame({
-                'target_variable': predictor_of_interest,
+        # Save model quality metrics per channel
+        if lmm_diagnostics['n_converged'] > 0:
+            model_quality_df = pd.DataFrame({
+                'channel': [ch_names_final[i] for i in range(len(lmm_diagnostics['aic']))],
+                'aic': lmm_diagnostics['aic'],
+                'bic': lmm_diagnostics['bic'],
+                'log_likelihood': lmm_diagnostics['log_likelihood'],
+                'conditional_r2': lmm_diagnostics['conditional_r2'],
+                'shapiro_p_value': lmm_diagnostics['shapiro_p_values'],
+                'breusch_pagan_p': lmm_diagnostics['breusch_pagan_p'],
+                'residual_variance': lmm_diagnostics['residual_variance'],
                 'marker_name': marker_name,
                 'marker_type': marker_type,
-                'channel': ch_names_final,
-                't_statistic': t_stats,
-                'p_value': p_values,
-                'marker_name': marker_name,
-                'marker_type': marker_type,
-                'predictor_of_interest': predictor_of_interest,
-                'formula': formula,
                 'analysis_timestamp': datetime.now().isoformat()
             })
-            t_stats_path = output_dir / "t_statistics.csv"
-            t_stats_df.to_csv(t_stats_path, index=False)
-            print(f"✓ T-statistics saved to {t_stats_path}")
+            model_quality_path = output_dir / "model_quality.csv"
+            model_quality_df.to_csv(model_quality_path, index=False)
+            print(f"✓ Model quality metrics saved to {model_quality_path}")
             
-            # Save model quality metrics per channel
-            if lmm_diagnostics['n_converged'] > 0:
-                model_quality_df = pd.DataFrame({
-                    'channel': [ch_names_final[i] for i in range(len(lmm_diagnostics['aic']))],
-                    'aic': lmm_diagnostics['aic'],
-                    'bic': lmm_diagnostics['bic'],
-                    'log_likelihood': lmm_diagnostics['log_likelihood'],
-                    'conditional_r2': lmm_diagnostics['conditional_r2'],
-                    'shapiro_p_value': lmm_diagnostics['shapiro_p_values'],
-                    'breusch_pagan_p': lmm_diagnostics['breusch_pagan_p'],
-                    'residual_variance': lmm_diagnostics['residual_variance'],
-                    'marker_name': marker_name,
-                    'marker_type': marker_type,
-                    'analysis_timestamp': datetime.now().isoformat()
-                })
-                model_quality_path = output_dir / "model_quality.csv"
-                model_quality_df.to_csv(model_quality_path, index=False)
-                print(f"✓ Model quality metrics saved to {model_quality_path}")
-                
-                # Save summary of model diagnostics
-                diagnostics_summary = {
-                    'marker_name': marker_name,
-                    'marker_type': marker_type,
-                    'n_channels': n_channels,
-                    'n_converged': lmm_diagnostics['n_converged'],
-                    'n_failed': lmm_diagnostics['n_failed'],
-                    'convergence_rate': lmm_diagnostics['convergence_rate'],
-                    'aic_mean': lmm_diagnostics.get('aic_mean', np.nan),
-                    'bic_mean': lmm_diagnostics.get('bic_mean', np.nan),
-                    'log_likelihood_mean': lmm_diagnostics.get('log_likelihood_mean', np.nan),
-                    'conditional_r2_mean': lmm_diagnostics.get('conditional_r2_mean', np.nan),
-                    'conditional_r2_median': lmm_diagnostics.get('conditional_r2_median', np.nan),
-                    'shapiro_p_mean': lmm_diagnostics.get('shapiro_p_mean', np.nan),
-                    'n_normality_violations': lmm_diagnostics.get('n_normality_violations', 0),
-                    'pct_normality_violations': lmm_diagnostics.get('pct_normality_violations', np.nan),
-                    'breusch_pagan_p_mean': lmm_diagnostics.get('breusch_pagan_p_mean', np.nan),
-                    'n_heteroscedasticity': lmm_diagnostics.get('n_heteroscedasticity', 0),
-                    'pct_heteroscedasticity': lmm_diagnostics.get('pct_heteroscedasticity', np.nan),
-                    'analysis_timestamp': datetime.now().isoformat()
-                }
-                diagnostics_summary_df = pd.DataFrame([diagnostics_summary])
-                diagnostics_summary_path = output_dir / "lmm_diagnostics_summary.csv"
-                diagnostics_summary_df.to_csv(diagnostics_summary_path, index=False)
-                print(f"✓ LMM diagnostics summary saved to {diagnostics_summary_path}")
-        
-        # Generate visualizations
-        if save_figures:
-            print("Generating visualizations...")
-            create_results_report(
-                t_stats=t_stats,
-                clusters=clusters,
-                cluster_stats=cluster_stats,
-                cluster_p_values=cluster_p_values,
-                info=info,
-                threshold=threshold,
-                alpha=alpha,
-                marker_name=marker_name,
-                output_dir=str(output_dir),
-                config=config
-            )
-            print(f"✓ Figures saved to {output_dir}")
-        
-        return {'success': True, 'result': results_dict}
+            # Save summary of model diagnostics
+            diagnostics_summary = {
+                'marker_name': marker_name,
+                'marker_type': marker_type,
+                'n_channels': n_channels,
+                'n_converged': lmm_diagnostics['n_converged'],
+                'n_failed': lmm_diagnostics['n_failed'],
+                'convergence_rate': lmm_diagnostics['convergence_rate'],
+                'aic_mean': lmm_diagnostics.get('aic_mean', np.nan),
+                'bic_mean': lmm_diagnostics.get('bic_mean', np.nan),
+                'log_likelihood_mean': lmm_diagnostics.get('log_likelihood_mean', np.nan),
+                'conditional_r2_mean': lmm_diagnostics.get('conditional_r2_mean', np.nan),
+                'conditional_r2_median': lmm_diagnostics.get('conditional_r2_median', np.nan),
+                'shapiro_p_mean': lmm_diagnostics.get('shapiro_p_mean', np.nan),
+                'n_normality_violations': lmm_diagnostics.get('n_normality_violations', 0),
+                'pct_normality_violations': lmm_diagnostics.get('pct_normality_violations', np.nan),
+                'breusch_pagan_p_mean': lmm_diagnostics.get('breusch_pagan_p_mean', np.nan),
+                'n_heteroscedasticity': lmm_diagnostics.get('n_heteroscedasticity', 0),
+                'pct_heteroscedasticity': lmm_diagnostics.get('pct_heteroscedasticity', np.nan),
+                'analysis_timestamp': datetime.now().isoformat()
+            }
+            diagnostics_summary_df = pd.DataFrame([diagnostics_summary])
+            diagnostics_summary_path = output_dir / "lmm_diagnostics_summary.csv"
+            diagnostics_summary_df.to_csv(diagnostics_summary_path, index=False)
+            print(f"✓ LMM diagnostics summary saved to {diagnostics_summary_path}")
+    
+    # Generate visualizations
+    if save_figures:
+        print("Generating visualizations...")
+        create_results_report(
+            t_stats=t_stats,
+            clusters=clusters,
+            cluster_stats=cluster_stats,
+            cluster_p_values=cluster_p_values,
+            info=info,
+            threshold=threshold,
+            alpha=alpha,
+            marker_name=marker_name,
+            output_dir=str(output_dir),
+            config=config
+        )
+        print(f"✓ Figures saved to {output_dir}")
+    
+    return {'success': True, 'result': results_dict}
 
 
 def main(config_path: str = "Statistics/config.yaml",

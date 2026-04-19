@@ -374,7 +374,8 @@ def get_oversampler(method: str, k_neighbors: int = 5, random_state: int = 42):
 
 def apply_within_subject_oversampling(
     X, y, groups,
-    method: str = "SMOTE", k_neighbors: int = 5, random_state: int = 42
+    method: str = "SMOTE", k_neighbors: int = 5, random_state: int = 42,
+    return_groups: bool = False,
 ):
     """
     Apply oversampling within each subject in the training set.
@@ -396,15 +397,22 @@ def apply_within_subject_oversampling(
         Number of neighbors for SMOTE-based methods.
     random_state : int
         Random seed.
+    return_groups : bool
+        If True, also return a groups array aligned to the expanded (X, y).
+        Synthetic samples are assigned to the same subject as their source.
+        Required when using LMM feature selectors after within-subject SMOTE,
+        because the groups array must match the expanded training set size.
 
     Returns
     -------
     tuple
-        (X_balanced, y_balanced) as concatenated arrays.
+        (X_balanced, y_balanced) — or (X_balanced, y_balanced, groups_balanced)
+        if return_groups=True.
     """
     unique_subjects = np.unique(groups)
     balanced_X_list = []
     balanced_y_list = []
+    balanced_groups_list = []
 
     for subj in unique_subjects:
         subj_mask = groups == subj
@@ -417,6 +425,7 @@ def apply_within_subject_oversampling(
         if len(unique_classes) < 2:
             balanced_X_list.append(X_subj)
             balanced_y_list.append(y_subj)
+            balanced_groups_list.append(np.full(len(y_subj), subj))
             continue
 
         min_count = min(counts)
@@ -426,17 +435,24 @@ def apply_within_subject_oversampling(
         if actual_k < 1:
             balanced_X_list.append(X_subj)
             balanced_y_list.append(y_subj)
+            balanced_groups_list.append(np.full(len(y_subj), subj))
             continue
 
         oversampler = get_oversampler(method, k_neighbors=actual_k, random_state=random_state)
         X_subj_balanced, y_subj_balanced = oversampler.fit_resample(X_subj, y_subj)
         balanced_X_list.append(X_subj_balanced)
         balanced_y_list.append(y_subj_balanced)
+        # Synthetic samples belong to the same subject (used by LMM selectors)
+        balanced_groups_list.append(np.full(len(y_subj_balanced), subj))
 
     X_balanced = (pd.concat(balanced_X_list, ignore_index=True)
                   if isinstance(X, pd.DataFrame)
                   else np.vstack(balanced_X_list))
     y_balanced = np.concatenate(balanced_y_list)
+
+    if return_groups:
+        groups_balanced = np.concatenate(balanced_groups_list)
+        return X_balanced, y_balanced, groups_balanced
     return X_balanced, y_balanced
 
 
@@ -483,18 +499,24 @@ def _apply_fold_scaling(
         X_test_scaled.loc[:, numeric_cols] = scaler.transform(X_test[numeric_cols])
 
     elif mode == 'within':
-        # Scale each participant by their own stats — valid with LOSO because
-        # train and test participants never overlap.
+        # Scale each training participant by their own stats.
         for participant in groups_train.unique():
             mask = groups_train == participant
             scaler = ScalerClass()
             X_train_scaled.loc[mask, numeric_cols] = scaler.fit_transform(
                 X_train.loc[mask, numeric_cols]
             )
+        # Scale the held-out (test) participant by their own stats as well.
+        # This is consistent with the within-person normalization applied to
+        # training participants: every subject's features are expressed in units
+        # of that subject's own mean / std.  Because the test subject's data is
+        # never seen during training, fitting the scaler on test samples does
+        # NOT constitute leakage — it simply puts the held-out features on the
+        # same within-person scale that the model was trained to expect.
         for participant in groups_test.unique():
             mask = groups_test == participant
-            scaler = ScalerClass()
-            X_test_scaled.loc[mask, numeric_cols] = scaler.fit_transform(
+            subj_scaler = ScalerClass()
+            X_test_scaled.loc[mask, numeric_cols] = subj_scaler.fit_transform(
                 X_test.loc[mask, numeric_cols]
             )
 
@@ -751,11 +773,18 @@ def _process_cv_fold_loso(
             X_train, X_test, groups_train, groups_test, scale_by_participant, scaler
         )
 
+    # Within-subject oversampling: keep an aligned groups array so that LMM
+    # feature selectors (which need groups) receive a vector of the same length
+    # as the expanded training set.  Synthetic samples are labelled with the
+    # same subject ID as the real samples they were interpolated from.
     if use_smote and oversampling_scope == 'within':
-        X_train, y_train = apply_within_subject_oversampling(
+        X_train, y_train, groups_train_expanded = apply_within_subject_oversampling(
             X_train, y_train, groups_train.values,
-            method=oversampling_method, k_neighbors=5, random_state=random_state
+            method=oversampling_method, k_neighbors=5, random_state=random_state,
+            return_groups=True,
         )
+    else:
+        groups_train_expanded = groups_train
 
     # Use clone from sklearn.base
     from sklearn.base import clone
@@ -763,7 +792,12 @@ def _process_cv_fold_loso(
     fit_params = {}
     feature_selector_step = fold_pipeline.named_steps.get('feature_selection', None)
     if type(feature_selector_step).__name__ in ('LMMDecodingFeatureSelector', 'LMMEncodingFeatureSelector'):
-        fit_params['feature_selection__groups'] = groups_train
+        # Use the (possibly expanded) groups so size matches X_train after SMOTE
+        fit_params['feature_selection__groups'] = (
+            groups_train_expanded
+            if isinstance(groups_train_expanded, np.ndarray)
+            else groups_train_expanded.values
+        )
 
     fold_pipeline.fit(X_train, y_train, **fit_params)
 
@@ -1219,11 +1253,19 @@ def run_model_pipeline_cv(
 
 def _process_cv_fold_within(
     fold_idx, train_idx, test_idx, X, y, pipeline, use_smote, oversampling_scope,
-    oversampling_method, random_state
+    oversampling_method, random_state, y_raw=None, groups=None
 ):
     X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-    
+
+    if y_raw is not None:
+        # Re-binarize using training fold median only — prevents label leakage
+        # from within_subject_median threshold computed pre-CV on full subject data.
+        train_median = y_raw.iloc[train_idx].median()
+        y_train = (y_raw.iloc[train_idx] > train_median).astype(int).reset_index(drop=True)
+        y_test = (y_raw.iloc[test_idx] > train_median).astype(int).reset_index(drop=True)
+    else:
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
     if use_smote and oversampling_scope == 'within':
         mock_groups = np.zeros(len(y_train))
         X_train, y_train = apply_within_subject_oversampling(
@@ -1233,7 +1275,21 @@ def _process_cv_fold_within(
 
     from sklearn.base import clone
     fold_pipeline = clone(pipeline)
-    fold_pipeline.fit(X_train, y_train)
+
+    # LMM selectors require groups (e.g. task labels) passed via fit_params.
+    # For within-subject, groups represents the task/session variable (1|Task).
+    fit_params = {}
+    feature_selector_step = fold_pipeline.named_steps.get('feature_selection', None)
+    if feature_selector_step is not None and type(feature_selector_step).__name__ in (
+        'LMMDecodingFeatureSelector', 'LMMEncodingFeatureSelector'
+    ):
+        if groups is not None:
+            groups_train = groups.iloc[train_idx] if isinstance(groups, pd.Series) else groups[train_idx]
+            fit_params['feature_selection__groups'] = (
+                groups_train.values if hasattr(groups_train, 'values') else groups_train
+            )
+
+    fold_pipeline.fit(X_train, y_train, **fit_params)
 
     y_pred = fold_pipeline.predict(X_test)
     y_score = None
@@ -1307,7 +1363,9 @@ def run_within_subject_cv(
     oneclass_target: str = "minority",
     feature_selection_method: str = 'mrmr', scaler: str = 'standard',
     use_pca: bool = False, pca_n_components: int = None, pca_type: str = 'standard',
-    pca_kernel: str = 'rbf', cv_n_jobs: int = -1
+    pca_kernel: str = 'rbf', cv_n_jobs: int = -1,
+    lmm_n_jobs: int = 1,
+    y_raw: "pd.Series | None" = None,
 ) -> pd.DataFrame:
 
     random_state = fixed_random_state if fixed_random_state is not None else 42
@@ -1330,6 +1388,7 @@ def run_within_subject_cv(
         scale_pos_weight=scale_pos_weight, k=k, rf_params=rf_params, xgb_params=xgb_params,
         lr_params=lr_params, ocsvm_params=ocsvm_params, iforest_params=iforest_params,
         feature_selection_method=feature_selection_method, scaler=scaler,
+        lmm_n_jobs=lmm_n_jobs,
         use_pca=use_pca, pca_n_components=pca_n_components, pca_type=pca_type, pca_kernel=pca_kernel
     )
 
@@ -1358,7 +1417,7 @@ def run_within_subject_cv(
         results = Parallel(n_jobs=cv_n_jobs, backend='loky')(
             delayed(_process_cv_fold_within)(
                 fold_idx, train_idx, test_idx, X, y, pipeline, use_smote, oversampling_scope,
-                oversampling_method, random_state
+                oversampling_method, random_state, y_raw, groups
             )
             for fold_idx, (train_idx, test_idx) in enumerate(cv_splits)
         )

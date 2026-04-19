@@ -151,7 +151,7 @@ def make_minimal_config(tmp_path=None, n_subjects: int = 6) -> dict:
         "save_shap": False,
         "verbose": False,
         "top_n_features_plot": 5,
-        "plot_style": "seaborn",
+        "plot_style": "seaborn-v0_8",
         "current_model": "ON_vs_OFF",
         "results_folder_pattern": "",
     }

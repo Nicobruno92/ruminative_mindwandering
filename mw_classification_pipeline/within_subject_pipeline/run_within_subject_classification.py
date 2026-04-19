@@ -153,6 +153,11 @@ def main():
     prep_cfg = config.get("preprocessing", {})
     fs_cfg = config.get("feature_selection", {})
     os_cfg = config.get("oversampling", {})
+    par_cfg = config.get("parallelism", {})
+    n_subject_jobs = par_cfg.get("n_subject_jobs", 1)
+    n_perm_jobs = par_cfg.get("n_perm_jobs", 1)
+    cv_n_jobs = par_cfg.get("cv_n_jobs", 1)
+    lmm_n_jobs = fs_cfg.get("lmm_n_jobs", 1)
 
     print(f"\n{'='*60}")
     print(f"Mind-Wandering Classification Pipeline (WITHIN-SUBJECT)")
@@ -244,6 +249,9 @@ def main():
         pca_n_components=prep_cfg.get("pca", {}).get("n_components"),
         pca_type=prep_cfg.get("pca", {}).get("pca_type", "standard"),
         pca_kernel=prep_cfg.get("pca", {}).get("pca_kernel", "rbf"),
+        n_subject_jobs=n_subject_jobs,
+        cv_n_jobs=cv_n_jobs,
+        lmm_n_jobs=lmm_n_jobs,
         logger=logger,
     )
 
@@ -310,6 +318,9 @@ def main():
             feature_selection_method=fs_cfg.get("method", "mrmr"),
             scaler=prep_cfg.get("scaler", "standard"),
             true_ws_metrics_df=true_ws_metrics_df,
+            n_perm_jobs=n_perm_jobs,
+            cv_n_jobs=cv_n_jobs,
+            lmm_n_jobs=lmm_n_jobs,
             logger=logger,
         )
         

@@ -12,9 +12,11 @@ SCRIPT_DIR="Statistics"
 # Optional arguments:
 #   --predictor <name>  Override lmm.predictor_of_interest
 #   --config <path>     Use custom config file (default: Statistics/config.yaml)
+#   --dependency <job>  Job ID to wait for before running
 # ---------------------------------------------------------------------------
 PREDICTOR_OVERRIDE=""
 CONFIG_OVERRIDE=""
+DEPENDENCY=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --predictor)
@@ -25,9 +27,13 @@ while [[ $# -gt 0 ]]; do
             CONFIG_OVERRIDE="$2"
             shift 2
             ;;
+        --dependency)
+            DEPENDENCY="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: bash Statistics/submit_parallel_markers.sh [--predictor <name>] [--config <path>]"
+            echo "Usage: bash Statistics/submit_parallel_markers.sh [--predictor <name>] [--config <path>] [--dependency <job_id>]"
             exit 1
             ;;
     esac
@@ -117,7 +123,13 @@ SBATCH_EXPORT="ALL"
 if [ -n "${PREDICTOR_OVERRIDE}" ]; then
     SBATCH_EXPORT="ALL,PREDICTOR_OF_INTEREST=${PREDICTOR_OVERRIDE}"
 fi
-ARRAY_JOB_OUTPUT=$(sbatch --array=${ARRAY_RANGE} --export=${SBATCH_EXPORT} ${ARRAY_SCRIPT})
+
+SBATCH_ARGS="--array=${ARRAY_RANGE} --export=${SBATCH_EXPORT}"
+if [ -n "${DEPENDENCY}" ]; then
+    SBATCH_ARGS="${SBATCH_ARGS} --dependency=afterok:${DEPENDENCY}"
+fi
+
+ARRAY_JOB_OUTPUT=$(sbatch ${SBATCH_ARGS} ${ARRAY_SCRIPT})
 ARRAY_EXIT_CODE=$?
 
 if [ ${ARRAY_EXIT_CODE} -ne 0 ]; then

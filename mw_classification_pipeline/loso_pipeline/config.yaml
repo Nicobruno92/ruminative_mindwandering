@@ -194,7 +194,7 @@ random_seed: 42
 # =============================================================================
 
 k: 50
-feature_selection_method: mrmr   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
+feature_selection_method: lmm_encoding   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
 
 scaler: standard
 scale_by_participant: within     # 'none', 'global', or 'within'
@@ -296,7 +296,7 @@ verbose: true
 # =============================================================================
 
 top_n_features_plot: 20
-plot_style: seaborn
+plot_style: seaborn-v0_8
 
 
 # =============================================================================

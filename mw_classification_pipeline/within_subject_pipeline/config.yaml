@@ -55,6 +55,26 @@ n_runs: 10                      # Base ML training passes — gives 10 data poin
 n_permutations: 10             # Runs per permutation pass (useful: 100 or 1000)
 
 # =============================================================================
+# PARALLELISM
+# Controls joblib Parallel workers at each level of the pipeline.
+#
+# n_subject_jobs  — subjects processed in parallel within each true run.
+#                   Set to the number of available CPU cores (or -1 for all).
+#                   Disable nested parallelism: keep cv_n_jobs=1 when
+#                   n_subject_jobs > 1.
+# n_perm_jobs     — permutation passes run in parallel. Each worker runs the
+#                   full subject loop, so RAM usage scales with n_perm_jobs.
+#                   Typical: 4–8 for a 16-core machine.
+# cv_n_jobs       — joblib workers *inside* each subject's k-fold CV loop.
+#                   Keep at 1 when n_subject_jobs or n_perm_jobs > 1 to
+#                   avoid nested parallelism and memory blow-up.
+# =============================================================================
+parallelism:
+  n_subject_jobs: 1             # >1 to parallelize subjects within a run
+  n_perm_jobs: 1                # >1 to parallelize permutation passes
+  cv_n_jobs: 1                  # keep 1 when either job level is parallel
+
+# =============================================================================
 # EPOCH TYPES
 # =============================================================================
 # The column name that contains the prefix for markers.
@@ -239,15 +259,20 @@ preprocessing:
     pca_kernel: "rbf"
 
 feature_selection:
-  # Algorithm: "mrmr", "lmm", "mutual_info", "f_classif", "chi2", or null
+  # Algorithm: "mrmr", "lmm_encoding", "lmm_decoding", "mutual_info", "f_classif", "chi2", or null
+  # LMM notes (within-subject): groups = task labels (Sart1-4), model = Feature ~ Label + (1|Task).
+  #   lmm_encoding  → Feature ~ Label + (1|Task) — better convergence, continuous outcome.
+  #   lmm_decoding  → Label   ~ Feature + (1|Task) — binary outcome, use linear probability approx.
+  # Keep lmm_n_jobs=-1 when n_subject_jobs=1 (fine). Set lmm_n_jobs=1 when n_subject_jobs>1.
   method: "mrmr"
-  
+
   # Number of features to select. (Use "all" to skip selection completely).
-  # For within subject, 'k' may need to be strictly restricted 
+  # For within subject, 'k' may need to be strictly restricted
   # (e.g. k=10) due to low n_samples per subject
   k: 20
-  
-  # For LMM:
+
+  # For LMM: parallel jobs for fitting one LMM per feature.
+  # Use -1 (all cores) only when n_subject_jobs=1 to avoid oversubscription.
   lmm_n_jobs: -1
 
 oversampling:

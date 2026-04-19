@@ -339,8 +339,15 @@ def main():
     # -------------------------------------------------------------------------
     # Main classification
     # -------------------------------------------------------------------------
+    _fs_method = config.get("feature_selection_method", "mrmr")
+    _fs_k = config.get("k", 20)
+    if _fs_method == "none":
+        _fs_msg = f"Feature selection : disabled (using all {len(feature_cols)} features)"
+    else:
+        _fs_msg = f"Feature selection : {_fs_method} (k={_fs_k}/{len(feature_cols)}, refit per fold)"
     print(f"\n{'='*60}")
     print(f"Running LOSO classification ({n_runs} runs)...")
+    print(_fs_msg)
     print(f"{'='*60}\n")
 
     results_df, true_all_results, true_shap_values = run_distribution_analysis(
@@ -374,7 +381,7 @@ def main():
         save_probabilities=config.get("save_probabilities", True),
         save_plots=config.get("save_plots", True),
         save_shap=config.get("save_shap", False),
-        plot_style=config.get("plot_style", "seaborn"),
+        plot_style=config.get("plot_style", "seaborn-v0_8"),
         verbose=verbose,
         feature_selection_method=config.get("feature_selection_method", "mrmr"),
         scaler=config.get("scaler", "standard"),
@@ -445,7 +452,7 @@ def main():
             save_probabilities=config.get("save_probabilities", True),
             save_plots=config.get("save_plots", True),
             save_shap=config.get("save_shap", False),
-            plot_style=config.get("plot_style", "seaborn"),
+            plot_style=config.get("plot_style", "seaborn-v0_8"),
             verbose=verbose,
             feature_selection_method=config.get("feature_selection_method", "mrmr"),
             scaler=config.get("scaler", "standard"),

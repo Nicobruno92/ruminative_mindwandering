@@ -122,99 +122,94 @@ def run_marker_analysis(
     
     # 1. Load data
     logger.info("Step 1: Loading marker data...")
-    try:
-        # Parse marker_name to extract type and name
-        # Format: "marker_type/marker_name" (e.g., "evoked/wsmi_theta")
-        if '/' in marker_name:
-            marker_type, marker_base_name = marker_name.split('/', 1)
-        else:
-            # Fallback: assume no type prefix
-            marker_type = None
-            marker_base_name = marker_name
-        
-        logger.info(f"  Marker type: {marker_type}")
-        logger.info(f"  Marker name: {marker_base_name}")
-        
-        # Load all probe data
-        marker_types_to_load = config['project']['marker_types']
-        if marker_type is not None:
-            marker_types_to_load = [marker_type]
-        df_all = load_all_probe_data(
-            features_root=config['project']['features_root'],
-            subjects=config['project'].get('subjects'),
-            tasks=config['project'].get('tasks'),
-            marker_types=marker_types_to_load,
-            specific_markers=[marker_base_name],
-        )
-        
-        # Filter by marker type if specified
-        if marker_type:
-            logger.info(f"  Filtering data for marker_type: {marker_type}")
-            df_filtered = df_all[df_all['marker_type'] == marker_type]
-            logger.info(f"  Filtered from {len(df_all)} to {len(df_filtered)} rows")
-        else:
-            df_filtered = df_all
-        
-        # Prepare data for this specific marker (using base name without type prefix)
-        preprocessing_cfg = config.get('preprocessing', {})
-        project_cfg = config.get('project', {})
-        onoff_max_value = preprocessing_cfg.get('onoff_max_value', project_cfg.get('onoff_max_value'))
-        min_predictor_variability = preprocessing_cfg.get('min_predictor_variability', project_cfg.get('min_predictor_variability'))
 
-        power_data, df_behavioral, channels = prepare_data_for_lmm(
-            df=df_filtered,
-            marker_name=marker_base_name,
-            formula=config['lmm']['formula'],
-            include_channels=preprocessing_cfg.get('include_channels'),
-            exclude_channels=preprocessing_cfg.get('exclude_channels'),
-            onoff_max_value=onoff_max_value,
-            min_predictor_variability=min_predictor_variability,
-            predictor_of_interest=config['lmm']['predictor_of_interest'],
-        )
-        
-        # Ensure subject is string type (critical for statsmodels mixedlm)
-        df_behavioral['subject'] = df_behavioral['subject'].astype(str)
-        
-        logger.info(f"  Loaded {power_data.shape[0]} observations × {power_data.shape[1]} channels")
-        
-        # Create output directory consistent with main Statistics pipeline
-        output_root = Path(config['project']['output_path'])
-        
-        predictor = config['lmm'].get('predictor_of_interest', 'auto')
-        model_folder = get_model_folder_name(config['lmm']['formula'], predictor)
-        
-        if marker_type:
-            safe_marker_name = marker_base_name.replace('/', '_').replace(' ', '_')
-            marker_folder = f"{marker_type}_{safe_marker_name}"
-        else:
-            marker_folder = marker_base_name.replace('/', '_').replace(' ', '_')
-        output_dir = output_root / model_folder / marker_folder
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create Info object aligned to the original channel order for raw topographies
-        if montage_path.endswith('.bvef'):
-            montage = mne.channels.read_custom_montage(montage_path)
-        else:
-            montage = mne.channels.make_standard_montage(montage_path)
-        info_raw = mne.create_info(ch_names=list(channels), sfreq=250, ch_types='eeg')
-        info_raw.set_montage(montage, on_missing='ignore')
-        
-        # Generate raw topography report before statistical analysis
-        create_raw_topography_report(
-            power_data=power_data,
-            df_behavioral=df_behavioral,
-            ch_names=channels,
-            info=info_raw,
-            marker_name=marker_name,
-            output_dir=str(output_dir),
-            subject_col='subject',
-            predictor_of_interest=config['lmm']['predictor_of_interest'],
-        )
-    except Exception as e:
-        logger.error(f"Failed to load marker data: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    # Parse marker_name to extract type and name
+    # Format: "marker_type/marker_name" (e.g., "evoked/wsmi_theta")
+    if '/' in marker_name:
+        marker_type, marker_base_name = marker_name.split('/', 1)
+    else:
+        # Fallback: assume no type prefix
+        marker_type = None
+        marker_base_name = marker_name
+
+    logger.info(f"  Marker type: {marker_type}")
+    logger.info(f"  Marker name: {marker_base_name}")
+
+    # Load all probe data
+    marker_types_to_load = config['project']['marker_types']
+    if marker_type is not None:
+        marker_types_to_load = [marker_type]
+    df_all = load_all_probe_data(
+        features_root=config['project']['features_root'],
+        subjects=config['project'].get('subjects'),
+        tasks=config['project'].get('tasks'),
+        marker_types=marker_types_to_load,
+        specific_markers=[marker_base_name],
+    )
+
+    # Filter by marker type if specified
+    if marker_type:
+        logger.info(f"  Filtering data for marker_type: {marker_type}")
+        df_filtered = df_all[df_all['marker_type'] == marker_type]
+        logger.info(f"  Filtered from {len(df_all)} to {len(df_filtered)} rows")
+    else:
+        df_filtered = df_all
+
+    # Prepare data for this specific marker (using base name without type prefix)
+    preprocessing_cfg = config.get('preprocessing', {})
+    project_cfg = config.get('project', {})
+    onoff_max_value = preprocessing_cfg.get('onoff_max_value', project_cfg.get('onoff_max_value'))
+    min_predictor_variability = preprocessing_cfg.get('min_predictor_variability', project_cfg.get('min_predictor_variability'))
+
+    power_data, df_behavioral, channels = prepare_data_for_lmm(
+        df=df_filtered,
+        marker_name=marker_base_name,
+        formula=config['lmm']['formula'],
+        include_channels=preprocessing_cfg.get('include_channels'),
+        exclude_channels=preprocessing_cfg.get('exclude_channels'),
+        onoff_max_value=onoff_max_value,
+        min_predictor_variability=min_predictor_variability,
+        predictor_of_interest=config['lmm']['predictor_of_interest'],
+    )
+
+    # Ensure subject is string type (critical for statsmodels mixedlm)
+    df_behavioral['subject'] = df_behavioral['subject'].astype(str)
+
+    logger.info(f"  Loaded {power_data.shape[0]} observations × {power_data.shape[1]} channels")
+
+    # Create output directory consistent with main Statistics pipeline
+    output_root = Path(config['project']['output_path'])
+
+    predictor = config['lmm'].get('predictor_of_interest', 'auto')
+    model_folder = get_model_folder_name(config['lmm']['formula'], predictor)
+
+    if marker_type:
+        safe_marker_name = marker_base_name.replace('/', '_').replace(' ', '_')
+        marker_folder = f"{marker_type}_{safe_marker_name}"
+    else:
+        marker_folder = marker_base_name.replace('/', '_').replace(' ', '_')
+    output_dir = output_root / model_folder / marker_folder
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create Info object aligned to the original channel order for raw topographies
+    if montage_path.endswith('.bvef'):
+        montage = mne.channels.read_custom_montage(montage_path)
+    else:
+        montage = mne.channels.make_standard_montage(montage_path)
+    info_raw = mne.create_info(ch_names=list(channels), sfreq=250, ch_types='eeg')
+    info_raw.set_montage(montage, on_missing='ignore')
+
+    # Generate raw topography report before statistical analysis
+    create_raw_topography_report(
+        power_data=power_data,
+        df_behavioral=df_behavioral,
+        ch_names=channels,
+        info=info_raw,
+        marker_name=marker_name,
+        output_dir=str(output_dir),
+        subject_col='subject',
+        predictor_of_interest=config['lmm']['predictor_of_interest'],
+    )
     
     # 2. Fit LMM per electrode (using proven implementation from Statistics/)
     print("Step 2: Fitting LMM per electrode...", flush=True)
@@ -251,37 +246,45 @@ def run_marker_analysis(
     print(f"  Running {n_permutations} permutations", flush=True)
     logger.info(f"  Running {n_permutations} permutations")
     
-    # Store permutation t- and p-stats
-    perm_t_stats = np.zeros((n_permutations, len(channels)))
-    perm_p_values = np.ones((n_permutations, len(channels)))
+    # Store permutation t- and p-stats.
+    # NaN (not zero/one) so that failed-channel entries are excluded from
+    # cluster formation in the null distribution, matching the observed data.
+    perm_t_stats = np.full((n_permutations, len(channels)), np.nan)
+    perm_p_values = np.full((n_permutations, len(channels)), np.nan)
     permutation_within = config['andrillon_clustering']['permutation_within']
-    
-    # Use faster settings for permutations (don't need perfect convergence)
-    # Reduced maxiter and faster optimizer for null distribution estimation
-    perm_method = config['lmm'].get('perm_method', 'lbfgs')
-    perm_maxiter = config['lmm'].get('perm_maxiter', 500)
-    
+
+    # Use the same LMM method and maxiter for permuted fits as for the observed
+    # fit — different optimizers produce systematically different t-statistics and
+    # convergence rates, which creates an asymmetric null distribution and
+    # inflates false positives.
+    lmm_method = config['lmm']['method']
+    lmm_maxiter = config['lmm']['maxiter']
+    base_seed = config['andrillon_clustering']['seed']
+
     for perm_idx in range(n_permutations):
         if (perm_idx + 1) % 100 == 0 or perm_idx == 0:
             print(f"  Permutation {perm_idx+1}/{n_permutations}", flush=True)
-        
+
+        # Deterministic per-permutation RNG so results are fully reproducible.
+        perm_rng = np.random.default_rng(base_seed + perm_idx)
+
         # Permute predictor within subject × task (Andrillon 2020 strategy)
         df_perm = df_behavioral.copy()
         groups = df_perm.groupby(permutation_within).groups
         for group_key, indices in groups.items():
             predictor_values = df_perm.loc[indices, predictor].values
-            permuted_values = np.random.permutation(predictor_values)
+            permuted_values = perm_rng.permutation(predictor_values)
             df_perm.loc[indices, predictor] = permuted_values
-        
-        # Fit LMM with permuted data (faster settings)
+
+        # Fit LMM with permuted data — identical settings to the observed fit
         perm_t, perm_p, _ = run_lmm_per_channel(
             power_data=power_data,
             df_behavioral=df_perm,
             formula=formula,
             predictor_of_interest=predictor,
-            method=perm_method,
-            maxiter=perm_maxiter,
-            random_state=config['andrillon_clustering']['seed'] + perm_idx,
+            method=lmm_method,
+            maxiter=lmm_maxiter,
+            random_state=base_seed + perm_idx,
             return_diagnostics=False
         )
         
@@ -381,11 +384,8 @@ def run_marker_analysis(
     threshold_t = None
     if np.any(~np.isnan(t_stats)):
         t_abs = np.abs(t_stats[~np.isnan(t_stats)])
-        try:
-            q = max(0.0, min(1.0, 1.0 - float(config['andrillon_clustering']['cluster_alpha'])))
-            threshold_t = float(np.quantile(t_abs, q))
-        except Exception:
-            threshold_t = float(np.nanmax(t_abs)) if t_abs.size > 0 else None
+        q = max(0.0, min(1.0, 1.0 - float(config['andrillon_clustering']['cluster_alpha'])))
+        threshold_t = float(np.quantile(t_abs, q)) if t_abs.size > 0 else None
 
     # 6. Package results in a structure compatible with the Statistics pipeline
     results = {
@@ -594,39 +594,30 @@ def run_andrillon_pipeline(
         logger.info(f"MARKER {i+1}/{len(markers)}: {marker}")
         logger.info(f"{'#'*80}\n")
         
-        try:
-            # Run analysis
-            results = run_marker_analysis(marker, config, str(montage_path))
-            
-            if results is not None:
-                all_results[marker] = results
+        # Run analysis — errors surface immediately so root causes are visible
+        results = run_marker_analysis(marker, config, str(montage_path))
 
-                # Derive marker-specific output directory consistent with
-                # the main Statistics pipeline: <marker_type>_<marker_name>
-                if '/' in marker:
-                    marker_type, marker_base_name = marker.split('/', 1)
-                else:
-                    marker_type = None
-                    marker_base_name = marker
+        all_results[marker] = results
 
-                safe_marker_name = marker_base_name.replace('/', '_').replace(' ', '_')
-                if marker_type:
-                    marker_folder = f"{marker_type}_{safe_marker_name}"
-                else:
-                    marker_folder = safe_marker_name
+        # Derive marker-specific output directory consistent with
+        # the main Statistics pipeline: <marker_type>_<marker_name>
+        if '/' in marker:
+            marker_type, marker_base_name = marker.split('/', 1)
+        else:
+            marker_type = None
+            marker_base_name = marker
 
-                output_dir = output_root / model_folder / marker_folder
-                print(f"Saving results to: {output_dir}", flush=True)
-                logger.info(f"Saving results to: {output_dir}")
-                save_results(results, output_dir, marker)
-                print(f"✓ Results saved successfully", flush=True)
-            else:
-                print(f"⚠ Skipping marker {marker} due to errors", flush=True)
-                logger.warning(f"Skipping marker {marker} due to errors")
-                
-        except Exception as e:
-            logger.error(f"Error analyzing marker {marker}: {e}", exc_info=True)
-            continue
+        safe_marker_name = marker_base_name.replace('/', '_').replace(' ', '_')
+        if marker_type:
+            marker_folder = f"{marker_type}_{safe_marker_name}"
+        else:
+            marker_folder = safe_marker_name
+
+        output_dir = output_root / model_folder / marker_folder
+        print(f"Saving results to: {output_dir}", flush=True)
+        logger.info(f"Saving results to: {output_dir}")
+        save_results(results, output_dir, marker)
+        print(f"Results saved successfully", flush=True)
     
     # Final summary
     print("\n" + "="*80, flush=True)
@@ -655,16 +646,12 @@ def run_andrillon_pipeline(
         print("\n" + "-"*80, flush=True)
         print("Generating Andrillon summary report (topoplots + tables)...", flush=True)
         print("-"*80, flush=True)
-        try:
-            generate_summary_report(
-                model_dir=model_dir,
-                alpha=config['andrillon_clustering']['montecarlo_alpha'],
-                use_corrected=True,
-                verbose=True,
-            )
-        except Exception as e:
-            logger.error(f"Failed to generate Andrillon summary report: {e}", exc_info=True)
-            print(f"Warning: summary report generation failed: {e}", flush=True)
+        generate_summary_report(
+            model_dir=model_dir,
+            alpha=config['andrillon_clustering']['montecarlo_alpha'],
+            use_corrected=True,
+            verbose=True,
+        )
 
     return all_results
 

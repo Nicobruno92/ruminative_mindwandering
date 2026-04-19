@@ -73,9 +73,9 @@ lmm:
   predictor_of_interest: 
     - "onoff"
     - "valence"
-    - "selfother"
-    - "confidence"
-    - "time"
+    # - "selfother"
+    # - "confidence"
+    # - "time"
   method: "powell"
   maxiter: 500
   random_state: 42

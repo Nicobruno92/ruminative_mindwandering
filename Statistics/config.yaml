@@ -227,7 +227,7 @@ lmm:
   # - List: use submit_predictor_loop.sh to submit one SLURM job-set per predictor
   predictor_of_interest:
     - "onoff"
-    # - "valence"
+    - "valence"
     # - "selfother"
     # - "confidence"
     # - "time"
@@ -328,18 +328,24 @@ clustering:
 # Can be configured separately for evoked and state markers
 multiple_comparisons:
   # Correction for evoked markers
-  # Options: 
+  # Options:
   #   - false or "none": No correction
   #   - "fdr_bh" or "fdr_indep": Benjamini-Hochberg FDR (independent/positive correlation)
   #   - "fdr_by" or "fdr_negcorr": Benjamini-Yekutieli FDR (general/negative correlation)
   #   - "bonferroni": Bonferroni correction (most conservative)
   # Note: Both naming conventions supported (fdr_bh = fdr_indep, fdr_by = fdr_negcorr)
   evoked: "fdr_bh"
-  
+
   # Correction for state markers
   # Options: same as evoked (see above)
   state: "fdr_bh"
-  
+
+  # Correction for sleep markers (wsmi connectivity, PE, spectral_relative, etc.)
+  # REQUIRED: sleep markers are tested across many features and must be corrected.
+  # Use fdr_by (Benjamini-Yekutieli) for connectivity markers due to strong positive
+  # correlations between frequency bands; fdr_bh also acceptable.
+  sleep: "fdr_bh"
+
   # Alpha level for correction (typically same as clustering.alpha)
   alpha: 0.05
 

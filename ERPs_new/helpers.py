@@ -153,13 +153,32 @@ def enrich_events_with_parsed_fields(df: pd.DataFrame) -> pd.DataFrame:
     result_df["confidence"] = pd.to_numeric(m_confidence, errors="coerce").astype("float64")
     result_df["average"] = pd.to_numeric(m_average, errors="coerce").astype("float64")
 
-    # distance to probe encoded as '/-X/'
-    m_dist = desc.str.extract(r"/-(\d+)/", expand=False)
-    dist_val = pd.to_numeric(m_dist, errors="coerce")
-    result_df["distance_to_probe"] = np.where(~dist_val.isna(), -dist_val.astype("Int64"), pd.NA)
+    # distance to probe — two formats supported:
+    #   New format: "distance-5"  → positive integer, counts trials before probe
+    #               convention: distance-1 = immediately before probe → stored as -1
+    #   Old format: "/-5/"        → already negative integer
+    m_dist_new = desc.str.extract(r"distance-(\d+)", expand=False)
+    m_dist_old = desc.str.extract(r"/-(\d+)/", expand=False)
+    dist_new = pd.to_numeric(m_dist_new, errors="coerce")
+    dist_old = pd.to_numeric(m_dist_old, errors="coerce")
+    # New format takes precedence; old format is the fallback
+    dist_val = dist_new.where(dist_new.notna(), dist_old)
+    # New-format distances are positive and count backwards → negate them.
+    # Old-format distances come pre-negated (already negative), so leave as-is.
+    # Distinguish by checking which source produced the value.
+    dist_negated = np.where(dist_new.notna(), -dist_new, -dist_old)
+    result_df["distance_to_probe"] = np.where(
+        ~dist_val.isna(),
+        dist_negated,
+        pd.NA,
+    )
 
-    # probe number encoded as '/probeX' (end of string)
-    m_probe = desc.str.extract(r"/probe(\d+)", expand=False)
+    # probe number — two formats supported:
+    #   New format: "probe-1/"   (slash after the number)
+    #   Old format: "/probe15"   (number at end, no slash)
+    m_probe_new = desc.str.extract(r"probe-(\d+)/", expand=False)
+    m_probe_old = desc.str.extract(r"/probe(\d+)", expand=False)
+    m_probe = m_probe_new.where(m_probe_new.notna(), m_probe_old)
     result_df["probe_number"] = pd.to_numeric(m_probe, errors="coerce").astype("Int64")
 
     return result_df

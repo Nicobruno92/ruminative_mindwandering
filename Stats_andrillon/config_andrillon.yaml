@@ -68,13 +68,13 @@ andrillon_clustering:
   # Andrillon uses 0.025 (paper line 103-104)
   # "Candidate clusters were defined as neighbouring electrodes with a 
   # p-value below a threshold (called cluster alpha) of 0.025"
-  cluster_alpha: 0.01
+  cluster_alpha: 0.025
   
   # Number of permutations
   # Andrillon uses 1000 (paper line 106-107)
   # "We then created permuted datasets by permuting the labels of the 
   # predictor within each subject, each task and each electrode (N=1,000 permutations)"
-  n_permutations: 100
+  n_permutations: 1000
   
   # Parallel processing for permutations
   # -1 = use all available CPUs, 1 = sequential (for debugging)

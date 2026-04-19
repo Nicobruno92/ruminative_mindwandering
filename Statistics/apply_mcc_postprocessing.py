@@ -272,7 +272,7 @@ def main():
     
     corrected_results = []
     
-    for marker_type in ['evoked', 'state']:
+    for marker_type in ['evoked', 'state', 'sleep']:
         # Get correction method for this marker type
         correction_method = mcc_config.get(marker_type, False)
         

@@ -728,10 +728,12 @@ def spatial_cluster_permutation_test(
     H0 = np.concatenate([max_cluster_stats_null, [orig_stat]])
     H0 = np.sort(H0)
     
-    # Use MNE's _pval_from_histogram (exactly as MNE does)
-    # This handles the tail parameter and applies proper corrections
+    # Use MNE's _pval_from_histogram (exactly as MNE does).
+    # For tail=0 (two-sided): computes mean(|H0| >= |T_obs|) — correct.
+    # For tail=1 (one-sided positive): computes mean(H0 >= T_obs) — correct.
+    # For tail=-1 (one-sided negative): computes mean(H0 <= T_obs) — correct.
     cluster_p_values = _pval_from_histogram(
-        observed_cluster_stats, H0, tail=0  # Two-sided for abs comparison
+        observed_cluster_stats, H0, tail=tail
     )
     
     # ========== PRINT RESULTS SUMMARY ==========
@@ -1863,12 +1865,22 @@ def _permute_within_subjects(
     df_perm = df.copy()
     np.random.seed(seed)
     
-    # For interaction terms (e.g. "onoff:valence"), permute the first
-    # constituent variable. This breaks the interaction while preserving
-    # each variable's marginal within-subject distribution.
     from lmm_model import is_interaction_term, get_interaction_components
     if is_interaction_term(predictor):
+        # WARNING: permuting only the first component breaks both the interaction
+        # term AND its main effect, making the null hypothesis broader than
+        # "interaction = 0".  For interaction tests, 'freedman_lane' is the
+        # statistically correct permutation method — use it via config.yaml
+        # clustering.permutation_method: "freedman_lane".
         permute_col = get_interaction_components(predictor)[0]
+        warnings.warn(
+            f"Simple permutation with interaction term '{predictor}': only "
+            f"'{permute_col}' is permuted, which also breaks the '{permute_col}' "
+            f"main effect.  The null hypothesis is not purely 'interaction = 0'.  "
+            f"Use permutation_method='freedman_lane' for valid interaction tests.",
+            UserWarning,
+            stacklevel=2
+        )
     else:
         permute_col = predictor
     

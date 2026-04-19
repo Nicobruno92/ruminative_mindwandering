@@ -25,15 +25,20 @@ set -e
 # Argument parsing
 # ---------------------------------------------------------------------------
 CONFIG_FILE="Statistics/config.yaml"
+DEPENDENCY=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --config)
             CONFIG_FILE="$2"
             shift 2
             ;;
+        --dependency)
+            DEPENDENCY="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: bash Statistics/submit_predictor_loop.sh [--config <path>]"
+            echo "Usage: bash Statistics/submit_predictor_loop.sh [--config <path>] [--dependency <job_id>]"
             exit 1
             ;;
     esac
@@ -99,7 +104,13 @@ while IFS= read -r PREDICTOR; do
     echo "------------------------------------------"
     echo "Submitting jobs for predictor: ${PREDICTOR}"
     echo "------------------------------------------"
-    bash ${SCRIPT_DIR}/submit_parallel_markers.sh --predictor "${PREDICTOR}"
+    
+    CMD="bash ${SCRIPT_DIR}/submit_parallel_markers.sh --predictor \"${PREDICTOR}\""
+    if [ -n "${DEPENDENCY}" ]; then
+        CMD="${CMD} --dependency \"${DEPENDENCY}\""
+    fi
+    eval ${CMD}
+    
     SUBMITTED+=("${PREDICTOR}")
     echo ""
 done <<< "${PREDICTORS}"
