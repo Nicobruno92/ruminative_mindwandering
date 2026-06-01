@@ -1,14 +1,15 @@
 # =============================================================================
-# Wandering Mind Pipeline Configuration
+# Depressed Mind-Wandering / CYBERSART Pipeline Configuration
 # =============================================================================
 # This file configures the automatic element discovery for the Junifer pipeline.
 # Elements are discovered by scanning the datadir for files matching the pattern.
 
-# Data directory containing preprocessed epoch files
+# Data directory containing preprocessed epoch files (CYBERSART derivatives)
 datadir: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives
 
 # File pattern to match (BIDS-style with placeholders)
 # Available placeholders: {subject}, {task}, {desc}
+# This project does NOT use sessions.
 pattern: "{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif"
 
 # =============================================================================
@@ -22,17 +23,17 @@ pattern: "{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif"
 subjects: []
 
 # Sessions to process (not used in this project)
-# sessions: []
+sessions: []
 
 # Tasks to process (empty = all available)
-# Example: ["sartauditiva", "sartvisual"]
+# Example: ["Sart1", "Sart2", "Sart3", "Sart4"]
 tasks: []
 
 # Description/epoch types to process (required)
 # These determine which config_*.yaml files are used
 descriptions:
   - evoked
-  # - state
+  - state
   - sleep
 
 # =============================================================================

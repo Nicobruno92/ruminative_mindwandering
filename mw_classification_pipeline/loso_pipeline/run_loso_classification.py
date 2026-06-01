@@ -48,6 +48,7 @@ from utils.plotting_utils import (
     plot_subject_level_densities,
     plot_shap_comparative_boxplots,
     generate_all_comparison_plots,
+    plot_auc_vs_onoff_dispersion,
 )
 
 
@@ -97,54 +98,81 @@ Examples:
 # FEATURE FAMILY FILTERING
 # =============================================================================
 
-def filter_features_by_family(
-    X: pd.DataFrame,
-    family_name: str,
-    feature_families: dict,
-) -> pd.DataFrame:
+def resolve_family(family_name: str, feature_families: dict) -> tuple:
     """
-    Filter the feature matrix to columns belonging to a feature family.
+    Extract epoch_types and prefixes from a feature family config entry.
 
-    Feature families are defined in config as:
-        feature_families:
-          all: null            # null → no filtering, use all features
-          spectral: ["power_", "power_normalized_"]
-
-    Filtering matches column names that START WITH any of the given prefixes.
+    Each family entry is a dict with keys ``epoch_types`` and ``prefixes``.
+    Returns a (epoch_types_list, prefixes_or_None) tuple.
 
     Parameters
     ----------
-    X : pd.DataFrame
-        Full feature matrix.
     family_name : str
-        Key in feature_families to select.
+        Key in feature_families.
     feature_families : dict
-        Mapping from family name → list of prefixes (or null for all).
+        Full feature_families config block.
 
     Returns
     -------
-    pd.DataFrame
-        Filtered feature matrix.
+    tuple[list[str], list[str] | None]
+        (epoch_types, prefixes) where prefixes=None means keep all columns.
     """
     if family_name not in feature_families:
         raise ValueError(
             f"Unknown feature family: '{family_name}'. "
             f"Available: {list(feature_families.keys())}"
         )
+    cfg = feature_families[family_name]
+    if not isinstance(cfg, dict):
+        raise ValueError(
+            f"feature_families.{family_name} must be a dict with 'epoch_types' and "
+            f"'prefixes' keys. Got: {cfg!r}"
+        )
+    epoch_types = cfg.get("epoch_types", ["state"])
+    prefixes = cfg.get("prefixes")
+    return epoch_types, prefixes
 
-    prefixes = feature_families[family_name]
+
+def filter_features_by_family(
+    X: pd.DataFrame,
+    family_name: str,
+    prefixes: list,
+) -> pd.DataFrame:
+    """
+    Filter the feature matrix to columns matching the given prefixes.
+
+    Matching uses word-boundary logic so that prefix ``P1`` matches
+    ``Pz_P1`` and ``Pz_P1_latency`` but NOT ``Pz_P10``.
+
+    Rule: a column matches prefix ``p`` if:
+      - ``_{p}`` appears at the end of the column name, OR
+      - ``_{p}_`` appears anywhere in the column name, OR
+      - the column starts with ``{p}_`` or equals ``{p}``
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Full feature matrix.
+    family_name : str
+        Family name (used only for logging/error messages).
+    prefixes : list[str] or None
+        Marker component names to keep. None means keep all.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered feature matrix.
+    """
+    import re
 
     if prefixes is None:
-        return X  # No filtering — use all features
+        return X
 
-    # Columns are formatted as {channel}_{marker}_{band} (e.g. AF3_power_theta).
-    # Prefixes describe the marker portion, so we match against the substring
-    # after the first separator: `_{prefix}` must appear in the column name.
-    # `col.startswith(prefix)` is kept as a fallback for marker-first formats.
-    selected_cols = [
-        col for col in X.columns
-        if any(f"_{prefix}" in col or col.startswith(prefix) for prefix in prefixes)
-    ]
+    def _matches(col: str, prefix: str) -> bool:
+        p = re.escape(prefix)
+        return bool(re.search(rf"_{p}(_|$)", col)) or bool(re.match(rf"{p}(_|$)", col))
+
+    selected_cols = [col for col in X.columns if any(_matches(col, p) for p in prefixes)]
 
     if not selected_cols:
         raise ValueError(
@@ -237,7 +265,7 @@ def build_results_path(config: dict, contrast_name: str, family_name: str, model
     """
     Build the output directory for this run.
 
-    Structure: results_root/LOSO/{contrast_name}/{family_name}/
+    Structure: results_root/LOSO/{contrast_name}/{family_name}/{model_type}/
 
     Parameters
     ----------
@@ -260,7 +288,7 @@ def build_results_path(config: dict, contrast_name: str, family_name: str, model
     if not os.path.isabs(results_root):
         results_root = str(project_root / results_root)
 
-    loso_path = os.path.join(results_root, "LOSO", contrast_name, family_name)
+    loso_path = os.path.join(results_root, "LOSO", contrast_name, family_name, model_type)
     os.makedirs(loso_path, exist_ok=True)
     return loso_path
 
@@ -280,7 +308,7 @@ def main():
     # Key parameters (all from config, CLI only overrides)
     contrast_name = config.get("contrast", "ON_vs_OFF")
     family_name = config.get("active_family", "all")
-    feature_families = config.get("feature_families", {"all": None})
+    feature_families = config.get("feature_families", {})
     model_type_raw = config.get("model_type", "lr")
     if isinstance(model_type_raw, list):
         raise ValueError(
@@ -291,19 +319,27 @@ def main():
     n_runs = config.get("n_runs", 20)
     permutation_runs = config.get("permutation_runs", 100)
     verbose = config.get("verbose", True)
+    par_cfg = config.get("parallelism", {})
+    n_perm_jobs = par_cfg.get("n_perm_jobs", 1)
+    perm_cv_n_jobs = par_cfg.get("perm_cv_n_jobs", -1)
+
+    # Resolve family → inject epoch_types into config so the loader knows what to load
+    family_epoch_types, family_prefixes = resolve_family(family_name, feature_families)
+    config["epoch_types"] = family_epoch_types
 
     print(f"\n{'='*60}")
     print(f"Mind-Wandering Classification Pipeline (LOSO)")
     print(f"{'='*60}")
-    print(f"Contrast  : {contrast_name}")
-    print(f"Family    : {family_name}")
-    print(f"Model     : {model_type.upper()}")
-    print(f"Runs      : {n_runs}")
+    print(f"Contrast    : {contrast_name}")
+    print(f"Family      : {family_name}")
+    print(f"Epoch types : {family_epoch_types}")
+    print(f"Model       : {model_type.upper()}")
+    print(f"Runs        : {n_runs}")
     print(f"{'='*60}\n")
 
     logger = AnalysisLogger()
 
-    # Load full feature matrix
+    # Load only the epoch types declared by the selected family
     df_prepared, X, y, groups, feature_cols = prepare_data_for_contrast(
         config, contrast_name, verbose=verbose
     )
@@ -312,8 +348,8 @@ def main():
         print(f"ERROR: Insufficient data ({len(X)} samples). Need at least 50.")
         sys.exit(1)
 
-    # Apply feature family filter
-    X = filter_features_by_family(X, family_name, feature_families)
+    # Filter columns to the family's declared prefixes
+    X = filter_features_by_family(X, family_name, family_prefixes)
     feature_cols = X.columns.tolist()
 
     if args.dry_run:
@@ -339,6 +375,7 @@ def main():
     # -------------------------------------------------------------------------
     # Main classification
     # -------------------------------------------------------------------------
+    smote_k_neighbors = config.get("smote_k_neighbors", 5)
     _fs_method = config.get("feature_selection_method", "mrmr")
     _fs_k = config.get("k", 20)
     if _fs_method == "none":
@@ -389,12 +426,31 @@ def main():
         pca_n_components=config.get("pca_n_components"),
         pca_type=config.get("pca_type", "standard"),
         pca_kernel=config.get("pca_kernel", "rbf"),
+        smote_k_neighbors=smote_k_neighbors,
         logger=logger,
     )
 
     if results_df.empty:
         print("ERROR: No successful runs completed.")
         sys.exit(1)
+
+    # AUC vs on/off scale dispersion scatter plot
+    _subject_rows = []
+    for r in true_all_results:
+        for sm in (r.get("loso_subject_metrics") or []):
+            _subject_rows.append({"subject": sm["subject"], "auc": sm["auc"]})
+    if _subject_rows:
+        _loso_subject_auc_df = (
+            pd.DataFrame(_subject_rows)
+            .groupby("subject")["auc"]
+            .mean()
+            .reset_index()
+        )
+        _dim_path = os.path.join(results_path, model_type)
+        _fname_base = f"{model_type}_loso_{n_runs}runs" if n_runs > 1 else f"{model_type}_loso"
+        plot_auc_vs_onoff_dispersion(
+            _loso_subject_auc_df, df_prepared, _dim_path, _fname_base, "LOSO"
+        )
 
     # Print summary
     print(f"\n{'='*60}")
@@ -467,8 +523,11 @@ def main():
             true_mcc_list=(results_df['mean_mcc'].dropna().tolist()
                            if 'mean_mcc' in results_df.columns else []),
             permutation_scope=config.get("permutation_scope", "within"),
+            smote_k_neighbors=smote_k_neighbors,
             logger=logger,
             n_runs=n_runs,
+            n_perm_jobs=n_perm_jobs,
+            cv_n_jobs=perm_cv_n_jobs,
         )
         
         if config.get("save_plots", True):

@@ -10,6 +10,10 @@ project:
   
   # PCA results path (optional)
   pca_results_path: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/Behavior/probe_data/pca_results.csv"
+
+  # Behavioral data path — probe-level numeric ratings (onoff, valence, selfother, time, confidence).
+  # Required when aggregated marker CSVs do not contain these columns (pre-2026 data).
+  behavioral_data_path: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/Behavior/probe_data/probe_level_aggregated_data.csv"
   
   # QA filtering (optional)
   qa_summary_path: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives/qa_summary.csv"
@@ -29,6 +33,24 @@ project:
   # Markers to analyze
   markers: "all"  # or specify list of markers
 
+# Derived ratio markers — computed at load time as numerator / denominator
+# channel-wise. Each spec produces a new "<marker_type>/<name>" entry that is
+# appended to the marker list and goes through the rest of the pipeline
+# (normalization, LMM, permutation, clustering, plotting) exactly like any
+# other marker.
+#
+# Useful for spectral-ratio markers that are not pre-computed by Junifer but
+# are biologically meaningful (theta/beta, alpha/theta, etc.).
+derived_ratios:
+  - name: "psd_bands_theta_beta_ratio"
+    marker_type: "sleep"
+    numerator: "psd_bands_theta"
+    denominator: "psd_bands_beta"
+  - name: "psd_bands_alpha_theta_ratio"
+    marker_type: "sleep"
+    numerator: "psd_bands_alpha"
+    denominator: "psd_bands_theta"
+
 # Preprocessing parameters
 preprocessing:
   # Subject-level normalization
@@ -42,7 +64,7 @@ lmm:
   # Formula for the LMM
   # Same syntax as current pipeline
   formula: "power ~ onoff + valence + selfother + time + time_on_task + confidence + (1|subject)"
-  
+
   # Predictor of interest (will be permuted and tested)
   # predictor_of_interest can be a single string or a list.
   # - Single string: run directly with python Stats_andrillon/run_andrillon_pipeline.py
@@ -50,11 +72,31 @@ lmm:
   predictor_of_interest:
     - "onoff"
     - "valence"
+    - "onoff:confidence"
     # - "selfother"
     # - "confidence"
     # - "time"
     # - "time_on_task"
-  
+
+  # Per-predictor formula overrides.
+  # When a predictor requires a different formula than the default (e.g. an
+  # interaction term that needs a multiplicative model), specify it here.
+  # Predictors NOT listed here fall back to `formula` above.
+  #
+  # Rules:
+  #   - The formula MUST contain the predictor as a term (or its components for
+  #     interactions). E.g. "onoff:confidence" requires "onoff * confidence" or
+  #     the explicit "onoff + confidence + onoff:confidence" in the formula.
+  #   - Main-effect predictors do not need an override unless you want a
+  #     different covariate set for that specific test.
+  #   - The reduced model for Freedman-Lane is derived automatically by removing
+  #     the predictor from the override formula (interaction removed, main
+  #     effects kept).
+  #
+  # Example — test onoff:confidence interaction while keeping other covariates:
+  per_predictor_formula:
+    "onoff:confidence": "power ~ onoff * confidence + valence + selfother + time + time_on_task + (1|subject)"
+
   # LMM fitting parameters
   method: "powell"  # Optimization method
   maxiter: 200     # Maximum iterations
@@ -102,7 +144,24 @@ andrillon_clustering:
   # Andrillon permutes within subject × task × electrode
   # Since we fit per electrode, we permute within subject × task
   permutation_within: ["subject"]
-  
+
+  # Permutation method:
+  #   - "simple":         shuffle the predictor labels within the
+  #                       `permutation_within` groups (Andrillon 2020 default).
+  #                       Correct when the predictor is uncorrelated with the
+  #                       other covariates in the formula. With correlated
+  #                       covariates, simple permutation destroys collinearity
+  #                       only in the null, contracting the null distribution
+  #                       and inflating FPR.
+  #   - "freedman_lane":  fit a reduced model (formula minus predictor_of_interest)
+  #                       once, permute its residuals within subject, reconstruct
+  #                       Y* = Ŷ_reduced + R_perm, refit the FULL model on Y*.
+  #                       Preserves the covariance structure between predictor
+  #                       and other covariates under H0; recommended when the
+  #                       formula contains covariates correlated with the
+  #                       predictor of interest (time_on_task, valence, etc.).
+  permutation_method: "freedman_lane"  # Recommended when covariates are correlated with predictor
+
   # Random seed for reproducibility
   seed: 42
 

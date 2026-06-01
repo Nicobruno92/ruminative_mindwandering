@@ -1,0 +1,215 @@
+# =============================================================================
+# JUNIFER MARKER AGGREGATION BY PROBE - CONFIGURATION
+# =============================================================================
+#
+# Pipeline: Aggregates per-epoch Junifer markers into per-probe markers
+# Project: Wandering Mind (EEG mind-wandering study)
+#
+# INPUT:  HDF5 files from Junifer marker extraction pipeline
+#         Located at: {features_root}/junifer/*.h5
+#
+# OUTPUT: Per-probe aggregated CSV files
+#         Located at: {features_root}/sub-XX/ses-Y/eeg/junifer_aggregated/
+#
+# USAGE:
+#   python aggregate_markers_by_probe.py --config config.yaml
+#   python aggregate_markers_by_probe.py --subject 03 --session a --task sartvisual
+#   python aggregate_markers_by_probe.py --finalize  # Combine all partial results
+#
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# PROJECT PATHS
+# -----------------------------------------------------------------------------
+project:
+  # Preprocessed epochs location (for loading events.tsv metadata)
+  derivatives_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/derivatives"
+  
+  # BIDS raw data location (reference only)
+  bids_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS"
+  
+  # Junifer H5 files location (input) and aggregated output location
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features"
+  
+  # QA reports and figures output directory
+  results_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/results/features/junifer_markers"
+  
+  # H5 file descriptors for each epoch type
+  input_evoked_desc: "evoked"   # Evoked epochs: trial-locked
+  input_state_desc: "state"     # State epochs: temporal bins before probe
+  input_sleep_desc: "sleep"     # Sleep epochs: single epoch per probe
+
+
+# -----------------------------------------------------------------------------
+# SUBJECTS AND SESSIONS TO PROCESS
+# -----------------------------------------------------------------------------
+# Can be overridden via CLI: --subject XX --session a --task sartvisual
+
+# Sessions to process (not used in this project)
+# sessions: []
+subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+
+
+# -----------------------------------------------------------------------------
+# TRIAL SELECTION CRITERIA
+# -----------------------------------------------------------------------------
+#
+# EVOKED EPOCHS (trial-locked):
+#   - distance = 0 is the trial closest to the probe
+#   - distance = 1 is the second closest, etc.
+#   - Example: distance_min=0, distance_max=4 → aggregate last 5 go/correct trials
+#
+# STATE EPOCHS (temporal bins):
+#   - All temporal bins (dt=-3 to dt=-10) are aggregated automatically
+#   - Distance parameters not used
+#
+# SLEEP EPOCHS:
+#   - Single epoch per probe, no aggregation needed
+#
+trial_selection:
+  filter_go: true                # Filter for 'go' trials only
+  filter_correct: false           # Filter for 'correct' trials only
+  evoked_distance_min: 0         # Closest trial to probe (inclusive)
+  evoked_distance_max: 5         # 5 trials total: 0,1,2,3,4 (inclusive)
+  min_required_distances: 3      # Minimum trials required to aggregate a probe
+
+
+# -----------------------------------------------------------------------------
+# AGGREGATION METHOD
+# -----------------------------------------------------------------------------
+#
+# Two-level aggregation:
+#
+# 1. trial_methods: Aggregate epochs → per-channel values
+#    Creates columns: marker_method (one value per channel)
+#
+# 2. channel_methods: Aggregate channels by ROI → value per ROI (optional)
+#    Creates columns: marker_roi_method (one value per ROI per probe)
+#    Set to null or [] to keep per-channel data (default)
+#
+# Available methods:
+#   - trimmean : Trimmed mean (robust to outliers)
+#   - mean     : Arithmetic mean
+#   - std      : Standard deviation
+#   - median   : Median
+#   - min      : Minimum
+#   - max      : Maximum
+#   - count    : Number of values aggregated
+#
+# trimmean_percent controls the trimming:
+#   trimmean_percent = 30  → trim 15% from each tail, use middle 70%
+#
+aggregation:
+  trial_methods:        # Level 1: epochs → channels
+    - trimmean
+    # - std
+  
+  # ROI definitions: map ROI name → list of channels
+  # Use null or "all" to include all channels
+  rois:
+    # Frontal ROIs
+    frontal_left: ['Fp1', 'F3', 'F7', 'FC1', 'FC5']
+    frontal_right: ['Fp2', 'F4', 'F8', 'FC2', 'FC6']
+    
+    # Central ROIs
+    central_left: ['C3', 'T7', 'CP1', 'CP5']
+    central_right: ['C4', 'T8', 'CP2', 'CP6']
+    
+    # Posterior ROIs
+    posterior_left: ['P3', 'P7', 'O1']
+    posterior_right: ['P4', 'P8', 'O2']
+
+    # Midline ROIs
+    midline: ['Fz', 'Cz', 'Pz']
+  
+  # Default ROIs for all markers (if not specified per-marker)
+  # Set to null to skip ROI aggregation, or list of ROI names to apply to all markers
+  default_rois: [frontal_left, frontal_right, central_left, midline, central_right, posterior_left, posterior_right]
+  
+  # Per-marker ROI overrides (marker name → list of ROIs)
+  # Markers not listed use default_rois
+  marker_rois:
+    # ERPs con ROIs específicas según su topografía
+    P1: [posterior_left, posterior_right]
+    N1: [posterior_left, posterior_right]
+    P2: [central_left, central_right, posterior_left, posterior_right]
+    P3a: [frontal_left, frontal_right]
+    P3b: [central_left, central_right, posterior_left, posterior_right]
+  
+  channel_methods: ["trimmean"] #['trimmean', 'std']  # Level 2: ROI aggregation (null = keep per-channel, no ROI aggregation)
+  trimmean_percent: 20
+
+
+# -----------------------------------------------------------------------------
+# OUTPUT SETTINGS
+# -----------------------------------------------------------------------------
+output:
+  desc_prefix: "probe"           # Filename prefix: probe-015_onTask_evoked.csv
+  save_summary_csv: true         # Save per-subject processing summary
+  overwrite: true                # Overwrite existing output files
+  
+  # Output format:
+  #   wide: One column per marker_method (traditional format)
+  #   long: Tidy format with columns: marker, method, value (better for stats)
+  output_format: wide
+
+
+# -----------------------------------------------------------------------------
+# SLEEP MARKER SETTINGS
+# -----------------------------------------------------------------------------
+# Sleep markers (spindles, slow waves) may contain NaN values for channels
+# without detected events. This policy determines how to handle them.
+
+sleep_markers:
+  nan_policy: "zero"             # Options: null (keep), zero, mean, median
+
+
+# -----------------------------------------------------------------------------
+# MARKER NAME MAPPING
+# -----------------------------------------------------------------------------
+# Maps verbose Junifer marker names to clean, short names for output files.
+# Patterns are matched case-insensitively against the H5 marker names.
+
+marker_name_mapping:
+  
+  # --- Time-locked ERP components (evoked) ---
+  "EEG_P1_timelockedtopo": "P1"
+  "EEG_N1_timelockedtopo": "N1"
+  "EEG_P2_timelockedtopo": "P2"
+  "EEG_P3a_timelockedtopo": "P3a"
+  "EEG_P3b_timelockedtopo": "P3b"
+  
+  # --- Spectral power (absolute) ---
+  # Expands to: power_delta, power_theta, power_alpha, power_beta, power_gamma
+  "EEG_psd_bands_spectralpower": "power"
+  
+  # --- Spectral power (relative/normalized) ---
+  # Expands to: power_normalized_delta, power_normalized_theta, etc.
+  "EEG_psd_relative_spectralpower": "power_normalized"
+  
+  # --- Connectivity: Weighted Symbolic Mutual Information (aggregated per channel) ---
+  "EEG_wsmi_theta_symbolicmutualinformation": "wsmi_theta"
+  "EEG_wsmi_alpha_symbolicmutualinformation": "wsmi_alpha"
+  "EEG_wsmi_beta_symbolicmutualinformation": "wsmi_beta"
+  "EEG_wsmi_gamma_symbolicmutualinformation": "wsmi_gamma"
+
+  # --- Connectivity: Non-Aggregated Pairs (all channel pairs preserved) ---
+  "EEG_wsmi_theta_pairs_symbolicmutualinformation": "wsmi_theta_pairs"
+  "EEG_wsmi_alpha_pairs_symbolicmutualinformation": "wsmi_alpha_pairs"
+  "EEG_wsmi_beta_pairs_symbolicmutualinformation": "wsmi_beta_pairs"
+  "EEG_wsmi_gamma_pairs_symbolicmutualinformation": "wsmi_gamma_pairs"
+  
+  # --- Information theory: Permutation Entropy ---
+  "EEG_PE_theta_permutationentropy": "PE_theta"
+  "EEG_PE_alpha_permutationentropy": "PE_alpha"
+  "EEG_PE_beta_permutationentropy": "PE_beta"
+  "EEG_PE_gamma_permutationentropy": "PE_gamma"
+  
+  # --- Complexity: Kolmogorov ---
+  "EEG_kolmogorov_complexity_kolmogorovcomplexity": "kolmogorov_complexity"
+  
+  # --- Sleep markers ---
+  "slowwaves": "slowwaves"
+  "spindles": "spindles"

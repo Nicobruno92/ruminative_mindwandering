@@ -82,16 +82,26 @@ lmm:
 
 
 # ── Preprocessing ────────────────────────────────────────────────────────────
+# All blocks below are wired into reader.py. Disable individual steps by
+# setting the corresponding `enabled` flag to false (or omitting the block).
 preprocessing:
+  # Per-subject z-score of wSMI removes between-subject mean/scale drift
+  # before LMM; complements (does not replace) the random intercept.
   normalize_by_subject: true
   subject_column: "subject"
   normalization_method: "zscore"
+  # channel_wise=true z-scores per (subject × connection_id) — more aggressive,
+  # only sensible if per-connection scales differ markedly within subjects.
   channel_wise: false
 
+  # Z-score continuous predictors so β coefficients are comparable across
+  # covariates with very different units (e.g. valence 0–100 vs time_on_task
+  # 1–60). Binary predictors (onoff: 0/100) are skipped automatically.
   predictor_normalization:
-    enabled: false
+    enabled: true
     method: "zscore"
-    predictors: ["onoff", "valence", "selfother", "confidence", "time"]
+    predictors: ["valence", "selfother", "confidence", "time", "time_on_task",
+                 "PC1", "PC2", "PC3"]
 
 
 # ── Multiple comparisons correction ─────────────────────────────────────────
@@ -114,14 +124,45 @@ fdr:
 # NBS / permutation settings
 nbs:
   primary_threshold: 3.0    # |t| threshold for forming supra-threshold edges
-  n_permutations: 100      # Number of permutations for null distribution
-                            # NOTE: 1000 is memory-efficient for cluster runs
-                            # Increase to 5000+ for final publication analyses
+  n_permutations: 5000      # Number of permutations for null distribution.
+                            # 5000 gives p-resolution ≈ 1/5001 = 2e-4, stable
+                            # near α=0.05 for component-wise p-values.
+                            # Drop to 1000 for memory-constrained cluster runs.
   alpha: 0.05               # Significance level for component p-values
   n_jobs: -1                # Parallel jobs for permutations
                             # -1 = use all CPUs (reads SLURM_CPUS_PER_TASK)
                             # 1 = sequential (for debugging)
                             # N = use N parallel jobs
+
+  # Permutation method:
+  #   "simple"        : within-subject restricted permutation of the predictor
+  #                     of interest only (Nichols & Holmes, 2002). Correct when
+  #                     the predictor is uncorrelated with the other covariates
+  #                     in the formula. With strongly correlated covariates
+  #                     (e.g. onoff with time_on_task) the null breaks that
+  #                     collinearity only on permuted data, which contracts the
+  #                     null SE and inflates FPR for connections.
+  #   "freedman_lane" : fit reduced model (formula minus predictor) per
+  #                     connection once, permute residuals within subject,
+  #                     reconstruct Y* = Ŷ_reduced + R_perm, refit the FULL
+  #                     model on Y* with the ORIGINAL predictor labels.
+  #                     Preserves predictor-covariate covariance under H0.
+  #                     DEFAULT here because the formula contains covariates
+  #                     (time, time_on_task, valence, …) that are correlated
+  #                     with the predictors of interest.
+  permutation_method: "freedman_lane"
+
+
+# ── Family-wise correction across (band × predictor) tests ──────────────────
+# NBS controls FWER within a single (band × predictor) test family. When the
+# pipeline runs multiple bands and multiple predictors of interest, each NBS
+# test contributes its own α=0.05; the joint false-positive rate inflates as
+# 1 - (1-α)^N. Applying Bonferroni to the per-component NBS p-values controls
+# the family-wise error across the full set of tests.
+family_wise_correction:
+  enabled: true
+  method: "bonferroni"   # "bonferroni" or "none"
+  alpha: 0.05            # significance threshold for the corrected p-values
 
 
 # ── Output ───────────────────────────────────────────────────────────────────

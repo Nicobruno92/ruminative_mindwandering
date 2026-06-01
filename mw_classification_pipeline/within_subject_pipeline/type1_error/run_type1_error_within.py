@@ -383,6 +383,7 @@ def run_single_simulation(
         scaler=prep_cfg.get("scaler", "standard"),
         true_ws_metrics_df=true_ws_metrics_df,
         logger=logger,
+        permutation_seed=sim_random_state,
     )
 
     # Within-subject perm_summary uses 'p_auc' (not 'p_mean_auc')

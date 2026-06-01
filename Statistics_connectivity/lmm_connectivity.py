@@ -266,6 +266,85 @@ def apply_fdr_correction(
 
 
 # =============================================================================
+# FAMILY-WISE CORRECTION ACROSS (BAND × PREDICTOR) TESTS
+# =============================================================================
+
+def apply_family_wise_correction(
+    all_results: Dict[str, Dict[str, pd.DataFrame]],
+    base_p_col: str,
+    alpha: float = 0.05,
+    method: str = "bonferroni",
+) -> Tuple[Dict[str, Dict[str, pd.DataFrame]], Dict[str, str], int]:
+    """
+    Apply family-wise correction across the full (predictor × band) test set.
+
+    Each per-(predictor, band) NBS test already controls FWER over components
+    *within* that test. When the pipeline runs N independent (predictor × band)
+    NBS tests, the joint α inflates as ``1 - (1-α)**N``. Bonferroni multiplies
+    every reported p-value by the number of (predictor × band) families, which
+    is conservative but robust to dependence between tests.
+
+    The same logic is applied uniformly to NBS p-values (channel level) and to
+    FDR-corrected p-values (ROI level) — pass the appropriate ``base_p_col``.
+
+    Parameters
+    ----------
+    all_results : Dict[str, Dict[str, pd.DataFrame]]
+        Nested dict ``{predictor: {band_key: results_df}}``.
+    base_p_col : str
+        Source p-value column to correct (e.g. ``"p_value_nbs"`` or
+        ``"p_value_fdr"``). The original column is preserved.
+    alpha : float
+        Significance threshold for the corrected p-values.
+    method : str
+        ``"bonferroni"`` or ``"none"`` (no-op, returns unchanged input).
+
+    Returns
+    -------
+    Tuple[Dict[str, Dict[str, pd.DataFrame]], Dict[str, str], int]
+        (updated ``all_results``, mapping of new column names, n_tests).
+        ``new_cols`` contains keys ``"p"`` and ``"sig"`` with the new column
+        names so callers can reference them when plotting.
+    """
+    if method == "none":
+        return all_results, {"p": base_p_col, "sig": ""}, 0
+
+    assert method == "bonferroni", (
+        f"Unsupported family-wise method: {method!r}. Use 'bonferroni' or 'none'."
+    )
+
+    # Count test families: one per (predictor, band_key) with any valid p-values
+    n_tests = sum(
+        1
+        for by_band in all_results.values()
+        for df in by_band.values()
+        if base_p_col in df.columns and df[base_p_col].notna().any()
+    )
+
+    family_p_col = f"{base_p_col}_family"
+    family_sig_col = f"significant_{base_p_col.replace('p_value_', '')}_family"
+
+    if n_tests <= 1:
+        # Single test: family-wise correction is a no-op; still create the
+        # columns so downstream code can reference them uniformly.
+        for by_band in all_results.values():
+            for df in by_band.values():
+                if base_p_col in df.columns:
+                    df[family_p_col] = df[base_p_col]
+                    df[family_sig_col] = df[base_p_col] < alpha
+        return all_results, {"p": family_p_col, "sig": family_sig_col}, n_tests
+
+    for by_band in all_results.values():
+        for df in by_band.values():
+            if base_p_col not in df.columns:
+                continue
+            df[family_p_col] = (df[base_p_col] * n_tests).clip(upper=1.0)
+            df[family_sig_col] = df[family_p_col] < alpha
+
+    return all_results, {"p": family_p_col, "sig": family_sig_col}, n_tests
+
+
+# =============================================================================
 # HELPERS
 # =============================================================================
 
@@ -324,6 +403,176 @@ def _predictor_has_variability(df_conn: pd.DataFrame, predictor: str) -> bool:
     return df_conn[predictor].std() > _MIN_PREDICTOR_STD
 
 
+def _create_reduced_formula(formula: str, predictor_to_remove: str) -> str:
+    """
+    Build the reduced formula by removing `predictor_to_remove`.
+
+    Mirrors `Statistics/lmm_model.py::_create_reduced_formula` but kept local so
+    that this module remains self-contained.
+
+    Handles the `*` interaction shorthand: ``onoff * valence`` expands to
+    ``onoff + valence + onoff:valence`` so that a request to drop ``onoff``
+    also strips its interaction term while keeping the `valence` main effect.
+    """
+    import re as _re
+
+    parts = formula.split('~')
+    if len(parts) != 2:
+        raise ValueError(f"Invalid formula: {formula}")
+
+    left = parts[0].strip()
+    right = parts[1].strip()
+
+    random_effects = _re.findall(r'\([^)]*\|[^)]*\)', right)
+    fixed = _re.sub(r'\s*\+?\s*\([^)]*\|[^)]*\)', '', right).strip()
+
+    expanded: List[str] = []
+    for raw in fixed.split('+'):
+        raw = raw.strip()
+        if not raw:
+            continue
+        if '*' in raw:
+            star_vars = [v.strip() for v in raw.split('*')]
+            for v in star_vars:
+                if v and v not in expanded:
+                    expanded.append(v)
+            interaction = ':'.join(star_vars)
+            if interaction not in expanded:
+                expanded.append(interaction)
+        elif raw not in expanded:
+            expanded.append(raw)
+
+    reduced_terms = [t for t in expanded if t and t != predictor_to_remove]
+    reduced_fixed = ' + '.join(reduced_terms) if reduced_terms else '1'
+
+    if random_effects:
+        return f"{left} ~ {reduced_fixed} + {' + '.join(random_effects)}"
+    return f"{left} ~ {reduced_fixed}"
+
+
+def _fit_reduced_models_per_connection(
+    df_wide: pd.DataFrame,
+    connection_ids: List[str],
+    formula: str,
+    predictor_of_interest: str,
+    formula_vars: List[str],
+    method: str,
+    maxiter: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Fit the reduced LMM (formula minus predictor of interest) per connection.
+
+    Used by Freedman-Lane permutation: the reduced fit is computed once and the
+    residuals/fitted values are reused across all permutations to reconstruct
+    Y* = Ŷ_reduced + R_perm.
+
+    Returns
+    -------
+    residuals : np.ndarray of shape (n_obs, n_connections)
+        Per-connection residuals from the reduced model. NaN where the reduced
+        model could not be fit (insufficient data, singular design, etc.) — those
+        connections will be excluded from the permuted graph as well.
+    fitted_values : np.ndarray of shape (n_obs, n_connections)
+        Per-connection fitted values from the reduced model.
+    """
+    n_obs = len(df_wide)
+    n_conn = len(connection_ids)
+    residuals = np.full((n_obs, n_conn), np.nan)
+    fitted = np.full((n_obs, n_conn), np.nan)
+
+    reduced_formula = _create_reduced_formula(formula, predictor_of_interest)
+    red_fixed, red_re = _parse_random_effects(reduced_formula)
+    other_predictors = [
+        c for c in formula_vars
+        if c in df_wide.columns and c != predictor_of_interest
+    ]
+
+    for ch_idx, conn_id in enumerate(connection_ids):
+        cols_needed = ["subject"] + [conn_id] + other_predictors
+        df_conn = (
+            df_wide[cols_needed]
+            .rename(columns={conn_id: "power"})
+            # Keep the original df_wide index so residuals can be mapped back
+            # to the correct rows of the wide-format frame.
+            .dropna(subset=["power"])
+        )
+
+        if len(df_conn) < 10 or df_conn["subject"].nunique() < 3:
+            continue
+
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                md = mixedlm(
+                    red_fixed,
+                    data=df_conn,
+                    groups=df_conn["subject"],
+                    re_formula=("~" + red_re) if red_re else None,
+                )
+                fit = md.fit(method=method, maxiter=maxiter, reml=True)
+
+            valid_idx = df_conn.index.to_numpy()
+            residuals[valid_idx, ch_idx] = fit.resid.values
+            fitted[valid_idx, ch_idx] = fit.fittedvalues.values
+        except (np.linalg.LinAlgError, ValueError, RuntimeError):
+            # Reduced fit failed for this connection — leave residuals as NaN
+            # so it propagates as NaN through Y* and is skipped in permuted fits.
+            continue
+
+    return residuals, fitted
+
+
+def _freedman_lane_reconstruct(
+    residuals: np.ndarray,
+    fitted_values: np.ndarray,
+    df_behavioral: pd.DataFrame,
+    seed: int,
+) -> np.ndarray:
+    """
+    Permute reduced-model residuals within each subject and reconstruct Y*.
+
+    Mirrors `Statistics/lmm_model.py::freedman_lane_permutation`. One permutation
+    order per subject is shared across all connections so that spatial / network
+    correlation in the residuals is preserved under the null.
+
+    Returns
+    -------
+    Y_star : np.ndarray of shape (n_obs, n_connections)
+        Reconstructed Y* = fitted + permuted_residuals. NaN where either input
+        is NaN — those rows are skipped downstream.
+    """
+    n_obs, n_conn = residuals.shape
+    Y_star = np.full((n_obs, n_conn), np.nan)
+    rng = np.random.RandomState(seed)
+
+    if np.all(np.isnan(residuals)):
+        return Y_star
+
+    for subject in df_behavioral["subject"].unique():
+        sub_mask = df_behavioral["subject"] == subject
+        sub_idx = df_behavioral.loc[sub_mask].index.to_numpy()
+
+        # Rows valid for at least one connection — we keep the same permutation
+        # order for all connections to preserve their joint structure.
+        any_valid = ~np.all(np.isnan(residuals[sub_idx, :]), axis=1)
+        valid = sub_idx[any_valid]
+
+        if len(valid) == 0:
+            continue
+        if len(valid) == 1:
+            Y_star[valid, :] = fitted_values[valid, :] + residuals[valid, :]
+            continue
+
+        permuted = rng.permutation(valid)
+        for conn_idx in range(n_conn):
+            Y_star[valid, conn_idx] = (
+                fitted_values[valid, conn_idx]
+                + residuals[permuted, conn_idx]
+            )
+
+    return Y_star
+
+
 def _run_nbs_permutation(
     perm_seed: int,
     df_wide: pd.DataFrame,
@@ -336,7 +585,10 @@ def _run_nbs_permutation(
     primary_threshold: float,
     method: str,
     maxiter: int,
-) -> Tuple[int, int]:
+    permutation_method: str = "simple",
+    fl_residuals: Optional[np.ndarray] = None,
+    fl_fitted: Optional[np.ndarray] = None,
+) -> Tuple[int, int, Dict[str, int]]:
     """
     Execute one NBS permutation and return the largest null component size.
 
@@ -397,17 +649,43 @@ def _run_nbs_permutation(
     """
     perm_rng = np.random.RandomState(perm_seed)
 
-    # ── Permute ONLY the predictor of interest, within each subject ───────
-    # All other covariates keep their observed values row-for-row.
-    df_perm = df_wide.copy()
-    for subj in df_perm["subject"].unique():
-        mask = df_perm["subject"] == subj
-        vals = df_perm.loc[mask, predictor_of_interest].values.copy()
-        perm_rng.shuffle(vals)
-        df_perm.loc[mask, predictor_of_interest] = vals
+    # ── Build the per-permutation data frame depending on method ─────────
+    # 'simple'        : permute predictor labels within subject, leave Y untouched
+    # 'freedman_lane' : reconstruct Y* = Ŷ_reduced + R_perm (residuals shuffled
+    #                    within subject), keep predictor labels untouched
+    if permutation_method == "freedman_lane":
+        if fl_residuals is None or fl_fitted is None:
+            raise ValueError(
+                "permutation_method='freedman_lane' requires fl_residuals and "
+                "fl_fitted to be provided."
+            )
+        Y_star = _freedman_lane_reconstruct(
+            fl_residuals, fl_fitted, df_wide, perm_seed
+        )
+        df_perm = df_wide.copy()
+        # Overwrite the connection columns with the FL-reconstructed values.
+        # Original predictor column is preserved (Freedman-Lane does not permute it).
+        for conn_idx, conn_id in enumerate(connection_ids):
+            df_perm[conn_id] = Y_star[:, conn_idx]
+    else:
+        # Permute ONLY the predictor of interest, within each subject.
+        # All other covariates keep their observed values row-for-row.
+        df_perm = df_wide.copy()
+        for subj in df_perm["subject"].unique():
+            mask = df_perm["subject"] == subj
+            vals = df_perm.loc[mask, predictor_of_interest].values.copy()
+            perm_rng.shuffle(vals)
+            df_perm.loc[mask, predictor_of_interest] = vals
 
-    # ── Re-fit LMM for every connection with permuted predictor ───────────
+    # ── Re-fit LMM for every connection with permuted data ────────────────
+    # Track per-permutation convergence so that an asymmetry between observed
+    # and permuted runs (which would deflate the null) is detectable.
     perm_t: Dict[str, float] = {}
+    n_attempted = 0
+    n_converged = 0
+    n_failed = 0
+    n_insufficient = 0
+
     for conn_id in connection_ids:
         cols_needed = ["subject", conn_id] + [
             col for col in formula_vars if col in df_perm.columns
@@ -421,14 +699,18 @@ def _run_nbs_permutation(
 
         # Guard 1: too few observations
         if len(df_conn) < 10:
+            n_insufficient += 1
             continue
         # Guard 2: too few subjects with data for this connection
         if df_conn["subject"].nunique() < 3:
+            n_insufficient += 1
             continue
         # Guard 3: permuted predictor is constant — design matrix would be singular
         if not _predictor_has_variability(df_conn, predictor_of_interest):
+            n_insufficient += 1
             continue
 
+        n_attempted += 1
         result = _fit_single_lmm(
             df_conn, fixed_formula, re_formula,
             predictor_of_interest, method, maxiter,
@@ -437,6 +719,9 @@ def _run_nbs_permutation(
         # Only converged models with valid t-statistics enter the null graph
         if result["converged"] and not np.isnan(result["t_statistic"]):
             perm_t[conn_id] = result["t_statistic"]
+            n_converged += 1
+        else:
+            n_failed += 1
 
     # ── Maximum component size per direction in the null graph ────────────
     perm_pos_comps, perm_neg_comps = _find_supra_threshold_components(
@@ -444,7 +729,15 @@ def _run_nbs_permutation(
     )
     max_pos = max(len(c) for c in perm_pos_comps) if perm_pos_comps else 0
     max_neg = max(len(c) for c in perm_neg_comps) if perm_neg_comps else 0
-    return max_pos, max_neg
+
+    diag = {
+        'n_attempted': n_attempted,
+        'n_converged': n_converged,
+        'n_failed': n_failed,
+        'n_insufficient': n_insufficient,
+        'n_in_null_graph': len(perm_t),
+    }
+    return max_pos, max_neg, diag
 
 
 def apply_nbs_correction(
@@ -460,6 +753,8 @@ def apply_nbs_correction(
     alpha: float = 0.05,
     random_state: int = 42,
     n_jobs: int = 1,
+    permutation_method: str = "simple",
+    perm_diagnostics_csv: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Apply Network-Based Statistic (NBS) correction for channel-level connectivity.
@@ -526,6 +821,12 @@ def apply_nbs_correction(
     """
     from joblib import Parallel, delayed
 
+    if permutation_method not in ("simple", "freedman_lane"):
+        raise ValueError(
+            f"Unsupported permutation_method='{permutation_method}'. "
+            "Use 'simple' or 'freedman_lane'."
+        )
+
     df = results_df.copy()
 
     # All permutation seeds derived from the master seed (fully reproducible)
@@ -534,6 +835,33 @@ def apply_nbs_correction(
 
     # Parse formula once — reused by every permutation worker
     fixed_formula, re_formula = _parse_random_effects(formula)
+    formula_vars = _extract_formula_variables(formula)
+
+    # If Freedman-Lane: fit the reduced model per connection ONCE so the
+    # residuals/fitted values can be reused across all permutations. Without
+    # this, each permutation would have to refit the reduced model — which is
+    # wasteful and breaks the FL guarantee.
+    fl_residuals = None
+    fl_fitted = None
+    if permutation_method == "freedman_lane":
+        print(
+            f"  NBS [{predictor_of_interest}]: fitting reduced model per "
+            f"connection for Freedman-Lane (this runs once)..."
+        )
+        fl_residuals, fl_fitted = _fit_reduced_models_per_connection(
+            df_wide=df_wide,
+            connection_ids=connection_ids,
+            formula=formula,
+            predictor_of_interest=predictor_of_interest,
+            formula_vars=formula_vars,
+            method=method,
+            maxiter=maxiter,
+        )
+        n_failed_red = int(np.all(np.isnan(fl_residuals), axis=0).sum())
+        print(
+            f"  NBS: Reduced model fitted. Connections with all-NaN residuals: "
+            f"{n_failed_red}/{len(connection_ids)}"
+        )
 
     # ── Observed graph ───────────────────────────────────────────────────
     nodes = _extract_unique_nodes(connection_ids)
@@ -565,29 +893,52 @@ def apply_nbs_correction(
     )
     print(
         f"  NBS: Running {n_permutations} within-subject permutations "
-        f"({n_jobs} parallel jobs) ..."
+        f"(method={permutation_method}, {n_jobs} parallel jobs) ..."
     )
 
     # ── Null distribution (direction-specific) ───────────────────────────
-    # Pre-compute formula_vars once; passed to every worker to avoid
-    # repeated string parsing inside 2000 parallel jobs.
-    formula_vars = _extract_formula_variables(formula)
-
-    # Each job returns (max_pos_size, max_neg_size).
-    # Keeping the two directions separate prevents inflation of the positive
-    # null by negative-direction permutation components and vice versa,
-    # improving power while still controlling the per-direction FWER
-    # (Zalesky et al., 2010, NeuroImage, Supplement S1).
+    # Each job returns (max_pos_size, max_neg_size, diag_dict). Keeping the
+    # two directions separate prevents inflation of the positive null by
+    # negative-direction permutation components and vice versa, improving
+    # power while still controlling the per-direction FWER (Zalesky et al.,
+    # 2010, NeuroImage, Supplement S1). The diag_dict tracks per-permutation
+    # convergence so any obs-vs-perm asymmetry is logged.
     null_results = Parallel(n_jobs=n_jobs, verbose=0, backend="loky")(
         delayed(_run_nbs_permutation)(
             seed, df_wide, connection_ids, predictor_of_interest,
             formula_vars, fixed_formula, re_formula,
             nodes, primary_threshold, method, maxiter,
+            permutation_method, fl_residuals, fl_fitted,
         )
         for seed in perm_seeds
     )
     null_max_pos = np.array([r[0] for r in null_results], dtype=np.intp)
     null_max_neg = np.array([r[1] for r in null_results], dtype=np.intp)
+    perm_diag_records = [
+        {'perm_idx': i, **r[2]} for i, r in enumerate(null_results)
+    ]
+
+    # ── Convergence symmetry check (obs vs perm) ─────────────────────────
+    n_obs_attempted = int(df["t_statistic"].notna().sum())
+    n_obs_converged = int(df["converged"].fillna(False).sum())
+    perm_diag_df = pd.DataFrame(perm_diag_records)
+    perm_n_converged_mean = float(perm_diag_df['n_converged'].mean())
+    perm_n_failed_mean = float(perm_diag_df['n_failed'].mean())
+    perm_n_in_null_mean = float(perm_diag_df['n_in_null_graph'].mean())
+    print(
+        f"  NBS: Convergence — observed: {n_obs_converged}/{n_obs_attempted} | "
+        f"perm mean: {perm_n_converged_mean:.1f} converged, "
+        f"{perm_n_failed_mean:.1f} failed, "
+        f"{perm_n_in_null_mean:.1f} in null graph"
+    )
+
+    if perm_diagnostics_csv is not None:
+        try:
+            perm_diag_df.to_csv(perm_diagnostics_csv, index=False)
+            print(f"  NBS: Per-permutation diagnostics saved to "
+                  f"{perm_diagnostics_csv}")
+        except Exception as e:
+            print(f"  NBS: WARNING could not save diagnostics CSV: {e}")
 
     print(
         f"  NBS: Null (positive) — "
@@ -638,7 +989,10 @@ def _run_max_t_permutation(
     re_formula: Optional[str],
     method: str,
     maxiter: int,
-) -> float:
+    permutation_method: str = "simple",
+    fl_residuals: Optional[np.ndarray] = None,
+    fl_fitted: Optional[np.ndarray] = None,
+) -> Tuple[float, Dict[str, int]]:
     """
     Execute one max-t permutation and return the maximum absolute null t-value.
 
@@ -673,15 +1027,33 @@ def _run_max_t_permutation(
     """
     perm_rng = np.random.RandomState(perm_seed)
 
-    # Permute ONLY the predictor of interest within each subject
-    df_perm = df_wide.copy()
-    for subj in df_perm["subject"].unique():
-        mask = df_perm["subject"] == subj
-        vals = df_perm.loc[mask, predictor_of_interest].values.copy()
-        perm_rng.shuffle(vals)
-        df_perm.loc[mask, predictor_of_interest] = vals
+    if permutation_method == "freedman_lane":
+        if fl_residuals is None or fl_fitted is None:
+            raise ValueError(
+                "permutation_method='freedman_lane' requires fl_residuals and "
+                "fl_fitted to be provided."
+            )
+        Y_star = _freedman_lane_reconstruct(
+            fl_residuals, fl_fitted, df_wide, perm_seed
+        )
+        df_perm = df_wide.copy()
+        for conn_idx, conn_id in enumerate(connection_ids):
+            df_perm[conn_id] = Y_star[:, conn_idx]
+    else:
+        # Permute ONLY the predictor of interest within each subject
+        df_perm = df_wide.copy()
+        for subj in df_perm["subject"].unique():
+            mask = df_perm["subject"] == subj
+            vals = df_perm.loc[mask, predictor_of_interest].values.copy()
+            perm_rng.shuffle(vals)
+            df_perm.loc[mask, predictor_of_interest] = vals
 
     perm_max_abs_t = 0.0
+    n_attempted = 0
+    n_converged = 0
+    n_failed = 0
+    n_insufficient = 0
+
     for conn_id in connection_ids:
         cols_needed = ["subject", conn_id] + [
             col for col in formula_vars if col in df_perm.columns
@@ -694,20 +1066,33 @@ def _run_max_t_permutation(
         )
 
         if len(df_conn) < 10:
+            n_insufficient += 1
             continue
         if df_conn["subject"].nunique() < 3:
+            n_insufficient += 1
             continue
         if not _predictor_has_variability(df_conn, predictor_of_interest):
+            n_insufficient += 1
             continue
 
+        n_attempted += 1
         result = _fit_single_lmm(
             df_conn, fixed_formula, re_formula,
             predictor_of_interest, method, maxiter,
         )
         if result["converged"] and not np.isnan(result["t_statistic"]):
             perm_max_abs_t = max(perm_max_abs_t, abs(result["t_statistic"]))
+            n_converged += 1
+        else:
+            n_failed += 1
 
-    return perm_max_abs_t
+    diag = {
+        'n_attempted': n_attempted,
+        'n_converged': n_converged,
+        'n_failed': n_failed,
+        'n_insufficient': n_insufficient,
+    }
+    return perm_max_abs_t, diag
 
 
 def apply_max_t_permutation(
@@ -722,6 +1107,8 @@ def apply_max_t_permutation(
     alpha: float = 0.05,
     random_state: int = 42,
     n_jobs: int = 1,
+    permutation_method: str = "simple",
+    perm_diagnostics_csv: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Apply max-t permutation correction for FWER control.
@@ -764,6 +1151,12 @@ def apply_max_t_permutation(
     """
     from joblib import Parallel, delayed
 
+    if permutation_method not in ("simple", "freedman_lane"):
+        raise ValueError(
+            f"Unsupported permutation_method='{permutation_method}'. "
+            "Use 'simple' or 'freedman_lane'."
+        )
+
     df = results_df.copy()
 
     # All permutation seeds from master seed (reproducible)
@@ -774,20 +1167,62 @@ def apply_max_t_permutation(
     fixed_formula, re_formula = _parse_random_effects(formula)
     formula_vars = _extract_formula_variables(formula)
 
+    # Reduced-model fit per connection if Freedman-Lane requested
+    fl_residuals = None
+    fl_fitted = None
+    if permutation_method == "freedman_lane":
+        print(
+            f"  Max-t [{predictor_of_interest}]: fitting reduced model per "
+            f"connection for Freedman-Lane (this runs once)..."
+        )
+        fl_residuals, fl_fitted = _fit_reduced_models_per_connection(
+            df_wide=df_wide,
+            connection_ids=connection_ids,
+            formula=formula,
+            predictor_of_interest=predictor_of_interest,
+            formula_vars=formula_vars,
+            method=method,
+            maxiter=maxiter,
+        )
+
     print(
         f"  Max-t permutation [{predictor_of_interest}]: "
         f"Running {n_permutations} within-subject permutations "
-        f"({n_jobs} parallel jobs) ..."
+        f"(method={permutation_method}, {n_jobs} parallel jobs) ..."
     )
 
-    null_max_t = Parallel(n_jobs=n_jobs, verbose=0, backend="loky")(
+    perm_results = Parallel(n_jobs=n_jobs, verbose=0, backend="loky")(
         delayed(_run_max_t_permutation)(
             seed, df_wide, connection_ids, predictor_of_interest,
             formula_vars, fixed_formula, re_formula, method, maxiter,
+            permutation_method, fl_residuals, fl_fitted,
         )
         for seed in perm_seeds
     )
-    null_max_t = np.array(null_max_t, dtype=float)
+    null_max_t = np.array([r[0] for r in perm_results], dtype=float)
+    perm_diag_records = [
+        {'perm_idx': i, **r[1]} for i, r in enumerate(perm_results)
+    ]
+
+    # Convergence symmetry check (obs vs perm)
+    n_obs_attempted = int(df["t_statistic"].notna().sum())
+    n_obs_converged = int(df["converged"].fillna(False).sum())
+    perm_diag_df = pd.DataFrame(perm_diag_records)
+    perm_n_converged_mean = float(perm_diag_df['n_converged'].mean())
+    perm_n_failed_mean = float(perm_diag_df['n_failed'].mean())
+    print(
+        f"  Max-t: Convergence — observed: {n_obs_converged}/{n_obs_attempted} | "
+        f"perm mean: {perm_n_converged_mean:.1f} converged, "
+        f"{perm_n_failed_mean:.1f} failed"
+    )
+
+    if perm_diagnostics_csv is not None:
+        try:
+            perm_diag_df.to_csv(perm_diagnostics_csv, index=False)
+            print(f"  Max-t: Per-permutation diagnostics saved to "
+                  f"{perm_diagnostics_csv}")
+        except Exception as e:
+            print(f"  Max-t: WARNING could not save diagnostics CSV: {e}")
 
     print(
         f"  Max-t: Null distribution — "

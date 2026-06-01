@@ -1,6 +1,7 @@
 import yaml
 import sys
 from pathlib import Path
+from typing import List
 import re
 import pandas as pd
 
@@ -36,13 +37,25 @@ def main():
         if mtype and mtype not in sample_files_by_type:
             sample_files_by_type[mtype] = f
             
+    # Tuple ordered: try `_trimmean` first (legacy Junifer aggregation), fall
+    # back to `_mean` (current Junifer). Order matters because `_mean` would
+    # otherwise match `_trimmean` columns via endswith — but in fact
+    # `endswith('_mean')` does NOT match `..._trimmean` (preceding char is 'm',
+    # not '_'), so the check is safe in both orders. Kept explicit for clarity.
+    _MARKER_VALUE_SUFFIXES = ("_trimmean", "_mean")
+
     markers_by_type = {}
     for mtype, sample_file in sample_files_by_type.items():
         df = pd.read_csv(sample_file, nrows=0)
         cols = df.columns.tolist()
-        # Find columns ending in _trimmean
-        found_markers = [c.replace('_trimmean', '') for c in cols if c.endswith('_trimmean')]
-        # If no _trimmean but has 'marker' column (old format)
+        # Auto-detect which value suffix is present in this file.
+        found_markers: List[str] = []
+        for suffix in _MARKER_VALUE_SUFFIXES:
+            candidates = [c.replace(suffix, '') for c in cols if c.endswith(suffix)]
+            if candidates:
+                found_markers = candidates
+                break
+        # If no marker-value columns but has long-format 'marker' column
         if not found_markers and 'marker' in cols:
              markers_by_type[mtype] = sorted(pd.read_csv(sample_file, usecols=['marker'])['marker'].unique().tolist())
         else:

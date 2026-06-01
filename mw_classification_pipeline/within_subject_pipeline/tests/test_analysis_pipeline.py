@@ -127,7 +127,7 @@ class TestRunWithinSubjectPermutationAnalysis:
                     results_path=results_path)
 
     def test_returns_dataframe_and_dict(self, setup):
-        results_df, perm_summary = run_within_subject_permutation_analysis(
+        results_df, perm_summary, _, _ = run_within_subject_permutation_analysis(
             dimension="ON_vs_OFF", df=setup["df"], X=setup["X"], y=setup["y"], 
             subjects=setup["groups"], tasks=setup["tasks"], feature_cols=setup["feature_cols"], config=setup["config"],
             model_type="lr", n_permutations=2, results_path=setup["results_path"],
@@ -139,7 +139,7 @@ class TestRunWithinSubjectPermutationAnalysis:
         assert isinstance(perm_summary, dict)
 
     def test_zero_permutations_returns_empty(self, setup):
-        results_df, perm_summary = run_within_subject_permutation_analysis(
+        results_df, perm_summary, _, _ = run_within_subject_permutation_analysis(
             dimension="ON_vs_OFF", df=setup["df"], X=setup["X"], y=setup["y"], 
             subjects=setup["groups"], tasks=setup["tasks"], feature_cols=setup["feature_cols"], config=setup["config"],
             model_type="lr", n_permutations=0, results_path=setup["results_path"],
@@ -156,7 +156,7 @@ class TestRunWithinSubjectPermutationAnalysis:
             {"subject": "04", "mean_auc": 0.75},
         ])
         
-        results_df, perm_summary = run_within_subject_permutation_analysis(
+        results_df, perm_summary, _, _ = run_within_subject_permutation_analysis(
             dimension="ON_vs_OFF", df=setup["df"], X=setup["X"], y=setup["y"], 
             subjects=setup["groups"], tasks=setup["tasks"], feature_cols=setup["feature_cols"], config=setup["config"],
             model_type="lr", n_permutations=2, results_path=setup["results_path"],

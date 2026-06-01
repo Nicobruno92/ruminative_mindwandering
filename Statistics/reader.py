@@ -15,12 +15,43 @@ from typing import Tuple, Dict, List, Optional
 import warnings
 
 
-def load_all_probe_data(features_root: str, 
+# Aggregation-method suffixes that may appear at the end of wide-format marker
+# columns produced by junifer_markers/2.aggregate_probes/aggregate_markers_by_probe.py.
+# Order matters: longer suffixes must be checked before shorter ones so that
+# `_trimmean` is not shadowed by `_mean` (note: `endswith('_mean')` already
+# fails on `..._trimmean` because the preceding char is 'm', not '_', but the
+# ordering is kept defensively).
+AGG_METHOD_SUFFIXES: Tuple[str, ...] = (
+    "_trimmean",
+    "_median",
+    "_mean",
+    "_std",
+    "_min",
+    "_max",
+    "_count",
+)
+
+
+def _strip_agg_suffix(column_name: str) -> Optional[str]:
+    """Return the marker base name if `column_name` ends with a known
+    aggregation-method suffix, otherwise ``None``.
+    """
+    for suffix in AGG_METHOD_SUFFIXES:
+        if column_name.endswith(suffix):
+            return column_name[: -len(suffix)]
+    return None
+
+
+_BEHAVIORAL_COLS = ('onoff', 'valence', 'selfother', 'time', 'confidence')
+
+
+def load_all_probe_data(features_root: str,
                        subjects: Optional[List[str]] = None,
                        tasks: Optional[List[str]] = None,
                        marker_types: Optional[List[str]] = None,
                        specific_markers: Optional[List[str]] = None,
                        qa_exclusions: Optional[Dict[str, set]] = None,
+                       behavioral_data_path: Optional[str] = None,
                        verbose: bool = True) -> pd.DataFrame:
     """
     Load all aggregated probe marker data from CSV files.
@@ -45,8 +76,14 @@ def load_all_probe_data(features_root: str,
     -------
     pd.DataFrame
         Combined dataframe with all probe data in long format
-        Columns: subject, task, probe_number, onoff, marker_type, marker, channel, value, 
-                 plus additional metadata columns
+        Columns: subject, task, probe_number, marker_type, marker, channel, value,
+                 plus behavioral metadata columns if present in source CSVs or merged
+                 from behavioral_data_path.
+    behavioral_data_path : Optional[str]
+        Path to a CSV with probe-level behavioral data (e.g. probe_level_aggregated_data.csv).
+        When the loaded marker CSVs are missing behavioral columns (onoff, valence, selfother,
+        time, confidence), these are merged from this CSV on (subject, task, probe_number).
+        The CSV must contain a 'subject_id' or 'subject' column with integer subject IDs.
     """
     features_path = Path(features_root)
     
@@ -158,23 +195,25 @@ def load_all_probe_data(features_root: str,
             df['marker_type'] = mtype
 
         # Handle wide-format files by melting them
-        # Identification columns (exclude anything ending in _trimmean)
+        # Identification columns are anything that does NOT end in a known
+        # aggregation-method suffix (e.g., `_mean`, `_trimmean`, `_std`).
         all_cols = df.columns.tolist()
-        id_vars = [c for c in all_cols if not c.endswith('_trimmean')]
-        value_vars = [c for c in all_cols if c.endswith('_trimmean')]
-        
+        col_to_marker = {c: _strip_agg_suffix(c) for c in all_cols}
+        value_vars = [c for c, m in col_to_marker.items() if m is not None]
+        id_vars = [c for c in all_cols if c not in value_vars]
+
         # If specific_markers is provided, filter the value_vars before melting
         # or filter the long-format marker column
         if value_vars:
             if specific_markers is not None:
-                wanted_vars = [f"{m}_trimmean" for m in specific_markers]
-                value_vars = [v for v in value_vars if v in wanted_vars]
-                
+                wanted = set(specific_markers)
+                value_vars = [c for c in value_vars if col_to_marker[c] in wanted]
+
             if len(value_vars) > 0:
-                df = df.melt(id_vars=id_vars, value_vars=value_vars, 
+                df = df.melt(id_vars=id_vars, value_vars=value_vars,
                             var_name='marker', value_name='value')
-                # Clean up marker names (remove _trimmean suffix)
-                df['marker'] = df['marker'].str.replace('_trimmean', '')
+                # Clean up marker names (remove whichever agg-method suffix matched)
+                df['marker'] = df['marker'].map(col_to_marker)
             else:
                 # No relevant markers in this wide file
                 continue
@@ -192,7 +231,28 @@ def load_all_probe_data(features_root: str,
     
     # Combine all dataframes
     combined_df = pd.concat(all_data, ignore_index=True)
-    
+
+    # Merge behavioral data when numeric columns are absent from the CSV files
+    missing_behavioral = [c for c in _BEHAVIORAL_COLS if c not in combined_df.columns]
+    if behavioral_data_path is not None and missing_behavioral:
+        beh_df = pd.read_csv(behavioral_data_path)
+        subject_src = 'subject_id' if 'subject_id' in beh_df.columns else 'subject'
+        # Match the subject dtype in combined_df — pandas reads "02" from CSV as int64(2),
+        # so keep behavioral subjects as int rather than zero-padded strings.
+        if pd.api.types.is_integer_dtype(combined_df['subject']):
+            beh_df['subject'] = beh_df[subject_src].astype(int)
+        else:
+            beh_df['subject'] = beh_df[subject_src].astype(int).astype(str).str.zfill(2)
+        beh_df['probe_number'] = beh_df['probe_number'].astype(float).astype(int)
+        combined_df['probe_number'] = combined_df['probe_number'].astype(int)
+        keep = ['subject', 'task', 'probe_number'] + [c for c in _BEHAVIORAL_COLS if c in beh_df.columns]
+        beh_subset = beh_df[keep].drop_duplicates(subset=['subject', 'task', 'probe_number'])
+        combined_df = combined_df.merge(beh_subset, on=['subject', 'task', 'probe_number'], how='left')
+        if verbose:
+            n_with = combined_df['onoff'].notna().sum() if 'onoff' in combined_df.columns else 0
+            print(f"  Merged behavioral data from {behavioral_data_path}: "
+                  f"{n_with}/{len(combined_df)} rows have onoff values")
+
     if verbose:
         print(f"Combined dataset shape: {combined_df.shape}")
         if 'subject' in combined_df.columns:
@@ -906,12 +966,12 @@ def get_available_markers(features_root: str,
                 if 'marker' in sample_df.columns:
                     type_markers_set.update(sample_df['marker'].unique())
                 else:
-                    # Wide format file, get columns ending with _trimmean
-                    all_cols = sample_df.columns.tolist()
-                    value_vars = [c for c in all_cols if c.endswith('_trimmean')]
-                    if value_vars:
-                        # Strip _trimmean to match load_all_probe_data
-                        type_markers_set.update([c.replace('_trimmean', '') for c in value_vars])
+                    # Wide format file, find columns ending in a known
+                    # aggregation-method suffix (e.g., `_mean`, `_trimmean`).
+                    for col in sample_df.columns:
+                        base = _strip_agg_suffix(col)
+                        if base is not None:
+                            type_markers_set.add(base)
             except Exception as e:
                 pass # skip unreadable files
 

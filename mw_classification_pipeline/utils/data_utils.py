@@ -58,6 +58,35 @@ def get_project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _normalize_epoch_types(
+    epoch_types: Union[str, List, Dict],
+) -> Dict[str, Optional[List[str]]]:
+    """
+    Convert any epoch_types config value to a canonical dict.
+
+    Accepts:
+        "state"                          → {"state": None}
+        ["state", "evoked"]              → {"state": None, "evoked": None}
+        ["sleep", {"evoked": ["erp"]}]   → {"sleep": None, "evoked": ["erp"]}
+        {"state": ["spectral"], ...}     → as-is
+
+    Returns
+    -------
+    Dict mapping epoch_type → list of family names to pre-filter (None = all).
+    """
+    if isinstance(epoch_types, str):
+        return {epoch_types: None}
+    if isinstance(epoch_types, dict):
+        return epoch_types
+    result: Dict[str, Optional[List[str]]] = {}
+    for item in epoch_types:
+        if isinstance(item, str):
+            result[item] = None
+        elif isinstance(item, dict):
+            result.update(item)
+    return result
+
+
 def get_model_results_folder(config: Dict, model_name: str, model_type: str) -> str:
     """
     Generate the results folder name for a model.
@@ -481,11 +510,32 @@ def create_label_contrast(
                 "Cannot compute within-subject median because 'subject' column is missing."
             )
         subject_medians = df.groupby("subject")[label_col].transform("median")
-        if positive_above:
-            df["target"] = (df[label_col] > subject_medians).astype(int)
+        gap = contrast_config.get("gap", 0)
+
+        if gap == 0:
+            # No neutral zone: samples at exactly the median fall into the positive class.
+            if positive_above:
+                df["target"] = (df[label_col] >= subject_medians).astype(int)
+            else:
+                df["target"] = (df[label_col] < subject_medians).astype(int)
+            print(f"  Within-subject median split (gap=0): {label_col} "
+                  f"{'>=' if positive_above else '<'} subject_median")
         else:
-            df["target"] = (df[label_col] <= subject_medians).astype(int)
-        print(f"  Within-subject median split: {label_col} {'>' if positive_above else '<='} subject_median")
+            # Neutral zone: probes within ±gap of the subject median are excluded.
+            df["target"] = np.nan
+            if positive_above:
+                df.loc[df[label_col] > subject_medians + gap, "target"] = 1
+                df.loc[df[label_col] < subject_medians - gap, "target"] = 0
+            else:
+                df.loc[df[label_col] < subject_medians - gap, "target"] = 1
+                df.loc[df[label_col] > subject_medians + gap, "target"] = 0
+            n_before = len(df)
+            df = df.dropna(subset=["target"])
+            n_excluded = n_before - len(df)
+            df["target"] = df["target"].astype(int)
+            print(f"  Within-subject median split (gap=±{gap}): "
+                  f"excluded {n_excluded}/{n_before} probes in neutral zone "
+                  f"({n_excluded / n_before:.1%})")
 
     # Mode 3: Simple fixed threshold
     elif split_method == "threshold" or ("threshold" in contrast_config and "threshold_low" not in contrast_config):
@@ -596,6 +646,115 @@ def get_feature_columns(
     feature_cols = [c for c in numeric_cols if c not in metadata_cols]
 
     return feature_cols
+
+
+def handle_missing_features(
+    X: pd.DataFrame,
+    groups: pd.Series,
+    max_feature_nan_frac: float = 0.25,
+    imputation: str = "median",
+    verbose: bool = True,
+) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
+    """
+    Resolve missing values in the feature matrix without discarding all samples.
+
+    Event-property markers (e.g. ``spindles_Amplitude``, ``slowwaves_Slope``) are
+    mathematically undefined on channels/probes where no event was detected, so
+    junifer emits NaN there. In awake SART data these events are rare, producing
+    many partially-NaN columns. The previous logic dropped only *all*-NaN columns
+    and then dropped every *sample* containing any residual NaN — which silently
+    erased the entire dataset. This function fixes that by operating at the
+    column level first.
+
+    Strategy, in order:
+      1. Drop columns that are entirely NaN.
+      2. Drop columns whose global NaN fraction exceeds ``max_feature_nan_frac``
+         (the genuinely sparse event-property markers).
+      3. Resolve the remaining sparse values:
+         - ``imputation`` in {"median", "mean"}: fill per subject (the natural
+           context in a within-subject design), with a global fallback for any
+           subject that is fully NaN in a surviving column. No samples dropped.
+         - ``imputation == "none"``: drop the (now few) samples that still
+           contain NaN — deterministic, no imputed values.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Feature matrix (samples × features). Index is used to align the returned
+        mask; it is reset internally so callers should rely on positional order.
+    groups : pd.Series
+        Subject identifier per sample, positionally aligned with ``X``.
+    max_feature_nan_frac : float
+        Maximum tolerated global NaN fraction per column. Columns above this are
+        dropped. ``0.0`` keeps only fully-observed features.
+    imputation : str
+        One of {"median", "mean", "none"}.
+    verbose : bool
+        Print a summary of what was dropped/filled.
+
+    Returns
+    -------
+    X_clean : pd.DataFrame
+        Feature matrix with sparse columns removed and (unless ``imputation`` is
+        "none") all NaN filled. Row order matches the input; if samples were
+        dropped, only valid rows remain.
+    valid_mask : pd.Series
+        Boolean mask (positionally aligned to the input) marking retained
+        samples. All-True unless ``imputation == 'none'``.
+    feature_cols : List[str]
+        Surviving feature column names.
+    """
+    if imputation not in {"median", "mean", "none"}:
+        raise ValueError(
+            f"imputation must be one of 'median', 'mean', 'none'; got '{imputation}'"
+        )
+
+    X = X.reset_index(drop=True)
+    groups = pd.Series(np.asarray(groups), index=X.index)
+
+    n_cols_before = X.shape[1]
+    nan_frac = X.isna().mean()
+
+    # 1 + 2: drop all-NaN and over-threshold columns in one pass.
+    keep_cols = nan_frac[nan_frac <= max_feature_nan_frac].index.tolist()
+    dropped_cols = [c for c in X.columns if c not in keep_cols]
+    X = X[keep_cols]
+
+    if verbose and dropped_cols:
+        print(
+            f"\n[INFO] Dropped {len(dropped_cols)}/{n_cols_before} sparse feature "
+            f"columns (NaN fraction > {max_feature_nan_frac:.0%})"
+        )
+
+    valid_mask = pd.Series(True, index=X.index)
+
+    residual_nan = int(X.isna().sum().sum())
+    if residual_nan > 0:
+        if imputation == "none":
+            valid_mask = ~X.isna().any(axis=1)
+            n_dropped = int((~valid_mask).sum())
+            if verbose:
+                print(
+                    f"[INFO] imputation='none': dropping {n_dropped} samples with "
+                    f"residual NaN across {len(keep_cols)} features"
+                )
+            X = X[valid_mask]
+        else:
+            agg = "median" if imputation == "median" else "mean"
+            # Per-subject fill: each subject is its own context in a
+            # within-subject pipeline, so this introduces no cross-subject leakage.
+            subj_fill = X.groupby(groups.values).transform(agg)
+            X = X.fillna(subj_fill)
+            # Global fallback for subjects that are entirely NaN in a column.
+            global_fill = X.agg(agg)
+            X = X.fillna(global_fill)
+            if verbose:
+                print(
+                    f"[INFO] Imputed {residual_nan} residual NaN values "
+                    f"(per-subject {agg}, global {agg} fallback); no samples dropped"
+                )
+
+    return X, valid_mask, keep_cols
 
 
 # =============================================================================
@@ -753,7 +912,7 @@ def prepare_data_for_contrast(
     features_root = config["data_paths"]["features_root"]
     subjects = config.get("subjects")
     tasks = config["tasks"]
-    epoch_types = config.get("epoch_types", ["state"])
+    epoch_types = _normalize_epoch_types(config.get("epoch_types", ["state"]))
     feature_families_config = config.get("feature_families", {})
     data_format = config.get("data_format", "per_channel")
     min_minority_ratio = config.get("min_minority_ratio", 0.15)
@@ -871,37 +1030,37 @@ def prepare_data_for_contrast(
     )
 
     # Extract X, y, groups
-    X = df_wide[feature_cols].copy()
-    y = df_wide["target"].copy()
-    groups = df_wide["subject"].copy()
+    X = df_wide[feature_cols].copy().reset_index(drop=True)
+    y = df_wide["target"].copy().reset_index(drop=True)
+    groups = df_wide["subject"].copy().reset_index(drop=True)
+    df_wide = df_wide.reset_index(drop=True)
 
-    # Drop features that are all NaN
-    constant_nan_cols = X.columns[X.isna().all()]
-    if len(constant_nan_cols) > 0:
-        if verbose:
-            print(f"\n[INFO] Dropping {len(constant_nan_cols)} all-NaN features")
-        X = X.drop(columns=constant_nan_cols)
-        feature_cols = [c for c in feature_cols if c not in constant_nan_cols]
+    # Resolve sparse / missing features. Event-property markers
+    # (spindles/slowwaves) are undefined when no event occurs, producing
+    # partially-NaN columns; dropping samples on any-NaN would erase the dataset.
+    preprocessing_cfg = config.get("preprocessing", {})
+    max_feature_nan_frac = preprocessing_cfg.get("max_feature_nan_frac", 0.25)
+    imputation = preprocessing_cfg.get("imputation", "median")
 
-    # Drop samples with any remaining NaN
     n_before = len(X)
-    invalid_mask = X.isna().any(axis=1)
+    X, valid_mask, feature_cols = handle_missing_features(
+        X,
+        groups,
+        max_feature_nan_frac=max_feature_nan_frac,
+        imputation=imputation,
+        verbose=verbose,
+    )
 
-    if invalid_mask.any() and verbose:
-        dropped_df = df_wide[invalid_mask][["subject", "task", "probe_number"]]
-        print(f"\n[WARNING] Dropping {invalid_mask.sum()} samples with missing features:")
-        for _, row in dropped_df.head(10).iterrows():
-            print(f"  - sub-{row['subject']} {row['task']} probe-{row['probe_number']}")
-
-    valid_mask = ~invalid_mask
-    X = X[valid_mask]
-    y = y[valid_mask]
-    groups = groups[valid_mask]
-    df_prepared = df_wide[valid_mask].copy()
+    # Align the other structures to surviving samples (valid_mask is all-True
+    # unless imputation == 'none').
+    y = y[valid_mask].reset_index(drop=True)
+    groups = groups[valid_mask].reset_index(drop=True)
+    df_prepared = df_wide[valid_mask].reset_index(drop=True)
+    X = X.reset_index(drop=True)
     n_after = len(X)
 
     if n_before > n_after and verbose:
-        print(f"  Dropped {n_before - n_after} samples with missing features")
+        print(f"  Dropped {n_before - n_after} samples with residual missing features")
 
     if verbose:
         print(f"\n{'='*60}")

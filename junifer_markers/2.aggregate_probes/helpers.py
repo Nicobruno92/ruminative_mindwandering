@@ -33,17 +33,17 @@ from pathlib import Path
 def get_project_root() -> Path:
     """
     Get project root directory.
-    
+
     Assumes this file is located at:
-    Analysis/eeg/junifer_markers/2.aggregate_probes/helpers.py
-    
+    <repo_root>/junifer_markers/2.aggregate_probes/helpers.py
+
     Returns
     -------
     Path
         Path to project root
     """
-    # Go up 5 levels from helpers.py
-    return Path(__file__).resolve().parent.parent.parent.parent.parent
+    # Go up 3 levels from helpers.py: 2.aggregate_probes/ -> junifer_markers/ -> repo_root/
+    return Path(__file__).resolve().parent.parent.parent
 
 
 # =============================================================================

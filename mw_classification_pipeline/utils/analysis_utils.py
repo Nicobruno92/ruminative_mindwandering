@@ -575,6 +575,7 @@ def run_distribution_analysis(
     pca_n_components: int = None,
     pca_type: str = "standard",
     pca_kernel: str = "rbf",
+    smote_k_neighbors: int = 5,
     logger=None,
 ) -> pd.DataFrame:
     """
@@ -732,6 +733,7 @@ def run_distribution_analysis(
                 pca_n_components=pca_n_components,
                 pca_type=pca_type,
                 pca_kernel=pca_kernel,
+                smote_k_neighbors=smote_k_neighbors,
             )
 
         if run_results.empty:
@@ -944,10 +946,12 @@ def run_permutation_distribution_analysis(
     true_auprc_list=None,
     true_mcc_list=None,
     permutation_scope: str = "global",
+    smote_k_neighbors: int = 5,
     logger=None,
     n_runs: int = 1,
     n_perm_jobs: int = 1,
     cv_n_jobs: int = 1,
+    permutation_seed: int = None,
 ):
     """
     Run permutation test for LOSO classification.
@@ -955,6 +959,15 @@ def run_permutation_distribution_analysis(
     Labels are shuffled n_permutations times and the full LOSO pipeline is
     re-run each time. The resulting null distribution is compared to the true
     classification metrics to estimate empirical p-values.
+
+    Notes
+    -----
+    ``permutation_seed`` (when not None) overrides ``config['random_seed']``
+    for the RNG that produces both the permuted-label sequences and the
+    per-permutation random states. Type I error simulations MUST pass a
+    sim-specific seed here; otherwise every simulation receives the same
+    permuted-label sequence, which silently couples the simulations and
+    breaks the independence assumption behind the empirical FPR estimate.
 
     Parameters
     ----------
@@ -993,7 +1006,8 @@ def run_permutation_distribution_analysis(
     filename_base = f"{model_type}_permutation_{n_permutations}perms"
     feature_names = X.columns
     n_subjects = len(np.unique(groups))
-    rng = np.random.default_rng(config.get("random_seed", 42))
+    _perm_seed = permutation_seed if permutation_seed is not None else config.get("random_seed", 42)
+    rng = np.random.default_rng(_perm_seed)
     all_results = []
     shap_values_all_runs = []
 
@@ -1024,6 +1038,7 @@ def run_permutation_distribution_analysis(
         pca_type=pca_type,
         pca_kernel=pca_kernel,
         cv_n_jobs=cv_n_jobs,
+        smote_k_neighbors=smote_k_neighbors,
     )
 
     # Pre-generate all permuted labels and random seeds sequentially so the
@@ -1041,34 +1056,40 @@ def run_permutation_distribution_analysis(
         Path(perm_run_dir).mkdir(parents=True, exist_ok=True)
         perm_inputs.append((run_idx, y_perm, random_state, perm_run_dir))
 
-    print(f"  Dispatching {n_permutations} permutation jobs (n_perm_jobs={n_perm_jobs})")
+    print(f"  Dispatching {n_permutations} permutation jobs (n_perm_jobs={n_perm_jobs}, cv_n_jobs={cv_n_jobs})")
 
-    job_results = Parallel(n_jobs=n_perm_jobs, backend='loky')(
-        delayed(_run_permutation_loso_job)(
-            run_idx=run_idx,
-            y_perm=y_perm,
-            random_state=random_state,
-            perm_run_dir=perm_run_dir,
-            X=X,
-            groups=groups,
-            df=df,
-            feature_names=feature_names,
-            filename_base=filename_base,
-            cv_kwargs=_loso_cv_kwargs,
-            save_shap=save_shap,
-            save_csv=save_csv,
-            save_probabilities=save_probabilities,
-            dimension=dimension,
-            positive_class_name=positive_class_name,
-            negative_class_name=negative_class_name,
-            n_subjects=n_subjects,
-        )
-        for run_idx, y_perm, random_state, perm_run_dir in perm_inputs
+    _job_kwargs = dict(
+        X=X, groups=groups, df=df, feature_names=feature_names,
+        filename_base=filename_base, cv_kwargs=_loso_cv_kwargs,
+        save_shap=save_shap, save_csv=save_csv,
+        save_probabilities=save_probabilities, dimension=dimension,
+        positive_class_name=positive_class_name,
+        negative_class_name=negative_class_name, n_subjects=n_subjects,
     )
 
-    for result in job_results:
-        if result is not None:
-            all_results.append(result)
+    if n_perm_jobs == 1:
+        for run_idx, y_perm, random_state, perm_run_dir in perm_inputs:
+            perm_start = time.time()
+            result = _run_permutation_loso_job(
+                run_idx=run_idx, y_perm=y_perm, random_state=random_state,
+                perm_run_dir=perm_run_dir, **_job_kwargs,
+            )
+            elapsed = time.time() - perm_start
+            status = "ok" if result is not None else "empty"
+            print(f"  [Perm {run_idx+1}/{n_permutations}] {elapsed:.1f}s | {status}")
+            if result is not None:
+                all_results.append(result)
+    else:
+        job_results = Parallel(n_jobs=n_perm_jobs, backend='loky')(
+            delayed(_run_permutation_loso_job)(
+                run_idx=run_idx, y_perm=y_perm, random_state=random_state,
+                perm_run_dir=perm_run_dir, **_job_kwargs,
+            )
+            for run_idx, y_perm, random_state, perm_run_dir in perm_inputs
+        )
+        for result in job_results:
+            if result is not None:
+                all_results.append(result)
 
     total_time = time.time() - start_time
     print(f"\nPermutation total: {total_time:.1f}s ({total_time/60:.1f}min)")
@@ -1331,6 +1352,7 @@ def _run_permutation_ws_job(
     save_csv: bool,
     save_probabilities: bool,
     dimension: str,
+    y_raw_perm: "pd.Series | None" = None,
 ) -> "dict | None":
     """
     Run one full within-subject permutation pass.
@@ -1396,7 +1418,13 @@ def _run_permutation_ws_job(
         _fs_method = cv_kwargs.get('feature_selection_method', 'mrmr')
         _pass_groups = cv_kwargs.get('cv_strategy') == 'group_kfold' or _fs_method in ('lmm', 'lmm_encoding', 'lmm_decoding')
         groups_sub = tasks[sub_mask].reset_index(drop=True) if _pass_groups else None
-        y_raw_sub = df[sub_mask][label_col].reset_index(drop=True) if use_fold_rebinarize else None
+        if use_fold_rebinarize:
+            # Use permuted raw onoff (shuffled within subject) so per-fold
+            # rebinarization reflects the permutation rather than the true labels.
+            raw_series = y_raw_perm if y_raw_perm is not None else df[label_col]
+            y_raw_sub = raw_series[sub_mask].reset_index(drop=True)
+        else:
+            y_raw_sub = None
 
         counts = y_sub.value_counts()
         if len(counts) < 2 or counts.min() < min_samples_per_class:
@@ -1660,6 +1688,7 @@ def run_within_subject_distribution_analysis(
     n_subject_jobs: int = 1,
     cv_n_jobs: int = 1,
     lmm_n_jobs: int = 1,
+    smote_k_neighbors: int = 5,
     logger=None,
 ):
     """
@@ -1680,13 +1709,12 @@ def run_within_subject_distribution_analysis(
     feature_names = X.columns
     unique_subjects = np.unique(subjects)
 
-    # Detect within_subject_median contrast to enable per-fold re-binarization.
-    # When active, y_raw (continuous onoff scores) is passed into each CV fold
-    # so the binarization threshold is computed on training data only.
+    # Labels are fixed at dataset-load time (within_subject_median computed once
+    # on the full subject data). No per-fold re-binarization.
     _label_contrast_cfg = config.get("label_contrasts", {}).get(dimension, {})
     _split_method = _label_contrast_cfg.get("split_method", "threshold")
     _label_col = _label_contrast_cfg.get("column_name", "onoff")
-    _use_fold_rebinarize = (_split_method == "within_subject_median") and (_label_col in df.columns)
+    _use_fold_rebinarize = False
 
     rng = np.random.default_rng(config.get("random_seed", 42))
 
@@ -1753,6 +1781,7 @@ def run_within_subject_distribution_analysis(
         pca_kernel=pca_kernel,
         cv_n_jobs=cv_n_jobs,
         lmm_n_jobs=lmm_n_jobs,
+        smote_k_neighbors=smote_k_neighbors,
     )
 
     for run_idx in range(n_runs):
@@ -1940,11 +1969,19 @@ def run_within_subject_permutation_analysis(
     n_perm_jobs: int = 1,
     cv_n_jobs: int = 1,
     lmm_n_jobs: int = 1,
+    smote_k_neighbors: int = 5,
     logger=None,
+    permutation_seed: int = None,
 ):
     """
     Run permutation testing natively inside the within-subject level.
     The y-labels are locally shuffled intra-subject independently, then evaluated.
+
+    ``permutation_seed`` (when not None) overrides ``config['random_seed']``
+    for the RNG used to permute labels and draw per-permutation random states.
+    Type I error simulations MUST pass a sim-specific seed here; otherwise
+    every simulation receives the same permuted-label sequence, coupling
+    simulations and breaking the FPR independence assumption.
     """
     if n_permutations < 1:
         return pd.DataFrame(), {}, [], []
@@ -1956,7 +1993,8 @@ def run_within_subject_permutation_analysis(
     filename_base = f"{model_type}_ws_permutation_{n_permutations}perms"
     feature_names = X.columns
     unique_subjects = np.unique(subjects)
-    rng = np.random.default_rng(config.get("random_seed", 42))
+    _perm_seed = permutation_seed if permutation_seed is not None else config.get("random_seed", 42)
+    rng = np.random.default_rng(_perm_seed)
 
     # Detect within_subject_median split to enable per-fold re-binarization.
     _label_contrast_cfg = config.get("label_contrasts", {}).get(dimension, {})
@@ -1992,19 +2030,34 @@ def run_within_subject_permutation_analysis(
         pca_kernel=pca_kernel,
         cv_n_jobs=cv_n_jobs,
         lmm_n_jobs=lmm_n_jobs,
+        smote_k_neighbors=smote_k_neighbors,
     )
 
     # Pre-generate all permuted labels and random seeds sequentially so the
     # RNG state is deterministic regardless of job execution order.
+    # When use_fold_rebinarize is active, fits rebuild labels from the raw
+    # onoff column per fold — so shuffling only the binary y is a no-op.
+    # Shuffle the raw onoff within subject and derive the binary from it so
+    # both the class-balance gate and the fold rebinarization see the same
+    # permuted labels.
     perm_inputs = []
     for run_idx in range(n_permutations):
-        y_perm = y.groupby(subjects, group_keys=False).transform(
-            lambda x: rng.permutation(x.values)
-        )
+        if _use_fold_rebinarize:
+            y_raw_perm = df[_label_col].groupby(subjects, group_keys=False).transform(
+                lambda x: rng.permutation(x.values)
+            )
+            y_perm = y_raw_perm.groupby(subjects, group_keys=False).transform(
+                lambda x: (x > x.median()).astype(int)
+            )
+        else:
+            y_raw_perm = None
+            y_perm = y.groupby(subjects, group_keys=False).transform(
+                lambda x: rng.permutation(x.values)
+            )
         random_state = int(rng.integers(1, 10000))
         perm_run_dir = os.path.join(perm_base_path, f"run_{run_idx}")
         Path(perm_run_dir).mkdir(parents=True, exist_ok=True)
-        perm_inputs.append((run_idx, y_perm, random_state, perm_run_dir))
+        perm_inputs.append((run_idx, y_perm, y_raw_perm, random_state, perm_run_dir))
 
     print(f"  Dispatching {n_permutations} permutation jobs (n_perm_jobs={n_perm_jobs})")
 
@@ -2012,6 +2065,7 @@ def run_within_subject_permutation_analysis(
         delayed(_run_permutation_ws_job)(
             run_idx=run_idx,
             y_perm=y_perm,
+            y_raw_perm=y_raw_perm,
             random_state=random_state,
             perm_run_dir=perm_run_dir,
             X=X,
@@ -2030,7 +2084,7 @@ def run_within_subject_permutation_analysis(
             save_probabilities=save_probabilities,
             dimension=dimension,
         )
-        for run_idx, y_perm, random_state, perm_run_dir in perm_inputs
+        for run_idx, y_perm, y_raw_perm, random_state, perm_run_dir in perm_inputs
     )
 
     all_perm_results = []

@@ -13,6 +13,7 @@ Orchestrates the analysis:
 import argparse
 import gc
 import os
+import shutil
 import yaml
 import numpy as np
 import pandas as pd
@@ -23,6 +24,10 @@ from typing import Dict, List, Optional
 from reader import (
     load_connectivity_data,
     aggregate_to_roi_pairs,
+    apply_qa_filter,
+    merge_pca_results,
+    normalize_wsmi_by_subject,
+    normalize_predictors,
     prepare_connectivity_for_lmm,
     get_roi_pair_labels,
 )
@@ -31,6 +36,7 @@ from lmm_connectivity import (
     apply_fdr_correction,
     apply_nbs_correction,
     apply_max_t_permutation,
+    apply_family_wise_correction,
 )
 from plot_connectivity import (
     plot_contrast_matrix,
@@ -175,6 +181,25 @@ def run_analysis_level(
                 # Get n_jobs from config or environment (SLURM_CPUS_PER_TASK)
                 n_jobs = nbs_cfg.get("n_jobs", int(os.environ.get("SLURM_CPUS_PER_TASK", 1)))
                 
+                # Permutation method (simple vs freedman_lane). Freedman-Lane
+                # preserves the covariance structure between predictor and
+                # nuisance covariates under H0; recommended when covariates
+                # are correlated with the predictor of interest.
+                permutation_method = nbs_cfg.get("permutation_method", "simple")
+
+                # Path for per-permutation convergence diagnostics CSV. We
+                # build it here (not inside the correction function) so the
+                # filename matches the band/predictor naming used elsewhere.
+                epoch_suffix_pre = (
+                    f"_{epoch_type.replace('_connectivity', '')}"
+                    if epoch_type else ""
+                )
+                band_key_pre = f"{band}{epoch_suffix_pre}"
+                perm_diag_csv = str(
+                    output_dir
+                    / f"perm_diagnostics_{band_key_pre}_{predictor}.csv"
+                )
+
                 if correction_method == "nbs":
                     results = apply_nbs_correction(
                         results_df=results,
@@ -189,6 +214,8 @@ def run_analysis_level(
                         alpha=nbs_cfg.get("alpha", 0.05),
                         random_state=lmm_cfg.get("random_state", 42),
                         n_jobs=n_jobs,
+                        permutation_method=permutation_method,
+                        perm_diagnostics_csv=perm_diag_csv,
                     )
                 elif correction_method == "max_t":
                     results = apply_max_t_permutation(
@@ -203,6 +230,8 @@ def run_analysis_level(
                         alpha=nbs_cfg.get("alpha", 0.05),
                         random_state=lmm_cfg.get("random_state", 42),
                         n_jobs=n_jobs,
+                        permutation_method=permutation_method,
+                        perm_diagnostics_csv=perm_diag_csv,
                     )
 
                 # Save per-band-epoch-predictor results
@@ -246,16 +275,17 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
     features_root = project["features_root"]
     rois = config.get("rois", {})
     bands = config.get("bands", ["theta", "alpha", "beta", "gamma"])
-    
+
     # Override bands if single_band specified (for parallel execution)
     if single_band:
         if single_band not in bands:
             raise ValueError(f"Band '{single_band}' not in config bands: {bands}")
         bands = [single_band]
         print(f"\n  PARALLEL MODE: Processing only {single_band} band")
-    
+
     analysis_level = config.get("analysis_level", "both")
     out_cfg = config.get("output", {})
+    preproc_cfg = config.get("preprocessing", {})
 
     print(f"\n  Features root: {features_root}")
     print(f"  Output: {output_base}")
@@ -264,10 +294,19 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
 
     roi_output = output_base / "roi_level"
     channel_output = output_base / "channel_level"
+    output_base.mkdir(parents=True, exist_ok=True)
     if analysis_level in ("roi", "both"):
         roi_output.mkdir(parents=True, exist_ok=True)
     if analysis_level in ("channel", "both"):
         channel_output.mkdir(parents=True, exist_ok=True)
+
+    # Snapshot the resolved config alongside the results so re-runs and
+    # downstream consumers (figures, tables) can be traced back to the exact
+    # parameters that produced them. ``shutil.copy2`` preserves mtime — useful
+    # when comparing config edits across runs.
+    snapshot_path = output_base / "used_config.yaml"
+    shutil.copy2(config_path, snapshot_path)
+    print(f"  Config snapshot: {snapshot_path}")
 
     roi_results: Dict[str, pd.DataFrame] = {}
     channel_results: Dict[str, pd.DataFrame] = {}
@@ -290,6 +329,50 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
             bands=[band],
             verbose=True,
         )
+
+        # ── QA filter ─────────────────────────────────────────────────────
+        # Drop (subject, task, epoch_type) tuples that failed preprocessing QA.
+        if project.get("exclude_failed_qa", False) and project.get("qa_summary_path"):
+            band_df = apply_qa_filter(
+                df=band_df,
+                qa_summary_path=project["qa_summary_path"],
+                epoch_types=config.get("epoch_types"),
+                verbose=True,
+            )
+
+        # ── Merge PCA components ──────────────────────────────────────────
+        # Brings PC1/PC2/PC3 from probe-level PCA into the connectivity df so
+        # they can be referenced from the LMM formula.
+        pca_path = project.get("pca_results_path")
+        if pca_path and Path(pca_path).exists():
+            band_df = merge_pca_results(
+                df=band_df,
+                pca_results_path=pca_path,
+                verbose=True,
+            )
+
+        # ── Per-subject wSMI normalization ────────────────────────────────
+        if preproc_cfg.get("normalize_by_subject", False):
+            band_df = normalize_wsmi_by_subject(
+                df=band_df,
+                method=preproc_cfg.get("normalization_method", "zscore"),
+                channel_wise=preproc_cfg.get("channel_wise", False),
+                subject_column=preproc_cfg.get("subject_column", "subject"),
+                verbose=True,
+            )
+
+        # ── Predictor z-scoring ───────────────────────────────────────────
+        # Z-scored continuous predictors give comparable β coefficients across
+        # covariates with different units; binary predictors (onoff) are
+        # auto-skipped inside normalize_predictors.
+        pred_norm_cfg = preproc_cfg.get("predictor_normalization", {})
+        if pred_norm_cfg.get("enabled", False):
+            band_df = normalize_predictors(
+                df=band_df,
+                predictors=pred_norm_cfg.get("predictors", []),
+                method=pred_norm_cfg.get("method", "zscore"),
+                verbose=True,
+            )
 
         # ── ROI-level analysis for this band ─────────────────────────────
         if analysis_level in ("roi", "both"):
@@ -325,14 +408,66 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
         del band_df
         gc.collect()
 
+    # ── Family-wise correction across (band × predictor) tests ───────────
+    # Each per-(band, predictor) NBS / FDR test controls FWER only within
+    # itself; running multiple tests inflates the joint α. Bonferroni at the
+    # family level prevents that.  When enabled, the per-test CSVs are
+    # rewritten with the new p_value_*_family columns and downstream plots
+    # use the family-wise sig column.
+    fwc_cfg = config.get("family_wise_correction", {})
+    fwc_enabled = fwc_cfg.get("enabled", False)
+    fwc_method = fwc_cfg.get("method", "bonferroni")
+    fwc_alpha = fwc_cfg.get("alpha", 0.05)
+
+    roi_correction = config.get("correction", {}).get("roi", "fdr")
+    ch_correction = config.get("correction", {}).get("channel", "nbs")
+    roi_base_p = _p_col_for_method(roi_correction)
+    ch_base_p = _p_col_for_method(ch_correction)
+
+    if fwc_enabled and fwc_method != "none":
+        if roi_results:
+            roi_results, roi_fwc_cols, n_roi_tests = apply_family_wise_correction(
+                roi_results, base_p_col=roi_base_p, alpha=fwc_alpha, method=fwc_method,
+            )
+            print(
+                f"  Family-wise [{fwc_method}] across {n_roi_tests} ROI test(s) "
+                f"on {roi_base_p} → {roi_fwc_cols['sig']}"
+            )
+        else:
+            roi_fwc_cols = {"p": roi_base_p, "sig": ""}
+
+        if channel_results:
+            channel_results, ch_fwc_cols, n_ch_tests = apply_family_wise_correction(
+                channel_results, base_p_col=ch_base_p, alpha=fwc_alpha, method=fwc_method,
+            )
+            print(
+                f"  Family-wise [{fwc_method}] across {n_ch_tests} channel test(s) "
+                f"on {ch_base_p} → {ch_fwc_cols['sig']}"
+            )
+        else:
+            ch_fwc_cols = {"p": ch_base_p, "sig": ""}
+
+        # Rewrite per-test CSVs so they include the family-wise columns.
+        for predictor, by_band in roi_results.items():
+            for band_key, df in by_band.items():
+                df.to_csv(roi_output / f"lmm_results_{band_key}_{predictor}.csv",
+                          index=False)
+        for predictor, by_band in channel_results.items():
+            for band_key, df in by_band.items():
+                df.to_csv(channel_output / f"lmm_results_{band_key}_{predictor}.csv",
+                          index=False)
+    else:
+        roi_fwc_cols = {"p": roi_base_p, "sig": ""}
+        ch_fwc_cols = {"p": ch_base_p, "sig": ""}
+
     # ── Figures (after all bands collected) ───────────────────────────────
     if out_cfg.get("save_figures", True):
 
-        # Determine which significance column to use for plots per level
-        roi_correction = config.get("correction", {}).get("roi", "fdr")
-        ch_correction = config.get("correction", {}).get("channel", "nbs")
-        roi_sig_col = _sig_col_for_method(roi_correction)
-        ch_sig_col = _sig_col_for_method(ch_correction)
+        # Determine which significance column to use for plots per level.
+        # If family-wise correction was applied, prefer that; otherwise the
+        # per-test column for the configured correction method.
+        roi_sig_col = roi_fwc_cols["sig"] or _sig_col_for_method(roi_correction)
+        ch_sig_col = ch_fwc_cols["sig"] or _sig_col_for_method(ch_correction)
 
         if roi_results:
             print("\n  Generating ROI-level figures...")
@@ -396,7 +531,8 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
                     continue
                     
                 for band, results in p_channel_results.items():
-                    # Matrix plot
+                    # Matrix plot — pass `rois` so channels are grouped by ROI
+                    # block (separator lines + topographic order within block).
                     fig_path = channel_output / f"channel_matrix_{band}_{predictor}.png"
                     plot_channel_contrast_matrix(
                         results_df=results,
@@ -404,6 +540,7 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
                         title=f"wSMI {band} – Channel LMM t-stat ({ch_correction}, {predictor})",
                         save_path=str(fig_path),
                         dpi=out_cfg.get("fig_dpi", 300),
+                        rois=rois,
                     )
                     plt.close("all")
 
@@ -462,6 +599,19 @@ def _sig_col_for_method(method: str) -> str:
         "max_t": "significant_perm",
     }
     return mapping.get(method, "significant_fdr")
+
+
+def _p_col_for_method(method: str) -> str:
+    """
+    Map correction method name to its p-value column (used as the input to
+    the family-wise Bonferroni multiplier).
+    """
+    mapping = {
+        "fdr": "p_value_fdr",
+        "nbs": "p_value_nbs",
+        "max_t": "p_value_perm",
+    }
+    return mapping.get(method, "p_value_fdr")
 
 
 # =============================================================================

@@ -95,6 +95,7 @@ from utils.simulation_utils import (
 from run_loso_classification import (
     filter_features_by_family,
     extract_model_params,
+    resolve_family,
 )
 
 
@@ -402,6 +403,7 @@ def run_single_simulation(
         permutation_scope=config.get("permutation_scope", "within"),
         logger=logger,
         n_runs=n_runs,
+        permutation_seed=sim_random_state,
     )
 
     sim_result = {
@@ -589,6 +591,12 @@ def main() -> None:
     config["current_model"] = contrast_name
     config["results_folder_pattern"] = ""
 
+    # Resolve family → inject epoch_types into config so the loader knows
+    # which marker files to load (mirrors run_loso_classification.main).
+    feature_families = config.get("feature_families", {})
+    family_epoch_types, family_prefixes = resolve_family(family_name, feature_families)
+    config["epoch_types"] = family_epoch_types
+
     df_prepared, X_real, y_real, groups, feature_cols = prepare_data_for_contrast(
         config, contrast_name, verbose=verbose
     )
@@ -597,9 +605,7 @@ def main() -> None:
         print(f"ERROR: Insufficient data ({len(X_real)} samples). Need at least 50.")
         sys.exit(1)
 
-    X_template = filter_features_by_family(
-        X_real, family_name, config.get("feature_families", {"all": None})
-    )
+    X_template = filter_features_by_family(X_real, family_name, family_prefixes)
 
     model_params = extract_model_params(config)
 

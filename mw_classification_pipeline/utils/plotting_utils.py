@@ -2805,6 +2805,80 @@ def _extract_subject_metric_distributions(
     return {k: np.array(v) for k, v in subject_data.items()}
 
 
+def _find_degenerate_subjects(all_results: list, metric: str) -> set:
+    """
+    Find subjects whose metric is constant across all runs (std ≈ 0).
+
+    A constant value across runs indicates a degenerate classifier (e.g. always
+    predicts the same class). These subjects are excluded from aggregated
+    statistics and visualisations.
+
+    Parameters
+    ----------
+    all_results : list of dict
+        True run-summary dicts.
+    metric : str
+        Metric key (without 'mean_' prefix).
+
+    Returns
+    -------
+    set of str
+        Subject IDs whose metric has zero variance across all runs.
+    """
+    subject_data = _extract_subject_metric_distributions(all_results, metric)
+    return {
+        sub for sub, vals in subject_data.items()
+        if len(vals) >= 1 and np.std(vals) < 1e-9
+    }
+
+
+def _extract_per_run_metric_filtered(
+    all_results: list,
+    metric: str,
+    exclude_subjects: set,
+) -> np.ndarray:
+    """
+    Compute one per-run mean metric value, excluding specified subjects.
+
+    Falls back to the stored global mean when a run has no subject-level data.
+
+    Parameters
+    ----------
+    all_results : list of dict
+        Run-summary dicts.
+    metric : str
+        Metric key (without 'mean_' prefix).
+    exclude_subjects : set of str
+        Subject IDs to skip when computing each run's mean.
+
+    Returns
+    -------
+    np.ndarray
+        One mean value per run, shape (n_runs,).
+    """
+    if not exclude_subjects:
+        return _extract_per_run_metric(all_results, metric)
+    values = []
+    for run in all_results:
+        sub_metrics = run.get("loso_subject_metrics") or []
+        run_vals = []
+        for entry in sub_metrics:
+            sub = str(entry.get("subject", ""))
+            if sub in exclude_subjects:
+                continue
+            val = entry.get(metric, entry.get(f"mean_{metric}"))
+            if val is not None and np.isfinite(float(val)):
+                run_vals.append(float(val))
+        if run_vals:
+            values.append(float(np.mean(run_vals)))
+        else:
+            col = f"mean_{metric}"
+            v = run.get(col)
+            if v is not None and np.isfinite(float(v)):
+                values.append(float(v))
+    return np.array(values)
+
+
 def _extract_roc_data(all_results: list) -> tuple:
     """
     Collect all per-fold TPR/FPR arrays from across all runs.
@@ -2911,11 +2985,14 @@ def plot_global_distribution_comparison(
         "recall": "Recall",
     }
 
-    # Collect metrics that have at least some data
+    # Collect metrics that have at least some data.
+    # Degenerate subjects (constant metric across all runs) are excluded from
+    # per-run means so they do not pull the global distribution toward chance.
     valid = []
     for m in metrics:
-        tv = _extract_per_run_metric(true_all_results, m)
-        pv = _extract_per_run_metric(perm_all_results, m)
+        degenerate_subs = _find_degenerate_subjects(true_all_results, m)
+        tv = _extract_per_run_metric_filtered(true_all_results, m, degenerate_subs)
+        pv = _extract_per_run_metric_filtered(perm_all_results, m, degenerate_subs)
         if len(tv) > 0 or len(pv) > 0:
             valid.append((m, tv, pv))
     if not valid:
@@ -3077,9 +3154,12 @@ def plot_subject_violin_comparison(
         true_sub = _extract_subject_metric_distributions(true_all_results, metric)
         perm_sub = _extract_subject_metric_distributions(perm_all_results, metric)
 
-        # Keep subjects present in BOTH
+        # Keep subjects present in BOTH with non-degenerate true distributions.
+        # Subjects with std=0 across all runs produced a constant (degenerate)
+        # classifier and are excluded from plots and aggregated statistics.
         subjects = sorted(
-            set(true_sub.keys()) & set(perm_sub.keys()),
+            [s for s in (set(true_sub.keys()) & set(perm_sub.keys()))
+             if np.std(true_sub[s]) > 1e-9],
             key=lambda x: int(x) if str(x).isdigit() else x,
         )
         if not subjects:
@@ -3110,8 +3190,8 @@ def plot_subject_violin_comparison(
         }
         metric_label = label_map.get(metric, metric.upper())
 
-        # Draw half-violin (split violin) density plots per subject.
-        # True distribution fills the top half (above center); Permuted fills the bottom.
+        # Draw half-violin density plots per subject.
+        # Both true (pink) and permuted (grey) fill above the centre line (same side).
         from scipy.stats import gaussian_kde
 
         positions = list(range(len(subjects)))
@@ -3137,8 +3217,8 @@ def plot_subject_violin_comparison(
             tv = true_sub[sub]
             pv = perm_sub.get(sub, np.array([]))
 
-            for vals, color, sign in [(pv, COLOR_PERM, -1), (tv, COLOR_TRUE, +1)]:
-                if len(vals) < 2 or np.std(vals) == 0:
+            for vals, color, sign in [(pv, COLOR_PERM, +1), (tv, COLOR_TRUE, +1)]:
+                if len(vals) < 2 or np.std(vals) < 1e-9:
                     if len(vals) >= 1:
                         ax_v.scatter(float(np.mean(vals)), pos + sign * 0.12,
                                      color=color, s=25, zorder=5, alpha=0.85)
@@ -3789,7 +3869,132 @@ def plot_probability_vs_raw(consolidated_df: pd.DataFrame, comparison_results_pa
     g.set_axis_labels(f'Raw ({raw_col.replace("_first", "")})', 'Pred Probability')
     g.fig.subplots_adjust(top=0.92)
     g.fig.suptitle('By Subject: Probability vs Raw Score', fontsize=16)
-    
+
     faceted_path = os.path.join(plots_dir, f"{filename_base}_prob_vs_raw_faceted.png")
     g.savefig(faceted_path, dpi=300, bbox_inches='tight')
     plt.close(g.fig)
+
+
+# =============================================================================
+# AUC VS ON/OFF SCALE DISPERSION
+# =============================================================================
+
+def plot_auc_vs_onoff_dispersion(
+    subject_auc_df: pd.DataFrame,
+    df_prepared: pd.DataFrame,
+    results_path: str,
+    filename_base: str,
+    pipeline_label: str = "LOSO",
+) -> None:
+    """
+    Scatter plot of per-subject AUC vs per-subject SD of on/off ratings.
+
+    Relates classification performance to how broadly each subject uses
+    the categorization scale. A high SD means the subject used extreme
+    values; a low SD means ratings were compressed around the center.
+
+    Parameters
+    ----------
+    subject_auc_df : pd.DataFrame
+        Columns: 'subject', 'auc'. One row per subject, AUC averaged over runs.
+    df_prepared : pd.DataFrame
+        Full prepared DataFrame with 'subject' and 'onoff' columns.
+    results_path : str
+        Directory where plot files are saved.
+    filename_base : str
+        Filename prefix (matches the other result files for this run).
+    pipeline_label : str
+        Pipeline name for the plot title ('LOSO' or 'WithinSubject').
+    """
+    if "onoff" not in df_prepared.columns:
+        print("Warning: 'onoff' column not found in df_prepared — skipping AUC vs dispersion plot.")
+        return
+
+    onoff_stats = (
+        df_prepared.groupby("subject")["onoff"]
+        .agg(onoff_std="std", onoff_mean="mean")
+        .reset_index()
+    )
+
+    plot_df = pd.merge(subject_auc_df, onoff_stats, on="subject", how="inner")
+    if plot_df.empty:
+        print("Warning: No subjects matched between AUC data and onoff data — skipping plot.")
+        return
+
+    x = plot_df["onoff_std"].values.astype(float)
+    y = plot_df["auc"].values.astype(float)
+    valid = np.isfinite(x) & np.isfinite(y)
+
+    r_val, p_val = np.nan, np.nan
+    slope, intercept = np.nan, np.nan
+    if valid.sum() >= 3:
+        r_val, p_val = stats.pearsonr(x[valid], y[valid])
+        slope, intercept, *_ = stats.linregress(x[valid], y[valid])
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=plot_df["onoff_std"],
+        y=plot_df["auc"],
+        mode='markers+text',
+        text=plot_df["subject"].astype(str),
+        textposition='top center',
+        textfont=dict(size=9),
+        marker=dict(color=COLORS[0], size=10, opacity=0.85,
+                    line=dict(color='white', width=1)),
+        name='Subjects',
+        hovertemplate=(
+            'Subject: %{text}<br>'
+            'onoff SD: %{x:.2f}<br>'
+            'AUC: %{y:.3f}<extra></extra>'
+        ),
+    ))
+
+    if np.isfinite(slope):
+        x_line = np.array([np.nanmin(x[valid]), np.nanmax(x[valid])])
+        y_line = slope * x_line + intercept
+        fig.add_trace(go.Scatter(
+            x=x_line,
+            y=y_line,
+            mode='lines',
+            line=dict(color='black', width=2, dash='dash'),
+            name=f'r = {r_val:.2f}, p = {p_val:.3f}',
+        ))
+
+    fig.add_hline(
+        y=0.5, line_dash='dash', line_color='gray', opacity=0.5,
+        annotation_text='Chance (0.5)', annotation_position='bottom right',
+    )
+
+    corr_label = (
+        f"r = {r_val:.3f}, p = {p_val:.3f}" if np.isfinite(r_val) else "r = N/A"
+    )
+    fig.update_layout(
+        template='plotly_white',
+        title=dict(
+            text=(
+                f'<b>{pipeline_label}: AUC vs On/Off Scale Dispersion</b><br>'
+                f'<sup>{corr_label} | n = {valid.sum()} subjects</sup>'
+            ),
+            font=dict(size=16),
+        ),
+        xaxis_title='Per-subject SD of on/off ratings (scale dispersion)',
+        yaxis_title='AUC',
+        yaxis=dict(range=[max(0.0, float(np.nanmin(y)) - 0.1),
+                          min(1.0, float(np.nanmax(y)) + 0.1)]),
+        width=800,
+        height=650,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    )
+
+    os.makedirs(results_path, exist_ok=True)
+    out_path = os.path.join(results_path, f"{filename_base}_auc_vs_onoff_dispersion")
+    try:
+        fig.write_image(f"{out_path}.png", scale=2)
+        fig.write_image(f"{out_path}.pdf")
+        fig.write_html(f"{out_path}.html")
+    except Exception as e:
+        print(f"Warning: Could not save AUC vs dispersion plot: {e}")
+
+    plot_df.to_csv(f"{out_path}_data.csv", index=False)
+    print(f"  Saved AUC vs onoff dispersion → {out_path}.png")

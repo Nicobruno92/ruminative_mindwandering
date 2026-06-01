@@ -5,6 +5,7 @@
 
 with:
   - junifer_eeg
+  - sart_datagrabber_picnic
 workdir: .
 
 datagrabber:
@@ -32,14 +33,14 @@ storage:
   kind: HDF5FeatureStorage
   # With single_output: false, creates individual files per element
   # Pattern: element_{subject}_{session}_{task}_{desc}_markers.h5
-  uri: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/BIDS/features/junifer/markers.h5
+  uri: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features/junifer/markers.h5
   single_output: false
   
 markers:
   # ========================================
   # 1. SPECTRAL ANALYSIS: Absolute Power (dB)
   # ========================================
-  - kind: SpectralPower
+  - kind: SpectralPowerBands
     name: psd_bands
     bands:
       delta: [1.0, 4.0]
@@ -53,13 +54,13 @@ markers:
     n_fft: 1024
     n_per_seg: 512
     n_overlap: 256
-    trial_aggregation_method: null
+    trial_method: null
     on: EEG
 
   # ========================================
   # 2. SPECTRAL ANALYSIS: Relative Power (normalized)
   # ========================================
-  - kind: SpectralPower
+  - kind: SpectralPowerBands
     name: psd_relative
     bands:
       delta: [1.0, 4.0]
@@ -73,7 +74,7 @@ markers:
     n_fft: 1024
     n_per_seg: 512
     n_overlap: 256 
-    trial_aggregation_method: null
+    trial_method: null
     on: EEG
 
   # ========================================
@@ -84,11 +85,9 @@ markers:
     tmin:
     tmax:
     kernel: 3
-    tau: 8
+    taus: [8]
     weighted: true
     csd: true
-    connectivity_aggregation_method: "median"
-    trial_aggregation_method: null
     on: EEG
   
   - kind: SymbolicMutualInformation
@@ -96,11 +95,9 @@ markers:
     tmin:
     tmax:
     kernel: 3
-    tau: 4
+    taus: [4]
     weighted: true
     csd: true
-    connectivity_aggregation_method: "median"
-    trial_aggregation_method: null
     on: EEG
 
   - kind: SymbolicMutualInformation
@@ -108,11 +105,9 @@ markers:
     tmin:
     tmax:
     kernel: 3
-    tau: 2
+    taus: [2]
     weighted: true
     csd: true
-    connectivity_aggregation_method: "median"
-    trial_aggregation_method: null
     on: EEG
   
   - kind: SymbolicMutualInformation
@@ -120,11 +115,9 @@ markers:
     tmin:
     tmax:
     kernel: 3
-    tau: 1
+    taus: [1]
     weighted: true
     csd: true
-    connectivity_aggregation_method: "median"
-    trial_aggregation_method: null
     on: EEG
 
   # ========================================
@@ -133,29 +126,29 @@ markers:
   - kind: PermutationEntropy
     name: PE_theta
     kernel: 3
-    tau: 8
-    trial_aggregation_method: null
+    taus: [8]
+    trial_method: null
     on: EEG
 
   - kind: PermutationEntropy
     name: PE_alpha
     kernel: 3
-    tau: 4
-    trial_aggregation_method: null
+    taus: [4]
+    trial_method: null
     on: EEG
 
   - kind: PermutationEntropy
     name: PE_beta
     kernel: 3
-    tau: 2
-    trial_aggregation_method: null
+    taus: [2]
+    trial_method: null
     on: EEG
 
   - kind: PermutationEntropy
     name: PE_gamma
     kernel: 3
-    tau: 1
-    trial_aggregation_method: null
+    taus: [1]
+    trial_method: null
     on: EEG
 
   # ========================================
@@ -163,7 +156,7 @@ markers:
   # ========================================
   - kind: KolmogorovComplexity
     name: kolmogorov_complexity
-    trial_aggregation_method: null
+    trial_method: null
     on: EEG
 
   # ========================================
@@ -176,7 +169,7 @@ markers:
     tmax: 0.130
     baseline: [-0.2, 0]
     reference: ["TP9", "TP10"]
-    trial_aggregation_method: null
+    trial_method: null
     on: EEG
 
   - kind: TimeLockedTopography
@@ -185,7 +178,7 @@ markers:
     tmax: 0.200
     baseline: [-0.2, 0]
     reference: ["TP9", "TP10"]
-    trial_aggregation_method: null
+    trial_method: null
     on: EEG
 
   - kind: TimeLockedTopography
@@ -194,7 +187,7 @@ markers:
     tmax: 0.250
     baseline: [-0.2, 0]
     reference: ["TP9", "TP10"]
-    trial_aggregation_method: null
+    trial_method: null
     on: EEG
   
   # Late component (P3-like, ) 
@@ -204,7 +197,7 @@ markers:
     tmax: 0.350
     baseline: [-0.2, 0]
     reference: ["TP9", "TP10"]
-    trial_aggregation_method: null
+    trial_method: null
     on: EEG
 
   - kind: TimeLockedTopography
@@ -213,5 +206,5 @@ markers:
     tmax: 0.500
     baseline: [-0.2, 0]
     reference: ["TP9", "TP10"]
-    trial_aggregation_method: null
+    trial_method: null
     on: EEG

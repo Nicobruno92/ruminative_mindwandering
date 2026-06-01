@@ -3,8 +3,8 @@
 #SBATCH --time=00:30:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=1
-#SBATCH --output=logs/finalize_%j.out
-#SBATCH --error=logs/finalize_%j.err
+#SBATCH --output=/network/iss/levy/analyze/valerocabre/analyse/nbruno/wandering-mind/derivatives/slurm_logs/aggregation/finalize_%j.out
+#SBATCH --error=/network/iss/levy/analyze/valerocabre/analyse/nbruno/wandering-mind/derivatives/slurm_logs/aggregation/finalize_%j.err
 
 # =============================================================================
 # FINALIZE AGGREGATION SCRIPT
@@ -40,7 +40,7 @@ echo "=================================================="
 
 # Activate conda environment
 source ~/.bashrc
-conda activate eeg
+conda activate junifer-eeg-2
 
 # Run finalization
 python "$SCRIPT_DIR/aggregate_markers_by_probe.py" --config "$AGG_CONFIG" --finalize

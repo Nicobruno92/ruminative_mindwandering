@@ -60,12 +60,15 @@ PIPELINE_CONFIG="${WORKDIR}/junifer_markers/1.markers_h5_creation/pipeline_confi
 DISCOVER_SCRIPT="${WORKDIR}/junifer_markers/1.markers_h5_creation/discover_elements.py"
 AGG_CONFIG="${SCRIPT_DIR}/config.yaml"
 
-# Add junifer_eeg to PYTHONPATH for JuniferHDF5Reader
-PYTHONPATH_EXTRA=${PYTHONPATH_EXTRA:-/network/iss/home/nicolas.bruno/Junifer}
-export PYTHONPATH="${PYTHONPATH_EXTRA}:${PYTHONPATH:-}"
+# reader_picnic / junifer_eeg / sart_datagrabber_picnic are installed editable
+# in the junifer-eeg-2 env, so PYTHONPATH override is only kept as an escape hatch.
+PYTHONPATH_EXTRA=${PYTHONPATH_EXTRA:-}
+if [ -n "${PYTHONPATH_EXTRA}" ]; then
+  export PYTHONPATH="${PYTHONPATH_EXTRA}:${PYTHONPATH:-}"
+fi
 
 # Conda setup
-CONDA_ENV=${CONDA_ENV:-junifer}
+CONDA_ENV=${CONDA_ENV:-junifer-eeg-2}
 
 set +u
 source ~/.bashrc 2>/dev/null || true
@@ -78,6 +81,17 @@ elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
 fi
 conda activate "$CONDA_ENV" 2>/dev/null || true
 set -u
+
+# Resolve python interpreter from the env explicitly so this works whether or
+# not `conda activate` succeeded. Falls back to `python` on PATH only if the
+# env-specific interpreter is missing — and we error out loudly later if that
+# python lacks pandas/etc.
+PYTHON_BIN="${CONDA_PREFIX:-$HOME/miniforge3/envs/$CONDA_ENV}/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python)"
+fi
+echo "[INFO] Using python: $PYTHON_BIN"
+"$PYTHON_BIN" --version
 
 # Create logs directory
 mkdir -p "${SCRIPT_DIR}/logs"
@@ -92,19 +106,19 @@ if [ -z "${SLURM_ARRAY_TASK_ID-}" ]; then
         echo "[LAUNCHER] Not an array job. Computing array size and resubmitting..."
     fi
 
-    FIRST_DESC=$(python -c "import yaml; print(yaml.safe_load(open('${PIPELINE_CONFIG}'))['descriptions'][0])")
-    
-    # Detect element format (3 or 4 fields)
-    SAMPLE_LINE=$(python "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | head -1)
+    FIRST_DESC=$("$PYTHON_BIN" -c "import yaml; print(yaml.safe_load(open('${PIPELINE_CONFIG}'))['descriptions'][0])")
+
+    # Detect element format (3 or 4 fields) — sessions optional
+    SAMPLE_LINE=$("$PYTHON_BIN" "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | head -1)
     NUM_FIELDS=$(echo "${SAMPLE_LINE}" | awk -F',' '{print NF}')
-    
+
     if [ "${NUM_FIELDS}" -eq 4 ]; then
-        # Format: subject,session,task,desc -> extract first 3 fields for unique combos
-        N_COMBOS=$(python "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | \
+        # subject,session,task,desc -> unique by first 3 fields
+        N_COMBOS=$("$PYTHON_BIN" "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | \
             cut -d',' -f1-3 | sort -u | wc -l | tr -d ' ')
     elif [ "${NUM_FIELDS}" -eq 3 ]; then
-        # Format: subject,task,desc -> extract first 2 fields for unique combos
-        N_COMBOS=$(python "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | \
+        # subject,task,desc -> unique by first 2 fields
+        N_COMBOS=$("$PYTHON_BIN" "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | \
             cut -d',' -f1-2 | sort -u | wc -l | tr -d ' ')
     else
         echo "[LAUNCHER] ERROR: Unexpected element format: ${SAMPLE_LINE}"
@@ -149,7 +163,7 @@ if [ -z "${SLURM_ARRAY_TASK_ID-}" ]; then
                 --mem=8G \
                 --time=00:30:00 \
                 --cpus-per-task=1 \
-                --wrap="export PYTHONPATH=\"${PYTHONPATH_EXTRA}:${PYTHONPATH:-}\"; source ~/.bashrc 2>/dev/null; if [ -f \"$HOME/miniforge3/etc/profile.d/conda.sh\" ]; then . \"$HOME/miniforge3/etc/profile.d/conda.sh\"; elif [ -f \"$HOME/miniconda3/etc/profile.d/conda.sh\" ]; then . \"$HOME/miniconda3/etc/profile.d/conda.sh\"; elif [ -f \"$HOME/anaconda3/etc/profile.d/conda.sh\" ]; then . \"$HOME/anaconda3/etc/profile.d/conda.sh\"; fi; conda activate \"$CONDA_ENV\" 2>/dev/null || true; cd \"$WORKDIR\"; python \"$SCRIPT_DIR/aggregate_markers_by_probe.py\" --config \"$AGG_CONFIG\" --finalize")
+                --wrap="export PYTHONPATH=\"${PYTHONPATH_EXTRA}:${PYTHONPATH:-}\"; source ~/.bashrc 2>/dev/null; if [ -f \"$HOME/miniforge3/etc/profile.d/conda.sh\" ]; then . \"$HOME/miniforge3/etc/profile.d/conda.sh\"; elif [ -f \"$HOME/miniconda3/etc/profile.d/conda.sh\" ]; then . \"$HOME/miniconda3/etc/profile.d/conda.sh\"; elif [ -f \"$HOME/anaconda3/etc/profile.d/conda.sh\" ]; then . \"$HOME/anaconda3/etc/profile.d/conda.sh\"; fi; conda activate \"$CONDA_ENV\" 2>/dev/null || true; cd \"$WORKDIR\"; \"$PYTHON_BIN\" \"$SCRIPT_DIR/aggregate_markers_by_probe.py\" --config \"$AGG_CONFIG\" --finalize")
             
             echo "[LAUNCHER] Finalize job submitted as Job ID ${FINALIZE_JOB_ID##* }"
             echo "[LAUNCHER] Exiting launcher."
@@ -168,22 +182,18 @@ fi
 # Get task ID (0-indexed)
 TASK_ID=${SLURM_ARRAY_TASK_ID:-${SLURM_PROCID:-0}}
 
-# For aggregation, we need unique subject-task combinations (not per desc)
-# Get all elements from discovery script and extract unique subject-(session-)task combos
-# Use the first description type to get the list
-FIRST_DESC=$(python -c "import yaml; print(yaml.safe_load(open('${PIPELINE_CONFIG}'))['descriptions'][0])")
+# For aggregation we need unique subject-(session-)task combinations (not per desc).
+# Detect element format dynamically (3 fields = no session, 4 fields = with session).
+FIRST_DESC=$("$PYTHON_BIN" -c "import yaml; print(yaml.safe_load(open('${PIPELINE_CONFIG}'))['descriptions'][0])")
 
-# Get a sample element to detect format (3 or 4 fields)
-SAMPLE_LINE=$(python "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | head -1)
+SAMPLE_LINE=$("$PYTHON_BIN" "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | head -1)
 NUM_FIELDS=$(echo "${SAMPLE_LINE}" | awk -F',' '{print NF}')
 
 if [ "${NUM_FIELDS}" -eq 4 ]; then
-    # Format: subject,session,task,desc -> extract first 3 fields
-    COMBO=$(python "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | \
+    COMBO=$("$PYTHON_BIN" "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | \
             cut -d',' -f1-3 | sort -u | sed -n "$((TASK_ID + 1))p")
 elif [ "${NUM_FIELDS}" -eq 3 ]; then
-    # Format: subject,task,desc -> extract first 2 fields (no session)
-    COMBO=$(python "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | \
+    COMBO=$("$PYTHON_BIN" "${DISCOVER_SCRIPT}" --config "${PIPELINE_CONFIG}" --desc "${FIRST_DESC}" --list | \
             cut -d',' -f1-2 | sort -u | sed -n "$((TASK_ID + 1))p")
 else
     echo "[ERROR] Unexpected element format: ${SAMPLE_LINE}"
@@ -199,12 +209,10 @@ fi
 COMBO_FIELDS=$(echo "${COMBO}" | awk -F',' '{print NF}')
 
 if [ "${COMBO_FIELDS}" -eq 3 ]; then
-    # Format: subject,session,task
     IFS=',' read -r subject session task <<< "${COMBO}"
     SUBJECT_NUM="${subject#sub-}"
     SESSION_LETTER="${session#ses-}"
 elif [ "${COMBO_FIELDS}" -eq 2 ]; then
-    # Format: subject,task (no session)
     IFS=',' read -r subject task <<< "${COMBO}"
     SUBJECT_NUM="${subject#sub-}"
     SESSION_LETTER=""
@@ -213,7 +221,6 @@ else
     exit 1
 fi
 
-echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=================================================="
 echo "SLURM Job ID: $SLURM_JOB_ID"
 echo "Array Task ID: ${SLURM_ARRAY_TASK_ID:-N/A}"
@@ -227,17 +234,16 @@ echo "=================================================="
 # Run aggregation script
 cd "$WORKDIR"
 if [ -n "${SESSION_LETTER}" ]; then
-    python "$SCRIPT_DIR/aggregate_markers_by_probe.py" \
+    "$PYTHON_BIN" "$SCRIPT_DIR/aggregate_markers_by_probe.py" \
         --config "$AGG_CONFIG" \
         --subject "$SUBJECT_NUM" \
         --session "$SESSION_LETTER" \
         --task "$task"
 else
-    python "$SCRIPT_DIR/aggregate_markers_by_probe.py" \
+    "$PYTHON_BIN" "$SCRIPT_DIR/aggregate_markers_by_probe.py" \
         --config "$AGG_CONFIG" \
         --subject "$SUBJECT_NUM" \
         --task "$task"
 fi
 
 echo "Done: ${SUBJECT_NUM}, ${task}"
-echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"

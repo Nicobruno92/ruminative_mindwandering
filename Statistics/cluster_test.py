@@ -186,20 +186,50 @@ def get_channel_adjacency(montage_path: str, ch_names: List[str]) -> Tuple[np.nd
     
     # Find channel adjacency based on actual montage positions
     adjacency, ch_names_ordered = mne.channels.find_ch_adjacency(info, ch_type='eeg')
-    
+
     # Validate adjacency matrix
     _validate_adjacency_matrix(adjacency, len(ch_names_ordered))
-    
+
     print(f"✓ Adjacency matrix computed: {adjacency.shape[0]}x{adjacency.shape[1]} channels")
     print(f"  Adjacent connections: {adjacency.nnz}")
     print(f"  Connections per channel: {adjacency.nnz / len(ch_names_ordered):.1f} (avg)")
-    
-    # Create mapping from common channels back to original channel indices
-    channel_indices = [ch_names.index(ch) for ch in common_ch_names]
-    
-    # IMPORTANT: Return ch_names_ordered (from find_ch_adjacency) to ensure alignment
-    # between adjacency matrix and data. The adjacency matrix rows/cols correspond
-    # to ch_names_ordered, NOT common_ch_names (which may have different order)
+
+    # Hard invariant: the channels participating in the adjacency must be exactly
+    # the set of common channels. Any divergence (channel dropped/added/duplicated
+    # by find_ch_adjacency) silently scrambles the spatial mapping downstream.
+    if set(ch_names_ordered) != set(common_ch_names):
+        missing = set(common_ch_names) - set(ch_names_ordered)
+        extra = set(ch_names_ordered) - set(common_ch_names)
+        raise RuntimeError(
+            "Channel set returned by mne.channels.find_ch_adjacency does not match "
+            "the input info. Spatial alignment between t-stats and adjacency would "
+            "be broken. "
+            f"Missing from adjacency: {sorted(missing)}. "
+            f"Extra in adjacency: {sorted(extra)}."
+        )
+    if len(ch_names_ordered) != len(common_ch_names):
+        raise RuntimeError(
+            "Channel count mismatch between adjacency and common channels: "
+            f"adjacency={len(ch_names_ordered)} vs common={len(common_ch_names)}. "
+            "Spatial alignment would be broken."
+        )
+
+    # Build the mapping from the *adjacency* order (ch_names_ordered) into the
+    # original input ch_names order. Using common_ch_names here would silently
+    # produce a misaligned mapping if MNE ever reorders channels — even though
+    # in practice MNE preserves info order, we make the invariant explicit.
+    channel_indices = [ch_names.index(ch) for ch in ch_names_ordered]
+
+    # Final sanity check: applying channel_indices to the input ch_names must
+    # reproduce the adjacency channel order exactly.
+    reconstructed = [ch_names[i] for i in channel_indices]
+    if reconstructed != list(ch_names_ordered):
+        raise RuntimeError(
+            "channel_indices does not reproduce ch_names_ordered when applied to "
+            "ch_names. This indicates a bug in the adjacency channel-mapping logic; "
+            "downstream cluster spatial alignment would be incorrect."
+        )
+
     return adjacency, ch_names_ordered, channel_indices
 
 
@@ -305,7 +335,9 @@ def _run_single_permutation(
         df_perm = _permute_within_subjects(df_behavioral, predictor_of_interest, seed + perm_idx)
         power_perm = power_data
     
-    # Compute t-statistics for permuted data
+    # Compute t-statistics for permuted data. abort_on_high_failure=False so
+    # that a single degenerate permutation does not kill the entire run — NaN
+    # channels propagate symmetrically into the null distribution.
     t_stats_perm, _, _ = run_lmm_per_channel(
         power_data=power_perm,
         df_behavioral=df_perm,
@@ -314,7 +346,8 @@ def _run_single_permutation(
         method=method,
         maxiter=maxiter,
         random_state=seed + perm_idx,
-        return_diagnostics=False
+        return_diagnostics=False,
+        abort_on_high_failure=False,
     )
     
     # Find clusters in permuted data (MNE-compatible with include/partitions)
@@ -1567,8 +1600,17 @@ def find_clusters_from_pvalues(
         null_max_stats = np.array(null_max_stats)
 
         significant_clusters: List[Dict] = []
+        n_null = len(null_max_stats)
         for cluster_channels, cluster_stat in zip(obs_clusters, obs_cluster_stats):
-            p_val = float(np.mean(null_max_stats >= np.abs(cluster_stat)))
+            # Phipson & Smyth (2010) continuity correction. Without the +1
+            # offsets, when no permutation produces a cluster as extreme as
+            # the observed, p reports as exactly 0 — which understates the
+            # uncertainty (the true p is bounded by 1/n_permutations) and
+            # makes display/aggregation logic that treats p=0 specially break.
+            p_val = float(
+                (np.sum(null_max_stats >= np.abs(cluster_stat)) + 1)
+                / (n_null + 1)
+            )
             significant_clusters.append({
                 'channels': cluster_channels,
                 'stat': float(cluster_stat),
@@ -1625,12 +1667,23 @@ def find_clusters_from_pvalues(
     null_pos_max_arr = np.array(null_pos_max)
     null_neg_min_arr = np.array(null_neg_min)
 
+    # Phipson & Smyth (2010) continuity correction. The +1 in numerator and
+    # denominator avoids reporting p = 0 when no permutation produces an
+    # equally extreme cluster (true p is bounded by 1/n_permutations) and
+    # keeps p strictly above 0 even with hard-to-replicate observed effects.
+    n_null_pos = len(null_pos_max_arr)
+    n_null_neg = len(null_neg_min_arr)
+
     significant_clusters: List[Dict] = []
     for cluster_channels, cluster_stat in zip(obs_clusters, obs_cluster_stats):
         if cluster_stat > 0:
-            p_val = float(np.mean(null_pos_max_arr >= cluster_stat))
+            p_val = float(
+                (np.sum(null_pos_max_arr >= cluster_stat) + 1) / (n_null_pos + 1)
+            )
         elif cluster_stat < 0:
-            p_val = float(np.mean(null_neg_min_arr <= cluster_stat))
+            p_val = float(
+                (np.sum(null_neg_min_arr <= cluster_stat) + 1) / (n_null_neg + 1)
+            )
         else:
             p_val = 1.0
 
@@ -1733,7 +1786,8 @@ def _compute_bootstrap_ci(
         boot_power = power_data[boot_indices, :]
         boot_df = df_behavioral.iloc[boot_indices].copy().reset_index(drop=True)
         
-        # Run LMM on bootstrap sample
+        # Run LMM on bootstrap sample. abort_on_high_failure=False because a
+        # single degenerate bootstrap resample must not kill the CI loop.
         try:
             boot_t_stats, _, _ = run_lmm_per_channel(
                 power_data=boot_power,
@@ -1743,7 +1797,8 @@ def _compute_bootstrap_ci(
                 method=method,
                 maxiter=maxiter,
                 random_state=seed + boot_idx + 1000,
-                return_diagnostics=False
+                return_diagnostics=False,
+                abort_on_high_failure=False,
             )
             
             # Compute statistics for each observed cluster
@@ -2285,7 +2340,9 @@ def spatial_cluster_test_tfce(
             df_behavioral, predictor_of_interest, seed + perm_idx
         )
         
-        # Compute t-statistics for permuted data
+        # Compute t-statistics for permuted data. abort_on_high_failure=False:
+        # a degenerate permutation propagates NaN into the null instead of
+        # killing the entire TFCE run.
         t_stats_perm, _, _ = run_lmm_per_channel(
             power_data=power_data,
             df_behavioral=df_perm,
@@ -2294,7 +2351,8 @@ def spatial_cluster_test_tfce(
             method=method,
             maxiter=maxiter,
             random_state=seed + perm_idx,
-            return_diagnostics=False
+            return_diagnostics=False,
+            abort_on_high_failure=False,
         )
         
         # Compute TFCE for permuted data

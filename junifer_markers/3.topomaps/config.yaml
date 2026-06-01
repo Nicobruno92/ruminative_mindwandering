@@ -1,0 +1,108 @@
+# =============================================================================
+# JUNIFER TOPOMAP VISUALIZATION CONFIGURATION — depressed_mindwandering
+# =============================================================================
+#
+# Group-level topomaps of Junifer EEG markers grouped by mental state.
+# This project has NO treatment arm and NO sessions; the layout is therefore
+# 2 rows (state means + state diffs vs on-task), one column per mental state.
+#
+# INPUT:  Per-probe aggregated CSVs from 2.aggregate_probes pipeline
+#         Located at: {features_root}/sub-XX/eeg/junifer_aggregated/
+#
+# OUTPUT: PNG + SVG figures per marker × epoch_type × task_combo
+#         Located at: {results_root}/{task}/{epoch_type}/{marker}.{ext}
+#
+# USAGE:
+#   python visualize_junifer_topomaps.py
+#   python visualize_junifer_topomaps.py --epoch-type sleep
+#   python visualize_junifer_topomaps.py --marker power_alpha
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# PROJECT PATHS  (absolute, canonical CYBERSART layout)
+# -----------------------------------------------------------------------------
+project:
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features"
+  montage_file: "data_harmonization/utils/CACS-64_REF.bvef"
+  results_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/results/junifer_topomaps"
+
+
+# -----------------------------------------------------------------------------
+# SUBJECTS / TASKS  (no sessions in this project)
+# -----------------------------------------------------------------------------
+subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+           "13", "14", "15", "16", "17", "18", "19", "20", "21", "22",
+           "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
+           "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+
+tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+
+
+# -----------------------------------------------------------------------------
+# EPOCH TYPES TO PROCESS
+# Must match what step 1 (1.markers_h5_creation) and step 2 produce.
+# Skip "state" — pipeline_config.yaml currently has it commented out.
+# -----------------------------------------------------------------------------
+epoch_types: ["evoked", "sleep"]
+
+
+# -----------------------------------------------------------------------------
+# AGGREGATION METHOD SUFFIX
+# Must match `aggregation.trial_methods[0]` in 2.aggregate_probes/config.yaml.
+# -----------------------------------------------------------------------------
+aggregation_method: "mean"
+
+
+# -----------------------------------------------------------------------------
+# TASK COMBINATIONS TO GENERATE FIGURES FOR
+# null = combine all tasks; list = filter to specific task(s).
+# -----------------------------------------------------------------------------
+task_combinations:
+  combined: null
+  Sart1: ["Sart1"]
+  Sart2: ["Sart2"]
+  Sart3: ["Sart3"]
+  Sart4: ["Sart4"]
+
+
+# -----------------------------------------------------------------------------
+# CONDITIONS — binary on-task vs mind-wandering (no detailed mental states)
+# -----------------------------------------------------------------------------
+# This project's events.tsv only encodes /ONTASK/ vs /OFFTASK/; the parsed
+# `label` column in the per-probe CSVs is `onTask` / `offTask`. The detailed
+# wandering-mind categories (about-task, distracted, etc.) do not exist here.
+conditions:
+  - "onTask"
+  - "offTask"
+
+# Column in the per-probe CSV that holds the condition label.
+condition_column: "label"
+
+# Reference condition for difference maps.
+reference_condition: "onTask"
+
+# Minimum probes per (subject, condition, channel) to enter the group average.
+# Two-level averaging (probe → subject → group) prevents one heavily-sampled
+# subject from dominating; this floor keeps that level-1 estimate stable.
+min_probes_per_condition: 3
+
+
+# -----------------------------------------------------------------------------
+# FIGURE SETTINGS
+# -----------------------------------------------------------------------------
+figure:
+  dpi: 150
+  topomap_size: 2.4     # inches per topomap panel (square)
+  contours: 6
+  colormap: "RdBu_r"
+  colormap_diff: "RdBu_r"
+  formats: ["png", "svg"]
+
+
+# -----------------------------------------------------------------------------
+# COLORS  (one per condition; reference highlighted in green per convention)
+# -----------------------------------------------------------------------------
+condition_colors:
+  onTask: "#2ca02c"
+  offTask: "#d62728"

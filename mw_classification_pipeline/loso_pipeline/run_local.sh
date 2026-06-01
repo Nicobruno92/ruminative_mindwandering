@@ -37,20 +37,21 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 # ---------------------------------------------------------------------------
 # Read all parameters and build combination list from config via Python
 # ---------------------------------------------------------------------------
-read -r CONDA_ENV MODEL COMBINATIONS <<< "$(python3 -c "
+read -r CONDA_ENV COMBINATIONS <<< "$(python3 -c "
 import yaml, sys
 
 with open('$CONFIG') as f:
     cfg = yaml.safe_load(f)
 
-conda_env = cfg.get('slurm', {}).get('conda_env', 'ML')
-model = cfg.get('model_type', 'lr')
-contrasts = list(cfg.get('label_contrasts', {}).keys())
-families = cfg.get('run_families', ['all'])
+conda_env  = cfg.get('slurm', {}).get('conda_env', 'ML')
+model_raw  = cfg.get('model_type', 'lr')
+models     = model_raw if isinstance(model_raw, list) else [model_raw]
+contrasts  = cfg.get('run_contrasts', list(cfg.get('label_contrasts', {}).keys()))
+families   = cfg.get('run_families', ['all'])
 
-combos = [f'{model}:{c}:{fam}' for c in contrasts for fam in families]
-print(conda_env, model, ','.join(combos))
-print(f'Combos: {len(combos)} ({model} x {len(contrasts)} contrasts x {len(families)} families)', file=sys.stderr)
+combos = [f'{m}:{c}:{fam}' for m in models for c in contrasts for fam in families]
+print(conda_env, ','.join(combos))
+print(f'Combos: {len(combos)} ({len(models)} models x {len(contrasts)} contrasts x {len(families)} families)', file=sys.stderr)
 ")"
 
 # Print header
@@ -59,7 +60,6 @@ echo " MW Classification Pipeline — Local Run"
 echo "==========================================="
 echo " Config  : $CONFIG"
 echo " Env     : $CONDA_ENV"
-echo " Model   : $MODEL"
 echo " Started : $(date)"
 echo "==========================================="
 echo ""

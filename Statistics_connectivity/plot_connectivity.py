@@ -1,8 +1,9 @@
 """
 Visualization module for connectivity statistics pipeline.
 
-Produces paper-style connectivity matrix heatmaps showing LMM results
-with FDR-corrected significance masking.
+Produces paper-style connectivity matrix heatmaps and chord (circle) plots
+of LMM connectivity results, with significance encoded by alpha + outline
+rather than a flat grey overlay.
 """
 
 import numpy as np
@@ -13,6 +14,36 @@ from matplotlib.patches import Rectangle
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from itertools import combinations_with_replacement
+
+
+# =============================================================================
+# GLOBAL STYLE
+# =============================================================================
+# Applied at import time so every figure produced by this module shares the
+# same publication-leaning look. Matplotlib rcParams are global, so callers
+# can still override per-figure if they want.
+plt.rcParams.update({
+    "font.family": "DejaVu Sans",
+    "font.size": 10,
+    "axes.titleweight": "bold",
+    "axes.titlesize": 12,
+    "axes.labelsize": 10,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.linewidth": 0.8,
+    "xtick.direction": "out",
+    "ytick.direction": "out",
+    "xtick.major.size": 3,
+    "ytick.major.size": 3,
+    "savefig.bbox": "tight",
+    "savefig.facecolor": "white",
+    "figure.dpi": 110,
+})
+
+# Alpha applied to non-significant cells/edges so they stay visible in
+# context but recede behind significant ones. Tuned by eye to read well on
+# both light and dark backgrounds.
+NONSIG_ALPHA: float = 0.18
 
 
 # =============================================================================
@@ -152,45 +183,40 @@ def plot_contrast_matrix(
     else:
         fig = ax.figure
 
-    # Plot heatmap
+    # ── Plot heatmap with alpha-mask significance ─────────────────────────
+    # Show every value at full saturation when significant; recede non-sig
+    # cells to NONSIG_ALPHA opacity. Reads as "everything is on the same
+    # scale, sig pops" — cleaner than stacking a grey overlay.
     display_matrix = value_matrix.copy()
-
-    # Create masked version for non-significant
     if mask_nonsig:
-        masked_matrix = np.ma.array(display_matrix, mask=~sig_matrix)
-        bg_matrix = np.ma.array(display_matrix, mask=sig_matrix)
-
-        # Plot background (non-significant) in grey
-        ax.imshow(
-            np.ones_like(display_matrix) * 0.5,
-            cmap="Greys",
-            vmin=0,
-            vmax=1,
-            alpha=0.15,
-            aspect="equal",
-        )
-
-        # Plot significant values
+        alpha_matrix = np.where(sig_matrix, 1.0, NONSIG_ALPHA)
+        # NaN cells (no data) stay fully transparent.
+        alpha_matrix = np.where(np.isnan(display_matrix), 0.0, alpha_matrix)
         im = ax.imshow(
-            masked_matrix,
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            aspect="equal",
+            display_matrix, cmap=cmap, vmin=vmin, vmax=vmax,
+            alpha=alpha_matrix, aspect="equal", interpolation="nearest",
         )
+        # Outline significant cells so they read at a glance even on small
+        # multi-band grids.
+        for i in range(n_rois):
+            for j in range(n_rois):
+                if sig_matrix[i, j]:
+                    ax.add_patch(Rectangle(
+                        (j - 0.5, i - 0.5), 1, 1,
+                        fill=False, edgecolor="black",
+                        linewidth=0.9, zorder=4,
+                    ))
     else:
         im = ax.imshow(
-            display_matrix,
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            aspect="equal",
+            display_matrix, cmap=cmap, vmin=vmin, vmax=vmax,
+            aspect="equal", interpolation="nearest",
         )
 
-    # Add grid lines
-    for i in range(n_rois + 1):
-        ax.axhline(i - 0.5, color="white", linewidth=0.5)
-        ax.axvline(i - 0.5, color="white", linewidth=0.5)
+    # Subtle minor grid between cells (no thick white lines on axes).
+    ax.set_xticks(np.arange(-0.5, n_rois), minor=True)
+    ax.set_yticks(np.arange(-0.5, n_rois), minor=True)
+    ax.grid(which="minor", color="white", linewidth=0.4)
+    ax.tick_params(which="minor", length=0)
 
     # Labels
     tick_labels = [ROI_SHORT_LABELS.get(r, r) for r in roi_order]
@@ -199,16 +225,14 @@ def plot_contrast_matrix(
     ax.set_yticks(range(n_rois))
     ax.set_yticklabels(tick_labels, fontsize=9)
 
-    ax.set_xlabel("ROI 1", fontsize=10)
-    ax.set_ylabel("ROI 2", fontsize=10)
+    ax.set_xlabel("ROI", fontsize=10)
+    ax.set_ylabel("ROI", fontsize=10)
     ax.set_title(title, fontsize=12, fontweight="bold")
 
-    # Colorbar
+    # Colorbar (only when this function created its own figure)
     if created_fig:
         cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
         cbar.set_label(value_col.replace("_", " ").title(), fontsize=10)
-
-    if created_fig:
         fig.tight_layout()
 
     return fig
@@ -279,35 +303,47 @@ def plot_multi_band_grid(
             abs_max = max(abs(v) for v in all_vals)
             vmin, vmax = -abs_max, abs_max
 
-    # Create figure
+    # Create figure with extra room for shared colorbar at right
     fig, axes = plt.subplots(
         1, n_bands,
-        figsize=(figsize_per_panel[0] * n_bands, figsize_per_panel[1]),
+        figsize=(figsize_per_panel[0] * n_bands + 0.6, figsize_per_panel[1]),
         squeeze=False,
     )
 
+    last_im = None
     for idx, band in enumerate(bands):
         ax = axes[0, idx]
         band_label = BAND_LABELS.get(band, band)
+        df = all_results[band]
+        n_sig = int(df[sig_col].sum()) if sig_col in df.columns else 0
+        n_total = int(df["t_statistic"].notna().sum()) if "t_statistic" in df.columns else len(df)
 
         plot_contrast_matrix(
-            results_df=all_results[band],
+            results_df=df,
             roi_order=roi_order,
             value_col=value_col,
             sig_col=sig_col,
-            title=f"wSMI {band_label}",
+            title=f"wSMI {band_label}\n{n_sig}/{n_total} sig",
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
             ax=ax,
         )
+        # Recover the underlying image for the shared colorbar
+        if ax.images:
+            last_im = ax.images[-1]
+
+    if last_im is not None:
+        cbar = fig.colorbar(
+            last_im, ax=axes.ravel().tolist(),
+            shrink=0.85, pad=0.02, fraction=0.025,
+        )
+        cbar.set_label(value_col.replace("_", " ").title(), fontsize=10)
 
     fig.suptitle(suptitle, fontsize=14, fontweight="bold", y=1.02)
-    fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
-        print(f"  Saved: {save_path}")
+        _savefig_multi(fig, save_path, dpi=dpi)
 
     return fig
 
@@ -327,6 +363,7 @@ def plot_channel_contrast_matrix(
     figsize: Tuple[float, float] = (14, 12),
     save_path: Optional[str] = None,
     dpi: int = 300,
+    rois: Optional[Dict[str, List[str]]] = None,
 ) -> plt.Figure:
     """
     Plot a channel × channel connectivity matrix.
@@ -369,8 +406,14 @@ def plot_channel_contrast_matrix(
             all_channels.add(parts[0].strip())
             all_channels.add(parts[1].strip())
 
+    # Channel ordering: prefer ROI-grouped + topographic so blocks of related
+    # electrodes sit together (much easier to read than alphabetical).
     if channel_order is None:
-        channel_order = sorted(all_channels)
+        channel_order, roi_block_edges = _topographic_channel_order(
+            all_channels, rois=rois,
+        )
+    else:
+        roi_block_edges = []
 
     n_ch = len(channel_order)
     ch_to_idx = {ch: i for i, ch in enumerate(channel_order)}
@@ -404,33 +447,43 @@ def plot_channel_contrast_matrix(
             abs_max = 1.0
 
     fig, ax = plt.subplots(1, 1, figsize=figsize)
-
     display = value_matrix.copy()
 
     if mask_nonsig:
-        masked = np.ma.array(display, mask=~sig_matrix)
-        ax.imshow(
-            np.ones_like(display) * 0.5, cmap="Greys",
-            vmin=0, vmax=1, alpha=0.15, aspect="equal",
+        alpha_matrix = np.where(sig_matrix, 1.0, NONSIG_ALPHA)
+        alpha_matrix = np.where(np.isnan(display), 0.0, alpha_matrix)
+        im = ax.imshow(
+            display, cmap=cmap, vmin=-abs_max, vmax=abs_max,
+            alpha=alpha_matrix, aspect="equal", interpolation="nearest",
         )
-        im = ax.imshow(masked, cmap=cmap, vmin=-abs_max, vmax=abs_max, aspect="equal")
     else:
-        im = ax.imshow(display, cmap=cmap, vmin=-abs_max, vmax=abs_max, aspect="equal")
+        im = ax.imshow(
+            display, cmap=cmap, vmin=-abs_max, vmax=abs_max,
+            aspect="equal", interpolation="nearest",
+        )
+
+    # ROI block separators: vertical+horizontal lines between groups make
+    # the global structure of significant edges much easier to spot.
+    for edge in roi_block_edges:
+        ax.axhline(edge - 0.5, color="black", linewidth=0.6, alpha=0.7, zorder=3)
+        ax.axvline(edge - 0.5, color="black", linewidth=0.6, alpha=0.7, zorder=3)
 
     ax.set_xticks(range(n_ch))
     ax.set_xticklabels(channel_order, rotation=90, fontsize=6)
     ax.set_yticks(range(n_ch))
     ax.set_yticklabels(channel_order, fontsize=6)
-    ax.set_title(title, fontsize=12, fontweight="bold")
 
-    cbar = fig.colorbar(im, ax=ax, shrink=0.7)
+    n_sig = int(sig_matrix.sum() // 2)  # symmetric → divide by 2
+    n_total = int((~np.isnan(value_matrix)).sum() // 2)
+    ax.set_title(f"{title}\n{n_sig}/{n_total} sig", fontsize=12, fontweight="bold")
+
+    cbar = fig.colorbar(im, ax=ax, shrink=0.7, pad=0.02)
     cbar.set_label(value_col.replace("_", " ").title(), fontsize=10)
 
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
-        print(f"  Saved: {save_path}")
+        _savefig_multi(fig, save_path, dpi=dpi)
 
     return fig
 
@@ -648,7 +701,8 @@ def plot_connectivity_circle(
                 color="#cccccc", linewidth=0.3, alpha=nonsig_alpha,
             )
 
-    # Draw significant connections
+    # Draw significant connections — solid for positive t, dashed for
+    # negative t, so direction reads at a glance even in greyscale prints.
     for _, row in sig_rows.iterrows():
         parts = row["connection_id"].split(PAIR_SEPARATOR)
         if len(parts) != 2:
@@ -659,13 +713,13 @@ def plot_connectivity_circle(
 
         val = row[value_col] if pd.notna(row[value_col]) else 0
         color = colormap(norm(val))
-        # Scale linewidth by absolute value
         lw_min, lw_max = linewidth_range
         lw = lw_min + (lw_max - lw_min) * (abs(val) / abs_max)
+        ls = "-" if val >= 0 else "--"
 
         _draw_curved_edge(
             ax, node_positions[n1], node_positions[n2],
-            color=color, linewidth=lw, alpha=0.8,
+            color=color, linewidth=lw, alpha=0.85, linestyle=ls,
         )
 
     # ── Draw nodes ───────────────────────────────────────────────────────
@@ -700,12 +754,12 @@ def plot_connectivity_circle(
     cbar = fig.colorbar(sm, cax=cbar_ax)
     cbar.set_label(value_col.replace("_", " ").title(), fontsize=10)
 
-    ax.set_title(title, fontsize=14, fontweight="bold", y=1.05)
+    n_sig = int(len(sig_rows))
+    ax.set_title(f"{title}\n{n_sig} sig edges",
+                 fontsize=14, fontweight="bold", y=1.05)
 
     if save_path:
-        fig.savefig(save_path, dpi=dpi, bbox_inches="tight",
-                    facecolor="white", edgecolor="none")
-        print(f"  Saved: {save_path}")
+        _savefig_multi(fig, save_path, dpi=dpi)
 
     return fig
 
@@ -926,7 +980,7 @@ def plot_multi_band_circle_grid(
         colormap = plt.get_cmap("RdBu_r")
         norm = mcolors.Normalize(vmin=-abs_max, vmax=abs_max)
 
-        # Draw significant edges
+        # Draw significant edges (linestyle encodes sign — solid +, dashed −)
         for _, row in sig_rows.iterrows():
             parts = row["connection_id"].split(PAIR_SEPARATOR)
             if len(parts) != 2:
@@ -938,8 +992,9 @@ def plot_multi_band_circle_grid(
             color = colormap(norm(val))
             lw_min, lw_max = lw_range
             lw = lw_min + (lw_max - lw_min) * (abs(val) / abs_max)
+            ls = "-" if val >= 0 else "--"
             _draw_curved_edge(ax, node_positions[n1], node_positions[n2],
-                              color=color, linewidth=lw, alpha=0.8)
+                              color=color, linewidth=lw, alpha=0.85, linestyle=ls)
 
         # Draw nodes
         for name in node_names:
@@ -964,9 +1019,7 @@ def plot_multi_band_circle_grid(
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=dpi, bbox_inches="tight",
-                    facecolor="white", edgecolor="none")
-        print(f"  Saved: {save_path}")
+        _savefig_multi(fig, save_path, dpi=dpi)
 
     return fig
 
@@ -982,52 +1035,113 @@ def _draw_curved_edge(
     color: str = "grey",
     linewidth: float = 1.0,
     alpha: float = 0.5,
+    linestyle: str = "-",
 ) -> None:
     """
-    Draw a curved (Bezier) edge between two points, curving toward the center.
+    Draw a chord-style Bezier edge between two points on the unit circle.
+
+    Standard chord-diagram convention: control point at the origin so that
+    near neighbours hug the rim and far-apart nodes go nearly straight
+    across. (The previous implementation flipped this — distant edges
+    curved more — which made circle plots look knotted.)
 
     Parameters
     ----------
     ax : plt.Axes
         Axes to draw on.
-    pos1 : Tuple[float, float]
-        Start position (x, y).
-    pos2 : Tuple[float, float]
-        End position (x, y).
+    pos1, pos2 : Tuple[float, float]
+        Start / end positions (x, y).
     color : str
         Line color.
     linewidth : float
         Line width.
     alpha : float
         Opacity.
+    linestyle : str
+        Matplotlib linestyle (use ``"--"`` for negative-direction edges).
     """
     from matplotlib.path import Path as MplPath
     import matplotlib.patches as mpatches
 
-    x1, y1 = pos1
-    x2, y2 = pos2
-
-    # Control point: midpoint pulled toward center (origin)
-    # The pull factor controls how curved the line is
-    mid_x = (x1 + x2) / 2
-    mid_y = (y1 + y2) / 2
-
-    # Distance between points determines curvature
-    dist = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-    pull = 0.3 + 0.3 * (dist / 2.0)  # More distant nodes → more curvature
-
-    ctrl_x = mid_x * (1 - pull)
-    ctrl_y = mid_y * (1 - pull)
-
-    verts = [(x1, y1), (ctrl_x, ctrl_y), (x2, y2)]
+    verts = [pos1, (0.0, 0.0), pos2]
     codes = [MplPath.MOVETO, MplPath.CURVE3, MplPath.CURVE3]
     path = MplPath(verts, codes)
 
     patch = mpatches.PathPatch(
         path, facecolor="none", edgecolor=color,
-        linewidth=linewidth, alpha=alpha, capstyle="round",
+        linewidth=linewidth, alpha=alpha,
+        linestyle=linestyle, capstyle="round",
     )
     ax.add_patch(patch)
+
+
+# =============================================================================
+# I/O AND ORDERING HELPERS
+# =============================================================================
+
+def _savefig_multi(
+    fig: plt.Figure,
+    save_path: str,
+    dpi: int = 300,
+    extra_formats: Tuple[str, ...] = ("pdf",),
+) -> None:
+    """
+    Save ``fig`` to ``save_path`` and (by default) also to a vector PDF
+    sibling. Lets you keep PNGs for quick previews while having a vector
+    version ready for figures in a paper, with no extra config plumbing.
+    """
+    fig.savefig(save_path, dpi=dpi, bbox_inches="tight",
+                facecolor="white", edgecolor="none")
+    print(f"  Saved: {save_path}")
+
+    save_path_obj = Path(save_path)
+    for ext in extra_formats:
+        sibling = save_path_obj.with_suffix(f".{ext.lstrip('.')}")
+        if sibling == save_path_obj:
+            continue
+        fig.savefig(sibling, dpi=dpi, bbox_inches="tight",
+                    facecolor="white", edgecolor="none")
+
+
+def _topographic_channel_order(
+    channels,
+    rois: Optional[Dict[str, List[str]]] = None,
+) -> Tuple[List[str], List[int]]:
+    """
+    Return a channel ordering grouped by ROI (in DEFAULT_ROI_ORDER) and, within
+    each ROI, sorted by topographic angle (CHANNEL_ANGLES). Falls back to
+    alphabetical when no ROI mapping is supplied.
+
+    Returns
+    -------
+    Tuple[List[str], List[int]]
+        (ordered channels, list of integer indices marking the start of each
+         new ROI block — used to draw separator lines on the matrix).
+    """
+    channels = set(channels)
+    if rois is None:
+        return sorted(channels), []
+
+    ordered: List[str] = []
+    block_edges: List[int] = []
+    for roi_name in DEFAULT_ROI_ORDER:
+        members = [ch for ch in rois.get(roi_name, []) if ch in channels]
+        if not members:
+            continue
+        # Within an ROI, sort by topographic angle so neighbours sit together
+        members_sorted = sorted(members, key=lambda c: CHANNEL_ANGLES.get(c, 0.0))
+        if ordered:
+            block_edges.append(len(ordered))
+        ordered.extend(members_sorted)
+
+    # Append any channels that are not in any ROI (e.g. extra refs)
+    leftover = sorted(channels - set(ordered))
+    if leftover:
+        if ordered:
+            block_edges.append(len(ordered))
+        ordered.extend(leftover)
+
+    return ordered, block_edges
 
 
 def _get_default_angles(nodes: set) -> Dict[str, float]:

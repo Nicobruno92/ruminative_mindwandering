@@ -50,9 +50,9 @@ with open('$CONFIG') as f:
 
 slurm = cfg.get('slurm', {})
 model_raw = cfg.get('model_type', 'lr')
-models = model_raw if isinstance(model_raw, list) else [model_raw]
-contrasts = list(cfg.get('label_contrasts', {}).keys())
-families = cfg.get('run_families', ['all'])
+models    = model_raw if isinstance(model_raw, list) else [model_raw]
+contrasts = cfg.get('run_contrasts', list(cfg.get('label_contrasts', {}).keys()))
+families  = cfg.get('run_families', ['all'])
 
 combos = [f'{m}:{c}:{fam}' for m in models for c in contrasts for fam in families]
 n = len(combos)

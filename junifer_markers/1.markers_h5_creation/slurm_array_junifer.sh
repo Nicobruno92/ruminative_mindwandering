@@ -21,11 +21,11 @@ set -euo pipefail
 # Parameters (overridable)
 CONFIG_TYPE=${CONFIG_TYPE:-state}  # "state", "evoked" or "sleep"
 WORKDIR=${WORKDIR:-/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/junifer_markers/1.markers_h5_creation}
-CONDA_ENV=${CONDA_ENV:-junifer}
+CONDA_ENV=${CONDA_ENV:-junifer-eeg-2}
 SHELL_KIND=${SHELL:-zsh}
 CONFIG=${CONFIG:-${WORKDIR}/config_${CONFIG_TYPE}.yaml}
 LOG_DIR=${LOG_DIR:-${WORKDIR}/logs}
-PYTHONPATH_EXTRA=${PYTHONPATH_EXTRA:-/network/iss/home/nicolas.bruno/Junifer}
+PYTHONPATH_EXTRA=${PYTHONPATH_EXTRA:-}
 
 mkdir -p "$LOG_DIR"
 
@@ -61,8 +61,11 @@ if command -v conda >/dev/null 2>&1; then
 fi
 set -u
 
-# Ensure Python can import local junifer_eeg package
-export PYTHONPATH="${PYTHONPATH_EXTRA}:${PYTHONPATH:-}"
+# junifer_eeg / reader_picnic / sart_datagrabber_picnic are installed editable
+# in the junifer-eeg-2 env, so no PYTHONPATH override is needed by default.
+if [ -n "${PYTHONPATH_EXTRA}" ]; then
+  export PYTHONPATH="${PYTHONPATH_EXTRA}:${PYTHONPATH:-}"
+fi
 
 cd "$WORKDIR"
 
@@ -78,7 +81,8 @@ if [ -z "$ELEMENT" ]; then
 fi
 
 # Parse comma-separated element for logging and filename construction
-# discover_elements.py now outputs dynamic fields (3 or 4)
+# discover_elements.py outputs dynamic fields (3 or 4) depending on whether
+# the dataset uses sessions. CYBERSART/depressed_mindwandering does NOT.
 NUM_FIELDS=$(echo "$ELEMENT" | awk -F, '{print NF}')
 
 if [ "$NUM_FIELDS" -eq 4 ]; then
@@ -87,30 +91,24 @@ if [ "$NUM_FIELDS" -eq 4 ]; then
     SESSION=$(echo "$ELEMENT" | awk -F, '{print $2}')
     TASK=$(echo "$ELEMENT" | awk -F, '{print $3}')
     DESC=$(echo "$ELEMENT" | awk -F, '{print $4}')
-    
-    # Junifer expects exactly what matches the 'replacements' config
+
     JUNIFER_ELEMENT="$ELEMENT"
-    
-    # Standard output filename for session-based data
     OUTPUT_FILENAME="element_${SUBJECT}_${SESSION}_${TASK}_${DESC}_markers.h5"
 
 elif [ "$NUM_FIELDS" -eq 3 ]; then
-    # Format: subject,task,desc (no session)
+    # Format: subject,task,desc (no session — this project)
     SUBJECT=$(echo "$ELEMENT" | awk -F, '{print $1}')
     TASK=$(echo "$ELEMENT" | awk -F, '{print $2}')
     DESC=$(echo "$ELEMENT" | awk -F, '{print $3}')
     SESSION=""
-    
+
     JUNIFER_ELEMENT="$ELEMENT"
-    
-    # Output filename without session
     OUTPUT_FILENAME="element_${SUBJECT}_${TASK}_${DESC}_markers.h5"
 else
     echo "[ERROR] Unexpected element format (expected 3 or 4 fields): $ELEMENT"
     exit 1
 fi
 
-echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "[INFO] Job ${SLURM_ARRAY_JOB_ID:-NA}_${SLURM_ARRAY_TASK_ID:-NA} [${CONFIG_TYPE}] -> element: $ELEMENT"
 
 # Extract storage URI from config to determine output directory
@@ -130,4 +128,3 @@ junifer run "$CONFIG" --verbose info --element "$JUNIFER_ELEMENT"
 set +x
 
 echo "[INFO] Done [${CONFIG_TYPE}]: $SUBJECT,$SESSION,$TASK,$DESC"
-echo "END:   $(date '+%Y-%m-%d %H:%M:%S')"

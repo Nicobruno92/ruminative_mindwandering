@@ -118,7 +118,8 @@ def run_lmm_per_channel(
     method: str = 'powell',
     maxiter: int = 1000,
     random_state: int = 42,
-    return_diagnostics: bool = False
+    return_diagnostics: bool = False,
+    abort_on_high_failure: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Run linear mixed model for each channel independently.
@@ -429,8 +430,17 @@ def run_lmm_per_channel(
             print(f"  WARNING: {error_msg}")
 
     # Abort early if failure rate is too high — results would be unreliable.
+    # Disabled for permutation/bootstrap loops: in those loops a degenerate
+    # null draw must not kill the whole pipeline. NaNs propagate symmetrically
+    # into the null distribution (failed channels excluded from cluster
+    # formation on both sides), and the degenerate rate is tracked separately
+    # at the loop level so users see when permutations are pathological.
     n_attempted = n_channels - diagnostics['n_insufficient_data']
-    if n_attempted > 0 and diagnostics['n_failed'] / n_attempted > 0.5:
+    if (
+        abort_on_high_failure
+        and n_attempted > 0
+        and diagnostics['n_failed'] / n_attempted > 0.5
+    ):
         raise RuntimeError(
             f"LMM failed on {diagnostics['n_failed']}/{n_attempted} channels "
             f"({100 * diagnostics['n_failed'] / n_attempted:.1f}%). "

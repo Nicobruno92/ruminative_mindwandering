@@ -336,7 +336,8 @@ class MRMRFeatureSelector(BaseEstimator, SelectorMixin):
 # OVERSAMPLING
 # =============================================================================
 
-def get_oversampler(method: str, k_neighbors: int = 5, random_state: int = 42):
+def get_oversampler(method: str, k_neighbors: int = 5, random_state: int = 42,
+                    m_neighbors: int = 10):
     """
     Instantiate an oversampler by method name.
 
@@ -348,6 +349,9 @@ def get_oversampler(method: str, k_neighbors: int = 5, random_state: int = 42):
         Number of neighbors for SMOTE-based methods.
     random_state : int
         Random seed.
+    m_neighbors : int
+        SVMSMOTE-specific: neighbors used for danger/noise detection (default 10).
+        Must be < n_samples_fit; caller is responsible for capping it.
 
     Returns
     -------
@@ -359,7 +363,8 @@ def get_oversampler(method: str, k_neighbors: int = 5, random_state: int = 42):
     if method == "SMOTE":
         return SMOTE(random_state=random_state, k_neighbors=k_neighbors)
     elif method == "SVMSMOTE":
-        return SVMSMOTE(random_state=random_state, k_neighbors=k_neighbors)
+        return SVMSMOTE(random_state=random_state, k_neighbors=k_neighbors,
+                        m_neighbors=m_neighbors)
     elif method == "ADASYN":
         return ADASYN(random_state=random_state, n_neighbors=k_neighbors)
     elif method == "SMOTETomek":
@@ -430,15 +435,18 @@ def apply_within_subject_oversampling(
 
         min_count = min(counts)
 
-        # Use smaller k if minority class is tiny
-        actual_k = min(k_neighbors, min_count - 1) if min_count <= k_neighbors else k_neighbors
+        # Cap k_neighbors and SVMSMOTE's m_neighbors to what the minority class can support.
+        # SVMSMOTE internally needs m_neighbors + 1 neighbors, so cap at min_count - 1.
+        actual_k = min(k_neighbors, min_count - 1)
+        actual_m = min(10, min_count - 1)  # SVMSMOTE m_neighbors default is 10
         if actual_k < 1:
             balanced_X_list.append(X_subj)
             balanced_y_list.append(y_subj)
             balanced_groups_list.append(np.full(len(y_subj), subj))
             continue
 
-        oversampler = get_oversampler(method, k_neighbors=actual_k, random_state=random_state)
+        oversampler = get_oversampler(method, k_neighbors=actual_k, random_state=random_state,
+                                      m_neighbors=actual_m)
         X_subj_balanced, y_subj_balanced = oversampler.fit_resample(X_subj, y_subj)
         balanced_X_list.append(X_subj_balanced)
         balanced_y_list.append(y_subj_balanced)
@@ -549,6 +557,7 @@ def build_model_pipeline(
     pca_n_components: int = None,
     pca_type: str = 'standard',
     pca_kernel: str = 'rbf',
+    smote_k_neighbors: int = 5,
 ):
     """
     Build an sklearn Pipeline for RF, XGBoost, or LogisticRegression.
@@ -647,7 +656,7 @@ def build_model_pipeline(
     if use_smote and not is_oneclass:
         if not HAS_IMBLEARN:
             raise ImportError("imbalanced-learn is required. Install with: pip install imbalanced-learn")
-        steps.append(('smote', get_oversampler(oversampling_method, k_neighbors=5,
+        steps.append(('smote', get_oversampler(oversampling_method, k_neighbors=smote_k_neighbors,
                                                random_state=random_state)))
 
     # Classifier
@@ -754,7 +763,7 @@ from joblib import Parallel, delayed
 
 def _process_cv_fold_loso(
     fold_idx, train_idx, test_idx, X, y, groups, pipeline, scale_by_participant, scaler,
-    use_smote, oversampling_scope, oversampling_method, random_state
+    use_smote, oversampling_scope, oversampling_method, random_state, smote_k_neighbors: int = 5
 ):
     train_subjects = set(groups.iloc[train_idx])
     test_subjects = set(groups.iloc[test_idx])
@@ -780,7 +789,7 @@ def _process_cv_fold_loso(
     if use_smote and oversampling_scope == 'within':
         X_train, y_train, groups_train_expanded = apply_within_subject_oversampling(
             X_train, y_train, groups_train.values,
-            method=oversampling_method, k_neighbors=5, random_state=random_state,
+            method=oversampling_method, k_neighbors=smote_k_neighbors, random_state=random_state,
             return_groups=True,
         )
     else:
@@ -1163,7 +1172,8 @@ def run_model_pipeline_cv(
     oneclass_target: str = "minority",
     feature_selection_method: str = 'mrmr', scaler: str = 'standard', scale_by_participant: str = 'none',
     lmm_n_jobs: int = 1, use_pca: bool = False, pca_n_components: int = None,
-    pca_type: str = 'standard', pca_kernel: str = 'rbf', cv_n_jobs: int = -1
+    pca_type: str = 'standard', pca_kernel: str = 'rbf', cv_n_jobs: int = -1,
+    smote_k_neighbors: int = 5,
 ) -> pd.DataFrame:
 
     random_state = fixed_random_state if fixed_random_state is not None else 42
@@ -1189,7 +1199,7 @@ def run_model_pipeline_cv(
         ocsvm_params=ocsvm_params, iforest_params=iforest_params,
         feature_selection_method=feature_selection_method, scaler=pipeline_scaler,
         lmm_n_jobs=1, use_pca=use_pca, pca_n_components=pca_n_components,
-        pca_type=pca_type, pca_kernel=pca_kernel
+        pca_type=pca_type, pca_kernel=pca_kernel, smote_k_neighbors=smote_k_neighbors,
     )
 
     from sklearn.model_selection import LeaveOneGroupOut
@@ -1209,7 +1219,7 @@ def run_model_pipeline_cv(
         results = Parallel(n_jobs=cv_n_jobs, backend='loky')(
             delayed(_process_cv_fold_loso)(
                 fold_idx, train_idx, test_idx, X, y, groups, pipeline, scale_by_participant, scaler,
-                use_smote, oversampling_scope, oversampling_method, random_state
+                use_smote, oversampling_scope, oversampling_method, random_state, smote_k_neighbors
             )
             for fold_idx, (train_idx, test_idx) in enumerate(cv_splits)
         )
@@ -1253,43 +1263,68 @@ def run_model_pipeline_cv(
 
 def _process_cv_fold_within(
     fold_idx, train_idx, test_idx, X, y, pipeline, use_smote, oversampling_scope,
-    oversampling_method, random_state, y_raw=None, groups=None
+    oversampling_method, random_state, y_raw=None, groups=None, smote_k_neighbors: int = 5
 ):
     X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-    if y_raw is not None:
-        # Re-binarize using training fold median only — prevents label leakage
-        # from within_subject_median threshold computed pre-CV on full subject data.
-        train_median = y_raw.iloc[train_idx].median()
-        y_train = (y_raw.iloc[train_idx] > train_median).astype(int).reset_index(drop=True)
-        y_test = (y_raw.iloc[test_idx] > train_median).astype(int).reset_index(drop=True)
-    else:
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-
-    if use_smote and oversampling_scope == 'within':
-        mock_groups = np.zeros(len(y_train))
-        X_train, y_train = apply_within_subject_oversampling(
-            X_train, y_train, mock_groups, method=oversampling_method,
-            k_neighbors=5, random_state=random_state
-        )
+    if y_train.nunique() < 2:
+        return {
+            'fold_idx': fold_idx,
+            'skipped': True,
+            'skip_reason': 'single_class_y_train',
+            'importances': np.zeros(X.shape[1]),
+        }
 
     from sklearn.base import clone
     fold_pipeline = clone(pipeline)
 
-    # LMM selectors require groups (e.g. task labels) passed via fit_params.
-    # For within-subject, groups represents the task/session variable (1|Task).
-    fit_params = {}
-    feature_selector_step = fold_pipeline.named_steps.get('feature_selection', None)
-    if feature_selector_step is not None and type(feature_selector_step).__name__ in (
-        'LMMDecodingFeatureSelector', 'LMMEncodingFeatureSelector'
-    ):
-        if groups is not None:
-            groups_train = groups.iloc[train_idx] if isinstance(groups, pd.Series) else groups[train_idx]
-            fit_params['feature_selection__groups'] = (
-                groups_train.values if hasattr(groups_train, 'values') else groups_train
-            )
+    if use_smote and oversampling_scope == 'within':
+        # Scale first (fitting on training data only), then SMOTE in normalized
+        # feature space so k-NN distances are not distorted by raw magnitudes.
+        pre_names = {'preprocessor', 'scaler'}
+        X_train_t = X_train.copy()
+        X_test_t = X_test.copy()
+        for name, step in fold_pipeline.steps:
+            if name in pre_names:
+                arr_tr = step.fit_transform(X_train_t, y_train)
+                arr_te = step.transform(X_test_t)
+                X_train_t = pd.DataFrame(arr_tr, columns=X_train.columns)
+                X_test_t = pd.DataFrame(arr_te, columns=X_train.columns)
 
-    fold_pipeline.fit(X_train, y_train, **fit_params)
+        X_train_t, y_train = apply_within_subject_oversampling(
+            X_train_t, y_train, np.zeros(len(y_train)),
+            method=oversampling_method, k_neighbors=smote_k_neighbors,
+            random_state=random_state,
+        )
+
+        remaining_steps = [(n, s) for n, s in fold_pipeline.steps if n not in pre_names]
+        fit_params = {}
+        fs_obj = next((s for n, s in remaining_steps if n == 'feature_selection'), None)
+        if fs_obj is not None and type(fs_obj).__name__ in (
+            'LMMDecodingFeatureSelector', 'LMMEncodingFeatureSelector'
+        ):
+            if groups is not None:
+                g_train = groups.iloc[train_idx] if isinstance(groups, pd.Series) else groups[train_idx]
+                fit_params['feature_selection__groups'] = (
+                    g_train.values if hasattr(g_train, 'values') else g_train
+                )
+        fold_pipeline = Pipeline(remaining_steps)
+        fold_pipeline.fit(X_train_t, y_train, **fit_params)
+        X_test = X_test_t
+    else:
+        # LMM selectors require groups passed via fit_params.
+        fit_params = {}
+        feature_selector_step = fold_pipeline.named_steps.get('feature_selection', None)
+        if feature_selector_step is not None and type(feature_selector_step).__name__ in (
+            'LMMDecodingFeatureSelector', 'LMMEncodingFeatureSelector'
+        ):
+            if groups is not None:
+                groups_train = groups.iloc[train_idx] if isinstance(groups, pd.Series) else groups[train_idx]
+                fit_params['feature_selection__groups'] = (
+                    groups_train.values if hasattr(groups_train, 'values') else groups_train
+                )
+        fold_pipeline.fit(X_train, y_train, **fit_params)
 
     y_pred = fold_pipeline.predict(X_test)
     y_score = None
@@ -1316,7 +1351,6 @@ def _process_cv_fold_within(
     f1 = f1_score(y_test, y_pred, zero_division=0)
     cm = confusion_matrix(y_test, y_pred)
 
-    import pandas as pd
     label_counts = pd.Series(y_test).value_counts(normalize=True).to_dict()
     fold_detail = {
         'fold_idx': fold_idx,
@@ -1366,6 +1400,7 @@ def run_within_subject_cv(
     pca_kernel: str = 'rbf', cv_n_jobs: int = -1,
     lmm_n_jobs: int = 1,
     y_raw: "pd.Series | None" = None,
+    smote_k_neighbors: int = 5,
 ) -> pd.DataFrame:
 
     random_state = fixed_random_state if fixed_random_state is not None else 42
@@ -1389,8 +1424,16 @@ def run_within_subject_cv(
         lr_params=lr_params, ocsvm_params=ocsvm_params, iforest_params=iforest_params,
         feature_selection_method=feature_selection_method, scaler=scaler,
         lmm_n_jobs=lmm_n_jobs,
-        use_pca=use_pca, pca_n_components=pca_n_components, pca_type=pca_type, pca_kernel=pca_kernel
+        use_pca=use_pca, pca_n_components=pca_n_components, pca_type=pca_type, pca_kernel=pca_kernel,
+        smote_k_neighbors=smote_k_neighbors,
     )
+
+    # Guard: StratifiedKFold requires at least n_splits samples in every class.
+    # After the neutral-zone gap exclusion, some subjects (especially in permutations)
+    # may fall below this threshold — return empty so the caller skips them.
+    min_class_count = int(pd.Series(y).value_counts().min())
+    if min_class_count < cv_folds:
+        return pd.DataFrame()
 
     from sklearn.model_selection import StratifiedKFold, GroupKFold, RepeatedStratifiedKFold
     if cv_strategy == 'stratified_kfold':
@@ -1417,10 +1460,23 @@ def run_within_subject_cv(
         results = Parallel(n_jobs=cv_n_jobs, backend='loky')(
             delayed(_process_cv_fold_within)(
                 fold_idx, train_idx, test_idx, X, y, pipeline, use_smote, oversampling_scope,
-                oversampling_method, random_state, y_raw, groups
+                oversampling_method, random_state, y_raw, groups, smote_k_neighbors
             )
             for fold_idx, (train_idx, test_idx) in enumerate(cv_splits)
         )
+
+    # Drop any folds that were skipped (e.g. single-class y_train after
+    # training-median rebinarization). If every fold was skipped, return an
+    # empty DataFrame so the caller treats this subject as filtered-out.
+    skipped = [r for r in results if r.get('skipped', False)]
+    results = [r for r in results if not r.get('skipped', False)]
+    if skipped:
+        print(
+            f"  [within-CV] Skipped {len(skipped)}/{len(skipped)+len(results)} "
+            f"fold(s): {skipped[0].get('skip_reason', 'unknown')}"
+        )
+    if not results:
+        return pd.DataFrame()
 
     result_dict = {
         'mean_auc': np.mean([r['auc'] for r in results]),

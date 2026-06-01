@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Run Andrillon 2020 Pipeline - Local Execution Script
+Run Stats Pipeline - Local Execution Script
 
 Usage:
     # Analyze all markers

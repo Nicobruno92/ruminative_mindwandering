@@ -52,9 +52,17 @@ if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
 elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
     . "$HOME/anaconda3/etc/profile.d/conda.sh"
     conda activate eeg
+elif [ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
+    . "$HOME/miniforge3/etc/profile.d/conda.sh"
+    conda activate eeg
 elif command -v conda >/dev/null 2>&1; then
     eval "$(conda shell.bash hook)"
     conda activate eeg
+fi
+
+# Ensure the env's python wins on PATH (some shells prepend /usr/bin after activate)
+if [ -n "${CONDA_PREFIX:-}" ]; then
+    export PATH="${CONDA_PREFIX}/bin:${PATH}"
 fi
 
 SCRIPT_DIR="Stats_andrillon"
@@ -63,7 +71,7 @@ SCRIPT_DIR="Stats_andrillon"
 # Read predictor list from config
 # ---------------------------------------------------------------------------
 echo "=========================================="
-echo "Andrillon Predictor Loop Submission"
+echo "Predictor Loop Submission"
 echo "Config: ${CONFIG_FILE}"
 echo "=========================================="
 

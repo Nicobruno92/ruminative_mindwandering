@@ -3,6 +3,15 @@ Reader module for connectivity statistics pipeline.
 
 Loads wSMI connectivity pair data from aggregated CSV files and optionally
 aggregates channel-pair values into ROI-pair values.
+
+Upstream contract
+-----------------
+Pre-probe distance filtering (CLAUDE.md: distance −5 to −1) is applied
+*upstream* in ``junifer_markers/2.aggregate_probes/aggregate_markers_by_probe.py``
+via the ``evoked_distance_min/max`` config (default 0..4 = the 5 epochs
+closest to the probe). The connectivity CSVs read here therefore already
+encode the correct probe window; this module trusts that contract and does
+not re-filter by distance.
 """
 
 import numpy as np
@@ -21,6 +30,21 @@ from itertools import combinations_with_replacement
 # EEG channel names (Fp1, AF3, FC1, …) never contain hyphens, and
 # ROI names use underscores, so a single hyphen is unambiguous.
 PAIR_SEPARATOR = "-"
+
+# SART → integer index mapping used to build ``time_on_task``.
+# Kept here because the aggregated probe CSVs do not carry this mapping
+# directly (the task name is what's stored). If the experiment ever changes
+# the SART labelling this mapping must be updated.
+SART_TASK_INDEX: Dict[str, int] = {
+    "Sart1": 1,
+    "Sart2": 2,
+    "Sart3": 3,
+    "Sart4": 4,
+}
+
+# Number of probes per SART block in the CYBERSART experimental design.
+# Used to convert (task, probe_number) → cumulative time_on_task index.
+PROBES_PER_SART: int = 15
 
 
 # =============================================================================
@@ -228,13 +252,11 @@ def _parse_connectivity_csv(
     confidence = float(df["confidence"].iloc[0]) if "confidence" in df.columns else np.nan
     time_val = float(df["time"].iloc[0]) if "time" in df.columns else np.nan
     
-    # Calculate time_on_task
-    task_to_sart_number = {
-        'Sart1': 1, 'Sart2': 2, 'Sart3': 3, 'Sart4': 4
-    }
-    sart_number = task_to_sart_number.get(task, np.nan)
-    if not np.isnan(sart_number):
-        time_on_task_val = int(probe_number + (15 * (sart_number - 1)))
+    # Calculate cumulative time-on-task (probe index across the four Sart blocks).
+    # Uses module-level constants so the mapping is in one place and not magic.
+    sart_number = SART_TASK_INDEX.get(task)
+    if sart_number is not None:
+        time_on_task_val = int(probe_number + PROBES_PER_SART * (sart_number - 1))
     else:
         time_on_task_val = np.nan
 
@@ -422,10 +444,13 @@ def aggregate_to_roi_pairs(
     )
     df["connection_id"] = roi_pair
 
-    # Group by all metadata + ROI pair and average wSMI
+    # Group by all metadata + ROI pair and average wSMI.
+    # Includes optional PCA components so they propagate through ROI aggregation
+    # when merge_pca_results was called upstream.
     group_cols = [
         "subject", "task", "probe_number", "label", "n_epochs",
         "onoff", "valence", "selfother", "confidence", "time", "time_on_task",
+        "PC1", "PC2", "PC3",
         "epoch_type", "band", "connection_id",
     ]
     # Keep only columns that exist
@@ -443,6 +468,259 @@ def aggregate_to_roi_pairs(
         print(f"  Aggregated to {n_roi_pairs} ROI pairs")
 
     return result
+
+
+# =============================================================================
+# QA FILTERING / PCA MERGE / NORMALIZATION
+# =============================================================================
+
+def apply_qa_filter(
+    df: pd.DataFrame,
+    qa_summary_path: str,
+    epoch_types: Optional[List[str]] = None,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Drop (subject, task, epoch_type) tuples that failed preprocessing QA.
+
+    The QA summary CSV ``qa_summary_path`` has one row per
+    (subject, task, epoch_type) with a boolean ``passed`` column written by
+    the preprocessing pipeline. The connectivity ``epoch_type`` column is
+    suffixed with ``_connectivity`` (e.g. ``sleep_connectivity``); the QA
+    table uses the bare root (e.g. ``sleep``) so we strip the suffix before
+    matching.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long-format connectivity data with columns ``subject``, ``task``,
+        ``epoch_type``.
+    qa_summary_path : str
+        Path to ``qa_summary.csv`` (boolean ``passed`` column required).
+    epoch_types : Optional[List[str]]
+        Epoch types we care about (e.g. ``["sleep_connectivity"]``). Used
+        only for logging; the join is on the actual ``epoch_type`` column.
+    verbose : bool
+        Print summary statistics.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered long-format data (rows where the corresponding QA row is
+        ``passed = True``).
+    """
+    qa = pd.read_csv(qa_summary_path)
+    assert {"subject", "task", "epoch_type", "passed"}.issubset(qa.columns), (
+        f"qa_summary missing required columns; got {list(qa.columns)}"
+    )
+
+    # Harmonise key types: connectivity df uses zero-padded subject strings,
+    # QA file stores subject as int. Cast both sides to zero-padded str.
+    qa = qa.copy()
+    qa["subject"] = qa["subject"].astype(int).map(lambda s: f"{s:02d}")
+    qa["task"] = qa["task"].astype(str)
+    qa["epoch_type_root"] = qa["epoch_type"].astype(str)
+
+    # Map connectivity-side epoch_type ("sleep_connectivity") to root ("sleep")
+    df = df.copy()
+    df["epoch_type_root"] = (
+        df["epoch_type"].astype(str).str.replace("_connectivity", "", regex=False)
+    )
+
+    failed = qa.loc[~qa["passed"].astype(bool), ["subject", "task", "epoch_type_root"]]
+    if failed.empty:
+        if verbose:
+            print("  QA filter: 0 (subject, task, epoch_type) tuples flagged failed")
+        return df.drop(columns=["epoch_type_root"])
+
+    # Anti-join: drop rows whose key matches any failed tuple
+    keys_failed = set(map(tuple, failed.values))
+    n_before = len(df)
+    keep_mask = ~df.apply(
+        lambda r: (r["subject"], r["task"], r["epoch_type_root"]) in keys_failed,
+        axis=1,
+    )
+    df_out = df.loc[keep_mask].drop(columns=["epoch_type_root"]).reset_index(drop=True)
+    n_after = len(df_out)
+
+    if verbose:
+        print(
+            f"  QA filter: dropped {n_before - n_after}/{n_before} rows "
+            f"({len(keys_failed)} failed (subject,task,epoch) tuples)"
+        )
+
+    return df_out
+
+
+def merge_pca_results(
+    df: pd.DataFrame,
+    pca_results_path: str,
+    pca_columns: Tuple[str, ...] = ("PC1", "PC2", "PC3"),
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Left-merge probe-level PCA components into the connectivity long df.
+
+    PCA is computed upstream on the behavioural probe-content responses; this
+    function attaches PC scores to each (subject, task, probe_number) row so
+    they are available as LMM predictors.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long-format connectivity data.
+    pca_results_path : str
+        Path to ``pca_results.csv`` (must contain ``subject_id``/``subject``,
+        ``task``, ``probe_number`` and the PC columns).
+    pca_columns : Tuple[str, ...]
+        Names of the PC columns to bring in.
+    verbose : bool
+        Print merge statistics.
+
+    Returns
+    -------
+    pd.DataFrame
+        Same as input with ``pca_columns`` added; rows with no matching PCA
+        entry get NaN in the new columns (and will be filtered downstream by
+        ``prepare_connectivity_for_lmm``).
+    """
+    pca = pd.read_csv(pca_results_path)
+    subj_col = "subject_id" if "subject_id" in pca.columns else "subject"
+    needed = [subj_col, "task", "probe_number", *pca_columns]
+    missing = [c for c in needed if c not in pca.columns]
+    assert not missing, f"PCA file missing columns {missing}; got {list(pca.columns)}"
+
+    pca = pca[needed].rename(columns={subj_col: "subject"}).copy()
+    # Harmonise keys: zero-padded string subject + integer probe number
+    pca["subject"] = pca["subject"].astype(int).map(lambda s: f"{s:02d}")
+    pca["task"] = pca["task"].astype(str)
+    pca["probe_number"] = pca["probe_number"].astype(float).astype(int)
+    # Some PCA rows can be duplicated; collapse to one row per probe
+    pca = pca.drop_duplicates(subset=["subject", "task", "probe_number"], keep="first")
+
+    df = df.copy()
+    df["probe_number"] = df["probe_number"].astype(int)
+    merged = df.merge(pca, on=["subject", "task", "probe_number"], how="left")
+
+    if verbose:
+        n_total = len(merged)
+        n_matched = int(merged[list(pca_columns)[0]].notna().sum())
+        print(
+            f"  PCA merge: {n_matched}/{n_total} rows matched "
+            f"({100*n_matched/n_total:.1f}%) for {list(pca_columns)}"
+        )
+
+    return merged
+
+
+def normalize_wsmi_by_subject(
+    df: pd.DataFrame,
+    method: str = "zscore",
+    channel_wise: bool = False,
+    subject_column: str = "subject",
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Normalize the ``wsmi_value`` column within each subject.
+
+    Z-scoring per subject removes between-subject mean/scale differences in
+    raw wSMI before LMM, complementing (not replacing) the random intercept.
+    With ``channel_wise=True`` the z-score is computed per
+    (subject × connection_id), i.e. each connection has its own per-subject
+    distribution; this is the more aggressive option and usually only
+    sensible if you expect distinct per-connection scales.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long-format connectivity data.
+    method : str
+        ``"zscore"`` (currently the only supported method).
+    channel_wise : bool
+        If True, normalize per (subject, connection_id) instead of per subject.
+    subject_column : str
+        Name of the subject column.
+    verbose : bool
+        Print a short summary.
+
+    Returns
+    -------
+    pd.DataFrame
+        Same shape as input with ``wsmi_value`` z-scored.
+    """
+    assert method == "zscore", f"Only 'zscore' supported, got {method!r}"
+    df = df.copy()
+    group_cols = [subject_column]
+    if channel_wise:
+        group_cols.append("connection_id")
+
+    grouped = df.groupby(group_cols)["wsmi_value"]
+    mu = grouped.transform("mean")
+    sd = grouped.transform("std")
+    # Avoid divide-by-zero: groups with 0 variance get the centred value (0).
+    sd = sd.where(sd > 0, np.nan)
+    z = (df["wsmi_value"] - mu) / sd
+    df["wsmi_value"] = z.fillna(0.0)
+
+    if verbose:
+        scope = "subject × connection" if channel_wise else "subject"
+        print(f"  wSMI normalized (zscore) per {scope}")
+    return df
+
+
+def normalize_predictors(
+    df: pd.DataFrame,
+    predictors: List[str],
+    method: str = "zscore",
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Z-score continuous predictors across the full sample.
+
+    Putting predictors on a common scale (a) makes fixed-effect coefficients
+    comparable across covariates and (b) improves LMM optimiser conditioning.
+    Categorical-binary predictors (e.g. ``onoff`` coded 0/100) are left alone:
+    z-scoring would only change the coefficient interpretation, not the test.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long or wide DataFrame containing the predictor columns.
+    predictors : List[str]
+        Predictor column names to z-score.
+    method : str
+        ``"zscore"`` (currently the only supported method).
+    verbose : bool
+        Print which columns were z-scored.
+
+    Returns
+    -------
+    pd.DataFrame
+        Same DataFrame with the listed predictor columns z-scored in place
+        (NaN-safe: NaNs are preserved, ignored in the mean/std).
+    """
+    assert method == "zscore", f"Only 'zscore' supported, got {method!r}"
+    df = df.copy()
+    z_done = []
+    for col in predictors:
+        if col not in df.columns:
+            continue
+        x = df[col].astype(float)
+        if x.notna().sum() < 2:
+            continue
+        # Skip binary 0/100 (onoff) — z-scoring is a relabel, not informative.
+        unique_vals = x.dropna().unique()
+        if len(unique_vals) <= 2:
+            continue
+        mu = x.mean(skipna=True)
+        sd = x.std(skipna=True)
+        if not (sd and np.isfinite(sd) and sd > 0):
+            continue
+        df[col] = (x - mu) / sd
+        z_done.append(col)
+    if verbose and z_done:
+        print(f"  Predictors z-scored: {z_done}")
+    return df
 
 
 # =============================================================================
@@ -509,6 +787,9 @@ def prepare_connectivity_for_lmm(
         "subject", "task", "probe_number", "label", "n_epochs",
         "onoff", "epoch_type", "valence", "selfother", "confidence", "time",
         "time_on_task",
+        # PCA components merged in by reader.merge_pca_results — carry them
+        # through the pivot so they remain available as LMM predictors.
+        "PC1", "PC2", "PC3",
     ]
     metadata_cols = [
         c for c in candidate_meta

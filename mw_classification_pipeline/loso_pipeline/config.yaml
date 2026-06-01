@@ -45,21 +45,22 @@ min_minority_ratio: 0.2   # Min minority class fraction per subject (0 = disable
 label_source: onoff
 
 label_contrasts:
-  # ON_vs_OFF:
-  #   label_source: onoff
-  #   split_method: "threshold"
-  #   threshold: 50
-  #   positive_above: true
-
-  # ON_vs_OFF_within_median:
-  #   label_source: onoff
-  #   split_method: "within_subject_median"
-  #   positive_above: true
-
-  ON_vs_OFF_global_median:
+  ON_vs_OFF:
     label_source: onoff
-    split_method: "global_median"
+    split_method: "threshold"
+    threshold: 50
     positive_above: true
+
+  ON_vs_OFF_within_median:
+    label_source: onoff
+    split_method: "within_subject_median"
+    gap: 5           # ±points around subject median to exclude (0 = no neutral zone)
+    positive_above: true
+
+  # ON_vs_OFF_global_median:
+  #   label_source: onoff
+  #   split_method: "global_median"
+  #   positive_above: true
 
   # ON_vs_OFF_extreme:
   #   label_source: onoff
@@ -67,122 +68,88 @@ label_contrasts:
   #   threshold_low: 30
   #   threshold_high: 70
 
-# Which contrast to run (overridable with --contrast)
-contrast:
-  - ON_vs_OFF_global_median
-  # - ON_vs_OFF_within_median
+# Which contrasts to submit as jobs via run_local.sh / run_cluster.sh.
+# Must be keys defined in label_contrasts above.
+run_contrasts:
+  - ON_vs_OFF_within_median
   # - ON_vs_OFF
 
 # =============================================================================
-# EPOCH TYPES
+# DATA FORMAT
 # =============================================================================
-# Which epoch type to use for features:
-#   state  = temporal bins before probe (-3 to -10s) — best for mind-wandering
-#   evoked = trial-locked epochs (go stimulus onset) — for ERP features
-#   sleep  = single epoch per probe
-#
-# You can specify this as a list to load all markers:
-# epoch_types:
-#   - state
-#   - evoked
-# Or as a dictionary to only load specific feature families for each epoch type:
-# epoch_types:
-#   state: ["spectral", "connectivity", "information_theory"]
-#   evoked: ["erp"]
-#   sleep: ["sleep"]
-
-epoch_types:
-  - sleep
-  - evoked: ['erp']
-
-# =============================================================================
-# MARKER DATA FORMAT
-# =============================================================================
-# How the feature matrix is structured (set by the junifer aggregation step):
-#
-#   per_channel  →  one column per channel per marker (wide format, default)
-#                   Example: power_alpha_Fz, power_alpha_Cz, wsmi_theta_Fz-Cz
-#
-#   per_roi      →  channels collapsed into ROI averages by junifer aggregation
-#                   Example: power_alpha_frontal_left, wsmi_theta_midline
-#
-# This should match the aggregation.channel_methods setting used when running
-# junifer_markers/2.aggregate_probes/aggregate_markers_by_probe.py.
-# With channel_methods: null (default) → use per_channel.
-
+# per_channel → one column per channel (power_alpha_Fz, wsmi_theta_Fz-Cz)
+# per_roi     → channels collapsed into ROI averages (power_alpha_frontal_left)
 data_format: per_roi
-# Whether to include pair-wise connectivity features (e.g. Fp1-Fp2 wSMI).
-# If false, these features are dropped to reduce dimensionality.
 include_connectivity_pairs: false
 
 # =============================================================================
 # FEATURE FAMILIES
 # =============================================================================
-# Families let you run classification on a specific subset of features.
-# Each family maps to a list of marker-name fragments. A column belongs to a
-# family if the fragment appears after the channel separator in its name
-# (i.e. `_{prefix}` is a substring of the column name).
+# Each family declares TWO things:
+#   epoch_types — which files to load from disk (sleep / evoked / state)
+#   prefixes    — which column subsets to keep after loading (null = all)
 #
-# Column names come from junifer aggregation (aggregate_markers_by_probe.py):
-#   {channel}_{marker_shortname}_{band_or_subtype}
-#
-#   Marker short names are defined in junifer_markers/2.aggregate_probes/config.yaml
-#   under marker_name_mapping. Examples:
-#     AF3_power_alpha         (EEG_psd_bands_spectralpower → power, band=alpha, ch=AF3)
-#     Cz_power_normalized_theta
-#     Fz_wsmi_theta           (EEG_wsmi_theta_... → wsmi_theta)
-#     Pz_PE_alpha             (EEG_PE_alpha_... → PE_alpha)
-#     Cz_kolmogorov_complexity
-#     Pz_P3b                  (ERP, per_channel)
+# When you add a family to run_families, the pipeline automatically loads
+# only the relevant epoch files and filters to the declared columns.
+# No separate top-level epoch_types needed.
 
 feature_families:
-  all: null                    # All available features (no filtering)
 
-  spectral:                    # Absolute and relative band power
-    - "power_delta"
-    - "power_theta"
-    - "power_alpha"
-    - "power_beta"
-    - "power_gamma"
-    - "power_normalized_"
+  all:
+    epoch_types: [sleep, evoked]   # load both sleep and evoked files
+    prefixes: null                  # keep all columns
 
-  connectivity:                # Weighted Symbolic Mutual Information (wSMI)
-    - "wsmi_theta"
-    - "wsmi_alpha"
-    - "wsmi_beta"
-    - "wsmi_gamma"
+  erp:
+    epoch_types: [evoked]          # only load evoked (go-stimulus locked) files
+    prefixes:
+      - "P1"
+      - "N1"
+      - "P2"
+      - "P3a"
+      - "P3b"
 
-  information_theory:          # Permutation Entropy + Kolmogorov Complexity
-    - "PE_theta"
-    - "PE_alpha"
-    - "PE_beta"
-    - "PE_gamma"
-    - "kolmogorov_complexity"
+  sleep:
+    epoch_types: [sleep]           # only load sleep-epoch files
+    prefixes:
+      - "slowwaves"
+      - "spindles"
 
-  erp:                         # ERP components (evoked epoch type only)
-    - "P1_"
-    - "N1_"
-    - "P2_"
-    - "P3a_"
-    - "P3b_"
+  spectral:
+    epoch_types: [state]           # only load pre-probe state bins
+    prefixes:
+      - "power_delta"
+      - "power_theta"
+      - "power_alpha"
+      - "power_beta"
+      - "power_gamma"
+      - "power_normalized"
 
-  sleep:                       # Sleep markers (sleep epoch type only)
-    - "slowwaves_"
-    - "spindles_"
+  connectivity:
+    epoch_types: [state]
+    prefixes:
+      - "wsmi_theta"
+      - "wsmi_alpha"
+      - "wsmi_beta"
+      - "wsmi_gamma"
 
+  information_theory:
+    epoch_types: [state]
+    prefixes:
+      - "PE_theta"
+      - "PE_alpha"
+      - "PE_beta"
+      - "PE_gamma"
+      - "kolmogorov_complexity"
 
-# Which families to run.
-# bash scripts (run_local.sh, run_cluster.sh) submit one job per family.
-# Use ["all"] to run once on all features.
-# Use multiple entries to get parallel independent runs per family.
-run_families: ["all"] # "spectral", "connectivity", "information_theory"
+# Which families to submit as separate jobs via run_local.sh / run_cluster.sh.
+run_families: ["all", "erp"]
 
 
 # =============================================================================
 # EXPERIMENT SETUP
 # =============================================================================
 
-model_type: ["rf", "lr"]            # rf, xgb, lr, ocsvm, iforest
+model_type: ["rf"]            # rf, xgb, lr, ocsvm, iforest
 
 n_runs: 10                # LOSO runs with different seeds
 permutation_runs: 10     # Label permutations for null distribution
@@ -201,8 +168,9 @@ scale_by_participant: within     # 'none', 'global', or 'within'
 permutation_scope: within        # 'global' or 'within_subject'
 
 use_smote: true
-oversampling_method: SVMSMOTE    # SMOTE, SVMSMOTE, ADASYN, SMOTETomek
+oversampling_method: SMOTE        # SMOTE, SVMSMOTE, ADASYN, SMOTETomek
 oversampling_scope: within       # 'global' or 'within'
+smote_k_neighbors: 5             # k_neighbors for SMOTE-based oversamplers
 
 use_pca: false
 pca_n_components: 20
@@ -305,9 +273,19 @@ plot_style: seaborn-v0_8
 # Used by run_cluster.sh to configure the SLURM submission.
 # No need to edit run_cluster.sh — change these values instead.
 
+# =============================================================================
+# PARALLELISM
+# =============================================================================
+# n_perm_jobs=1 with perm_cv_n_jobs=-1 mirrors the true-run strategy:
+# permutations run sequentially but each one parallelises all 42 LOSO folds
+# across available cores. Keep n_perm_jobs=1 so stdout is visible per perm.
+parallelism:
+  n_perm_jobs: 1       # sequential perms → stdout visible after each ~4 min
+  perm_cv_n_jobs: -1   # parallel folds per perm (mirrors true runs)
+
 slurm:
-  time: "24:00:00"
-  mem: "32G"
-  cpus_per_task: 8
+  time: "72:00:00"
+  mem: "64G"
+  cpus_per_task: 32
   job_name: "mw_class"
   conda_env: "ML"

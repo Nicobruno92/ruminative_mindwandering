@@ -42,9 +42,9 @@ min_minority_ratio: 0.2
 # Read by run_cluster.sh to submit jobs. Nothing is hardcoded in the bash scripts.
 slurm:
   job_name: "mw_ws_clf"
-  time: "12:00:00"
-  mem: "32G"
-  cpus_per_task: 16
+  time: "72:00:00"
+  mem: "64G"
+  cpus_per_task: 32
   conda_env: "ML"
 
 # =============================================================================
@@ -52,7 +52,7 @@ slurm:
 # =============================================================================
 random_seed: 42
 n_runs: 10                      # Base ML training passes — gives 10 data points per subject for distribution plots
-n_permutations: 10             # Runs per permutation pass (useful: 100 or 1000)
+n_permutations: 10              # Runs per permutation pass (useful: 100 or 1000)
 
 # =============================================================================
 # PARALLELISM
@@ -70,38 +70,10 @@ n_permutations: 10             # Runs per permutation pass (useful: 100 or 1000)
 #                   avoid nested parallelism and memory blow-up.
 # =============================================================================
 parallelism:
-  n_subject_jobs: 1             # >1 to parallelize subjects within a run
+  n_subject_jobs: -1            # >1 to parallelize subjects within a run
   n_perm_jobs: 1                # >1 to parallelize permutation passes
   cv_n_jobs: 1                  # keep 1 when either job level is parallel
 
-# =============================================================================
-# EPOCH TYPES
-# =============================================================================
-# The column name that contains the prefix for markers.
-# By default, junifer writes power with no epoch prefix (e.g. power_alpha_Fz),
-# so this can just match the features strictly.
-# If your data is split by Evoked/State/Sleep, define it here:
-# You can specify this as a list to load all markers for these epoch types:
-# epoch_types:
-#   - state
-# Or as a dictionary to load specific feature families per epoch type:
-# epoch_types:
-#   state: ["spectral", "connectivity"]
-#   evoked: ["erp"]
-#   sleep: ["sleep"]
-epoch_types:
-  - sleep
-  - evoked: ['erp']
-
-# =============================================================================
-# DATA FORMAT
-# =============================================================================
-# Either "per_channel" or "per_roi".
-# Determines if the pipeline expects channel-level columns (e.g., Fz, Cz) 
-# or spatial ROI-level columns (e.g., frontal, parietal).
-data_format: "per_roi"
-# Whether to include pair-wise connectivity features.
-include_connectivity_pairs: false
 
 # =============================================================================
 # CROSS-VALIDATION SETTINGS (WITHIN-SUBJECT)
@@ -112,7 +84,7 @@ cv:
   strategy: "stratified_kfold"
   folds: 5
   
-  # Absolute minimum samples in the minority class to prevent 
+  # Absolute minimum samples in the minority class to prevent
   # StratifiedKFold from throwing errors due to split size > class size.
   # Must be >= cv.folds
   min_samples_per_class: 5
@@ -122,7 +94,7 @@ cv:
 # =============================================================================
 run_contrasts:
   - on_vs_off_within_median
-  - on_vs_off_threshold
+  # - on_vs_off_threshold
 
 # Mapping of what each contrast actually means for data extraction.
 # The keys correspond to run_contrasts. The values are dicts specifying the
@@ -139,6 +111,7 @@ label_contrasts:
   on_vs_off_within_median:
     column_name: "onoff"
     split_method: "within_subject_median"
+    gap: 5          # ±points around subject median to exclude (0 = no neutral zone)
     positive_above: true
     positive_class_name: "ON-task"
     negative_class_name: "OFF-task"
@@ -154,66 +127,97 @@ label_contrasts:
 # =============================================================================
 # FEATURE FAMILIES
 # =============================================================================
-# In Within-Subject classification, you may lack the statistical power to use
-# the entire feature block simultaneously without heavy overfitting.
-# Feature families allow separating blocks of features (e.g., spatial vs frequency).
-# Keys are arbitrary family names, values are lists of string prefixes to match.
-# If a value is null, ALL features are used.
-# The naming convention matches Junifer output (e.g., power_alpha_Fz, P1_Fz).
+# Each family declares TWO things:
+#   epoch_types — which files to load from disk (sleep / evoked / state)
+#   prefixes    — which column subsets to keep after loading (null = all)
+#
+# When you add a family to run_families, the pipeline automatically loads
+# only the relevant epoch files and filters to the declared columns.
 
 feature_families:
-  all: null                    # All available features (no filtering)
 
-  spectral:                    # Absolute and relative band power
-    - "power_delta"
-    - "power_theta"
-    - "power_alpha"
-    - "power_beta"
-    - "power_gamma"
-    - "power_normalized_"
+  all:
+    epoch_types: [sleep, state, evoked]   # load both sleep and evoked files
+    prefixes: null                  # keep all columns
 
-  connectivity:                # Weighted Symbolic Mutual Information (wSMI)
-    - "wsmi_theta"
-    - "wsmi_alpha"
-    - "wsmi_beta"
-    - "wsmi_gamma"
+  erp:
+    epoch_types: [evoked]          # only load evoked (go-stimulus locked) files
+    prefixes:
+      - "P1"
+      - "N1"
+      - "P2"
+      - "P3a"
+      - "P3b"
 
-  information_theory:          # Permutation Entropy + Kolmogorov Complexity
-    - "PE_theta"
-    - "PE_alpha"
-    - "PE_beta"
-    - "PE_gamma"
-    - "kolmogorov_complexity"
+  sleep:
+    epoch_types: [sleep]           # only load sleep-epoch files
+    prefixes:
+      - "slowwaves"
+      - "spindles"
 
-  erp:                         # ERP components (evoked epoch type only)
-    - "P1_"
-    - "N1_"
-    - "P2_"
-    - "P3a_"
-    - "P3b_"
+  spectral:
+    epoch_types: [state]
+    prefixes:
+      - "power_delta"
+      - "power_theta"
+      - "power_alpha"
+      - "power_beta"
+      - "power_gamma"
+      - "power_normalized"
 
-  sleep:                       # Sleep markers (sleep epoch type only)
-    - "slowwaves_"
-    - "spindles_"
+  connectivity:
+    epoch_types: [state]
+    prefixes:
+      - "wsmi_theta"
+      - "wsmi_alpha"
+      - "wsmi_beta"
+      - "wsmi_gamma"
 
+  information_theory:
+    epoch_types: [state]
+    prefixes:
+      - "PE_theta"
+      - "PE_alpha"
+      - "PE_beta"
+      - "PE_gamma"
+      - "kolmogorov_complexity"
 
-# Which families to run automatically via local/cluster bash scripts.
+# Which families to submit as separate jobs via run_local.sh / run_cluster.sh.
 run_families:
   - all
-  # - evoked
+  - erp
+  # - sleep
   # - spectral
   # - connectivity
+
+# =============================================================================
+# DATA FORMAT
+# =============================================================================
+# Either "per_channel" or "per_roi".
+# Determines if the pipeline expects channel-level columns (e.g., Fz, Cz) 
+# or spatial ROI-level columns (e.g., frontal, parietal).
+data_format: "per_roi"
+# Whether to include pair-wise connectivity features.
+include_connectivity_pairs: false
+
+
+
+
 
 # =============================================================================
 # ML PIPELINE SETTINGS
 # =============================================================================
 
 classifiers:
-  run_models: ["rf", "iforest"]
+  run_models: ["rf"]
   rf:
-    n_estimators: 100
-    max_depth: 10
-    class_weight: "balanced"
+    n_estimators: 200            # fewer than LOSO (500) — each subject has less data
+    max_depth: 8                 # same as LOSO
+    min_samples_split: 10        # same as LOSO
+    min_samples_leaf: 5          # same as LOSO
+    max_features: "sqrt"         # same as LOSO
+    bootstrap: true
+    class_weight: "balanced_subsample"  # same as LOSO
   xgb:
     n_estimators: 100
     max_depth: 3
@@ -242,8 +246,17 @@ classifiers:
   oneclass_target: "minority"
 
 preprocessing:
-  # Imputation strategy for NaNs: 'mean', 'median', 'knn', or 'none'
-  imputation: 'none'
+  # Maximum tolerated fraction of NaN per feature column (global).
+  # Columns above this are dropped before imputation. Event-property markers
+  # (spindles/slowwaves amplitude/duration/slope/...) are undefined when no
+  # event occurs and are mostly NaN in awake SART data — this removes them
+  # without erasing samples. 0.0 keeps only fully-observed features.
+  max_feature_nan_frac: 0.25
+
+  # Imputation strategy for residual NaNs after the sparsity filter:
+  # 'median' or 'mean' fill per-subject (within-subject context, no leakage);
+  # 'none' drops the remaining NaN samples instead of imputing.
+  imputation: 'median'
   
   # Standardize features (mean 0, std 1)
   scaler: "standard"
@@ -278,14 +291,17 @@ feature_selection:
 oversampling:
   # Use Synthetic Minority Over-sampling Technique
   use_smote: true
-  
+
   # "SMOTE", "SVMSMOTE", "ADASYN", "SMOTETomek"
   method: "SMOTE"
-  
+
   # "global" (within the sklearn Pipeline directly)
   # "within" (manually applied solely inside the CV training fold before fitting)
   # Note: The output is mathematically identical, "within" handles unique single-subject edge cases
   scope: "within"
+
+  # k_neighbors for SMOTE-based oversamplers (also used by SVMSMOTE, SMOTETomek)
+  k_neighbors: 5
 
 # =============================================================================
 # OUTPUT CONFIGURATION

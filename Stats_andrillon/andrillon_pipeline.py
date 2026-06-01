@@ -28,6 +28,7 @@ import pandas as pd
 import mne
 from scipy import sparse
 from scipy import stats as sp_stats
+from joblib import Parallel, delayed
 
 # Add Statistics directory to path to import existing modules
 stats_dir = Path(__file__).parent.parent / "Statistics"
@@ -36,12 +37,25 @@ sys.path.insert(0, str(stats_dir))
 # Import ALL functions from the proven Statistics pipeline
 from reader import load_all_probe_data, prepare_data_for_lmm, get_available_markers
 from cluster_test import get_channel_adjacency, find_clusters_from_pvalues
-from lmm_model import run_lmm_per_channel
-from helpers import get_model_folder_name
+from lmm_model import (
+    run_lmm_per_channel,
+    fit_reduced_model_per_channel,
+    freedman_lane_permutation,
+)
+from helpers import get_model_folder_name, normalize_by_subject
 
 # Import from local Stats_andrillon modules
 from plot_results import create_results_report, create_raw_topography_report
 from generate_summary_report import generate_summary_report
+
+# Threshold for flagging an individual permutation as "degenerate" — i.e.
+# the LMM failed on a majority of channels. Mirrors the
+# `abort_on_high_failure` cutoff inside run_lmm_per_channel. If a substantial
+# fraction of permutations cross this threshold (see DEGENERATE_RATE_WARN),
+# the simple permutation scheme is breaking the design matrix and the user
+# should switch to Freedman-Lane.
+DEGENERATE_RATE_THRESHOLD = 0.5
+DEGENERATE_RATE_WARN = 0.01  # warn if >1% of permutations are degenerate
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,26 +72,117 @@ def load_config(config_path: str) -> Dict:
     return config
 
 
+def _resolve_formula_for_predictor(config: Dict, predictor: str) -> str:
+    """
+    Return the formula to use for a given predictor of interest.
+
+    Checks ``lmm.per_predictor_formula`` for an override keyed by the
+    predictor name.  Falls back to ``lmm.formula`` when no override exists.
+
+    This lets interaction predictors (e.g. ``"onoff:confidence"``) specify a
+    multiplicative formula (``power ~ onoff * confidence + ...``) while
+    main-effect predictors keep the default additive formula.
+
+    Parameters
+    ----------
+    config : dict
+        Pipeline configuration.
+    predictor : str
+        The predictor of interest (e.g. ``"onoff"`` or ``"onoff:confidence"``).
+
+    Returns
+    -------
+    str
+        Formula string to pass to ``prepare_data_for_lmm`` and
+        ``run_lmm_per_channel``.
+
+    Raises
+    ------
+    ValueError
+        If a ``per_predictor_formula`` override exists for the predictor but
+        the predictor (or its components) are absent from that formula — which
+        would make the test nonsensical.
+    """
+    default_formula = config['lmm']['formula']
+    overrides = config['lmm'].get('per_predictor_formula') or {}
+    formula = overrides.get(predictor, default_formula)
+
+    # Validate that the chosen formula actually contains the predictor.
+    # For interaction terms (e.g. "onoff:confidence") check that at least the
+    # multiplicative shorthand "*" or the explicit ":" form is present.
+    if ':' in predictor:
+        components = [v.strip() for v in predictor.split(':')]
+        has_star = all(c in formula for c in components) and (
+            '*' in formula or predictor in formula
+        )
+        if not has_star:
+            raise ValueError(
+                f"Formula override for predictor '{predictor}' does not "
+                f"contain the interaction term. Formula: '{formula}'. "
+                f"Add '{components[0]} * {components[1]}' or the explicit "
+                f"'{predictor}' term to the formula."
+            )
+    elif predictor not in formula:
+        raise ValueError(
+            f"Formula for predictor '{predictor}' does not contain the "
+            f"predictor as a term. Formula: '{formula}'."
+        )
+
+    return formula
+
+
+def _get_derived_ratios_lookup(config: Dict) -> Dict[str, Dict]:
+    """
+    Build a lookup `{ "<marker_type>/<name>": spec }` for derived ratio markers
+    declared in `config.derived_ratios`. A ratio spec has keys:
+      - name        : output marker name (e.g. "psd_bands_theta_beta_ratio")
+      - marker_type : type the ratio belongs to ("sleep", "evoked", ...)
+      - numerator   : base marker name to use as numerator
+      - denominator : base marker name to use as denominator
+
+    Ratios are computed at load time by channel-wise division of the numerator
+    and denominator arrays for matching (subject, task, probe) observations.
+    """
+    ratios = config.get('derived_ratios', []) or []
+    lookup: Dict[str, Dict] = {}
+    for spec in ratios:
+        required = {'name', 'marker_type', 'numerator', 'denominator'}
+        missing = required - set(spec.keys())
+        if missing:
+            raise ValueError(
+                f"derived_ratios entry is missing required keys {missing}: {spec}"
+            )
+        key = f"{spec['marker_type']}/{spec['name']}"
+        if key in lookup:
+            raise ValueError(f"Duplicate derived_ratios entry for {key}")
+        lookup[key] = spec
+    return lookup
+
+
 def get_marker_list(config: Dict) -> List[str]:
     """
     Get list of markers to analyze based on config.
-    
-    Returns list of marker names based on config.project.markers setting.
-    Uses get_available_markers from Statistics/reader.py (proven implementation).
+
+    Returns list of marker names based on config.project.markers setting plus
+    any derived ratio markers declared in config.derived_ratios. Uses
+    get_available_markers from Statistics/reader.py (proven implementation).
     """
     markers_setting = config['project']['markers']
     features_root = config['project']['features_root']
     subjects = config['project']['subjects']
     tasks = config['project']['tasks']
     marker_types = config['project']['marker_types']
-    
+
+    # Derived ratios are appended to whatever marker list is in use.
+    derived_keys = list(_get_derived_ratios_lookup(config).keys())
+
     if markers_setting == 'all':
         # Auto-discover all available markers using proven function
         markers = get_available_markers(
             features_root=features_root,
             marker_types=marker_types
         )
-        
+
         # Format as "marker_type/marker_name" for consistency
         formatted_markers = []
         for marker_type, marker_names in markers.items():
@@ -86,12 +191,163 @@ def get_marker_list(config: Dict) -> List[str]:
                 if marker_name.endswith('_pairs'):
                     continue
                 formatted_markers.append(f"{marker_type}/{marker_name}")
-        
-        logger.info(f"Auto-discovered {len(formatted_markers)} markers across {len(markers)} types")
+
+        formatted_markers.extend(derived_keys)
+        logger.info(
+            f"Auto-discovered {len(formatted_markers) - len(derived_keys)} markers "
+            f"across {len(markers)} types + {len(derived_keys)} derived ratios"
+        )
         return formatted_markers
     else:
-        # Use specified markers from config
-        return markers_setting
+        # Use specified markers from config plus derived ratios
+        return list(markers_setting) + derived_keys
+
+
+def _load_ratio_marker_data(
+    spec: Dict,
+    config: Dict,
+    formula: str,
+    predictor: str,
+) -> Tuple[np.ndarray, pd.DataFrame, List[str]]:
+    """
+    Load numerator and denominator markers and return their channel-wise ratio.
+
+    Same return signature as `prepare_data_for_lmm`:
+        power_ratio : (n_obs, n_ch) array of numerator / denominator
+        df_behavioral : behavioral metadata for the aligned observations
+        channels : channel names corresponding to columns of power_ratio
+
+    Observations are aligned by (subject, task, probe_number) via inner join —
+    a probe present only in the numerator or only in the denominator is dropped
+    so the ratio is always defined. Channels are inner-joined for the same reason.
+    NaN propagates through the division; explicit zero in the denominator
+    becomes NaN (we set inf/-inf to NaN) so excluded channels stay excluded.
+
+    `marker_type` is NOT used as a merge key — both numerator and denominator
+    have their own marker_type column from the source files, so merging on it
+    would create `_x` / `_y` collisions and split observations spuriously.
+    """
+    num_name = spec['numerator']
+    den_name = spec['denominator']
+    marker_type = spec['marker_type']
+
+    preprocessing_cfg = config.get('preprocessing', {})
+    project_cfg = config.get('project', {})
+    onoff_max_value = preprocessing_cfg.get(
+        'onoff_max_value', project_cfg.get('onoff_max_value')
+    )
+    min_predictor_variability = preprocessing_cfg.get(
+        'min_predictor_variability',
+        project_cfg.get('min_predictor_variability'),
+    )
+
+    df_all = load_all_probe_data(
+        features_root=config['project']['features_root'],
+        subjects=config['project'].get('subjects'),
+        tasks=config['project'].get('tasks'),
+        marker_types=[marker_type],
+        specific_markers=[num_name, den_name],
+        behavioral_data_path=config['project'].get('behavioral_data_path'),
+    )
+    df_all = df_all[df_all['marker_type'] == marker_type]
+
+    df_num = df_all[df_all['marker'] == num_name]
+    df_den = df_all[df_all['marker'] == den_name]
+    if df_num.empty:
+        raise ValueError(
+            f"Derived ratio '{spec['name']}': numerator '{num_name}' "
+            f"not found for marker_type='{marker_type}'."
+        )
+    if df_den.empty:
+        raise ValueError(
+            f"Derived ratio '{spec['name']}': denominator '{den_name}' "
+            f"not found for marker_type='{marker_type}'."
+        )
+
+    power_num, df_beh_num, channels_num = prepare_data_for_lmm(
+        df=df_num,
+        marker_name=num_name,
+        formula=formula,
+        include_channels=preprocessing_cfg.get('include_channels'),
+        exclude_channels=preprocessing_cfg.get('exclude_channels'),
+        onoff_max_value=onoff_max_value,
+        min_predictor_variability=min_predictor_variability,
+        predictor_of_interest=predictor,
+    )
+    power_den, df_beh_den, channels_den = prepare_data_for_lmm(
+        df=df_den,
+        marker_name=den_name,
+        formula=formula,
+        include_channels=preprocessing_cfg.get('include_channels'),
+        exclude_channels=preprocessing_cfg.get('exclude_channels'),
+        onoff_max_value=onoff_max_value,
+        min_predictor_variability=min_predictor_variability,
+        predictor_of_interest=predictor,
+    )
+
+    # Inner-join channels in alphabetical order so the result is deterministic.
+    common_channels = sorted(set(channels_num) & set(channels_den))
+    if not common_channels:
+        raise ValueError(
+            f"No common channels between numerator '{num_name}' "
+            f"and denominator '{den_name}'."
+        )
+    num_ch_idx = [channels_num.index(c) for c in common_channels]
+    den_ch_idx = [channels_den.index(c) for c in common_channels]
+    power_num = power_num[:, num_ch_idx]
+    power_den = power_den[:, den_ch_idx]
+
+    # Inner-join rows by (subject, task, probe_number).
+    def _obs_key(df: pd.DataFrame) -> pd.Series:
+        return (
+            df['subject'].astype(str)
+            + '|' + df['task'].astype(str)
+            + '|' + df['probe_number'].astype(str)
+        )
+
+    df_beh_num = df_beh_num.copy()
+    df_beh_den = df_beh_den.copy()
+    df_beh_num['_obs_key'] = _obs_key(df_beh_num)
+    df_beh_den['_obs_key'] = _obs_key(df_beh_den)
+
+    common_keys = sorted(
+        set(df_beh_num['_obs_key']) & set(df_beh_den['_obs_key'])
+    )
+    if not common_keys:
+        raise ValueError(
+            f"No common (subject, task, probe) observations between "
+            f"numerator '{num_name}' and denominator '{den_name}'."
+        )
+
+    num_pos = {k: i for i, k in enumerate(df_beh_num['_obs_key'])}
+    den_pos = {k: i for i, k in enumerate(df_beh_den['_obs_key'])}
+    num_positions = [num_pos[k] for k in common_keys]
+    den_positions = [den_pos[k] for k in common_keys]
+
+    power_num_aligned = power_num[num_positions, :]
+    power_den_aligned = power_den[den_positions, :]
+
+    # Channel-wise ratio. 0/0 → NaN; x/0 → +/-inf → NaN (excluded from cluster).
+    with np.errstate(divide='ignore', invalid='ignore'):
+        power_ratio = power_num_aligned / power_den_aligned
+    power_ratio[~np.isfinite(power_ratio)] = np.nan
+
+    df_behavioral = (
+        df_beh_num.iloc[num_positions]
+        .copy()
+        .reset_index(drop=True)
+        .drop(columns=['_obs_key'])
+    )
+
+    n_finite = int(np.sum(np.isfinite(power_ratio)))
+    logger.info(
+        "  Derived ratio %s = %s / %s: %d obs × %d channels (%.1f%% finite values)",
+        spec['name'], num_name, den_name,
+        power_ratio.shape[0], power_ratio.shape[1],
+        100.0 * n_finite / max(1, power_ratio.size),
+    )
+
+    return power_ratio, df_behavioral, list(common_channels)
 
 
 def run_marker_analysis(
@@ -135,53 +391,101 @@ def run_marker_analysis(
     logger.info(f"  Marker type: {marker_type}")
     logger.info(f"  Marker name: {marker_base_name}")
 
-    # Load all probe data
-    marker_types_to_load = config['project']['marker_types']
-    if marker_type is not None:
-        marker_types_to_load = [marker_type]
-    df_all = load_all_probe_data(
-        features_root=config['project']['features_root'],
-        subjects=config['project'].get('subjects'),
-        tasks=config['project'].get('tasks'),
-        marker_types=marker_types_to_load,
-        specific_markers=[marker_base_name],
-    )
-
-    # Filter by marker type if specified
-    if marker_type:
-        logger.info(f"  Filtering data for marker_type: {marker_type}")
-        df_filtered = df_all[df_all['marker_type'] == marker_type]
-        logger.info(f"  Filtered from {len(df_all)} to {len(df_filtered)} rows")
-    else:
-        df_filtered = df_all
-
-    # Prepare data for this specific marker (using base name without type prefix)
+    # Preprocessing & project config used below (shared between regular and
+    # derived ratio code paths).
     preprocessing_cfg = config.get('preprocessing', {})
     project_cfg = config.get('project', {})
     onoff_max_value = preprocessing_cfg.get('onoff_max_value', project_cfg.get('onoff_max_value'))
     min_predictor_variability = preprocessing_cfg.get('min_predictor_variability', project_cfg.get('min_predictor_variability'))
 
-    power_data, df_behavioral, channels = prepare_data_for_lmm(
-        df=df_filtered,
-        marker_name=marker_base_name,
-        formula=config['lmm']['formula'],
-        include_channels=preprocessing_cfg.get('include_channels'),
-        exclude_channels=preprocessing_cfg.get('exclude_channels'),
-        onoff_max_value=onoff_max_value,
-        min_predictor_variability=min_predictor_variability,
-        predictor_of_interest=config['lmm']['predictor_of_interest'],
-    )
+    # Detect whether this is a derived ratio marker. The ratio lookup is built
+    # from `config.derived_ratios` and keyed by "<marker_type>/<name>".
+    ratio_lookup = _get_derived_ratios_lookup(config)
+    ratio_spec = ratio_lookup.get(marker_name)
+
+    if ratio_spec is not None:
+        logger.info(
+            f"  Derived ratio detected: {ratio_spec['numerator']} / "
+            f"{ratio_spec['denominator']}"
+        )
+        _effective_formula = _resolve_formula_for_predictor(
+            config, config['lmm']['predictor_of_interest']
+        )
+        power_data, df_behavioral, channels = _load_ratio_marker_data(
+            spec=ratio_spec,
+            config=config,
+            formula=_effective_formula,
+            predictor=config['lmm']['predictor_of_interest'],
+        )
+    else:
+        # Standard single-marker loading path.
+        marker_types_to_load = config['project']['marker_types']
+        if marker_type is not None:
+            marker_types_to_load = [marker_type]
+        df_all = load_all_probe_data(
+            features_root=config['project']['features_root'],
+            subjects=config['project'].get('subjects'),
+            tasks=config['project'].get('tasks'),
+            marker_types=marker_types_to_load,
+            specific_markers=[marker_base_name],
+            behavioral_data_path=project_cfg.get('behavioral_data_path'),
+        )
+
+        # Filter by marker type if specified
+        if marker_type:
+            logger.info(f"  Filtering data for marker_type: {marker_type}")
+            df_filtered = df_all[df_all['marker_type'] == marker_type]
+            logger.info(f"  Filtered from {len(df_all)} to {len(df_filtered)} rows")
+        else:
+            df_filtered = df_all
+
+        power_data, df_behavioral, channels = prepare_data_for_lmm(
+            df=df_filtered,
+            marker_name=marker_base_name,
+            formula=_resolve_formula_for_predictor(
+                config, config['lmm']['predictor_of_interest']
+            ),
+            include_channels=preprocessing_cfg.get('include_channels'),
+            exclude_channels=preprocessing_cfg.get('exclude_channels'),
+            onoff_max_value=onoff_max_value,
+            min_predictor_variability=min_predictor_variability,
+            predictor_of_interest=config['lmm']['predictor_of_interest'],
+        )
 
     # Ensure subject is string type (critical for statsmodels mixedlm)
     df_behavioral['subject'] = df_behavioral['subject'].astype(str)
 
     logger.info(f"  Loaded {power_data.shape[0]} observations × {power_data.shape[1]} channels")
 
+    # Apply per-subject normalization if requested. Without it, between-subject
+    # scale differences propagate into the LMM residual variance and bias the
+    # slope estimate of the predictor toward subjects with the largest amplitude,
+    # producing spatially extended clusters that reflect individual baseline
+    # topographies rather than the predictor effect.
+    if preprocessing_cfg.get('normalize_by_subject', False):
+        norm_method = preprocessing_cfg.get('normalization_method', 'zscore')
+        norm_channel_wise = preprocessing_cfg.get('channel_wise', False)
+        norm_subject_col = preprocessing_cfg.get('subject_column', 'subject')
+        logger.info(
+            f"  Normalizing power per subject: method={norm_method}, "
+            f"channel_wise={norm_channel_wise}"
+        )
+        power_data = normalize_by_subject(
+            power_data=power_data,
+            df_behavioral=df_behavioral,
+            method=norm_method,
+            subject_col=norm_subject_col,
+            channel_wise=norm_channel_wise,
+            verbose=True,
+        )
+
     # Create output directory consistent with main Statistics pipeline
     output_root = Path(config['project']['output_path'])
 
     predictor = config['lmm'].get('predictor_of_interest', 'auto')
-    model_folder = get_model_folder_name(config['lmm']['formula'], predictor)
+    model_folder = get_model_folder_name(
+        _resolve_formula_for_predictor(config, predictor), predictor
+    )
 
     if marker_type:
         safe_marker_name = marker_base_name.replace('/', '_').replace(' ', '_')
@@ -214,8 +518,8 @@ def run_marker_analysis(
     # 2. Fit LMM per electrode (using proven implementation from Statistics/)
     print("Step 2: Fitting LMM per electrode...", flush=True)
     logger.info("Step 2: Fitting LMM per electrode...")
-    formula = config['lmm']['formula']
     predictor = config['lmm']['predictor_of_interest']
+    formula = _resolve_formula_for_predictor(config, predictor)
     
     print(f"  Formula: {formula}", flush=True)
     print(f"  Predictor: {predictor}", flush=True)
@@ -261,44 +565,252 @@ def run_marker_analysis(
     lmm_maxiter = config['lmm']['maxiter']
     base_seed = config['andrillon_clustering']['seed']
 
-    for perm_idx in range(n_permutations):
-        if (perm_idx + 1) % 100 == 0 or perm_idx == 0:
-            print(f"  Permutation {perm_idx+1}/{n_permutations}", flush=True)
+    # Permutation method: "simple" shuffles the predictor inside permutation_within
+    # groups (Andrillon default, biased when covariates are correlated with the
+    # predictor); "freedman_lane" permutes residuals from the reduced model and
+    # refits the full model on the reconstructed Y*.
+    permutation_method = config['andrillon_clustering'].get(
+        'permutation_method', 'simple'
+    )
+    if permutation_method not in ('simple', 'freedman_lane'):
+        raise ValueError(
+            f"Unsupported permutation_method '{permutation_method}'. "
+            "Use 'simple' or 'freedman_lane'."
+        )
+    print(f"  Permutation method: {permutation_method}", flush=True)
+    logger.info(f"  Permutation method: {permutation_method}")
 
-        # Deterministic per-permutation RNG so results are fully reproducible.
-        perm_rng = np.random.default_rng(base_seed + perm_idx)
-
-        # Permute predictor within subject × task (Andrillon 2020 strategy)
-        df_perm = df_behavioral.copy()
-        groups = df_perm.groupby(permutation_within).groups
-        for group_key, indices in groups.items():
-            predictor_values = df_perm.loc[indices, predictor].values
-            permuted_values = perm_rng.permutation(predictor_values)
-            df_perm.loc[indices, predictor] = permuted_values
-
-        # Fit LMM with permuted data — identical settings to the observed fit
-        perm_t, perm_p, _ = run_lmm_per_channel(
+    # If Freedman-Lane: fit the reduced model once to obtain residuals/fitted
+    # values, which are then reused across all permutations. This is what
+    # preserves the covariance structure under H0.
+    fl_residuals = None
+    fl_fitted = None
+    if permutation_method == 'freedman_lane':
+        print("  Fitting reduced model for Freedman-Lane permutation...", flush=True)
+        logger.info("  Fitting reduced model for Freedman-Lane permutation...")
+        fl_residuals, fl_fitted = fit_reduced_model_per_channel(
             power_data=power_data,
-            df_behavioral=df_perm,
+            df_behavioral=df_behavioral,
             formula=formula,
             predictor_of_interest=predictor,
             method=lmm_method,
             maxiter=lmm_maxiter,
-            random_state=base_seed + perm_idx,
-            return_diagnostics=False
+            random_state=base_seed,
         )
-        
+        n_nan_resid = int(np.all(np.isnan(fl_residuals), axis=0).sum())
+        print(
+            f"  Reduced model fitted. Channels with all-NaN residuals: "
+            f"{n_nan_resid}/{len(channels)}",
+            flush=True,
+        )
+        logger.info(
+            f"  Reduced model fitted. Channels with all-NaN residuals: "
+            f"{n_nan_resid}/{len(channels)}"
+        )
+
+    # Per-permutation convergence diagnostics. The observed fit's diagnostics
+    # are tracked separately. We compare aggregate convergence between observed
+    # and permuted runs so that any asymmetry (which would deflate the null and
+    # inflate FPR) is visible at the end of the run.
+    n_jobs = config['andrillon_clustering'].get('n_jobs', -1)
+    print(f"  Running permutations in parallel with n_jobs={n_jobs}", flush=True)
+    logger.info(f"  Running permutations in parallel with n_jobs={n_jobs}")
+
+    # Closure over the permutation context. Returning all required state per
+    # call keeps each worker pure — joblib spawns processes that do not share
+    # memory, so we cannot rely on perm_t_stats / perm_p_values mutation.
+    def _run_one_permutation(perm_idx: int) -> Tuple[int, np.ndarray, np.ndarray, Dict]:
+        # Deterministic per-permutation RNG. Seed namespace offset by
+        # `n_permutations + 1` so it cannot collide with the observed fit's
+        # seed (`base_seed`) — otherwise perm_idx=0 would call into the LMM
+        # with the same global numpy seed as the observed fit, creating
+        # spurious correlation between the two via any np.random consumer
+        # in the optimizer stack.
+        perm_seed = base_seed + 1 + perm_idx + n_permutations
+
+        if permutation_method == 'simple':
+            perm_rng = np.random.default_rng(perm_seed)
+
+            # Permute predictor within `permutation_within` groups (e.g. subject)
+            df_perm = df_behavioral.copy()
+            groups = df_perm.groupby(permutation_within).groups
+            for group_key, indices in groups.items():
+                predictor_values = df_perm.loc[indices, predictor].values
+                permuted_values = perm_rng.permutation(predictor_values)
+                df_perm.loc[indices, predictor] = permuted_values
+
+            power_perm_input = power_data
+            df_perm_input = df_perm
+        else:
+            # Freedman-Lane: permute residuals within subject and reconstruct
+            # Y* = Ŷ_reduced + R_perm. The full model is then refit on Y* with
+            # the ORIGINAL predictor labels — so the predictor's covariance
+            # with the other covariates is preserved under H0.
+            power_perm_input = freedman_lane_permutation(
+                residuals=fl_residuals,
+                fitted_values=fl_fitted,
+                df_behavioral=df_behavioral,
+                seed=perm_seed,
+            )
+            df_perm_input = df_behavioral
+
+        # Fit LMM with permuted data — identical settings to the observed fit.
+        # Request diagnostics so we can verify convergence symmetry between
+        # observed and permuted fits (asymmetry would bias the null).
+        # abort_on_high_failure=False: a single degenerate permutation must
+        # NOT kill the run. Failed channels become NaN and are excluded from
+        # both null and observed cluster formation; the per-permutation
+        # degenerate rate is tracked aggregately below.
+        perm_t, perm_p, perm_diag = run_lmm_per_channel(
+            power_data=power_perm_input,
+            df_behavioral=df_perm_input,
+            formula=formula,
+            predictor_of_interest=predictor,
+            method=lmm_method,
+            maxiter=lmm_maxiter,
+            random_state=perm_seed,
+            return_diagnostics=True,
+            abort_on_high_failure=False,
+        )
+
+        # A permutation is "degenerate" when more than 50% of the channels
+        # fail to fit — same threshold the observed fit would have aborted
+        # on. We do not abort here (NaNs propagate symmetrically), but we
+        # count these draws so an asymmetric tail of pathological null
+        # permutations is visible at the end of the run.
+        n_attempted_perm = len(channels) - perm_diag.get('n_insufficient_data', 0)
+        is_degenerate = (
+            n_attempted_perm > 0
+            and (perm_diag.get('n_failed', 0) / n_attempted_perm) > DEGENERATE_RATE_THRESHOLD
+        )
+
+        diag_record = {
+            'perm_idx': perm_idx,
+            'n_converged': perm_diag.get('n_converged', 0),
+            'n_warnings': perm_diag.get('n_warnings', 0),
+            'n_failed': perm_diag.get('n_failed', 0),
+            'n_insufficient_data': perm_diag.get('n_insufficient_data', 0),
+            'convergence_rate': perm_diag.get('convergence_rate', 0.0),
+            'n_nan_t': int(np.sum(np.isnan(perm_t))),
+            'is_degenerate': bool(is_degenerate),
+        }
+        return perm_idx, perm_t, perm_p, diag_record
+
+    if n_jobs == 1:
+        # Sequential execution (debug-friendly traceback)
+        perm_results = []
+        for perm_idx in range(n_permutations):
+            if (perm_idx + 1) % 100 == 0 or perm_idx == 0:
+                print(f"  Permutation {perm_idx+1}/{n_permutations}", flush=True)
+            perm_results.append(_run_one_permutation(perm_idx))
+    else:
+        # Parallel execution. loky backend spawns isolated processes, so the
+        # global numpy seed set inside `run_lmm_per_channel` cannot leak across
+        # permutations — each worker has its own state.
+        perm_results = Parallel(n_jobs=n_jobs, backend='loky', verbose=10)(
+            delayed(_run_one_permutation)(perm_idx)
+            for perm_idx in range(n_permutations)
+        )
+
+    # Reassemble in deterministic order. Even though joblib preserves order
+    # by default, we re-index by perm_idx so a future change to backend or
+    # ordering cannot silently corrupt the null distribution.
+    perm_diag_records: List[Dict] = [None] * n_permutations
+    for perm_idx, perm_t, perm_p, diag_record in perm_results:
         perm_t_stats[perm_idx, :] = perm_t
         perm_p_values[perm_idx, :] = perm_p
-    
+        perm_diag_records[perm_idx] = diag_record
+
     print(f"  Permutations complete", flush=True)
     logger.info(f"  Permutations complete")
+
+    # Aggregate permutation convergence and compare with observed.
+    # If the permuted runs converge less often than the observed, the null
+    # has more NaN channels → fewer eligible nodes for clusters → null
+    # distribution is contracted → observed clusters look more significant.
+    perm_diag_df = pd.DataFrame(perm_diag_records)
+    obs_n_nan = int(np.sum(np.isnan(t_stats)))
+    n_degenerate = int(perm_diag_df['is_degenerate'].sum())
+    degenerate_rate = n_degenerate / max(1, n_permutations)
+    perm_diag_summary = {
+        'n_channels': len(channels),
+        'observed_n_converged': diagnostics['n_converged'],
+        'observed_n_warnings': diagnostics['n_warnings'],
+        'observed_n_failed': diagnostics['n_failed'],
+        'observed_n_insufficient': diagnostics['n_insufficient_data'],
+        'observed_n_nan_t': obs_n_nan,
+        'observed_convergence_rate': diagnostics['convergence_rate'],
+        'perm_n_converged_mean': float(perm_diag_df['n_converged'].mean()),
+        'perm_n_converged_std': float(perm_diag_df['n_converged'].std()),
+        'perm_n_warnings_mean': float(perm_diag_df['n_warnings'].mean()),
+        'perm_n_failed_mean': float(perm_diag_df['n_failed'].mean()),
+        'perm_n_nan_t_mean': float(perm_diag_df['n_nan_t'].mean()),
+        'perm_convergence_rate_mean': float(perm_diag_df['convergence_rate'].mean()),
+        'perm_convergence_rate_std': float(perm_diag_df['convergence_rate'].std()),
+        'perm_n_degenerate': n_degenerate,
+        'perm_degenerate_rate': float(degenerate_rate),
+        'perm_degenerate_threshold': DEGENERATE_RATE_THRESHOLD,
+    }
+
+    if degenerate_rate > DEGENERATE_RATE_WARN:
+        warn_msg = (
+            f"WARNING: {n_degenerate}/{n_permutations} permutations "
+            f"({100 * degenerate_rate:.1f}%) had >"
+            f"{int(100 * DEGENERATE_RATE_THRESHOLD)}% LMM failures. "
+            "This indicates the permutation scheme is producing many "
+            "degenerate design matrices. "
+            "Consider switching to permutation_method='freedman_lane' "
+            "which permutes residuals from the reduced model instead and "
+            "preserves the original predictor-covariate covariance under H0."
+        )
+        print(f"  {warn_msg}", flush=True)
+        logger.warning(warn_msg)
+    nan_asymmetry = obs_n_nan - perm_diag_summary['perm_n_nan_t_mean']
+    perm_diag_summary['nan_asymmetry_obs_minus_perm_mean'] = float(nan_asymmetry)
+
+    print(
+        "  Convergence symmetry check:\n"
+        f"    Observed: {diagnostics['n_converged']}/{len(channels)} converged "
+        f"({100*diagnostics['convergence_rate']:.1f}%), "
+        f"NaN t-stats: {obs_n_nan}\n"
+        f"    Perm mean: {perm_diag_summary['perm_n_converged_mean']:.1f}/"
+        f"{len(channels)} converged "
+        f"({100*perm_diag_summary['perm_convergence_rate_mean']:.1f}%), "
+        f"NaN t-stats: {perm_diag_summary['perm_n_nan_t_mean']:.1f}\n"
+        f"    NaN asymmetry (obs - perm_mean): {nan_asymmetry:+.1f}",
+        flush=True,
+    )
+    logger.info(
+        "Convergence symmetry: obs=%d/%d (%.1f%%) NaN=%d | "
+        "perm_mean=%.1f/%d (%.1f%%) NaN=%.1f | NaN_asym=%+.1f",
+        diagnostics['n_converged'], len(channels),
+        100 * diagnostics['convergence_rate'], obs_n_nan,
+        perm_diag_summary['perm_n_converged_mean'], len(channels),
+        100 * perm_diag_summary['perm_convergence_rate_mean'],
+        perm_diag_summary['perm_n_nan_t_mean'], nan_asymmetry,
+    )
     
     # 4. Build adjacency matrix for these channels
     print("Step 4: Building adjacency matrix...", flush=True)
     logger.info("Step 4: Building adjacency matrix...")
     adjacency, ch_names_ordered, channel_indices = get_channel_adjacency(montage_path, channels)
     logger.info(f"  Adjacency matrix shape: {adjacency.shape}")
+
+    # Hard invariant: the indices we are about to use to permute t-stats must,
+    # when applied to the original channel list, exactly reproduce the channel
+    # order of the adjacency matrix. If this ever fails, t-stats and adjacency
+    # rows/columns are misaligned and clusters would be spatially garbage.
+    if [channels[idx] for idx in channel_indices] != list(ch_names_ordered):
+        raise RuntimeError(
+            "Adjacency-to-data channel mapping is broken: applying channel_indices "
+            "to the input channels does not reproduce the adjacency channel order. "
+            "Refusing to proceed — clusters would be spatially misaligned."
+        )
+    if adjacency.shape[0] != len(ch_names_ordered):
+        raise RuntimeError(
+            f"Adjacency shape {adjacency.shape} inconsistent with channel order "
+            f"length {len(ch_names_ordered)}."
+        )
 
     # Reorder statistics and channel list to match adjacency / montage order.
     # This mirrors the main Statistics pipeline to ensure spatial alignment.
@@ -307,6 +819,13 @@ def run_marker_analysis(
     perm_t_stats = perm_t_stats[:, channel_indices]
     perm_p_values = perm_p_values[:, channel_indices]
     channels = [channels[idx] for idx in channel_indices]
+
+    # Post-reorder invariant: channels must now match the adjacency order exactly.
+    if list(channels) != list(ch_names_ordered):
+        raise RuntimeError(
+            "After reordering, `channels` does not match `ch_names_ordered`. "
+            "Spatial alignment broken."
+        )
 
     # Build exclusion mask for clustering based on configuration.
     # Excluded channels are still tested but cannot form or connect clusters.
@@ -379,13 +898,16 @@ def run_marker_analysis(
     n_clusters = int(cluster_stats_arr.size)
     n_sig_clusters = int(np.sum(cluster_p_values_arr < montecarlo_alpha)) if n_clusters > 0 else 0
 
-    # Derive an approximate t-threshold for visualization only.
-    # We match the cluster_alpha proportion of the observed |t|-distribution.
-    threshold_t = None
-    if np.any(~np.isnan(t_stats)):
-        t_abs = np.abs(t_stats[~np.isnan(t_stats)])
-        q = max(0.0, min(1.0, 1.0 - float(config['andrillon_clustering']['cluster_alpha'])))
-        threshold_t = float(np.quantile(t_abs, q)) if t_abs.size > 0 else None
+    # Visualization threshold for |t|: use the two-sided z-critical value
+    # corresponding to cluster_alpha. With cluster_alpha=0.025 this is
+    # z ≈ 2.24 (one-tailed) — the same threshold the Andrillon paper would
+    # report. Previously this was the cluster_alpha-th quantile of the
+    # observed |t|-distribution, which is data-dependent: each marker had
+    # its own threshold making topoplots non-comparable across markers and
+    # non-reproducible across runs.
+    threshold_t = float(
+        sp_stats.norm.ppf(1.0 - float(cluster_alpha))
+    )
 
     # 6. Package results in a structure compatible with the Statistics pipeline
     results = {
@@ -425,14 +947,21 @@ def run_marker_analysis(
         'predictor_of_interest': predictor,
         'analysis_timestamp': datetime.now().isoformat(),
         'clustering_method': 'andrillon_permutation',
+        'permutation_method': permutation_method,
         'threshold': threshold_t,
         'alpha': montecarlo_alpha,
         'n_permutations': n_permutations,
 
-        # Diagnostics from LMM fitting
+        # Diagnostics from LMM fitting (observed)
         'diagnostics': diagnostics,
+
+        # Permutation-side convergence diagnostics. Used to detect asymmetry
+        # in the LMM fit between observed and permuted runs that would
+        # contract the null distribution and inflate FPR.
+        'perm_diagnostics': perm_diag_records,
+        'perm_diagnostics_summary': perm_diag_summary,
     }
-    
+
     return results
 
 
@@ -462,6 +991,20 @@ def save_results(results: Dict, output_dir: Path, marker_name: str):
     logger.info(f"Saving generic results to {generic_pickle_path}")
     with open(generic_pickle_path, 'wb') as f:
         pickle.dump(results, f)
+
+    # Save per-permutation convergence diagnostics as CSV for quick inspection
+    # without unpickling. The summary row (single line) is also written so the
+    # observed-vs-permuted asymmetry is grep-able from the cluster output dir.
+    perm_records = results.get('perm_diagnostics')
+    perm_summary = results.get('perm_diagnostics_summary')
+    if perm_records:
+        perm_csv = output_dir / f"{safe_marker_name}_perm_diagnostics.csv"
+        pd.DataFrame(perm_records).to_csv(perm_csv, index=False)
+        logger.info(f"Saved per-permutation diagnostics to {perm_csv}")
+    if perm_summary:
+        summary_csv = output_dir / f"{safe_marker_name}_convergence_summary.csv"
+        pd.DataFrame([perm_summary]).to_csv(summary_csv, index=False)
+        logger.info(f"Saved convergence symmetry summary to {summary_csv}")
 
     # Save CSV summary using the numeric cluster representation
     clusters = results.get('clusters', [])
@@ -557,7 +1100,30 @@ def run_andrillon_pipeline(
     print(f"Loading configuration from {config_path}", flush=True)
     logger.info(f"Loading configuration from {config_path}")
     config = load_config(config_path)
-    
+
+    # `predictor_of_interest` may be a list in the YAML to drive the
+    # multi-predictor SLURM loop (submit_andrillon_predictor_loop.sh). When the
+    # pipeline is invoked directly for a single run we need a single predictor
+    # string — abort early with an actionable message rather than failing deep
+    # in helpers.get_model_folder_name with an opaque AttributeError.
+    poi = config['lmm'].get('predictor_of_interest', 'auto')
+    if isinstance(poi, list):
+        if len(poi) == 1:
+            # A single-element list is unambiguous — unwrap it and continue.
+            config['lmm']['predictor_of_interest'] = poi[0]
+            logger.info(
+                f"  predictor_of_interest was a single-element list; using '{poi[0]}'"
+            )
+        else:
+            raise ValueError(
+                f"`lmm.predictor_of_interest` is a list of {len(poi)} predictors "
+                f"({poi}) but a single-run invocation needs exactly one. Either:\n"
+                "  • pass --predictor-of-interest <name> on the CLI, or\n"
+                "  • use Stats_andrillon/submit_andrillon_predictor_loop.sh to "
+                "fan out one job per predictor, or\n"
+                "  • set a single string in the YAML."
+            )
+
     # Get adjacency matrix
     logger.info("Loading electrode adjacency matrix...")
     montage_path = Path(config['project']['montage_path'])
@@ -580,9 +1146,10 @@ def run_andrillon_pipeline(
     
     # Determine model folder name from formula using the same helper
     # as the main Statistics pipeline to ensure identical directory names
-    formula = config['lmm']['formula']
     predictor = config['lmm'].get('predictor_of_interest', 'auto')
-    model_folder = get_model_folder_name(formula, predictor)
+    model_folder = get_model_folder_name(
+        _resolve_formula_for_predictor(config, predictor), predictor
+    )
     
     # Run analysis for each marker
     all_results = {}

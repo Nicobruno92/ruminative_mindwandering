@@ -104,7 +104,7 @@ def discover_elements(datadir: Path, pattern: str, desc_filter: str,
     
     # Sort for reproducibility (session may not exist in all patterns)
     elements.sort(key=lambda x: (x['subject'], x.get('session', ''), x['task']))
-    
+
     return elements
 
 

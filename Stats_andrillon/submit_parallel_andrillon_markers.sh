@@ -45,7 +45,7 @@ cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 mkdir -p logs
 
 echo "=========================================="
-echo "Andrillon Parallel Marker Submission"
+echo "Parallel Marker Submission"
 if [ -n "${PREDICTOR_OVERRIDE}" ]; then
     echo "Predictor of interest: ${PREDICTOR_OVERRIDE}"
 fi
@@ -64,13 +64,21 @@ if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
 elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
   . "$HOME/anaconda3/etc/profile.d/conda.sh"
   conda activate eeg
+elif [ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
+  . "$HOME/miniforge3/etc/profile.d/conda.sh"
+  conda activate eeg
 elif command -v conda >/dev/null 2>&1; then
   eval "$(conda shell.bash hook)"
   conda activate eeg
 fi
 
+# Ensure the env's python wins on PATH (some shells prepend /usr/bin after activate)
+if [ -n "${CONDA_PREFIX:-}" ]; then
+    export PATH="${CONDA_PREFIX}/bin:${PATH}"
+fi
+
 # Get number of markers from config using Python (via get_marker_list)
-echo "Detecting number of markers from Andrillon config..."
+echo "Detecting number of markers from config..."
 N_MARKERS=$(python -c "
 import yaml
 import sys
@@ -89,27 +97,11 @@ with open(CONFIG_PATH, 'r') as f:
 
 markers = get_marker_list(config)
 print(len(markers))
-" 2>/dev/null)
+")
 PYTHON_EXIT_CODE=$?
 
 if [ ${PYTHON_EXIT_CODE} -ne 0 ] || [ -z "${N_MARKERS}" ]; then
-    echo "ERROR: Python failed to detect markers!"
-    # Re-run to show the error
-    python -c "
-import yaml
-import sys
-from pathlib import Path
-
-sys.path.append('${SCRIPT_DIR}')
-from andrillon_pipeline import get_marker_list
-
-CONFIG_PATH = Path('${CONFIG_FILE}')
-with open(CONFIG_PATH, 'r') as f:
-    config = yaml.safe_load(f)
-
-markers = get_marker_list(config)
-print(len(markers))
-"
+    echo "ERROR: Python failed to detect markers (see traceback above)"
     exit 1
 fi
 
@@ -130,12 +122,12 @@ ARRAY_SCRIPT="${SCRIPT_DIR}/run_andrillon_marker_array.sh"
 
 cat > ${ARRAY_SCRIPT} << EOFARRAY
 #!/bin/bash
-#SBATCH --job-name=andrillon_marker
+#SBATCH --job-name=mw_marker
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=12G
 #SBATCH --time=8:00:00
-#SBATCH --output=logs/andrillon_marker_%A_%a.out
-#SBATCH --error=logs/andrillon_marker_%A_%a.err
+#SBATCH --output=logs/mw_marker_%A_%a.out
+#SBATCH --error=logs/mw_marker_%A_%a.err
 
 # Load modules
 module load proxy
@@ -147,15 +139,23 @@ if [ -f "\$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
 elif [ -f "\$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
   . "\$HOME/anaconda3/etc/profile.d/conda.sh"
   conda activate eeg
+elif [ -f "\$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
+  . "\$HOME/miniforge3/etc/profile.d/conda.sh"
+  conda activate eeg
 elif command -v conda >/dev/null 2>&1; then
   eval "\$(conda shell.bash hook)"
   conda activate eeg
 fi
 
+# Ensure the env's python wins on PATH
+if [ -n "\${CONDA_PREFIX:-}" ]; then
+    export PATH="\${CONDA_PREFIX}/bin:\${PATH}"
+fi
+
 cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 
 echo "=========================================="
-echo "ANDRILLON MARKER JOB"
+echo "MARKER JOB"
 echo "=========================================="
 echo "Start time: \$(date)"
 echo "Task ID: \${SLURM_ARRAY_TASK_ID}"
@@ -176,13 +176,18 @@ EXIT_CODE=\$?
 
 if [ \${EXIT_CODE} -eq 0 ]; then
     echo ""
-    echo "✓ Andrillon marker job completed successfully at \$(date)"
+    echo "✓ Marker job completed successfully at \$(date)"
 else
     echo ""
-    echo "✗ Andrillon marker job failed with exit code \${EXIT_CODE} at \$(date)"
+    echo "✗ Marker job failed with exit code \${EXIT_CODE} at \$(date)"
 fi
 
 echo "=========================================="
+
+# Propagate the Python exit code so SLURM records FAILED (not COMPLETED 0:0)
+# when a marker dies. This is what makes the report's afterok dependency
+# meaningful: a report is only generated when every marker actually succeeded.
+exit \${EXIT_CODE}
 EOFARRAY
 
 # Make array script executable
@@ -205,7 +210,7 @@ fi
 # Extract job ID from sbatch output
 ARRAY_JOB_ID=$(echo ${ARRAY_JOB_OUTPUT} | awk '{print $NF}')
 
-echo "✓ Andrillon array job submitted successfully"
+echo "✓ Array job submitted successfully"
 echo "  Job ID: ${ARRAY_JOB_ID}"
 echo "  Array range: ${ARRAY_RANGE}"
 echo "  Total tasks: ${N_MARKERS}"
@@ -242,18 +247,18 @@ MODEL_DIR="${OUTPUT_PATH}/${MODEL_FOLDER}"
 # ========================================
 # STEP 2: Submit report generation job
 # ========================================
-echo "Submitting Andrillon summary report job (will run after all markers complete)..."
+echo "Submitting summary report job (will run after all markers complete)..."
 
 REPORT_SCRIPT="${SCRIPT_DIR}/run_andrillon_report_generation.sh"
 
 cat > ${REPORT_SCRIPT} << EOFREPORT
 #!/bin/bash
-#SBATCH --job-name=andrillon_report
+#SBATCH --job-name=mw_report
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=12G
 #SBATCH --time=2:00:00
-#SBATCH --output=logs/andrillon_report_%j.out
-#SBATCH --error=logs/andrillon_report_%j.err
+#SBATCH --output=logs/mw_report_%j.out
+#SBATCH --error=logs/mw_report_%j.err
 
 # Load modules
 module load proxy
@@ -265,9 +270,17 @@ if [ -f "\$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
 elif [ -f "\$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
   . "\$HOME/anaconda3/etc/profile.d/conda.sh"
   conda activate eeg
+elif [ -f "\$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
+  . "\$HOME/miniforge3/etc/profile.d/conda.sh"
+  conda activate eeg
 elif command -v conda >/dev/null 2>&1; then
   eval "\$(conda shell.bash hook)"
   conda activate eeg
+fi
+
+# Ensure the env's python wins on PATH
+if [ -n "\${CONDA_PREFIX:-}" ]; then
+    export PATH="\${CONDA_PREFIX}/bin:\${PATH}"
 fi
 
 export MPLBACKEND=Agg
@@ -282,7 +295,7 @@ python Statistics/apply_mcc_postprocessing.py MODEL_DIR_PLACEHOLDER \
 
 echo ""
 echo "=========================================="
-echo "GENERATING ANDRILLON SUMMARY REPORT"
+echo "GENERATING SUMMARY REPORT"
 echo "=========================================="
 echo "Start time: \$(date)"
 echo "Model directory: MODEL_DIR_PLACEHOLDER"
@@ -294,13 +307,16 @@ EXIT_CODE=\$?
 
 if [ \${EXIT_CODE} -eq 0 ]; then
     echo ""
-    echo "✓ Andrillon report generation completed successfully at \$(date)"
+    echo "✓ Report generation completed successfully at \$(date)"
 else
     echo ""
-    echo "✗ Andrillon report generation failed with exit code \${EXIT_CODE} at \$(date)"
+    echo "✗ Report generation failed with exit code \${EXIT_CODE} at \$(date)"
 fi
 
 echo "=========================================="
+
+# Propagate the exit code so a failed report is recorded as FAILED in sacct.
+exit \${EXIT_CODE}
 EOFREPORT
 
 # Replace placeholder with actual model directory
@@ -315,12 +331,12 @@ REPORT_EXIT_CODE=$?
 
 if [ ${REPORT_EXIT_CODE} -eq 0 ]; then
     REPORT_JOB_ID=$(echo ${REPORT_JOB_OUTPUT} | awk '{print $NF}')
-    echo "✓ Andrillon report generation job submitted successfully"
+    echo "✓ Report generation job submitted successfully"
     echo "  Job ID: ${REPORT_JOB_ID}"
     echo "  Dependency: Will run after job ${ARRAY_JOB_ID} completes"
     echo ""
 else
-    echo "⚠ Warning: Failed to submit Andrillon report generation job"
+    echo "⚠ Warning: Failed to submit report generation job"
     echo "  You can generate the report manually later with:"
     echo "  python Statistics/generate_summary_report.py ${MODEL_DIR}"
     echo ""
@@ -328,7 +344,7 @@ fi
 
 echo "Monitor jobs with: squeue -u $USER"
 echo "Check logs in:"
-echo "  - Array jobs: logs/andrillon_marker_${ARRAY_JOB_ID}_*.out"
-echo "  - Report job: logs/andrillon_report_*.out"
+echo "  - Array jobs: logs/mw_marker_${ARRAY_JOB_ID}_*.out"
+echo "  - Report job: logs/mw_report_*.out"
 
 echo "=========================================="

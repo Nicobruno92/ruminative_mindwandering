@@ -31,7 +31,7 @@ done
 SCRIPT_DIR="Stats_andrillon"
 
 echo "=========================================="
-echo "Andrillon Local Pipeline Execution"
+echo "Local Pipeline Execution"
 if [ -n "${PREDICTOR_OVERRIDE}" ]; then
     echo "Predictor of interest: ${PREDICTOR_OVERRIDE}"
 fi
