@@ -95,6 +95,15 @@ cv:
 run_contrasts:
   - on_vs_off_within_median
   # - on_vs_off_threshold
+  # --- Content dimensions: "_offtask" variants classify only within mind-wandering probes ---
+  - valence_within_median
+  - valence_within_median_offtask
+  # - selfother_within_median
+  # - selfother_within_median_offtask
+  # - time_within_median
+  # - time_within_median_offtask
+  # - confidence_within_median
+  # - confidence_within_median_offtask
 
 # Mapping of what each contrast actually means for data extraction.
 # The keys correspond to run_contrasts. The values are dicts specifying the
@@ -123,6 +132,74 @@ label_contrasts:
   #   threshold_high: 70
   #   positive_class_name: "ON-task"
   #   negative_class_name: "OFF-task"
+
+  valence_within_median:            # sobre todas las probes
+    column_name: "valence"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  valence_within_median_offtask:    # solo en mind-wandering
+    column_name: "valence"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+    restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+
+  selfother_within_median:
+    column_name: "selfother"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  selfother_within_median_offtask:
+    column_name: "selfother"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+    restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+
+  time_within_median:
+    column_name: "time"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  time_within_median_offtask:
+    column_name: "time"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+    restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+
+  confidence_within_median:
+    column_name: "confidence"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+
+  confidence_within_median_offtask:
+    column_name: "confidence"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+    restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
 
 # =============================================================================
 # FEATURE FAMILIES

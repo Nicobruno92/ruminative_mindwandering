@@ -468,6 +468,15 @@ def create_label_contrast(
     - 'threshold': Fixed threshold split (e.g. > 50).
     - 'extreme_groups': Takes top and bottom groups, drops middle.
 
+    An optional 'restrict_to' sub-config restricts the probes *before*
+    binarizing the target column. It is itself a valid contrast spec plus a
+    'keep' key ('positive' or 'negative'); the function binarizes on it, keeps
+    the requested side, drops that helper target, then binarizes the real
+    label column on the remaining subset. Use it to classify content
+    dimensions (valence, selfother, time, confidence) only within off-task
+    probes, e.g. restrict_to: {column_name: onoff,
+    split_method: within_subject_median, keep: negative}.
+
     Parameters
     ----------
     df : pd.DataFrame
@@ -490,7 +499,25 @@ def create_label_contrast(
         )
 
     df = df.copy()
-    
+
+    # Optional pre-binarization restriction (e.g. classify content dimensions
+    # only within off-task probes). The 'restrict_to' sub-config is itself a
+    # valid contrast spec; we binarize on it, keep the requested side, then
+    # drop that helper target before binarizing the real label column.
+    restrict_to = contrast_config.get("restrict_to", None)
+    if restrict_to is not None:
+        keep = restrict_to.get("keep")
+        if keep not in ("positive", "negative"):
+            raise ValueError(
+                f"restrict_to.keep must be 'positive' or 'negative', got {keep!r}."
+            )
+        keep_val = 1 if keep == "positive" else 0
+        restricted = create_label_contrast(df, restrict_to)
+        n_before = len(df)
+        df = restricted[restricted["target"] == keep_val].drop(columns=["target"]).copy()
+        print(f"  restrict_to[{restrict_to.get('column_name')}={keep}]: "
+              f"kept {len(df)}/{n_before} probes before binarizing '{label_col}'")
+
     split_method = contrast_config.get("split_method", None)
     positive_above = contrast_config.get("positive_above", True)
 

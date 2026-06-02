@@ -68,11 +68,90 @@ label_contrasts:
   #   threshold_low: 30
   #   threshold_high: 70
 
+  # --- Content dimensions ---------------------------------------------------
+  # "_offtask" variants classify the dimension only within mind-wandering
+  # probes (onoff below the within-subject median) via restrict_to.
+  valence_within_median:
+    label_source: valence
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  valence_within_median_offtask:
+    label_source: valence
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+    restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
+  selfother_within_median:
+    label_source: selfother
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  selfother_within_median_offtask:
+    label_source: selfother
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+    restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
+  time_within_median:
+    label_source: time
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  time_within_median_offtask:
+    label_source: time
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+    restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
+  confidence_within_median:
+    label_source: confidence
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+
+  confidence_within_median_offtask:
+    label_source: confidence
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+    restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
 # Which contrasts to submit as jobs via run_local.sh / run_cluster.sh.
 # Must be keys defined in label_contrasts above.
 run_contrasts:
   - ON_vs_OFF_within_median
   # - ON_vs_OFF
+  # - valence_within_median
+  # - valence_within_median_offtask
+  # - selfother_within_median
+  # - selfother_within_median_offtask
+  # - time_within_median
+  # - time_within_median_offtask
+  # - confidence_within_median
+  # - confidence_within_median_offtask
 
 # =============================================================================
 # DATA FORMAT

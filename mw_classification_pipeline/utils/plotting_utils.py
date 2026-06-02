@@ -3885,9 +3885,10 @@ def plot_auc_vs_onoff_dispersion(
     results_path: str,
     filename_base: str,
     pipeline_label: str = "LOSO",
+    label_col: str = "onoff",
 ) -> None:
     """
-    Scatter plot of per-subject AUC vs per-subject SD of on/off ratings.
+    Scatter plot of per-subject AUC vs per-subject SD of the target ratings.
 
     Relates classification performance to how broadly each subject uses
     the categorization scale. A high SD means the subject used extreme
@@ -3898,30 +3899,33 @@ def plot_auc_vs_onoff_dispersion(
     subject_auc_df : pd.DataFrame
         Columns: 'subject', 'auc'. One row per subject, AUC averaged over runs.
     df_prepared : pd.DataFrame
-        Full prepared DataFrame with 'subject' and 'onoff' columns.
+        Full prepared DataFrame with 'subject' and the ``label_col`` column.
     results_path : str
         Directory where plot files are saved.
     filename_base : str
         Filename prefix (matches the other result files for this run).
     pipeline_label : str
         Pipeline name for the plot title ('LOSO' or 'WithinSubject').
+    label_col : str
+        Name of the continuous rating column to compute dispersion on
+        (e.g. 'onoff', 'valence', 'selfother', 'time', 'confidence').
     """
-    if "onoff" not in df_prepared.columns:
-        print("Warning: 'onoff' column not found in df_prepared — skipping AUC vs dispersion plot.")
+    if label_col not in df_prepared.columns:
+        print(f"Warning: '{label_col}' column not found in df_prepared — skipping AUC vs dispersion plot.")
         return
 
-    onoff_stats = (
-        df_prepared.groupby("subject")["onoff"]
-        .agg(onoff_std="std", onoff_mean="mean")
+    label_stats = (
+        df_prepared.groupby("subject")[label_col]
+        .agg(label_std="std", label_mean="mean")
         .reset_index()
     )
 
-    plot_df = pd.merge(subject_auc_df, onoff_stats, on="subject", how="inner")
+    plot_df = pd.merge(subject_auc_df, label_stats, on="subject", how="inner")
     if plot_df.empty:
-        print("Warning: No subjects matched between AUC data and onoff data — skipping plot.")
+        print(f"Warning: No subjects matched between AUC data and {label_col} data — skipping plot.")
         return
 
-    x = plot_df["onoff_std"].values.astype(float)
+    x = plot_df["label_std"].values.astype(float)
     y = plot_df["auc"].values.astype(float)
     valid = np.isfinite(x) & np.isfinite(y)
 
@@ -3934,7 +3938,7 @@ def plot_auc_vs_onoff_dispersion(
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
-        x=plot_df["onoff_std"],
+        x=plot_df["label_std"],
         y=plot_df["auc"],
         mode='markers+text',
         text=plot_df["subject"].astype(str),
@@ -3945,7 +3949,7 @@ def plot_auc_vs_onoff_dispersion(
         name='Subjects',
         hovertemplate=(
             'Subject: %{text}<br>'
-            'onoff SD: %{x:.2f}<br>'
+            f'{label_col} SD: %{{x:.2f}}<br>'
             'AUC: %{y:.3f}<extra></extra>'
         ),
     ))
@@ -3973,12 +3977,12 @@ def plot_auc_vs_onoff_dispersion(
         template='plotly_white',
         title=dict(
             text=(
-                f'<b>{pipeline_label}: AUC vs On/Off Scale Dispersion</b><br>'
+                f'<b>{pipeline_label}: AUC vs {label_col} Scale Dispersion</b><br>'
                 f'<sup>{corr_label} | n = {valid.sum()} subjects</sup>'
             ),
             font=dict(size=16),
         ),
-        xaxis_title='Per-subject SD of on/off ratings (scale dispersion)',
+        xaxis_title=f'Per-subject SD of {label_col} ratings (scale dispersion)',
         yaxis_title='AUC',
         yaxis=dict(range=[max(0.0, float(np.nanmin(y)) - 0.1),
                           min(1.0, float(np.nanmax(y)) + 0.1)]),
@@ -3988,7 +3992,7 @@ def plot_auc_vs_onoff_dispersion(
     )
 
     os.makedirs(results_path, exist_ok=True)
-    out_path = os.path.join(results_path, f"{filename_base}_auc_vs_onoff_dispersion")
+    out_path = os.path.join(results_path, f"{filename_base}_auc_vs_{label_col}_dispersion")
     try:
         fig.write_image(f"{out_path}.png", scale=2)
         fig.write_image(f"{out_path}.pdf")
@@ -3997,4 +4001,4 @@ def plot_auc_vs_onoff_dispersion(
         print(f"Warning: Could not save AUC vs dispersion plot: {e}")
 
     plot_df.to_csv(f"{out_path}_data.csv", index=False)
-    print(f"  Saved AUC vs onoff dispersion → {out_path}.png")
+    print(f"  Saved AUC vs {label_col} dispersion → {out_path}.png")

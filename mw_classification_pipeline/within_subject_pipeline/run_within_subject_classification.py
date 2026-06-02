@@ -305,8 +305,10 @@ def main():
     )
     _dim_path = os.path.join(results_path, model_type)
     _fname_base = f"{model_type}_loso_{n_runs}runs" if n_runs > 1 else f"{model_type}_loso"
+    _label_col = config.get("label_contrasts", {}).get(contrast_name, {}).get("column_name", "onoff")
     plot_auc_vs_onoff_dispersion(
-        _ws_subject_auc_df, df_prepared, _dim_path, _fname_base, "WithinSubject"
+        _ws_subject_auc_df, df_prepared, _dim_path, _fname_base, "WithinSubject",
+        label_col=_label_col,
     )
 
     print(f"\n{'='*60}")
