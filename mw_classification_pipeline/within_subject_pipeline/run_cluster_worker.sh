@@ -57,7 +57,9 @@ print(cfg.get('slurm', {}).get('conda_env', 'ML'))
 ")
 
 # Activate conda robustly across different cluster setups
-if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+if [ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/miniforge3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
     source "$HOME/miniconda3/etc/profile.d/conda.sh"
 elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
     source "$HOME/anaconda3/etc/profile.d/conda.sh"
@@ -70,6 +72,12 @@ else
     exit 1
 fi
 conda activate "$CONDA_ENV"
+# Force the env's bin onto PATH. SLURM exports the submitting shell's env
+# (--export=ALL), which may carry a half-initialized conda state (CONDA_PREFIX
+# set but the base bin never on PATH). In that case `conda activate` updates
+# CONDA_PREFIX but not PATH, so `python` stays the system interpreter. This
+# guarantees the activated env's python is used regardless of inherited state.
+export PATH="$CONDA_PREFIX/bin:$PATH"
 
 # Propagate SLURM CPU count to threading libraries
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-16}
