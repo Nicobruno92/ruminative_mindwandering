@@ -128,10 +128,14 @@ print(config['project']['output_path'])
     FIXED=$(python -c "
 import yaml, sys, os
 sys.path.append(os.path.join('${SCRIPT_DIR}', '..', 'Statistics'))
+sys.path.append('${SCRIPT_DIR}')
 from helpers import get_model_folder_name
+from andrillon_pipeline import _resolve_formula_for_predictor
 with open('${CONFIG_FILE}') as f:
     config = yaml.safe_load(f)
-print(get_model_folder_name(config['lmm']['formula'], '${P}'))
+pred = '${P}'
+formula = _resolve_formula_for_predictor(config, pred) if pred and pred.strip().lower() != 'auto' else config['lmm']['formula']
+print(get_model_folder_name(formula, pred))
 ")
     echo "  [${P}]  →  ${OUTPUT_PATH}/${FIXED}/"
 done

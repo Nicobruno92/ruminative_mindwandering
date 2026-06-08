@@ -11,6 +11,49 @@ anything related to natural languange processing => nlp
 for anything related to eeg analysis => eeg
 for junifer specific tasks => junifer
 
+## Paper Structure
+
+This project is split into two papers:
+
+### Paper 1 — Patients & Behavior
+Focuses on patient group differences and subjective/objective reporting of mind-wandering. More behavioral, less EEG-heavy.
+
+### Paper 2 — EEG
+Focuses on neural correlates of mind-wandering independent of patient status.
+
+**Central question**: Does EEG encoding of MW depend on which dimension you measure, and is that encoding strong enough for individual-level prediction?
+
+**Paper structure (high level):**
+
+**Section 1 — Behavior (brief)**
+- LMM: probe dimensions (onoff, valence, selfother, time, confidence) predict performance markers (errors, RTCV, omissions)
+- Establishes construct validity of the probe dimensions
+- Results: `results/Behavior/objective_markers/lmm_probe_dimensions/`
+
+**Section 2 — CBPT: dimension-specific neural signatures**
+- Andrillon pipeline (LMM + cluster-permutation): which EEG markers show group-level correlates for each dimension?
+- Report by marker family, not marker by marker:
+  - **Attentional** (P3b, P3a): onoff > selfother, absent for valence/time
+  - **Complexity/arousal** (KoC, PE-beta/gamma, SEF90/95): strong for onoff; emerges for valence only via valence×confidence interaction (48-electrode clusters)
+  - **Broadband power** (PSD gamma/beta): mostly specific to onoff
+  - **Sleep-like oscillations** (slow waves, delta/theta, spindles): present across dimensions with dimension-specific polarity — slow waves decrease on-task (onoff) but increase with emotional content (valence)
+- Main figure: topomaps (representative markers × dimensions) + heatmap (marker families × dimensions)
+- Full details: supplementary table
+- Results: `results/andrillon_cluster/`
+
+**Section 3 — Classification: individual-level decodability**
+- Within-subject RF classifier (median split per dimension): tests whether neural signatures support trial-by-trial prediction per individual
+- Decodability hierarchy mirrors CBPT density: onoff (AUC=0.703, 16/29 subjects sig.) > valence (0.658, 7/23) > confidence (0.630) > selfother (0.632) > time (0.593 ≈ weak)
+- LOSO (onoff only): AUC=0.628 vs within=0.703 — gap reveals idiosyncratic component of MW neural signatures
+- ~45% of subjects not individually decodable even for onoff — result, not failure
+- Main figure: AUC bar chart per dimension + permutation baseline + individual points; LOSO point for onoff
+- Results: `mw_classification_pipeline/results/MW_Classification/`
+
+**Narrative bridge between sections 2 and 3:**
+> CBPT establishes which dimensions leave a detectable group-level neural trace. Classification asks whether that trace is strong enough to predict MW state in a specific person. The decodability hierarchy directly mirrors the CBPT signal density — validating both methods and establishing a hierarchy of neural encodability across MW dimensions.
+
+---
+
 ## Critical Rules (Always Apply)
 
 1. **NEVER hardcode paths** → use `utils/bids_compliance.py`

@@ -256,11 +256,11 @@ def load_all_probe_data(features_root: str,
     if verbose:
         print(f"Combined dataset shape: {combined_df.shape}")
         if 'subject' in combined_df.columns:
-            print(f"Subjects: {sorted(combined_df['subject'].unique())}")
+            print(f"Subjects: {sorted(combined_df['subject'].dropna().unique())}")
         if 'task' in combined_df.columns:
-            print(f"Tasks: {sorted(combined_df['task'].unique())}")
+            print(f"Tasks: {sorted(combined_df['task'].dropna().unique())}")
         if 'marker_type' in combined_df.columns:
-            print(f"Marker types: {sorted(combined_df['marker_type'].unique())}")
+            print(f"Marker types: {sorted(combined_df['marker_type'].dropna().unique())}")
         if 'marker' in combined_df.columns:
             print(f"Markers: {sorted(combined_df['marker'].unique())}")
         if 'channel' in combined_df.columns:

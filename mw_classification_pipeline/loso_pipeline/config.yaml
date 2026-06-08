@@ -56,6 +56,15 @@ label_contrasts:
     split_method: "within_subject_median"
     gap: 5           # ±points around subject median to exclude (0 = no neutral zone)
     positive_above: true
+    # Optional: weight training samples by probe confidence (label-reliability
+    # proxy). Absent or enabled:false => no change. Requires oversampling_scope
+    # != 'global' and a supervised model (rf/xgb/lr). Most justified for ON/OFF
+    # (confidence pertains chiefly to the on/off judgement); exploratory on
+    # content dimensions. Test runs WITH and WITHOUT and report sensitivity.
+    confidence_weight:
+      enabled: false
+      normalization: within_subject   # min-max within subject -> [w_min, 1]
+      w_min: 0.1                       # floor weight for lowest-confidence trial
 
   # ON_vs_OFF_global_median:
   #   label_source: onoff
@@ -79,14 +88,14 @@ label_contrasts:
     positive_class_name: "positive"
     negative_class_name: "negative"
 
-  valence_within_median_offtask:
-    label_source: valence
-    split_method: "within_subject_median"
-    gap: 5
-    positive_above: true
-    positive_class_name: "positive"
-    negative_class_name: "negative"
-    restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+  # valence_within_median_offtask:
+  #   label_source: valence
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "positive"
+  #   negative_class_name: "negative"
+  #   restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
 
   selfother_within_median:
     label_source: selfother
@@ -96,14 +105,14 @@ label_contrasts:
     positive_class_name: "self"
     negative_class_name: "other"
 
-  selfother_within_median_offtask:
-    label_source: selfother
-    split_method: "within_subject_median"
-    gap: 5
-    positive_above: true
-    positive_class_name: "self"
-    negative_class_name: "other"
-    restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+  # selfother_within_median_offtask:
+  #   label_source: selfother
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "self"
+    # negative_class_name: "other"
+    # restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
 
   time_within_median:
     label_source: time
@@ -113,14 +122,14 @@ label_contrasts:
     positive_class_name: "future"
     negative_class_name: "past"
 
-  time_within_median_offtask:
-    label_source: time
-    split_method: "within_subject_median"
-    gap: 5
-    positive_above: true
-    positive_class_name: "future"
-    negative_class_name: "past"
-    restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+  # time_within_median_offtask:
+  #   label_source: time
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "future"
+  #   negative_class_name: "past"
+  #   restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
 
   confidence_within_median:
     label_source: confidence
@@ -130,27 +139,27 @@ label_contrasts:
     positive_class_name: "high-confidence"
     negative_class_name: "low-confidence"
 
-  confidence_within_median_offtask:
-    label_source: confidence
-    split_method: "within_subject_median"
-    gap: 5
-    positive_above: true
-    positive_class_name: "high-confidence"
-    negative_class_name: "low-confidence"
-    restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+  # confidence_within_median_offtask:
+  #   label_source: confidence
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "high-confidence"
+  #   negative_class_name: "low-confidence"
+  #   restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
 
 # Which contrasts to submit as jobs via run_local.sh / run_cluster.sh.
 # Must be keys defined in label_contrasts above.
 run_contrasts:
   - ON_vs_OFF_within_median
   # - ON_vs_OFF
-  # - valence_within_median
+  - valence_within_median
   # - valence_within_median_offtask
-  # - selfother_within_median
+  - selfother_within_median
   # - selfother_within_median_offtask
-  # - time_within_median
+  - time_within_median
   # - time_within_median_offtask
-  # - confidence_within_median
+  - confidence_within_median
   # - confidence_within_median_offtask
 
 # =============================================================================
@@ -221,7 +230,7 @@ feature_families:
       - "kolmogorov_complexity"
 
 # Which families to submit as separate jobs via run_local.sh / run_cluster.sh.
-run_families: ["all", "erp"]
+run_families: ["all"]
 
 
 # =============================================================================
@@ -230,8 +239,8 @@ run_families: ["all", "erp"]
 
 model_type: ["rf"]            # rf, xgb, lr, ocsvm, iforest
 
-n_runs: 10                # LOSO runs with different seeds
-permutation_runs: 10     # Label permutations for null distribution
+n_runs: 100                # LOSO runs with different seeds
+permutation_runs: 500     # Label permutations for null distribution
 
 random_seed: 42
 
@@ -239,8 +248,15 @@ random_seed: 42
 # PREPROCESSING
 # =============================================================================
 
-k: 50
+k: 20
 feature_selection_method: lmm_encoding   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
+
+# Missing-value handling (handle_missing_features). Defaults are now explicit
+# instead of relying on the function signature.
+preprocessing:
+  max_feature_nan_frac: 0.25       # drop a feature column if > this fraction is NaN
+  imputation: mean                 # fill residual NaN with per-subject mean (global mean fallback)
+  zero_fill_patterns: ["density"]  # event-rate markers: NaN = no event = true 0 (filled BEFORE the NaN-frac drop)
 
 scaler: standard
 scale_by_participant: within     # 'none', 'global', or 'within'
@@ -261,7 +277,7 @@ pca_kernel: rbf
 # MODEL PARAMETERS — RANDOM FOREST
 # =============================================================================
 
-rf_n_estimators: 500
+rf_n_estimators: 200
 rf_max_depth: 8
 rf_min_samples_split: 10
 rf_min_samples_leaf: 5
@@ -355,16 +371,38 @@ plot_style: seaborn-v0_8
 # =============================================================================
 # PARALLELISM
 # =============================================================================
-# n_perm_jobs=1 with perm_cv_n_jobs=-1 mirrors the true-run strategy:
-# permutations run sequentially but each one parallelises all 42 LOSO folds
-# across available cores. Keep n_perm_jobs=1 so stdout is visible per perm.
+# lmm_n_jobs controls parallelism *within* each LOSO fold (over features).
+# perm_cv_n_jobs controls how many LOSO folds run in parallel per permutation.
+# Total threads per perm ≈ perm_cv_n_jobs × lmm_n_jobs — keep ≤ cpus_per_task.
+# With cpus_per_task=32: lmm_n_jobs=4, perm_cv_n_jobs=8 → 32 threads per perm.
+# True runs use perm_cv_n_jobs for folds as well (cv_n_jobs defaults to -1
+# for the true-run path; set explicitly below via a future parameter if needed).
+# LMM feature selection tuning
+# ─────────────────────────────────────────────────────────────────────────────
+# lmm_n_jobs: CPUs per fold for LMM (each fold fits lmm_n_jobs LMMs in parallel)
+# lmm_prefilter_factor: if > 0, run f_classif first and pass only
+#   (lmm_prefilter_factor × k) candidate features to LMM. This is the SINGLE
+#   biggest speedup: with 300 features, k=50, factor=3 → LMM sees 150 features
+#   instead of 300, a 2× speedup ON TOP of the optimizer change.
+#   Scientifically sound: f_classif removes obviously irrelevant features first.
+# Optimizer already changed to lbfgs (5-10× faster than the old powell).
+lmm_n_jobs: 2          # 2 × cv_n_jobs=4 = 8 CPUs total (= cpus_per_task)
+lmm_prefilter_factor: 3   # 0 = disabled; 3 = run LMM on top 3*k=150 features only
+
+# feature_selection_method options:
+#   lmm_encoding  — mixed model (rigorous, recommended)
+#   f_classif     — ANOVA F-stat (fastest; with scale_by_participant:within already
+#                   applied, data is already z-scored per subject so this is a
+#                   good approximation when speed is critical)
+
 parallelism:
-  n_perm_jobs: 1       # sequential perms → stdout visible after each ~4 min
-  perm_cv_n_jobs: -1   # parallel folds per perm (mirrors true runs)
+  n_perm_jobs: 1       # 1 perm per SLURM job
+  perm_cv_n_jobs: 4    # parallel folds per perm; lmm_n_jobs=2 × 4 = 8 CPUs
+  true_cv_n_jobs: 4    # parallel folds per true run; same balance
 
 slurm:
-  time: "72:00:00"
-  mem: "64G"
-  cpus_per_task: 32
+  time: "02:00:00"
+  mem: "32G"
+  cpus_per_task: 8
   job_name: "mw_class"
   conda_env: "ML"

@@ -679,8 +679,9 @@ def handle_missing_features(
     X: pd.DataFrame,
     groups: pd.Series,
     max_feature_nan_frac: float = 0.25,
-    imputation: str = "median",
+    imputation: str = "mean",
     verbose: bool = True,
+    zero_fill_patterns: Optional[List[str]] = None,
 ) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
     """
     Resolve missing values in the feature matrix without discarding all samples.
@@ -694,11 +695,17 @@ def handle_missing_features(
     column level first.
 
     Strategy, in order:
+      0. Zero-fill event-rate columns matching ``zero_fill_patterns`` (e.g.
+         ``*Density*``). A NaN in an event-rate marker means "no event was
+         detected", i.e. a true zero — not a missing value. This is done BEFORE
+         the NaN-fraction drop so that legitimately-sparse density columns (rare
+         events) are not discarded by ``max_feature_nan_frac``.
       1. Drop columns that are entirely NaN.
       2. Drop columns whose global NaN fraction exceeds ``max_feature_nan_frac``
-         (the genuinely sparse event-property markers).
+         (the genuinely sparse event-property markers, e.g. amplitude/slope of an
+         event that did not occur — undefined, not zero).
       3. Resolve the remaining sparse values:
-         - ``imputation`` in {"median", "mean"}: fill per subject (the natural
+         - ``imputation`` in {"mean", "median"}: fill per subject (the natural
            context in a within-subject design), with a global fallback for any
            subject that is fully NaN in a surviving column. No samples dropped.
          - ``imputation == "none"``: drop the (now few) samples that still
@@ -738,6 +745,23 @@ def handle_missing_features(
 
     X = X.reset_index(drop=True)
     groups = pd.Series(np.asarray(groups), index=X.index)
+
+    # 0: Zero-fill event-rate markers (e.g. *Density*) BEFORE the NaN-fraction
+    # drop. NaN here == "no event detected" == true zero, not missing data.
+    if zero_fill_patterns:
+        zero_cols = [
+            c for c in X.columns
+            if any(pat.lower() in str(c).lower() for pat in zero_fill_patterns)
+        ]
+        if zero_cols:
+            n_zero_filled = int(X[zero_cols].isna().sum().sum())
+            X[zero_cols] = X[zero_cols].fillna(0.0)
+            if verbose and n_zero_filled:
+                print(
+                    f"[INFO] Zero-filled {n_zero_filled} NaN across {len(zero_cols)} "
+                    f"event-rate columns matching {zero_fill_patterns} "
+                    f"(NaN = no event = 0)"
+                )
 
     n_cols_before = X.shape[1]
     nan_frac = X.isna().mean()
@@ -1025,19 +1049,47 @@ def prepare_data_for_contrast(
         print(f"  Class 0 (OFF): {dist['n_negative']} ({dist['negative_fraction']:.1%})")
         print(f"  Class 1 (ON):  {dist['n_positive']} ({dist['positive_fraction']:.1%})")
 
+    # Capture subject-exclusion provenance for the per-classification report.
+    # A subject can disappear at three stages: never loaded / all trials in the
+    # neutral gap, removed for too few samples, removed for class imbalance.
+    _subjects_requested = sorted(str(s) for s in subjects)
+    _subjects_with_data = set(df_wide["subject"].astype(str).unique())
+    _counts_before = (
+        df_wide.groupby(df_wide["subject"].astype(str)).size().astype(int).to_dict()
+    )
+
     # Filter participants by minimum sample count
     if min_samples > 0:
         df_wide = filter_participants_by_sample_count(
             df_wide, "subject", min_samples, verbose
         )
+    _subjects_after_count = set(df_wide["subject"].astype(str).unique())
 
     # Filter participants by class balance
     df_wide = filter_participants_by_balance(
         df_wide, "subject", "target", min_minority_ratio, verbose
     )
+    _subjects_after_balance = set(df_wide["subject"].astype(str).unique())
 
     if df_wide.empty:
         raise ValueError("No data remaining after participant filtering!")
+
+    _dropped_low_count = sorted(_subjects_with_data - _subjects_after_count)
+    _dropped_imbalance = sorted(_subjects_after_count - _subjects_after_balance)
+    _no_data = sorted(set(_subjects_requested) - _subjects_with_data)
+    config["_data_provenance"] = {
+        "contrast": contrast_name,
+        "split_method": contrast_config.get("split_method"),
+        "gap": contrast_config.get("gap", 0),
+        "min_samples": int(min_samples),
+        "min_minority_ratio": float(min_minority_ratio),
+        "n_subjects_requested": len(_subjects_requested),
+        "n_subjects_final": len(_subjects_after_balance),
+        "subjects_final": sorted(_subjects_after_balance),
+        "excluded_no_data_or_all_neutral": _no_data,
+        "excluded_min_samples": {s: _counts_before.get(s) for s in _dropped_low_count},
+        "excluded_min_minority_ratio": _dropped_imbalance,
+    }
 
     # Get feature columns
     feature_cols = get_feature_columns(df_wide)
@@ -1067,7 +1119,8 @@ def prepare_data_for_contrast(
     # partially-NaN columns; dropping samples on any-NaN would erase the dataset.
     preprocessing_cfg = config.get("preprocessing", {})
     max_feature_nan_frac = preprocessing_cfg.get("max_feature_nan_frac", 0.25)
-    imputation = preprocessing_cfg.get("imputation", "median")
+    imputation = preprocessing_cfg.get("imputation", "mean")
+    zero_fill_patterns = preprocessing_cfg.get("zero_fill_patterns", ["density"])
 
     n_before = len(X)
     X, valid_mask, feature_cols = handle_missing_features(
@@ -1076,6 +1129,7 @@ def prepare_data_for_contrast(
         max_feature_nan_frac=max_feature_nan_frac,
         imputation=imputation,
         verbose=verbose,
+        zero_fill_patterns=zero_fill_patterns,
     )
 
     # Align the other structures to surviving samples (valid_mask is all-True

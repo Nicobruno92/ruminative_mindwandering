@@ -515,6 +515,45 @@ def run_marker_analysis(
         predictor_of_interest=config['lmm']['predictor_of_interest'],
     )
     
+    # ── Backend dispatch ────────────────────────────────────────────────────
+    # Select LMM backend (python/statsmodels or r/lme4) from config and bind
+    # the two functions used throughout this function to local names so every
+    # call site below is backend-agnostic.
+    _backend = config['lmm'].get('backend', 'python')
+    if _backend == 'r':
+        from lmm_r_backend import (
+            run_lmm_per_channel as _run_lmm,
+            fit_reduced_model_per_channel as _fit_reduced,
+        )
+        logger.info("Using R backend (lme4::lmer via rpy2)")
+    else:
+        _run_lmm = run_lmm_per_channel
+        _fit_reduced = fit_reduced_model_per_channel
+        logger.info("Using Python backend (statsmodels MixedLM)")
+
+    # ── Observation weights (WLS-LMM) ───────────────────────────────────────
+    weight_col = config['lmm'].get('obs_weight_col')
+    obs_weights: Optional[np.ndarray] = None
+    if weight_col:
+        if _backend != 'r':
+            raise ValueError(
+                f"obs_weight_col='{weight_col}' requires backend='r' for exact "
+                "WLS-LMM. Set lmm.backend: 'r' or set obs_weight_col: null."
+            )
+        from lmm_r_backend import compute_obs_weights
+        weight_norm = config['lmm'].get('weight_normalization', 'subject')
+        obs_weights = compute_obs_weights(
+            df_behavioral=df_behavioral,
+            weight_col=weight_col,
+            normalization=weight_norm,
+            subject_col='subject',
+        )
+        logger.info(
+            f"  Observation weights: col='{weight_col}', "
+            f"normalization='{weight_norm}', "
+            f"mean={obs_weights.mean():.3f}, std={obs_weights.std():.3f}"
+        )
+
     # 2. Fit LMM per electrode (using proven implementation from Statistics/)
     print("Step 2: Fitting LMM per electrode...", flush=True)
     logger.info("Step 2: Fitting LMM per electrode...")
@@ -528,8 +567,8 @@ def run_marker_analysis(
     logger.info(f"  Predictor: {predictor}")
     logger.info(f"  Channels: {len(channels)}")
     
-    # Use the proven run_lmm_per_channel from the previous pipeline
-    t_stats, p_values, diagnostics = run_lmm_per_channel(
+    # Use the selected backend to fit LMM per channel
+    t_stats, p_values, diagnostics = _run_lmm(
         power_data=power_data,
         df_behavioral=df_behavioral,
         formula=formula,
@@ -537,7 +576,8 @@ def run_marker_analysis(
         method=config['lmm']['method'],
         maxiter=config['lmm']['maxiter'],
         random_state=config['andrillon_clustering']['seed'],
-        return_diagnostics=True
+        return_diagnostics=True,
+        obs_weights=obs_weights,
     )
     
     print(f"  LMM fitting complete: {diagnostics['n_converged']}/{len(channels)} channels converged", flush=True)
@@ -588,7 +628,7 @@ def run_marker_analysis(
     if permutation_method == 'freedman_lane':
         print("  Fitting reduced model for Freedman-Lane permutation...", flush=True)
         logger.info("  Fitting reduced model for Freedman-Lane permutation...")
-        fl_residuals, fl_fitted = fit_reduced_model_per_channel(
+        fl_residuals, fl_fitted = _fit_reduced(
             power_data=power_data,
             df_behavioral=df_behavioral,
             formula=formula,
@@ -596,6 +636,7 @@ def run_marker_analysis(
             method=lmm_method,
             maxiter=lmm_maxiter,
             random_state=base_seed,
+            obs_weights=obs_weights,
         )
         n_nan_resid = int(np.all(np.isnan(fl_residuals), axis=0).sum())
         print(
@@ -661,7 +702,7 @@ def run_marker_analysis(
         # NOT kill the run. Failed channels become NaN and are excluded from
         # both null and observed cluster formation; the per-permutation
         # degenerate rate is tracked aggregately below.
-        perm_t, perm_p, perm_diag = run_lmm_per_channel(
+        perm_t, perm_p, perm_diag = _run_lmm(
             power_data=power_perm_input,
             df_behavioral=df_perm_input,
             formula=formula,
@@ -671,6 +712,7 @@ def run_marker_analysis(
             random_state=perm_seed,
             return_diagnostics=True,
             abort_on_high_failure=False,
+            obs_weights=obs_weights,
         )
 
         # A permutation is "degenerate" when more than 50% of the channels

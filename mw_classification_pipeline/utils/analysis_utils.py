@@ -45,24 +45,49 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # DIRECTORY HELPERS
 # =============================================================================
 
-def get_run_dir(dimension_results_path: str, run_idx: int, n_runs: int) -> str:
+def get_run_dir(dimension_results_path: str, run_idx: int, n_runs: int,
+                run_idx_offset: int = 0, total_n_runs: int = None) -> str:
     """
     Return per-run output directory.
 
-    For single-run LOSO: uses dimension_results_path directly.
-    For multi-run: uses true_runs/run_{n} subdirectory.
+    For single-run LOSO with no offset: uses dimension_results_path directly.
+    For multi-run or SLURM parallel mode (offset > 0): uses true_runs/run_{n} subdirectory.
+
+    Parameters
+    ----------
+    run_idx : int
+        Local run index within this job (0-based).
+    n_runs : int
+        Number of runs in this job.
+    run_idx_offset : int
+        Global offset — the actual run number = run_idx + run_idx_offset.
+        Set when running a single run as part of a SLURM array.
+    total_n_runs : int, optional
+        Total runs across all jobs. When > 1 with offset=0, forces subdirectory use.
     """
-    if n_runs == 1:
+    global_idx = run_idx + run_idx_offset
+    effective_total = total_n_runs if total_n_runs is not None else n_runs
+    if effective_total <= 1 and run_idx_offset == 0:
         run_dir = dimension_results_path
     else:
-        run_dir = os.path.join(dimension_results_path, "true_runs", f"run_{run_idx}")
+        run_dir = os.path.join(dimension_results_path, "true_runs", f"run_{global_idx}")
     Path(run_dir).mkdir(parents=True, exist_ok=True)
     return run_dir
 
 
-def get_permutation_run_dir(dimension_results_path: str, run_idx: int) -> str:
-    """Return per-permutation output directory (inside permuted_runs/ subfolder)."""
-    perm_dir = os.path.join(dimension_results_path, "permuted_runs", f"run_{run_idx}")
+def get_permutation_run_dir(dimension_results_path: str, run_idx: int,
+                             perm_idx_offset: int = 0) -> str:
+    """Return per-permutation output directory (inside permuted_runs/ subfolder).
+
+    Parameters
+    ----------
+    run_idx : int
+        Local permutation index within this job (0-based).
+    perm_idx_offset : int
+        Global offset — actual perm number = run_idx + perm_idx_offset.
+    """
+    global_idx = run_idx + perm_idx_offset
+    perm_dir = os.path.join(dimension_results_path, "permuted_runs", f"run_{global_idx}")
     Path(perm_dir).mkdir(parents=True, exist_ok=True)
     return perm_dir
 
@@ -260,6 +285,7 @@ def _save_probabilities(
     run_dir: str,
     filename_base: str,
     run_idx: int,
+    raw_score_col: str = "onoff",
 ) -> None:
     """
     Save predicted probabilities (per fold and per sample).
@@ -303,7 +329,8 @@ def _save_probabilities(
                     "sample_idx": idx,
                     "task": row_data.get("task", ""),
                     "probe_number": row_data.get("probe_number", ""),
-                    "onoff": row_data.get("onoff", ""),
+                    raw_score_col: row_data.get(raw_score_col, ""),
+                    "confidence": row_data.get("confidence", ""),
                     "y_true": y_true_list[i] if i < len(y_true_list) else None,
                     "y_pred": y_pred_list[i] if i < len(y_pred_list) else None,
                     "y_proba": y_proba_list[i] if i < len(y_proba_list) else None,
@@ -326,11 +353,20 @@ def _save_shap_values(
     run_dir: str,
     filename_base: str,
     model_type: str,
-) -> np.ndarray:
+    groups: pd.Series = None,
+    scale_by_participant: str = "none",
+    scaler_type: str = "standard",
+    y: pd.Series = None,
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray] | None":
     """
     Compute and save SHAP values for a single run.
 
     Only supported for 'rf' and 'xgb' models.
+
+    When ``scale_by_participant='within'`` (LOSO), the pipeline has no scaler
+    step — scaling was applied manually before training.  This function
+    reconstructs per-subject scaling on the test fold so that the clf receives
+    data on the same within-person scale it was trained to expect.
 
     Returns
     -------
@@ -340,34 +376,60 @@ def _save_shap_values(
     if model_type not in ("rf", "xgb", "lr"):
         return None
 
-    cv_splits = run_results["cv_splits"].values[0] if "cv_splits" in run_results.columns else []
+    cv_splits  = run_results["cv_splits"].values[0]  if "cv_splits"  in run_results.columns else []
     estimators = run_results["estimators"].values[0] if "estimators" in run_results.columns else []
 
     if not estimators or not cv_splits:
         return None
 
-    fold_shap_list: list = []
-    fold_x_list: list = []
+    from sklearn.preprocessing import StandardScaler, RobustScaler
+    ScalerClass = RobustScaler if scaler_type == "robust" else StandardScaler
+
+    fold_shap_list:   list = []
+    fold_x_list:      list = []
+    fold_y_true_list: list = []
     for (_, test_idx), estimator in zip(cv_splits, estimators):
-        X_test = X.iloc[test_idx]
+        X_test = X.iloc[test_idx].copy()
+
+        # LOSO with within-subject scaling: the pipeline has no scaler step,
+        # so we apply the same per-subject normalization that was used during
+        # training (fit on each subject's own test data — no leakage because
+        # the test subject was fully held out from training).
+        if scale_by_participant == "within" and groups is not None:
+            groups_test  = groups.iloc[test_idx]
+            numeric_cols = X_test.select_dtypes(include=[np.number]).columns.tolist()
+            for participant in groups_test.unique():
+                mask = groups_test == participant
+                subj_scaler = ScalerClass()
+                X_test.loc[mask, numeric_cols] = subj_scaler.fit_transform(
+                    X_test.loc[mask, numeric_cols]
+                )
+
         fold_shap = compute_shap_values_for_pipeline(estimator, X_test, feature_names)
         fold_shap_list.append(fold_shap)
         fold_x_list.append(X_test.values)
+        if y is not None:
+            fold_y_true_list.append(y.iloc[test_idx].values)
 
-    shap_values = np.concatenate(fold_shap_list, axis=0)
-    x_test_stacked = np.concatenate(fold_x_list, axis=0)
+    shap_values    = np.concatenate(fold_shap_list, axis=0)
+    x_test_stacked = np.concatenate(fold_x_list,    axis=0)
+    y_true_stacked = (
+        np.concatenate(fold_y_true_list, axis=0)
+        if fold_y_true_list else None
+    )
+
+    pkl_payload = {
+        "shap_values":   shap_values,
+        "feature_names": list(feature_names),
+        "x_test":        x_test_stacked,
+    }
+    if y_true_stacked is not None:
+        pkl_payload["y_true"] = y_true_stacked
 
     with open(os.path.join(run_dir, f"{filename_base}_shap_values.pkl"), "wb") as f:
-        pickle.dump(
-            {
-                "shap_values": shap_values,
-                "feature_names": list(feature_names),
-                "x_test": x_test_stacked,
-            },
-            f,
-        )
+        pickle.dump(pkl_payload, f)
 
-    return shap_values
+    return shap_values, x_test_stacked, y_true_stacked
 
 
 def _consolidate_sample_predictions(
@@ -409,8 +471,11 @@ def _consolidate_sample_predictions(
     agg_dict = {"y_true": "first", "y_pred": "mean", "run_idx": "count"}
     if "y_proba" in all_df.columns:
         agg_dict["y_proba"] = ["mean", "std"]
-    if "onoff" in all_df.columns:
-        agg_dict["onoff"] = "first"
+    _standard_cols = {"subject", "task", "probe_number", "sample_idx", "fold_idx",
+                      "y_true", "y_pred", "y_proba", "run_idx"}
+    for col in all_df.columns:
+        if col not in _standard_cols and col not in agg_dict:
+            agg_dict[col] = "first"
 
     summary = all_df.groupby(group_cols).agg(agg_dict).reset_index()
     summary.columns = ["_".join(str(c) for c in col).strip("_") for col in summary.columns]
@@ -576,7 +641,11 @@ def run_distribution_analysis(
     pca_type: str = "standard",
     pca_kernel: str = "rbf",
     smote_k_neighbors: int = 5,
+    sample_weights=None,
     logger=None,
+    cv_n_jobs: int = -1,
+    run_idx_offset: int = 0,
+    total_n_runs: int = None,
 ) -> pd.DataFrame:
     """
     Run n_runs LOSO classifications with different random seeds.
@@ -646,6 +715,10 @@ def run_distribution_analysis(
         Scaler type.
     use_pca, pca_n_components, pca_type, pca_kernel
         PCA configuration.
+    sample_weights : np.ndarray, optional
+        Per-trial training weights (e.g. confidence-based), aligned to (X, y,
+        groups). Forwarded to ``run_model_pipeline_cv``; only the training fold
+        is weighted. ``None`` reproduces the unweighted pipeline exactly.
     logger : AnalysisLogger, optional
         Logger for warning capture.
 
@@ -657,17 +730,24 @@ def run_distribution_analysis(
         mean_auprc, mean_mcc, etc.
     """
     n_subjects = len(np.unique(groups))
-    # LOSO directory structure: {results_path}/{feature_type}/{model_type}/
-    # results_path already includes the feature_type (family) component.
-    dimension_results_path = os.path.join(results_path, model_type)
+    # results_path already includes both feature_type (family) and model_type components
+    # (built by build_results_path). Do not append model_type again.
+    dimension_results_path = results_path
     Path(dimension_results_path).mkdir(parents=True, exist_ok=True)
     # Consolidated outputs go directly in dimension_results_path (no summaries/ subdir).
     summaries_dir = dimension_results_path
 
-    filename_base = _build_filename_base(model_type, n_runs)
-    random_states = np.random.default_rng(config.get("random_seed", 42)).integers(
-        1, 10000, size=n_runs
+    # When total_n_runs is given (SLURM parallel mode), generate all seeds from
+    # the global RNG and select the slice for this job — guarantees the same seed
+    # for run N regardless of whether jobs run sequentially or in parallel.
+    _total = total_n_runs if total_n_runs is not None else n_runs
+    _all_states = np.random.default_rng(config.get("random_seed", 42)).integers(
+        1, 10000, size=max(_total, run_idx_offset + n_runs)
     )
+    random_states = _all_states[run_idx_offset: run_idx_offset + n_runs]
+
+    # Use total_n_runs for consolidated filename so all jobs write comparable files.
+    filename_base = _build_filename_base(model_type, _total)
 
     print(f"\n*** LOSO: {n_runs} run(s) × {n_subjects} subjects ***")
     print(f"Class mapping: 1={positive_class_name}, 0={negative_class_name}")
@@ -699,12 +779,17 @@ def run_distribution_analysis(
     shap_values_all_runs = []
     all_results = []
     start_time = time.time()
+    _dim_contrast_cfg = config.get("label_contrasts", {}).get(dimension, {})
+    _label_col = _dim_contrast_cfg.get("column_name") or _dim_contrast_cfg.get("label_source", "onoff")
 
     for run_idx, random_state in enumerate(
         tqdm(random_states, desc=f"LOSO {model_type} [{dimension}]")
     ):
         run_start = time.time()
-        run_dir = get_run_dir(dimension_results_path, run_idx, n_runs)
+        run_dir = get_run_dir(
+            dimension_results_path, run_idx, n_runs,
+            run_idx_offset=run_idx_offset, total_n_runs=_total,
+        )
 
         ctx = logger.capture_warnings(f"Run {run_idx}") if logger else nullcontext()
         with ctx:
@@ -729,11 +814,15 @@ def run_distribution_analysis(
                 feature_selection_method=feature_selection_method,
                 scaler=scaler,
                 scale_by_participant=config.get("scale_by_participant", "none"),
+                lmm_n_jobs=config.get("lmm_n_jobs", 1),
+                lmm_prefilter_factor=config.get("lmm_prefilter_factor", 0),
                 use_pca=use_pca,
                 pca_n_components=pca_n_components,
                 pca_type=pca_type,
                 pca_kernel=pca_kernel,
                 smote_k_neighbors=smote_k_neighbors,
+                sample_weights=sample_weights,
+                cv_n_jobs=cv_n_jobs,
             )
 
         if run_results.empty:
@@ -744,11 +833,15 @@ def run_distribution_analysis(
 
         # SHAP computation (RF/XGB/LR, opt-in)
         if save_shap and model_type in ("rf", "xgb", "lr"):
-            shap_vals = _save_shap_values(
-                run_results, X, feature_names, run_dir, filename_base, model_type
+            shap_result = _save_shap_values(
+                run_results, X, feature_names, run_dir, filename_base, model_type,
+                groups=groups,
+                scale_by_participant=config.get("scale_by_participant", "none"),
+                scaler_type=config.get("scaler", "standard"),
+                y=y,
             )
-            if shap_vals is not None:
-                shap_values_all_runs.append(shap_vals)
+            if shap_result is not None:
+                shap_values_all_runs.append(shap_result[0])
 
         # Save per-run files
         if save_csv:
@@ -768,7 +861,7 @@ def run_distribution_analysis(
                     os.path.join(run_dir, f"{filename_base}_loso_subject_metrics.csv"),
                     index=False,
                 )
-            _save_probabilities(run_results, df, run_dir, filename_base, run_idx)
+            _save_probabilities(run_results, df, run_dir, filename_base, run_idx, raw_score_col=_label_col)
 
         all_results.append(_extract_run_summary(
             run_results, run_idx, int(random_state), dimension, n_subjects,
@@ -947,11 +1040,14 @@ def run_permutation_distribution_analysis(
     true_mcc_list=None,
     permutation_scope: str = "global",
     smote_k_neighbors: int = 5,
+    sample_weights=None,
     logger=None,
     n_runs: int = 1,
     n_perm_jobs: int = 1,
     cv_n_jobs: int = 1,
     permutation_seed: int = None,
+    perm_idx_offset: int = 0,
+    total_n_permutations: int = None,
 ):
     """
     Run permutation test for LOSO classification.
@@ -980,6 +1076,11 @@ def run_permutation_distribution_analysis(
         'global': shuffle all labels together.
         'within_subject': shuffle independently per subject (preserves class
         proportions per subject — tighter null distribution).
+    sample_weights : np.ndarray, optional
+        Per-trial training weights forwarded to every permutation so the null
+        uses the same pipeline as the real run. Weights stay attached to trials
+        (they index confidence, not labels), so label shuffling leaves them
+        correctly aligned to X.
 
     Returns
     -------
@@ -992,18 +1093,19 @@ def run_permutation_distribution_analysis(
     """
     if n_permutations < 1:
         print("No permutation runs requested.")
-        return pd.DataFrame(), {}
+        return pd.DataFrame(), {}, [], []
 
     true_auc_list = np.asarray(true_auc_list or [])
     true_bal_acc_list = np.asarray(true_bal_acc_list or [])
     true_auprc_list = np.asarray(true_auprc_list or [])
     true_mcc_list = np.asarray(true_mcc_list or [])
 
-    # Permuted runs: {results_path}/{feature_type}/{model_type}/permuted_runs/
-    perm_base_path = os.path.join(results_path, model_type, "permuted_runs")
+    # Permuted runs live inside results_path (which already includes model_type).
+    perm_base_path = os.path.join(results_path, "permuted_runs")
     Path(perm_base_path).mkdir(parents=True, exist_ok=True)
 
-    filename_base = f"{model_type}_permutation_{n_permutations}perms"
+    _total_perms = total_n_permutations if total_n_permutations is not None else n_permutations
+    filename_base = f"{model_type}_permutation_{_total_perms}perms"
     feature_names = X.columns
     n_subjects = len(np.unique(groups))
     _perm_seed = permutation_seed if permutation_seed is not None else config.get("random_seed", 42)
@@ -1033,18 +1135,24 @@ def run_permutation_distribution_analysis(
         feature_selection_method=feature_selection_method,
         scaler=scaler,
         scale_by_participant=config.get("scale_by_participant", "none"),
+        lmm_n_jobs=config.get("lmm_n_jobs", 1),
+        lmm_prefilter_factor=config.get("lmm_prefilter_factor", 0),
         use_pca=use_pca,
         pca_n_components=pca_n_components,
         pca_type=pca_type,
         pca_kernel=pca_kernel,
         cv_n_jobs=cv_n_jobs,
         smote_k_neighbors=smote_k_neighbors,
+        sample_weights=sample_weights,
     )
 
-    # Pre-generate all permuted labels and random seeds sequentially so the
-    # RNG state is deterministic regardless of job execution order.
+    # Pre-generate permuted labels and random seeds deterministically from the RNG.
+    # When perm_idx_offset > 0 (SLURM parallel mode), advance the RNG through the
+    # first perm_idx_offset permutations so job N gets bit-identical labels to a
+    # sequential run that generated all permutations in order.
+    _total_perms = total_n_permutations if total_n_permutations is not None else n_permutations
     perm_inputs = []
-    for run_idx in range(n_permutations):
+    for _i in range(perm_idx_offset + n_permutations):
         if permutation_scope in ("within_subject", "within"):
             y_perm = y.groupby(groups, group_keys=False).transform(
                 lambda x: rng.permutation(x.values)
@@ -1052,12 +1160,16 @@ def run_permutation_distribution_analysis(
         else:
             y_perm = pd.Series(rng.permutation(y.values), index=y.index)
         random_state = int(rng.integers(1, 10000))
-        perm_run_dir = os.path.join(perm_base_path, f"run_{run_idx}")
-        Path(perm_run_dir).mkdir(parents=True, exist_ok=True)
-        perm_inputs.append((run_idx, y_perm, random_state, perm_run_dir))
+        if _i >= perm_idx_offset:
+            global_perm_idx = _i
+            perm_run_dir = os.path.join(perm_base_path, f"run_{global_perm_idx}")
+            Path(perm_run_dir).mkdir(parents=True, exist_ok=True)
+            perm_inputs.append((_i, y_perm, random_state, perm_run_dir))
 
     print(f"  Dispatching {n_permutations} permutation jobs (n_perm_jobs={n_perm_jobs}, cv_n_jobs={cv_n_jobs})")
 
+    _perm_contrast_cfg = config.get("label_contrasts", {}).get(dimension, {})
+    _perm_label_col = _perm_contrast_cfg.get("column_name") or _perm_contrast_cfg.get("label_source", "onoff")
     _job_kwargs = dict(
         X=X, groups=groups, df=df, feature_names=feature_names,
         filename_base=filename_base, cv_kwargs=_loso_cv_kwargs,
@@ -1065,6 +1177,7 @@ def run_permutation_distribution_analysis(
         save_probabilities=save_probabilities, dimension=dimension,
         positive_class_name=positive_class_name,
         negative_class_name=negative_class_name, n_subjects=n_subjects,
+        raw_score_col=_perm_label_col,
     )
 
     if n_perm_jobs == 1:
@@ -1112,8 +1225,8 @@ def run_permutation_distribution_analysis(
     for i, feat in enumerate(feature_names):
         results_df[f"importance_{feat}"] = [r["feature_importances"][i] for r in all_results]
 
-    # Consolidated permutation summary goes to the model_type root (one level up from permuted_runs/)
-    perm_consolidated_dir = os.path.join(results_path, model_type)
+    # Consolidated permutation summary goes to results_path (already the model_type root).
+    perm_consolidated_dir = results_path
     if save_csv:
         results_df.to_csv(
             os.path.join(perm_consolidated_dir, f"{filename_base}_summary.csv"), index=False
@@ -1140,7 +1253,9 @@ def run_permutation_distribution_analysis(
         true_mean = np.mean(true_scores)
         perm_mean = np.mean(perm_scores)
         perm_std = np.std(perm_scores)
-        p_value = np.mean(perm_scores >= true_mean)
+        # Add-one (Phipson & Smyth 2010): an unbiased, never-zero permutation
+        # p-value. Smallest reportable p is 1/(n_perm+1).
+        p_value = (1 + np.sum(perm_scores >= true_mean)) / (1 + len(perm_scores))
         print(f"  {metric_name}: null={perm_mean:.4f}±{perm_std:.4f}, "
               f"true={true_mean:.4f}, p={p_value:.4f}")
         perm_summary[f"perm_{col_name}"] = perm_mean
@@ -1156,7 +1271,7 @@ def run_permutation_distribution_analysis(
                 continue
             perm_scores = results_df[col_name].values
             _, mwu_p = scipy_stats.mannwhitneyu(true_scores, perm_scores, alternative="greater")
-            empirical_p = np.mean(perm_scores >= np.mean(true_scores))
+            empirical_p = (1 + np.sum(perm_scores >= np.mean(true_scores))) / (1 + len(perm_scores))
             results_for_plotting[metric_name] = {
                 "true_values": true_scores,
                 "perm_values": perm_scores,
@@ -1201,6 +1316,7 @@ def _run_subject_cv_job(
     feature_names,           # pd.Index
     shap_save_dir: str,
     shap_filename_prefix: str,
+    raw_score_col: str = "onoff",
 ) -> "dict | None":
     """
     Run within-subject CV for a single subject.
@@ -1282,12 +1398,17 @@ def _run_subject_cv_job(
     }
     importances = sub_results['feature_importances'].values[0]
 
-    shap_vals = None
+    shap_vals  = None
+    shap_x     = None
+    shap_y_true = None
     if save_shap and cv_kwargs.get('model_type') in ("rf", "xgb", "lr"):
-        shap_vals = _save_shap_values(
+        shap_result = _save_shap_values(
             sub_results, X_sub, feature_names, shap_save_dir,
             f"{shap_filename_prefix}_{subject}", cv_kwargs['model_type'],
+            y=y_sub,
         )
+        if shap_result is not None:
+            shap_vals, shap_x, shap_y_true = shap_result
 
     fold_predictions: list = []
     sample_predictions: list = []
@@ -1317,17 +1438,20 @@ def _run_subject_cv_job(
                         "sample_idx": idx,
                         "task": row_data.get("task", ""),
                         "probe_number": row_data.get("probe_number", ""),
-                        "onoff": row_data.get("onoff", ""),
+                        raw_score_col: row_data.get(raw_score_col, ""),
+                        "confidence": row_data.get("confidence", ""),
                         "y_true": y_true_list[i] if i < len(y_true_list) else None,
                         "y_pred": y_pred_list[i] if i < len(y_pred_list) else None,
                         "y_proba": y_proba_list[i] if i < len(y_proba_list) else None,
                     })
 
     return {
-        'sub_metrics': sub_metrics,
-        'importances': importances,
-        'shap_vals': shap_vals,
-        'fold_predictions': fold_predictions,
+        'sub_metrics':    sub_metrics,
+        'importances':    importances,
+        'shap_vals':      shap_vals,
+        'shap_x':         shap_x,
+        'shap_y_true':    shap_y_true,
+        'fold_predictions':   fold_predictions,
         'sample_predictions': sample_predictions,
     }
 
@@ -1353,6 +1477,7 @@ def _run_permutation_ws_job(
     save_probabilities: bool,
     dimension: str,
     y_raw_perm: "pd.Series | None" = None,
+    n_subject_jobs: int = 1,
 ) -> "dict | None":
     """
     Run one full within-subject permutation pass.
@@ -1407,83 +1532,60 @@ def _run_permutation_ws_job(
         Returns None if no subjects passed filtering.
     """
     unique_subjects = np.unique(subjects)
-    run_subject_results: list = []
-    importances_list: list = []
-    run_sample_predictions: list = []
+    _fs_method = cv_kwargs.get('feature_selection_method', 'mrmr')
+    _pass_groups = cv_kwargs.get('cv_strategy') == 'group_kfold' or _fs_method in ('lmm', 'lmm_encoding', 'lmm_decoding')
 
+    # Build per-subject inputs using permuted labels — identical to the true-run
+    # subject dispatch, so we can reuse _run_subject_cv_job with n_subject_jobs parallelism.
+    subject_inputs = []
     for subject in unique_subjects:
         sub_mask = (subjects == subject)
-        X_sub = X[sub_mask].reset_index(drop=True)
-        y_sub = y_perm[sub_mask].reset_index(drop=True)
-        _fs_method = cv_kwargs.get('feature_selection_method', 'mrmr')
-        _pass_groups = cv_kwargs.get('cv_strategy') == 'group_kfold' or _fs_method in ('lmm', 'lmm_encoding', 'lmm_decoding')
-        groups_sub = tasks[sub_mask].reset_index(drop=True) if _pass_groups else None
         if use_fold_rebinarize:
-            # Use permuted raw onoff (shuffled within subject) so per-fold
-            # rebinarization reflects the permutation rather than the true labels.
             raw_series = y_raw_perm if y_raw_perm is not None else df[label_col]
             y_raw_sub = raw_series[sub_mask].reset_index(drop=True)
         else:
             y_raw_sub = None
+        subject_inputs.append(dict(
+            subject=subject,
+            X_sub=X[sub_mask].reset_index(drop=True),
+            y_sub=y_perm[sub_mask].reset_index(drop=True),
+            y_raw_sub=y_raw_sub,
+            groups_sub=tasks[sub_mask].reset_index(drop=True) if _pass_groups else None,
+            df_sub=df[sub_mask].reset_index(drop=True),
+        ))
 
-        counts = y_sub.value_counts()
-        if len(counts) < 2 or counts.min() < min_samples_per_class:
-            continue
-        if counts.min() / len(y_sub) < min_minority_ratio:
-            continue
-
-        sub_results = run_within_subject_cv(
-            X=X_sub,
-            y=y_sub,
-            groups=groups_sub,
-            fixed_random_state=random_state,
-            y_raw=y_raw_sub,
-            **cv_kwargs,
+    job_results = Parallel(n_jobs=n_subject_jobs, backend='loky')(
+        delayed(_run_subject_cv_job)(
+            subject=inp['subject'],
+            X_sub=inp['X_sub'],
+            y_sub=inp['y_sub'],
+            y_raw_sub=inp['y_raw_sub'],
+            groups_sub=inp['groups_sub'],
+            df_sub=inp['df_sub'],
+            run_idx=run_idx,
+            random_state=random_state,
+            min_samples_per_class=min_samples_per_class,
+            min_minority_ratio=min_minority_ratio,
+            cv_kwargs=cv_kwargs,
+            save_shap=save_shap,
+            save_probabilities=save_probabilities,
+            feature_names=feature_names,
+            shap_save_dir=perm_run_dir,
+            shap_filename_prefix=f"{filename_base}_{run_idx}",
         )
-        if sub_results.empty:
+        for inp in subject_inputs
+    )
+
+    run_subject_results: list = []
+    importances_list: list = []
+    run_sample_predictions: list = []
+
+    for result in job_results:
+        if result is None:
             continue
-
-        auc = sub_results['mean_auc'].values[0]
-        sub_metrics = {
-            'run_idx': run_idx,
-            'subject': subject,
-            'mean_auc': auc,
-            'mean_auprc': sub_results['mean_auprc'].values[0],
-            'mean_mcc': sub_results['mean_mcc'].values[0],
-            'n_samples': len(y_sub),
-        }
-        run_subject_results.append(sub_metrics)
-        importances_list.append(sub_results['feature_importances'].values[0])
-
-        if save_shap and cv_kwargs.get('model_type') in ("rf", "xgb", "lr"):
-            _save_shap_values(
-                sub_results, X_sub, feature_names, perm_run_dir,
-                f"{filename_base}_{run_idx}_{subject}", cv_kwargs['model_type'],
-            )
-
-        if save_probabilities:
-            fold_details = sub_results['fold_details'].values[0]
-            df_sub = df[sub_mask].reset_index(drop=True)
-            for fold in fold_details:
-                test_indices = fold.get("test_indices", [])
-                y_true_list = fold.get("y_true", [])
-                y_pred_list = fold.get("y_pred", [])
-                y_proba_list = fold.get("y_proba", [])
-                for i, idx in enumerate(test_indices):
-                    if idx < len(df_sub):
-                        row_data = df_sub.iloc[idx]
-                        run_sample_predictions.append({
-                            "run_idx": run_idx,
-                            "subject": subject,
-                            "fold_idx": fold.get("fold_idx"),
-                            "sample_idx": idx,
-                            "task": row_data.get("task", ""),
-                            "probe_number": row_data.get("probe_number", ""),
-                            "onoff": row_data.get("onoff", ""),
-                            "y_true": y_true_list[i] if i < len(y_true_list) else None,
-                            "y_pred": y_pred_list[i] if i < len(y_pred_list) else None,
-                            "y_proba": y_proba_list[i] if i < len(y_proba_list) else None,
-                        })
+        run_subject_results.append(result['sub_metrics'])
+        importances_list.append(result['importances'])
+        run_sample_predictions.extend(result['sample_predictions'])
 
     if not run_subject_results:
         return None
@@ -1539,6 +1641,7 @@ def _run_permutation_loso_job(
     positive_class_name: str,
     negative_class_name: str,
     n_subjects: int,
+    raw_score_col: str = "onoff",
 ) -> "dict | None":
     """
     Run one full LOSO permutation pass.
@@ -1605,6 +1708,7 @@ def _run_permutation_loso_job(
         _save_shap_values(
             run_results, X, feature_names, perm_run_dir,
             f"{filename_base}_{run_idx}", cv_kwargs['model_type'],
+            groups=groups,
         )
 
     if save_csv:
@@ -1628,7 +1732,7 @@ def _run_permutation_loso_job(
             )
 
     if save_probabilities:
-        _save_probabilities(run_results, df, perm_run_dir, filename_base, run_idx)
+        _save_probabilities(run_results, df, perm_run_dir, filename_base, run_idx, raw_score_col=raw_score_col)
 
     return _extract_run_summary(
         run_results, run_idx, random_state, dimension, n_subjects,
@@ -1688,8 +1792,11 @@ def run_within_subject_distribution_analysis(
     n_subject_jobs: int = 1,
     cv_n_jobs: int = 1,
     lmm_n_jobs: int = 1,
+    lmm_prefilter_factor: int = 0,
     smote_k_neighbors: int = 5,
     logger=None,
+    run_idx_offset: int = 0,
+    total_n_runs: int = None,
 ):
     """
     Run within-subject classification (independently per subject).
@@ -1700,9 +1807,8 @@ def run_within_subject_distribution_analysis(
         from utils.plotting_utils import set_plot_style
         set_plot_style(plot_style)
 
-    # Per-model directory: {results_path}/{feature_type}/{model_type}/
-    # results_path already includes the feature_type (family) component.
-    dimension_results_path = os.path.join(results_path, model_type)
+    # results_path already includes both feature_type (family) and model_type components.
+    dimension_results_path = results_path
     Path(dimension_results_path).mkdir(parents=True, exist_ok=True)
 
     filename_base = _build_filename_base(model_type, n_runs)
@@ -1716,7 +1822,13 @@ def run_within_subject_distribution_analysis(
     _label_col = _label_contrast_cfg.get("column_name", "onoff")
     _use_fold_rebinarize = False
 
-    rng = np.random.default_rng(config.get("random_seed", 42))
+    # Reproducible seeds: generate all seeds from global RNG then slice for this job.
+    _total_runs = total_n_runs if total_n_runs is not None else n_runs
+    _all_rng_states = np.random.default_rng(config.get("random_seed", 42)).integers(
+        1, 10000, size=max(_total_runs, run_idx_offset + n_runs)
+    )
+
+    filename_base_global = _build_filename_base(model_type, _total_runs)
 
     # Store results aggregated across runs
     all_runs_subject_metrics = []
@@ -1781,14 +1893,16 @@ def run_within_subject_distribution_analysis(
         pca_kernel=pca_kernel,
         cv_n_jobs=cv_n_jobs,
         lmm_n_jobs=lmm_n_jobs,
+        lmm_prefilter_factor=lmm_prefilter_factor,
         smote_k_neighbors=smote_k_neighbors,
     )
 
-    for run_idx in range(n_runs):
+    for _local_run_idx in range(n_runs):
+        global_run_idx = _local_run_idx + run_idx_offset
+        run_idx = global_run_idx  # keep variable name for downstream code
         run_start = time.time()
-        random_state = int(rng.integers(1, 10000))
-        # Always use true_runs/run_{n}/ — keeps run-level data isolated from consolidated outputs.
-        run_dir = os.path.join(dimension_results_path, "true_runs", f"run_{run_idx}")
+        random_state = int(_all_rng_states[global_run_idx])
+        run_dir = os.path.join(dimension_results_path, "true_runs", f"run_{global_run_idx}")
         Path(run_dir).mkdir(parents=True, exist_ok=True)
 
         # Prepare per-subject inputs for parallel dispatch.
@@ -1825,6 +1939,7 @@ def run_within_subject_distribution_analysis(
                 feature_names=feature_names,
                 shap_save_dir=run_dir,
                 shap_filename_prefix=filename_base,
+                raw_score_col=_label_col,
             )
             for inp in subject_inputs
         )
@@ -1833,7 +1948,9 @@ def run_within_subject_distribution_analysis(
         run_fold_predictions = []
         run_sample_predictions = []
         importances_list = []
-        shap_list = []
+        shap_list   = []
+        shap_x_list = []
+        shap_y_list = []
         valid_subjects = 0
         skipped_subjects = 0
 
@@ -1849,6 +1966,10 @@ def run_within_subject_distribution_analysis(
             importances_list.append(result['importances'])
             if result['shap_vals'] is not None:
                 shap_list.append(result['shap_vals'])
+                if result.get('shap_x') is not None:
+                    shap_x_list.append(result['shap_x'])
+                if result.get('shap_y_true') is not None:
+                    shap_y_list.append(result['shap_y_true'])
             run_fold_predictions.extend(result['fold_predictions'])
             run_sample_predictions.extend(result['sample_predictions'])
 
@@ -1885,10 +2006,18 @@ def run_within_subject_distribution_analysis(
             )
             
         if shap_list:
-            run_shap_stacked = np.concatenate(shap_list, axis=0) # Total samples shape
+            run_shap_stacked = np.concatenate(shap_list, axis=0)
             shap_values_all_runs.append(run_shap_stacked)
+            stacked_payload = {
+                "shap_values":   run_shap_stacked,
+                "feature_names": list(feature_names),
+            }
+            if shap_x_list and len(shap_x_list) == len(shap_list):
+                stacked_payload["x_test"] = np.concatenate(shap_x_list, axis=0)
+            if shap_y_list and len(shap_y_list) == len(shap_list):
+                stacked_payload["y_true"] = np.concatenate(shap_y_list, axis=0)
             with open(os.path.join(run_dir, f"{filename_base}_shap_values_stacked.pkl"), "wb") as f:
-                pickle.dump({"shap_values": run_shap_stacked, "feature_names": list(feature_names)}, f)
+                pickle.dump(stacked_payload, f)
 
         if verbose:
             print(f"  [Run {run_idx+1}/{n_runs}] {time.time()-run_start:.1f}s | "
@@ -1967,11 +2096,15 @@ def run_within_subject_permutation_analysis(
     pca_kernel: str = "rbf",
     true_ws_metrics_df=None,  # Passed from the real run to compute specific p-values
     n_perm_jobs: int = 1,
+    n_subject_jobs: int = 1,
     cv_n_jobs: int = 1,
     lmm_n_jobs: int = 1,
+    lmm_prefilter_factor: int = 0,
     smote_k_neighbors: int = 5,
     logger=None,
     permutation_seed: int = None,
+    perm_idx_offset: int = 0,
+    total_n_permutations: int = None,
 ):
     """
     Run permutation testing natively inside the within-subject level.
@@ -1986,11 +2119,12 @@ def run_within_subject_permutation_analysis(
     if n_permutations < 1:
         return pd.DataFrame(), {}, [], []
 
-    # Permuted runs: {results_path}/{feature_type}/{model_type}/permuted_runs/run_{n}/
-    perm_base_path = os.path.join(results_path, model_type, "permuted_runs")
+    # Permuted runs live inside results_path (which already includes model_type).
+    perm_base_path = os.path.join(results_path, "permuted_runs")
     Path(perm_base_path).mkdir(parents=True, exist_ok=True)
 
-    filename_base = f"{model_type}_ws_permutation_{n_permutations}perms"
+    _total_perms = total_n_permutations if total_n_permutations is not None else n_permutations
+    filename_base = f"{model_type}_ws_permutation_{_total_perms}perms"
     feature_names = X.columns
     unique_subjects = np.unique(subjects)
     _perm_seed = permutation_seed if permutation_seed is not None else config.get("random_seed", 42)
@@ -2030,18 +2164,15 @@ def run_within_subject_permutation_analysis(
         pca_kernel=pca_kernel,
         cv_n_jobs=cv_n_jobs,
         lmm_n_jobs=lmm_n_jobs,
+        lmm_prefilter_factor=lmm_prefilter_factor,
         smote_k_neighbors=smote_k_neighbors,
     )
 
-    # Pre-generate all permuted labels and random seeds sequentially so the
-    # RNG state is deterministic regardless of job execution order.
-    # When use_fold_rebinarize is active, fits rebuild labels from the raw
-    # onoff column per fold — so shuffling only the binary y is a no-op.
-    # Shuffle the raw onoff within subject and derive the binary from it so
-    # both the class-balance gate and the fold rebinarization see the same
-    # permuted labels.
+    # Pre-generate permuted labels deterministically. When perm_idx_offset > 0
+    # (SLURM parallel mode) advance the RNG through the first perm_idx_offset
+    # permutations so job N gets bit-identical labels to a sequential run.
     perm_inputs = []
-    for run_idx in range(n_permutations):
+    for _i in range(perm_idx_offset + n_permutations):
         if _use_fold_rebinarize:
             y_raw_perm = df[_label_col].groupby(subjects, group_keys=False).transform(
                 lambda x: rng.permutation(x.values)
@@ -2055,9 +2186,11 @@ def run_within_subject_permutation_analysis(
                 lambda x: rng.permutation(x.values)
             )
         random_state = int(rng.integers(1, 10000))
-        perm_run_dir = os.path.join(perm_base_path, f"run_{run_idx}")
-        Path(perm_run_dir).mkdir(parents=True, exist_ok=True)
-        perm_inputs.append((run_idx, y_perm, y_raw_perm, random_state, perm_run_dir))
+        if _i >= perm_idx_offset:
+            global_perm_idx = _i
+            perm_run_dir = os.path.join(perm_base_path, f"run_{global_perm_idx}")
+            Path(perm_run_dir).mkdir(parents=True, exist_ok=True)
+            perm_inputs.append((global_perm_idx, y_perm, y_raw_perm, random_state, perm_run_dir))
 
     print(f"  Dispatching {n_permutations} permutation jobs (n_perm_jobs={n_perm_jobs})")
 
@@ -2083,6 +2216,7 @@ def run_within_subject_permutation_analysis(
             save_csv=save_csv,
             save_probabilities=save_probabilities,
             dimension=dimension,
+            n_subject_jobs=n_subject_jobs,
         )
         for run_idx, y_perm, y_raw_perm, random_state, perm_run_dir in perm_inputs
     )
@@ -2100,8 +2234,8 @@ def run_within_subject_permutation_analysis(
         return pd.DataFrame(), {}, [], []
 
     perm_df = pd.DataFrame(all_perm_results)
-    # Consolidated permutation outputs go to the model_type root (one level up from permuted_runs/).
-    perm_consolidated_dir = os.path.join(results_path, model_type)
+    # Consolidated permutation outputs go to results_path (already the model_type root).
+    perm_consolidated_dir = results_path
     if save_csv:
         perm_df.to_csv(os.path.join(perm_consolidated_dir, f"{filename_base}_summary_averaged.csv"), index=False)
         _consolidate_sample_predictions(perm_base_path, filename_base, output_dir=perm_consolidated_dir)

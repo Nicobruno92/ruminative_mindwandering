@@ -114,7 +114,7 @@ def _fit_single_lmm_feature_decoding(
         warnings.filterwarnings('ignore', category=RuntimeWarning)
         warnings.filterwarnings('ignore', message='.*Covariance.*')
         warnings.filterwarnings('ignore', message='.*convergence.*')
-        result = mlm.fit(reml=False, method='powell', maxiter=500, disp=False)
+        result = mlm.fit(reml=False, method='lbfgs', maxiter=200, disp=False)
 
     return result.pvalues[1]
 
@@ -158,9 +158,21 @@ def _fit_single_lmm_feature_encoding(
         warnings.filterwarnings('ignore', category=RuntimeWarning)
         warnings.filterwarnings('ignore', message='.*Covariance.*')
         warnings.filterwarnings('ignore', message='.*convergence.*')
-        result = mlm.fit(reml=False, method='powell', maxiter=500, disp=False)
+        result = mlm.fit(reml=False, method='lbfgs', maxiter=200, disp=False)
 
     return result.pvalues[1]
+
+
+def _lmm_prefilter_indices(X_arr: np.ndarray, y_arr: np.ndarray,
+                            n_candidates: int) -> np.ndarray:
+    """
+    Fast f_classif pre-filter: return indices of the top n_candidates features
+    by F-statistic. Used to reduce the LMM call count before the full LMM run.
+    """
+    from sklearn.feature_selection import f_classif
+    f_stats, _ = f_classif(X_arr, y_arr)
+    f_stats = np.nan_to_num(f_stats, nan=0.0)
+    return np.argsort(f_stats)[::-1][:n_candidates]
 
 
 class LMMDecodingFeatureSelector(BaseEstimator, SelectorMixin):
@@ -173,11 +185,16 @@ class LMMDecodingFeatureSelector(BaseEstimator, SelectorMixin):
         Number of top features to select (lowest p-values).
     n_jobs : int
         Number of parallel jobs.
+    prefilter_factor : int
+        If > 0, first run f_classif and keep only ``prefilter_factor * k``
+        candidates before fitting LMMs. Reduces LMM calls by
+        N_features / (prefilter_factor * k). Default 0 = disabled.
     """
 
-    def __init__(self, k: int = 20, n_jobs: int = -1):
+    def __init__(self, k: int = 20, n_jobs: int = -1, prefilter_factor: int = 0):
         self.k = k
         self.n_jobs = n_jobs
+        self.prefilter_factor = prefilter_factor
         self.pvalues_ = None
         self.selected_features_mask_ = None
         self.n_features_in_ = None
@@ -204,14 +221,27 @@ class LMMDecodingFeatureSelector(BaseEstimator, SelectorMixin):
         self.n_features_in_ = X_arr.shape[1]
         n_features = X_arr.shape[1]
 
-        pvalues = Parallel(n_jobs=self.n_jobs, backend='loky')(
+        # Optional fast pre-filter: run f_classif first, then LMM on top candidates
+        if self.prefilter_factor > 0 and n_features > self.k:
+            n_candidates = min(self.prefilter_factor * self.k, n_features)
+            candidate_idx = _lmm_prefilter_indices(X_arr, y_arr, n_candidates)
+            X_candidates = X_arr[:, candidate_idx]
+        else:
+            candidate_idx = np.arange(n_features)
+            X_candidates = X_arr
+
+        pvalues_candidates = Parallel(n_jobs=self.n_jobs, backend='loky')(
             delayed(_fit_single_lmm_feature_decoding)(
-                feat_idx, X_arr[:, feat_idx], y_arr, groups_arr
+                i, X_candidates[:, i], y_arr, groups_arr
             )
-            for feat_idx in range(n_features)
+            for i in range(X_candidates.shape[1])
         )
 
-        self.pvalues_ = np.array(pvalues)
+        # Map back to full feature space (non-candidates get p=1.0)
+        full_pvalues = np.ones(n_features)
+        full_pvalues[candidate_idx] = pvalues_candidates
+
+        self.pvalues_ = full_pvalues
         actual_k = min(self.k, n_features)
         top_k_indices = np.argsort(self.pvalues_)[:actual_k]
         self.selected_features_mask_ = np.zeros(n_features, dtype=bool)
@@ -236,11 +266,16 @@ class LMMEncodingFeatureSelector(BaseEstimator, SelectorMixin):
         Number of top features to select (lowest p-values).
     n_jobs : int
         Number of parallel jobs.
+    prefilter_factor : int
+        If > 0, first run f_classif and keep only ``prefilter_factor * k``
+        candidates before fitting LMMs. Reduces LMM calls by
+        N_features / (prefilter_factor * k). Default 0 = disabled.
     """
 
-    def __init__(self, k: int = 20, n_jobs: int = -1):
+    def __init__(self, k: int = 20, n_jobs: int = -1, prefilter_factor: int = 0):
         self.k = k
         self.n_jobs = n_jobs
+        self.prefilter_factor = prefilter_factor
         self.pvalues_ = None
         self.selected_features_mask_ = None
         self.n_features_in_ = None
@@ -267,14 +302,27 @@ class LMMEncodingFeatureSelector(BaseEstimator, SelectorMixin):
         self.n_features_in_ = X_arr.shape[1]
         n_features = X_arr.shape[1]
 
-        pvalues = Parallel(n_jobs=self.n_jobs, backend='loky')(
+        # Optional fast pre-filter: run f_classif first, then LMM on top candidates
+        if self.prefilter_factor > 0 and n_features > self.k:
+            n_candidates = min(self.prefilter_factor * self.k, n_features)
+            candidate_idx = _lmm_prefilter_indices(X_arr, y_arr, n_candidates)
+            X_candidates = X_arr[:, candidate_idx]
+        else:
+            candidate_idx = np.arange(n_features)
+            X_candidates = X_arr
+
+        pvalues_candidates = Parallel(n_jobs=self.n_jobs, backend='loky')(
             delayed(_fit_single_lmm_feature_encoding)(
-                feat_idx, X_arr[:, feat_idx], y_arr, groups_arr
+                i, X_candidates[:, i], y_arr, groups_arr
             )
-            for feat_idx in range(n_features)
+            for i in range(X_candidates.shape[1])
         )
 
-        self.pvalues_ = np.array(pvalues)
+        # Map back to full feature space (non-candidates get p=1.0)
+        full_pvalues = np.ones(n_features)
+        full_pvalues[candidate_idx] = pvalues_candidates
+
+        self.pvalues_ = full_pvalues
         actual_k = min(self.k, n_features)
         top_k_indices = np.argsort(self.pvalues_)[:actual_k]
         self.selected_features_mask_ = np.zeros(n_features, dtype=bool)
@@ -333,6 +381,75 @@ class MRMRFeatureSelector(BaseEstimator, SelectorMixin):
 
 
 # =============================================================================
+# CONFIDENCE-BASED SAMPLE WEIGHTING
+# =============================================================================
+
+def compute_within_subject_confidence_weights(
+    confidence: np.ndarray,
+    groups: np.ndarray,
+    w_min: float = 0.1,
+    normalization: str = "within_subject",
+) -> np.ndarray:
+    """
+    Map per-trial probe confidence to per-trial training sample weights.
+
+    Confidence (a probe-report metacognitive rating, 0-100 scale) is used as a
+    proxy for label reliability: higher-confidence trials receive more weight in
+    the classifier's loss. Normalisation is performed independently within each
+    subject so that the weights reflect *trial-level* reliability rather than
+    between-subject differences in baseline confidence.
+
+    Parameters
+    ----------
+    confidence : np.ndarray
+        Raw confidence values (0-100), aligned to the training samples.
+    groups : np.ndarray
+        Subject IDs, aligned to ``confidence``. Normalisation is per group.
+    w_min : float
+        Floor weight assigned to a subject's lowest-confidence trial(s). Values
+        in (0, 1]; ``w_min < 1`` down-weights but never fully removes low-
+        confidence trials. The maximum-confidence trial always maps to 1.0.
+    normalization : str
+        Currently only ``"within_subject"`` (min-max within each subject) is
+        supported.
+
+    Returns
+    -------
+    np.ndarray
+        Sample weights in ``[w_min, 1]``, same length and order as ``confidence``.
+        A subject whose confidence is constant (zero range) maps to all-ones,
+        i.e. a neutral weighting for that subject.
+    """
+    if normalization != "within_subject":
+        raise ValueError(
+            f"Unknown confidence weight normalization: '{normalization}'. "
+            f"Supported: 'within_subject'."
+        )
+
+    confidence = np.asarray(confidence, dtype=float).ravel()
+    groups = np.asarray(groups).ravel()
+    if confidence.shape[0] != groups.shape[0]:
+        raise ValueError(
+            f"confidence ({confidence.shape[0]}) and groups ({groups.shape[0]}) "
+            f"must have the same length."
+        )
+
+    weights = np.ones_like(confidence, dtype=float)
+    for subj in np.unique(groups):
+        mask = groups == subj
+        c_subj = confidence[mask]
+        c_min, c_max = c_subj.min(), c_subj.max()
+        c_range = c_max - c_min
+        if c_range == 0:
+            # Constant confidence -> neutral (all ones) for this subject.
+            weights[mask] = 1.0
+        else:
+            weights[mask] = w_min + (1.0 - w_min) * (c_subj - c_min) / c_range
+
+    return weights
+
+
+# =============================================================================
 # OVERSAMPLING
 # =============================================================================
 
@@ -377,10 +494,45 @@ def get_oversampler(method: str, k_neighbors: int = 5, random_state: int = 42,
                          f"Choose from: SMOTE, SVMSMOTE, ADASYN, SMOTETomek")
 
 
+def _interpolate_weights_after_resample(X_original, X_balanced, weights_original):
+    """
+    Assign a sample weight to every resampled row via 1-NN on the originals.
+
+    Each output row inherits the weight of its single nearest original sample in
+    feature space. Original rows are unchanged by SMOTE, so they match themselves
+    (distance 0) and keep their exact weight; synthetic rows inherit the weight of
+    the original sample they were interpolated closest to. This carries label
+    reliability into synthetic samples without perturbing SMOTE's feature-space
+    geometry (the weight is never added as a feature) and is independent of the
+    order in which the resampler returns rows.
+
+    Parameters
+    ----------
+    X_original : pd.DataFrame or np.ndarray
+        The subject's feature matrix before resampling.
+    X_balanced : pd.DataFrame or np.ndarray
+        The subject's feature matrix after resampling.
+    weights_original : np.ndarray
+        Weights aligned to ``X_original``.
+
+    Returns
+    -------
+    np.ndarray
+        Weights aligned to ``X_balanced``, bounded by the original weight range.
+    """
+    from sklearn.neighbors import NearestNeighbors
+    X_orig_arr = np.asarray(X_original, dtype=float)
+    X_bal_arr = np.asarray(X_balanced, dtype=float)
+    nn = NearestNeighbors(n_neighbors=1).fit(X_orig_arr)
+    _, idx = nn.kneighbors(X_bal_arr)
+    return np.asarray(weights_original, dtype=float)[idx.ravel()]
+
+
 def apply_within_subject_oversampling(
     X, y, groups,
     method: str = "SMOTE", k_neighbors: int = 5, random_state: int = 42,
     return_groups: bool = False,
+    weights=None, return_weights: bool = False,
 ):
     """
     Apply oversampling within each subject in the training set.
@@ -407,22 +559,37 @@ def apply_within_subject_oversampling(
         Synthetic samples are assigned to the same subject as their source.
         Required when using LMM feature selectors after within-subject SMOTE,
         because the groups array must match the expanded training set size.
+    weights : np.ndarray, optional
+        Per-sample weights aligned to (X, y, groups). When provided together with
+        ``return_weights=True``, an expanded weight array is returned in which
+        synthetic samples inherit the weight of their nearest original sample (see
+        :func:`_interpolate_weights_after_resample`).
+    return_weights : bool
+        If True, also return the expanded weight array. Requires ``weights``.
 
     Returns
     -------
     tuple
-        (X_balanced, y_balanced) — or (X_balanced, y_balanced, groups_balanced)
-        if return_groups=True.
+        (X_balanced, y_balanced), optionally extended with groups_balanced
+        (if return_groups) and/or weights_balanced (if return_weights), in that
+        order.
     """
+    if return_weights and weights is None:
+        raise ValueError("return_weights=True requires 'weights' to be provided.")
+
+    weights_arr = None if weights is None else np.asarray(weights, dtype=float).ravel()
+
     unique_subjects = np.unique(groups)
     balanced_X_list = []
     balanced_y_list = []
     balanced_groups_list = []
+    balanced_weights_list = []
 
     for subj in unique_subjects:
         subj_mask = groups == subj
         X_subj = X.loc[subj_mask].copy() if isinstance(X, pd.DataFrame) else X[subj_mask].copy()
         y_subj = y[subj_mask] if isinstance(y, np.ndarray) else y.loc[subj_mask].values
+        w_subj = None if weights_arr is None else weights_arr[subj_mask]
 
         unique_classes, counts = np.unique(y_subj, return_counts=True)
 
@@ -431,6 +598,8 @@ def apply_within_subject_oversampling(
             balanced_X_list.append(X_subj)
             balanced_y_list.append(y_subj)
             balanced_groups_list.append(np.full(len(y_subj), subj))
+            if w_subj is not None:
+                balanced_weights_list.append(w_subj)
             continue
 
         min_count = min(counts)
@@ -443,6 +612,8 @@ def apply_within_subject_oversampling(
             balanced_X_list.append(X_subj)
             balanced_y_list.append(y_subj)
             balanced_groups_list.append(np.full(len(y_subj), subj))
+            if w_subj is not None:
+                balanced_weights_list.append(w_subj)
             continue
 
         oversampler = get_oversampler(method, k_neighbors=actual_k, random_state=random_state,
@@ -452,16 +623,22 @@ def apply_within_subject_oversampling(
         balanced_y_list.append(y_subj_balanced)
         # Synthetic samples belong to the same subject (used by LMM selectors)
         balanced_groups_list.append(np.full(len(y_subj_balanced), subj))
+        if w_subj is not None:
+            balanced_weights_list.append(
+                _interpolate_weights_after_resample(X_subj, X_subj_balanced, w_subj)
+            )
 
     X_balanced = (pd.concat(balanced_X_list, ignore_index=True)
                   if isinstance(X, pd.DataFrame)
                   else np.vstack(balanced_X_list))
     y_balanced = np.concatenate(balanced_y_list)
 
+    result = [X_balanced, y_balanced]
     if return_groups:
-        groups_balanced = np.concatenate(balanced_groups_list)
-        return X_balanced, y_balanced, groups_balanced
-    return X_balanced, y_balanced
+        result.append(np.concatenate(balanced_groups_list))
+    if return_weights:
+        result.append(np.concatenate(balanced_weights_list))
+    return tuple(result)
 
 
 # =============================================================================
@@ -553,6 +730,7 @@ def build_model_pipeline(
     scaler: str = 'none',
     y=None,
     lmm_n_jobs: int = -1,
+    lmm_prefilter_factor: int = 0,
     use_pca: bool = False,
     pca_n_components: int = None,
     pca_type: str = 'standard',
@@ -627,9 +805,11 @@ def build_model_pipeline(
         actual_k = len(numeric_features) if k == 'all' else min(int(k), len(numeric_features))
 
         if feature_selection_method in ('lmm', 'lmm_decoding'):
-            feature_selector = LMMDecodingFeatureSelector(k=actual_k, n_jobs=lmm_n_jobs)
+            feature_selector = LMMDecodingFeatureSelector(
+                k=actual_k, n_jobs=lmm_n_jobs, prefilter_factor=lmm_prefilter_factor)
         elif feature_selection_method == 'lmm_encoding':
-            feature_selector = LMMEncodingFeatureSelector(k=actual_k, n_jobs=lmm_n_jobs)
+            feature_selector = LMMEncodingFeatureSelector(
+                k=actual_k, n_jobs=lmm_n_jobs, prefilter_factor=lmm_prefilter_factor)
         elif feature_selection_method == 'mrmr':
             feature_selector = MRMRFeatureSelector(k=actual_k)
         elif feature_selection_method == 'f_classif':
@@ -763,7 +943,8 @@ from joblib import Parallel, delayed
 
 def _process_cv_fold_loso(
     fold_idx, train_idx, test_idx, X, y, groups, pipeline, scale_by_participant, scaler,
-    use_smote, oversampling_scope, oversampling_method, random_state, smote_k_neighbors: int = 5
+    use_smote, oversampling_scope, oversampling_method, random_state, smote_k_neighbors: int = 5,
+    sample_weights=None,
 ):
     train_subjects = set(groups.iloc[train_idx])
     test_subjects = set(groups.iloc[test_idx])
@@ -777,6 +958,10 @@ def _process_cv_fold_loso(
     y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
     groups_train, groups_test = groups.iloc[train_idx], groups.iloc[test_idx]
 
+    # Per-trial training weights (e.g. confidence-based). Only the training fold
+    # is weighted; test metrics remain unweighted and comparable across runs.
+    w_train = None if sample_weights is None else np.asarray(sample_weights)[train_idx]
+
     if scale_by_participant and scale_by_participant != 'none':
         X_train, X_test = _apply_fold_scaling(
             X_train, X_test, groups_train, groups_test, scale_by_participant, scaler
@@ -785,13 +970,20 @@ def _process_cv_fold_loso(
     # Within-subject oversampling: keep an aligned groups array so that LMM
     # feature selectors (which need groups) receive a vector of the same length
     # as the expanded training set.  Synthetic samples are labelled with the
-    # same subject ID as the real samples they were interpolated from.
+    # same subject ID as the real samples they were interpolated from. Sample
+    # weights, when present, are interpolated onto synthetic samples in the same
+    # call so they stay aligned to the expanded training set.
     if use_smote and oversampling_scope == 'within':
-        X_train, y_train, groups_train_expanded = apply_within_subject_oversampling(
+        oversampled = apply_within_subject_oversampling(
             X_train, y_train, groups_train.values,
             method=oversampling_method, k_neighbors=smote_k_neighbors, random_state=random_state,
             return_groups=True,
+            weights=w_train, return_weights=(w_train is not None),
         )
+        if w_train is None:
+            X_train, y_train, groups_train_expanded = oversampled
+        else:
+            X_train, y_train, groups_train_expanded, w_train = oversampled
     else:
         groups_train_expanded = groups_train
 
@@ -807,6 +999,9 @@ def _process_cv_fold_loso(
             if isinstance(groups_train_expanded, np.ndarray)
             else groups_train_expanded.values
         )
+
+    if w_train is not None:
+        fit_params['clf__sample_weight'] = np.asarray(w_train, dtype=float)
 
     fold_pipeline.fit(X_train, y_train, **fit_params)
 
@@ -1171,14 +1366,38 @@ def run_model_pipeline_cv(
     ocsvm_params: dict = None, iforest_params: dict = None,
     oneclass_target: str = "minority",
     feature_selection_method: str = 'mrmr', scaler: str = 'standard', scale_by_participant: str = 'none',
-    lmm_n_jobs: int = 1, use_pca: bool = False, pca_n_components: int = None,
+    lmm_n_jobs: int = 1, lmm_prefilter_factor: int = 0,
+    use_pca: bool = False, pca_n_components: int = None,
     pca_type: str = 'standard', pca_kernel: str = 'rbf', cv_n_jobs: int = -1,
-    smote_k_neighbors: int = 5,
+    smote_k_neighbors: int = 5, sample_weights=None,
 ) -> pd.DataFrame:
 
     random_state = fixed_random_state if fixed_random_state is not None else 42
     is_oneclass = model_type in ('ocsvm', 'iforest')
     pipeline_scaler = 'none' if (scale_by_participant and scale_by_participant != 'none') else scaler
+
+    # Confidence-based sample weighting is only defined for supervised models and
+    # for oversampling that happens outside the estimator (scope != 'global'),
+    # where weights can be interpolated onto synthetic samples and passed to the
+    # classifier. Fail explicitly rather than silently dropping the weights.
+    if sample_weights is not None:
+        if is_oneclass:
+            raise ValueError(
+                f"sample_weights is not supported for one-class model "
+                f"'{model_type}': these models do not use labels."
+            )
+        if use_smote and oversampling_scope == 'global':
+            raise ValueError(
+                "sample_weights requires oversampling_scope != 'global'. "
+                "With global SMOTE the resampler lives inside the pipeline and "
+                "cannot propagate per-sample weights. Use oversampling_scope: "
+                "'within' (or disable SMOTE)."
+            )
+        if len(sample_weights) != len(y):
+            raise ValueError(
+                f"sample_weights length ({len(sample_weights)}) must match the "
+                f"number of samples ({len(y)})."
+            )
 
     # Fix to 1 for inner threads to avoid oversubscription
     if rf_params is None: rf_params = {}
@@ -1198,7 +1417,8 @@ def run_model_pipeline_cv(
         rf_params=rf_params, xgb_params=xgb_params, lr_params=lr_params,
         ocsvm_params=ocsvm_params, iforest_params=iforest_params,
         feature_selection_method=feature_selection_method, scaler=pipeline_scaler,
-        lmm_n_jobs=1, use_pca=use_pca, pca_n_components=pca_n_components,
+        lmm_n_jobs=lmm_n_jobs, lmm_prefilter_factor=lmm_prefilter_factor,
+        use_pca=use_pca, pca_n_components=pca_n_components,
         pca_type=pca_type, pca_kernel=pca_kernel, smote_k_neighbors=smote_k_neighbors,
     )
 
@@ -1219,7 +1439,8 @@ def run_model_pipeline_cv(
         results = Parallel(n_jobs=cv_n_jobs, backend='loky')(
             delayed(_process_cv_fold_loso)(
                 fold_idx, train_idx, test_idx, X, y, groups, pipeline, scale_by_participant, scaler,
-                use_smote, oversampling_scope, oversampling_method, random_state, smote_k_neighbors
+                use_smote, oversampling_scope, oversampling_method, random_state, smote_k_neighbors,
+                sample_weights
             )
             for fold_idx, (train_idx, test_idx) in enumerate(cv_splits)
         )
@@ -1399,6 +1620,7 @@ def run_within_subject_cv(
     use_pca: bool = False, pca_n_components: int = None, pca_type: str = 'standard',
     pca_kernel: str = 'rbf', cv_n_jobs: int = -1,
     lmm_n_jobs: int = 1,
+    lmm_prefilter_factor: int = 0,
     y_raw: "pd.Series | None" = None,
     smote_k_neighbors: int = 5,
 ) -> pd.DataFrame:
@@ -1423,7 +1645,7 @@ def run_within_subject_cv(
         scale_pos_weight=scale_pos_weight, k=k, rf_params=rf_params, xgb_params=xgb_params,
         lr_params=lr_params, ocsvm_params=ocsvm_params, iforest_params=iforest_params,
         feature_selection_method=feature_selection_method, scaler=scaler,
-        lmm_n_jobs=lmm_n_jobs,
+        lmm_n_jobs=lmm_n_jobs, lmm_prefilter_factor=lmm_prefilter_factor,
         use_pca=use_pca, pca_n_components=pca_n_components, pca_type=pca_type, pca_kernel=pca_kernel,
         smote_k_neighbors=smote_k_neighbors,
     )
@@ -1520,15 +1742,17 @@ def compute_shap_values_for_pipeline(
     """
     Compute SHAP values for a fitted pipeline (RF or XGB).
 
-    Unselected features are assigned SHAP value of zero so the output
-    shape always matches the full feature set.
+    Applies the pipeline's scaler step (if present) before feature selection
+    and SHAP computation so that the classifier receives data on the same scale
+    it was trained on.  Unselected features are assigned SHAP value of zero so
+    the output shape always matches the full feature set.
 
     Parameters
     ----------
     pipeline : sklearn Pipeline
-        Fitted pipeline with optional 'feature_selection' and 'clf' steps.
+        Fitted pipeline with optional 'scaler', 'feature_selection', 'clf' steps.
     X : pd.DataFrame
-        Feature matrix for the test fold.
+        Feature matrix for the test fold (may be unscaled).
     feature_names : Index
         Full list of feature names (before selection).
 
@@ -1540,8 +1764,14 @@ def compute_shap_values_for_pipeline(
     if not HAS_SHAP:
         raise ImportError("shap is required. Install with: pip install shap")
 
+    scaler           = pipeline.named_steps.get('scaler', None)
     feature_selector = pipeline.named_steps.get('feature_selection', None)
-    clf = pipeline.named_steps.get('clf', None)
+    clf              = pipeline.named_steps.get('clf', None)
+
+    # Apply scaler so the clf receives data on the same scale it was trained on.
+    if scaler is not None:
+        X_arr = scaler.transform(X)
+        X = pd.DataFrame(X_arr, columns=X.columns, index=X.index)
 
     if feature_selector is not None:
         selected_mask = feature_selector.get_support()
@@ -1563,7 +1793,7 @@ def compute_shap_values_for_pipeline(
 
     # Map back to full feature space
     if feature_selector is not None:
-        full_shap = np.zeros((X.shape[0], len(feature_names)))
+        full_shap = np.zeros((len(X_selected), len(feature_names)))
         full_shap[:, selected_mask] = shap_vals
         return full_shap
 

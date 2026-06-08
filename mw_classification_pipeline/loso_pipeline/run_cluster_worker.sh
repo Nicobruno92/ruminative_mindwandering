@@ -2,32 +2,36 @@
 # =============================================================================
 # run_cluster_worker.sh — SLURM worker (one array element)
 # =============================================================================
-# Submitted by run_cluster.sh as a SLURM array element.
-# Reads its (model, contrast, family) from logs/.combinations.txt via
-# SLURM_ARRAY_TASK_ID. All parameters come from config.yaml.
+# Submitted by run_cluster.sh as part of a true-run or perm array.
+# Reads its (model, contrast, family, run/perm index) from the combinations
+# file via SLURM_ARRAY_TASK_ID.
+#
+# Arguments:
+#   $1 — path to config.yaml
+#   $2 — mode: "true" (true-run array) or "perm" (permutation array)
 #
 # DO NOT submit this script directly — use run_cluster.sh instead.
 # =============================================================================
-# Note: --chdir is passed explicitly by run_cluster.sh as an absolute path.
-# SLURM_SUBMIT_DIR is used as a fallback to guarantee the correct working directory
-# even if the script is copied to a temp location before execution.
 
 set -euo pipefail
 
-# Use SLURM_SUBMIT_DIR (set by SLURM at submission time) as the authoritative
-# working directory — reliable even when SLURM copies the script to a tmpdir.
 SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 cd "$SCRIPT_DIR"
 
 CONFIG="${1:-config.yaml}"
-# If CONFIG was passed as an absolute path (by run_cluster.sh), use it as-is;
-# otherwise resolve relative to SCRIPT_DIR.
+MODE="${2:-true}"   # "true" or "perm"
+
 [[ "$CONFIG" != /* ]] && CONFIG="$SCRIPT_DIR/$CONFIG"
 
 # ---------------------------------------------------------------------------
-# Resolve this array task's (model, contrast, family) combination
+# Resolve this array task's combination
 # ---------------------------------------------------------------------------
-COMBINATIONS_FILE="logs/.combinations.txt"
+if [ "$MODE" = "true" ]; then
+    COMBINATIONS_FILE="logs/.true_combinations.txt"
+else
+    COMBINATIONS_FILE="logs/.perm_combinations.txt"
+fi
+
 if [ ! -f "$COMBINATIONS_FILE" ]; then
     echo "ERROR: Combination file not found: $COMBINATIONS_FILE"
     echo "Run run_cluster.sh first to generate it."
@@ -40,9 +44,12 @@ if [ -z "$COMBO" ]; then
     exit 1
 fi
 
+# Combo format: model:contrast:family:run_N  OR  model:contrast:family:perm_N
 MODEL_T=$(echo "$COMBO" | cut -d: -f1)
 CONTRAST=$(echo "$COMBO" | cut -d: -f2)
-FAMILY=$(echo "$COMBO" | cut -d: -f3)
+FAMILY=$(echo "$COMBO"   | cut -d: -f3)
+IDX_FIELD=$(echo "$COMBO" | cut -d: -f4)   # e.g. "run_3" or "perm_7"
+IDX_NUM="${IDX_FIELD#*_}"                  # strip "run_" or "perm_"
 
 # ---------------------------------------------------------------------------
 # Environment setup
@@ -54,7 +61,6 @@ with open('$CONFIG') as f:
 print(cfg.get('slurm', {}).get('conda_env', 'ML'))
 ")
 
-# Activate conda robustly
 if [ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
     source "$HOME/miniforge3/etc/profile.d/conda.sh"
 elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
@@ -68,14 +74,8 @@ else
     exit 1
 fi
 conda activate "$CONDA_ENV"
-# Force the env's bin onto PATH. SLURM exports the submitting shell's env
-# (--export=ALL), which may carry a half-initialized conda state (CONDA_PREFIX
-# set but the base bin never on PATH). In that case `conda activate` updates
-# CONDA_PREFIX but not PATH, so `python` stays the system interpreter. This
-# guarantees the activated env's python is used regardless of inherited state.
 export PATH="$CONDA_PREFIX/bin:$PATH"
 
-# Propagate SLURM CPU count to threading libraries
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
 export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
@@ -89,10 +89,12 @@ echo " MW Classification Pipeline — SLURM Worker"
 echo "========================================================"
 echo " Job ID        : ${SLURM_JOB_ID:-local}"
 echo " Array task    : ${SLURM_ARRAY_TASK_ID:-0}"
+echo " Mode          : $MODE"
 echo " Combination   : $COMBO"
 echo " Model         : $MODEL_T"
 echo " Contrast      : $CONTRAST"
 echo " Family        : $FAMILY"
+echo " Index         : $IDX_NUM"
 echo " Config        : $CONFIG"
 echo " Host          : $(hostname)"
 echo " CPUs          : ${SLURM_CPUS_PER_TASK:-?}"
@@ -103,20 +105,31 @@ echo "========================================================"
 # ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
-python run_loso_classification.py \
-    --config    "$CONFIG" \
-    --contrast  "$CONTRAST" \
-    --family    "$FAMILY" \
-    --model_type "$MODEL_T"
+if [ "$MODE" = "true" ]; then
+    python run_loso_classification.py \
+        --config     "$CONFIG" \
+        --contrast   "$CONTRAST" \
+        --family     "$FAMILY" \
+        --model_type "$MODEL_T" \
+        --run_idx    "$IDX_NUM" \
+        --skip_permutation
+else
+    python run_loso_classification.py \
+        --config     "$CONFIG" \
+        --contrast   "$CONTRAST" \
+        --family     "$FAMILY" \
+        --model_type "$MODEL_T" \
+        --perm_idx   "$IDX_NUM"
+fi
 
 EXIT_CODE=$?
 
 echo "========================================================"
 if [ $EXIT_CODE -ne 0 ]; then
-    echo " FAILED: $MODEL_T | $CONTRAST | $FAMILY (exit $EXIT_CODE)"
+    echo " FAILED: $MODEL_T | $CONTRAST | $FAMILY | $MODE $IDX_NUM (exit $EXIT_CODE)"
     exit $EXIT_CODE
 else
-    echo " SUCCESS: $MODEL_T | $CONTRAST | $FAMILY"
+    echo " SUCCESS: $MODEL_T | $CONTRAST | $FAMILY | $MODE $IDX_NUM"
     echo " Finished : $(date)"
 fi
 echo "========================================================"

@@ -43,12 +43,14 @@ from utils.analysis_utils import (
     run_distribution_analysis,
     run_permutation_distribution_analysis,
 )
+from utils.ml_utils import compute_within_subject_confidence_weights
 from utils.logging_utils import AnalysisLogger
 from utils.plotting_utils import (
     plot_subject_level_densities,
     plot_shap_comparative_boxplots,
     generate_all_comparison_plots,
     plot_auc_vs_onoff_dispersion,
+    plot_auc_vs_class_imbalance,
 )
 
 
@@ -91,6 +93,12 @@ Examples:
                         help="Skip permutation test")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose output")
+    parser.add_argument("--run_idx", type=int, default=None,
+                        help="SLURM array mode: run only this true-run index (0-based). "
+                             "Skips permutations. Use merge_loso_results.py to aggregate.")
+    parser.add_argument("--perm_idx", type=int, default=None,
+                        help="SLURM array mode: run only this permutation index (0-based). "
+                             "Skips true runs. Use merge_loso_results.py to aggregate.")
     return parser.parse_args()
 
 
@@ -293,6 +301,72 @@ def build_results_path(config: dict, contrast_name: str, family_name: str, model
     return loso_path
 
 
+def build_confidence_sample_weights(
+    config: dict,
+    contrast_name: str,
+    df_prepared: "pd.DataFrame",
+    groups: "pd.Series",
+):
+    """
+    Build per-trial training sample weights from probe confidence, if enabled.
+
+    Reads the optional ``confidence_weight`` block of the active contrast. When
+    absent or ``enabled: false`` this returns ``None`` and the pipeline behaves
+    exactly as before. When enabled, confidence is normalised within subject (see
+    :func:`compute_within_subject_confidence_weights`) into weights aligned to
+    ``df_prepared`` / ``groups`` (positional order, matching X / y).
+
+    Confidence is a metacognitive probe rating used here as a proxy for label
+    reliability: more-confident trials weigh more in the classifier loss. The
+    rationale is strongest for the ON/OFF contrasts (confidence pertains chiefly
+    to the on/off judgement); using it on content dimensions is exploratory.
+
+    Parameters
+    ----------
+    config : dict
+        Full pipeline configuration.
+    contrast_name : str
+        Active label contrast key.
+    df_prepared : pd.DataFrame
+        Prepared probe-level data; must contain a ``confidence`` column.
+    groups : pd.Series
+        Subject ID per sample, positionally aligned to ``df_prepared``.
+
+    Returns
+    -------
+    np.ndarray or None
+        Per-trial weights in ``[w_min, 1]``, or ``None`` if weighting is off.
+    """
+    cw_cfg = (
+        config.get("label_contrasts", {})
+        .get(contrast_name, {})
+        .get("confidence_weight")
+    )
+    if not cw_cfg or not cw_cfg.get("enabled", False):
+        return None
+
+    if "confidence" not in df_prepared.columns:
+        raise ValueError(
+            f"confidence_weight is enabled for contrast '{contrast_name}' but the "
+            f"prepared data has no 'confidence' column."
+        )
+
+    confidence = df_prepared["confidence"].to_numpy(dtype=float)
+    if np.isnan(confidence).any():
+        raise ValueError(
+            f"confidence_weight is enabled for contrast '{contrast_name}' but the "
+            f"'confidence' column contains NaNs ({int(np.isnan(confidence).sum())} "
+            f"of {len(confidence)}). Resolve missing confidence before weighting."
+        )
+
+    return compute_within_subject_confidence_weights(
+        confidence,
+        groups.to_numpy(),
+        w_min=cw_cfg.get("w_min", 0.1),
+        normalization=cw_cfg.get("normalization", "within_subject"),
+    )
+
+
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -322,6 +396,36 @@ def main():
     par_cfg = config.get("parallelism", {})
     n_perm_jobs = par_cfg.get("n_perm_jobs", 1)
     perm_cv_n_jobs = par_cfg.get("perm_cv_n_jobs", -1)
+    true_cv_n_jobs = par_cfg.get("true_cv_n_jobs", -1)
+
+    # ── SLURM parallel mode ────────────────────────────────────────────────────
+    # When --run_idx or --perm_idx are provided, this job runs exactly ONE pass
+    # and saves to the per-job subdirectory. The merge_loso_results.py script
+    # aggregates all jobs after they complete.
+    run_idx_offset = 0
+    perm_idx_offset = 0
+    total_n_runs_for_seeds = n_runs
+    total_n_perms_for_seeds = permutation_runs
+
+    if args.run_idx is not None and args.perm_idx is not None:
+        raise ValueError("Cannot specify both --run_idx and --perm_idx in the same job.")
+
+    if args.run_idx is not None:
+        if args.run_idx >= n_runs:
+            raise ValueError(f"--run_idx {args.run_idx} is out of range (n_runs={n_runs})")
+        run_idx_offset = args.run_idx
+        n_runs = 1
+        permutation_runs = 0  # perms are submitted as separate jobs
+        print(f"[SLURM mode] True run {args.run_idx} of {total_n_runs_for_seeds}")
+
+    if args.perm_idx is not None:
+        if args.perm_idx >= permutation_runs:
+            raise ValueError(f"--perm_idx {args.perm_idx} is out of range (permutation_runs={permutation_runs})")
+        perm_idx_offset = args.perm_idx
+        n_runs = 0           # true runs are submitted as separate jobs
+        permutation_runs = 1
+        print(f"[SLURM mode] Permutation {args.perm_idx} of {total_n_perms_for_seeds}")
+    # ──────────────────────────────────────────────────────────────────────────
 
     # Resolve family → inject epoch_types into config so the loader knows what to load
     family_epoch_types, family_prefixes = resolve_family(family_name, feature_families)
@@ -364,6 +468,18 @@ def main():
     # Results directory includes family name
     results_path = build_results_path(config, contrast_name, family_name, model_type)
     save_used_config(config, results_path)
+    # Dedicated, human-readable record of which subjects entered the analysis and
+    # which were excluded (and why). Written per classification for transparency.
+    provenance = config.get("_data_provenance")
+    if provenance is not None:
+        with open(os.path.join(results_path, "subject_exclusions.yaml"), "w") as f:
+            yaml.dump(provenance, f, default_flow_style=False, sort_keys=False)
+        print(
+            f"Subjects: {provenance['n_subjects_final']}/{provenance['n_subjects_requested']} "
+            f"kept | excluded: {len(provenance['excluded_no_data_or_all_neutral'])} no-data, "
+            f"{len(provenance['excluded_min_samples'])} low-count, "
+            f"{len(provenance['excluded_min_minority_ratio'])} imbalanced"
+        )
     print(f"Results → {results_path}")
 
     # For compatibility with analysis_utils.get_model_results_folder
@@ -382,12 +498,27 @@ def main():
         _fs_msg = f"Feature selection : disabled (using all {len(feature_cols)} features)"
     else:
         _fs_msg = f"Feature selection : {_fs_method} (k={_fs_k}/{len(feature_cols)}, refit per fold)"
-    print(f"\n{'='*60}")
-    print(f"Running LOSO classification ({n_runs} runs)...")
-    print(_fs_msg)
-    print(f"{'='*60}\n")
+    # Optional confidence-based sample weighting (None unless enabled per contrast)
+    sample_weights = build_confidence_sample_weights(
+        config, contrast_name, df_prepared, groups
+    )
 
-    results_df, true_all_results, true_shap_values = run_distribution_analysis(
+    results_df = None
+
+    if n_runs > 0:
+        print(f"\n{'='*60}")
+        print(f"Running LOSO classification ({n_runs} runs)...")
+        print(_fs_msg)
+        if sample_weights is not None:
+            print(
+                f"Confidence weighting : ENABLED "
+                f"(within-subject, w_min="
+                f"{config['label_contrasts'][contrast_name]['confidence_weight'].get('w_min', 0.1)})"
+            )
+        print(f"{'='*60}\n")
+
+    if n_runs > 0:
+        results_df, true_all_results, true_shap_values = run_distribution_analysis(
         dimension=contrast_name,
         df=df_prepared,
         X=X,
@@ -427,53 +558,64 @@ def main():
         pca_type=config.get("pca_type", "standard"),
         pca_kernel=config.get("pca_kernel", "rbf"),
         smote_k_neighbors=smote_k_neighbors,
+        sample_weights=sample_weights,
         logger=logger,
+        cv_n_jobs=true_cv_n_jobs,
+        run_idx_offset=run_idx_offset,
+        total_n_runs=total_n_runs_for_seeds,
     )
 
-    if results_df.empty:
-        print("ERROR: No successful runs completed.")
-        sys.exit(1)
+        if results_df.empty:
+            print("ERROR: No successful runs completed.")
+            sys.exit(1)
 
-    # AUC vs on/off scale dispersion scatter plot
-    _subject_rows = []
-    for r in true_all_results:
-        for sm in (r.get("loso_subject_metrics") or []):
-            _subject_rows.append({"subject": sm["subject"], "auc": sm["auc"]})
-    if _subject_rows:
-        _loso_subject_auc_df = (
-            pd.DataFrame(_subject_rows)
-            .groupby("subject")["auc"]
-            .mean()
-            .reset_index()
-        )
-        _dim_path = os.path.join(results_path, model_type)
-        _fname_base = f"{model_type}_loso_{n_runs}runs" if n_runs > 1 else f"{model_type}_loso"
-        _label_col = config.get("label_contrasts", {}).get(contrast_name, {}).get("column_name", "onoff")
-        plot_auc_vs_onoff_dispersion(
-            _loso_subject_auc_df, df_prepared, _dim_path, _fname_base, "LOSO",
-            label_col=_label_col,
-        )
+        # AUC vs on/off scale dispersion scatter plot
+        _subject_rows = []
+        for r in true_all_results:
+            for sm in (r.get("loso_subject_metrics") or []):
+                _subject_rows.append({"subject": sm["subject"], "auc": sm["auc"]})
+        if _subject_rows:
+            _loso_subject_auc_df = (
+                pd.DataFrame(_subject_rows)
+                .groupby("subject")["auc"]
+                .mean()
+                .reset_index()
+            )
+            _dim_path = results_path
+            _fname_base = f"{model_type}_loso_{total_n_runs_for_seeds}runs" if total_n_runs_for_seeds > 1 else f"{model_type}_loso"
+            _contrast_cfg = config.get("label_contrasts", {}).get(contrast_name, {})
+            _label_col = _contrast_cfg.get("column_name") or _contrast_cfg.get("label_source", "onoff")
+            plot_auc_vs_onoff_dispersion(
+                _loso_subject_auc_df, df_prepared, _dim_path, _fname_base, "LOSO",
+                label_col=_label_col,
+            )
+            plot_auc_vs_class_imbalance(
+                _loso_subject_auc_df, df_prepared, _dim_path, _fname_base, "LOSO",
+                label_col=_label_col,
+            )
 
-    # Print summary
-    print(f"\n{'='*60}")
-    print(f"LOSO Results — {contrast_name} / {family_name}")
-    print(f"{'='*60}")
-    
-    # Default metrics if none specified in config
-    display_metrics = config.get("scoring_metrics")
-    if not display_metrics:
-        display_metrics = ['auc', 'balanced_accuracy', 'auprc', 'mcc']
-    
-    for metric_name in display_metrics:
-        col_name = f"mean_{metric_name}"
-        if col_name in results_df.columns:
-            col = pd.to_numeric(results_df[col_name], errors='coerce')
-            label = metric_name.upper().replace('_', ' ')
-            print(f"  {label:18}: {col.mean():.4f} ± {col.std():.4f}")
+        # Print summary
+        print(f"\n{'='*60}")
+        print(f"LOSO Results — {contrast_name} / {family_name}")
+        print(f"{'='*60}")
+
+        display_metrics = config.get("scoring_metrics")
+        if not display_metrics:
+            display_metrics = ['auc', 'balanced_accuracy', 'auprc', 'mcc']
+
+        for metric_name in display_metrics:
+            col_name = f"mean_{metric_name}"
+            if col_name in results_df.columns:
+                col = pd.to_numeric(results_df[col_name], errors='coerce')
+                label = metric_name.upper().replace('_', ' ')
+                print(f"  {label:18}: {col.mean():.4f} ± {col.std():.4f}")
 
     # -------------------------------------------------------------------------
     # Permutation test
     # -------------------------------------------------------------------------
+    # In SLURM perm-only mode (--perm_idx), results_df is None because true
+    # runs are submitted as separate jobs. True metrics are passed as empty
+    # lists; merge_loso_results.py computes p-values after all jobs complete.
     if permutation_runs > 0 and not args.skip_permutation:
         print(f"\n{'='*60}")
         print(f"Running permutation test ({permutation_runs} permutations)...")
@@ -518,18 +660,23 @@ def main():
             pca_n_components=config.get("pca_n_components"),
             pca_type=config.get("pca_type", "standard"),
             pca_kernel=config.get("pca_kernel", "rbf"),
-            true_auc_list=results_df['mean_auc'].dropna().tolist(),
-            true_bal_acc_list=results_df['mean_balanced_accuracy'].dropna().tolist(),
+            true_auc_list=(results_df['mean_auc'].dropna().tolist()
+                           if results_df is not None and 'mean_auc' in results_df.columns else []),
+            true_bal_acc_list=(results_df['mean_balanced_accuracy'].dropna().tolist()
+                               if results_df is not None and 'mean_balanced_accuracy' in results_df.columns else []),
             true_auprc_list=(results_df['mean_auprc'].dropna().tolist()
-                             if 'mean_auprc' in results_df.columns else []),
+                             if results_df is not None and 'mean_auprc' in results_df.columns else []),
             true_mcc_list=(results_df['mean_mcc'].dropna().tolist()
-                           if 'mean_mcc' in results_df.columns else []),
+                           if results_df is not None and 'mean_mcc' in results_df.columns else []),
             permutation_scope=config.get("permutation_scope", "within"),
             smote_k_neighbors=smote_k_neighbors,
+            sample_weights=sample_weights,
             logger=logger,
             n_runs=n_runs,
             n_perm_jobs=n_perm_jobs,
             cv_n_jobs=perm_cv_n_jobs,
+            perm_idx_offset=perm_idx_offset,
+            total_n_permutations=total_n_perms_for_seeds,
         )
         
         if config.get("save_plots", True):

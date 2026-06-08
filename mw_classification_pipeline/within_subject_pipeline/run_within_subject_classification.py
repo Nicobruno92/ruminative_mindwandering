@@ -45,6 +45,7 @@ from utils.plotting_utils import (
     plot_shap_comparative_boxplots,
     generate_all_comparison_plots,
     plot_auc_vs_onoff_dispersion,
+    plot_auc_vs_class_imbalance,
 )
 
 def resolve_family(family_name: str, feature_families: dict) -> tuple:
@@ -159,6 +160,10 @@ def parse_args():
     parser.add_argument("--dry_run", action="store_true", help="Print info without running")
     parser.add_argument("--skip_permutation", action="store_true", help="Skip permutation test")
     parser.add_argument("--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("--run_idx", type=int, default=None,
+                        help="SLURM array mode: run only this true-run index (0-based). Skips perms.")
+    parser.add_argument("--perm_idx", type=int, default=None,
+                        help="SLURM array mode: run only this permutation index (0-based). Skips true runs.")
     return parser.parse_args()
 
 
@@ -188,7 +193,34 @@ def main():
     n_perm_jobs = par_cfg.get("n_perm_jobs", 1)
     cv_n_jobs = par_cfg.get("cv_n_jobs", 1)
     lmm_n_jobs = fs_cfg.get("lmm_n_jobs", 1)
+    lmm_prefilter_factor = fs_cfg.get("lmm_prefilter_factor", 0)
     smote_k_neighbors = os_cfg.get("k_neighbors", 5)
+
+    # ── SLURM parallel mode ────────────────────────────────────────────────────
+    run_idx_offset = 0
+    perm_idx_offset = 0
+    total_n_runs_for_seeds = n_runs
+    total_n_perms_for_seeds = permutation_runs
+
+    if args.run_idx is not None and args.perm_idx is not None:
+        raise ValueError("Cannot specify both --run_idx and --perm_idx.")
+
+    if args.run_idx is not None:
+        if args.run_idx >= n_runs:
+            raise ValueError(f"--run_idx {args.run_idx} >= n_runs={n_runs}")
+        run_idx_offset = args.run_idx
+        n_runs = 1
+        permutation_runs = 0
+        print(f"[SLURM mode] True run {args.run_idx} of {total_n_runs_for_seeds}")
+
+    if args.perm_idx is not None:
+        if args.perm_idx >= permutation_runs:
+            raise ValueError(f"--perm_idx {args.perm_idx} >= n_permutations={permutation_runs}")
+        perm_idx_offset = args.perm_idx
+        n_runs = 0
+        permutation_runs = 1
+        print(f"[SLURM mode] Permutation {args.perm_idx} of {total_n_perms_for_seeds}")
+    # ──────────────────────────────────────────────────────────────────────────
 
     # Resolve family → inject epoch_types so the loader knows what to load
     family_epoch_types, family_prefixes = resolve_family(family_name, feature_families)
@@ -212,14 +244,37 @@ def main():
             'data_file': config['project'].get('data_file')
         }
 
-    # Load only the epoch types declared by the selected family
-    df_prepared, X, y, groups, feature_cols = prepare_data_for_contrast(
-        config, contrast_name, verbose=verbose
-    )
+    # ── Data cache (fast path) ─────────────────────────────────────────────────
+    # If precompute_data_cache.py was run beforehand, load the compact pickle
+    # (~4 MB, < 1 s) instead of re-reading 784k rows of CSVs (~5 min).
+    import pickle as _pickle
+    from utils.data_utils import get_project_root as _get_root
+    _results_root = config.get("project", {}).get("results_dir", "results/MW_Classification")
+    if not os.path.isabs(_results_root):
+        _results_root = str(_get_root() / _results_root)
+    _cache_path = os.path.join(_results_root, "data_cache",
+                               f"{contrast_name}__{family_name}.pkl")
 
-    # Filter columns to the family's declared prefixes
-    X = filter_features_by_family(X, family_name, family_prefixes)
-    feature_cols = X.columns.tolist()
+    if os.path.exists(_cache_path):
+        print(f"Loading from cache: {_cache_path}")
+        _t0 = __import__('time').time()
+        with open(_cache_path, "rb") as _f:
+            _cached = _pickle.load(_f)
+        df_prepared = _cached["df"]
+        X = _cached["X"]
+        y = _cached["y"]
+        groups = _cached["groups"]
+        feature_cols = _cached["feature_cols"]
+        print(f"  Cache loaded in {__import__('time').time() - _t0:.1f}s "
+              f"({len(X)} samples × {len(feature_cols)} features)")
+    else:
+        # Slow path: load from raw CSV files
+        df_prepared, X, y, groups, feature_cols = prepare_data_for_contrast(
+            config, contrast_name, verbose=verbose
+        )
+        X = filter_features_by_family(X, family_name, family_prefixes)
+        feature_cols = X.columns.tolist()
+    # ──────────────────────────────────────────────────────────────────────────
 
     if args.dry_run:
         print("\n[DRY RUN] Data loaded successfully.")
@@ -243,89 +298,102 @@ def main():
 
     oneclass_target = config.get("classifiers", {}).get("oneclass_target", "minority")
 
-    true_ws_metrics_list, true_shap_values = run_within_subject_distribution_analysis(
-        dimension=contrast_name,
-        df=df_prepared,
-        X=X,
-        y=y,
-        subjects=groups,
-        tasks=tasks,
-        feature_cols=feature_cols,
-        config=config,
-        positive_class_name=config.get("label_contrasts", {}).get(contrast_name, {}).get("positive_class_name", "ON"),
-        negative_class_name=config.get("label_contrasts", {}).get(contrast_name, {}).get("negative_class_name", "OFF"),
-        n_runs=n_runs,
-        results_path=results_path,
-        model_type=model_type,
-        use_smote=os_cfg.get("use_smote", False),
-        oversampling_method=os_cfg.get("method", "SMOTE"),
-        oversampling_scope=os_cfg.get("scope", "within"),
-        cv_strategy=cv_cfg.get("strategy", "stratified_kfold"),
-        cv_folds=cv_cfg.get("folds", 5),
-        min_samples_per_class=cv_cfg.get("min_samples_per_class", 0),
-        min_minority_ratio=config.get("min_minority_ratio", 0.0),
-        k=fs_cfg.get("k", 20),
-        rf_params=model_params['rf'],
-        xgb_params=model_params['xgb'],
-        lr_params=model_params['lr'],
-        ocsvm_params=model_params['ocsvm'],
-        iforest_params=model_params['iforest'],
-        oneclass_target=oneclass_target,
-        top_n_features_plot=config.get("top_n_features_plot", 20),
-        save_pickle=outputs_cfg.get("save_pickle", False),
-        save_csv=True,
-        save_probabilities=outputs_cfg.get("save_probabilities", True),
-        save_plots=outputs_cfg.get("save_plots", False),
-        save_shap=outputs_cfg.get("save_shap", False),
-        verbose=verbose,
-        feature_selection_method=fs_cfg.get("method", "mrmr"),
-        scaler=prep_cfg.get("scaler", "standard"),
-        use_pca=prep_cfg.get("pca", {}).get("use_pca", False),
-        pca_n_components=prep_cfg.get("pca", {}).get("n_components"),
-        pca_type=prep_cfg.get("pca", {}).get("pca_type", "standard"),
-        pca_kernel=prep_cfg.get("pca", {}).get("pca_kernel", "rbf"),
-        n_subject_jobs=n_subject_jobs,
-        cv_n_jobs=cv_n_jobs,
-        lmm_n_jobs=lmm_n_jobs,
-        smote_k_neighbors=smote_k_neighbors,
-        logger=logger,
-    )
+    true_ws_metrics_list = []
+    true_shap_values = []
+    true_ws_metrics_df = pd.DataFrame()
 
-    if not true_ws_metrics_list:
+    if n_runs > 0:
+        true_ws_metrics_list, true_shap_values = run_within_subject_distribution_analysis(
+            dimension=contrast_name,
+            df=df_prepared,
+            X=X,
+            y=y,
+            subjects=groups,
+            tasks=tasks,
+            feature_cols=feature_cols,
+            config=config,
+            positive_class_name=config.get("label_contrasts", {}).get(contrast_name, {}).get("positive_class_name", "ON"),
+            negative_class_name=config.get("label_contrasts", {}).get(contrast_name, {}).get("negative_class_name", "OFF"),
+            n_runs=n_runs,
+            results_path=results_path,
+            model_type=model_type,
+            use_smote=os_cfg.get("use_smote", False),
+            oversampling_method=os_cfg.get("method", "SMOTE"),
+            oversampling_scope=os_cfg.get("scope", "within"),
+            cv_strategy=cv_cfg.get("strategy", "stratified_kfold"),
+            cv_folds=cv_cfg.get("folds", 5),
+            min_samples_per_class=cv_cfg.get("min_samples_per_class", 0),
+            min_minority_ratio=config.get("min_minority_ratio", 0.0),
+            k=fs_cfg.get("k", 20),
+            rf_params=model_params['rf'],
+            xgb_params=model_params['xgb'],
+            lr_params=model_params['lr'],
+            ocsvm_params=model_params['ocsvm'],
+            iforest_params=model_params['iforest'],
+            oneclass_target=oneclass_target,
+            top_n_features_plot=config.get("top_n_features_plot", 20),
+            save_pickle=outputs_cfg.get("save_pickle", False),
+            save_csv=True,
+            save_probabilities=outputs_cfg.get("save_probabilities", True),
+            save_plots=outputs_cfg.get("save_plots", False),
+            save_shap=outputs_cfg.get("save_shap", False),
+            verbose=verbose,
+            feature_selection_method=fs_cfg.get("method", "mrmr"),
+            scaler=prep_cfg.get("scaler", "standard"),
+            use_pca=prep_cfg.get("pca", {}).get("use_pca", False),
+            pca_n_components=prep_cfg.get("pca", {}).get("n_components"),
+            pca_type=prep_cfg.get("pca", {}).get("pca_type", "standard"),
+            pca_kernel=prep_cfg.get("pca", {}).get("pca_kernel", "rbf"),
+            n_subject_jobs=n_subject_jobs,
+            cv_n_jobs=cv_n_jobs,
+            lmm_n_jobs=lmm_n_jobs,
+            lmm_prefilter_factor=lmm_prefilter_factor,
+            smote_k_neighbors=smote_k_neighbors,
+            logger=logger,
+            run_idx_offset=run_idx_offset,
+            total_n_runs=total_n_runs_for_seeds,
+        )
+
+    if n_runs > 0 and not true_ws_metrics_list:
         print("Done. No applicable subjects to run.")
         sys.exit(0)
 
-    # AUC vs on/off scale dispersion scatter plot
-    _ws_subject_auc_df = (
-        pd.DataFrame([{"subject": m["subject"], "auc": m["mean_auc"]}
-                      for m in true_ws_metrics_list])
-        .groupby("subject")["auc"]
-        .mean()
-        .reset_index()
-    )
-    _dim_path = os.path.join(results_path, model_type)
-    _fname_base = f"{model_type}_loso_{n_runs}runs" if n_runs > 1 else f"{model_type}_loso"
-    _label_col = config.get("label_contrasts", {}).get(contrast_name, {}).get("column_name", "onoff")
-    plot_auc_vs_onoff_dispersion(
-        _ws_subject_auc_df, df_prepared, _dim_path, _fname_base, "WithinSubject",
-        label_col=_label_col,
-    )
+    if n_runs > 0 and true_ws_metrics_list:
+        # AUC vs on/off scale dispersion scatter plot
+        _ws_subject_auc_df = (
+            pd.DataFrame([{"subject": m["subject"], "auc": m["mean_auc"]}
+                          for m in true_ws_metrics_list])
+            .groupby("subject")["auc"]
+            .mean()
+            .reset_index()
+        )
+        _dim_path = results_path
+        _fname_base = f"{model_type}_loso_{total_n_runs_for_seeds}runs" if total_n_runs_for_seeds > 1 else f"{model_type}_loso"
+        _label_col = config.get("label_contrasts", {}).get(contrast_name, {}).get("column_name", "onoff")
+        plot_auc_vs_onoff_dispersion(
+            _ws_subject_auc_df, df_prepared, _dim_path, _fname_base, "WithinSubject",
+            label_col=_label_col,
+        )
+        plot_auc_vs_class_imbalance(
+            _ws_subject_auc_df, df_prepared, _dim_path, _fname_base, "WithinSubject",
+            label_col=_label_col,
+        )
 
-    print(f"\n{'='*60}")
-    print(f"WITHIN-SUBJECT Results — {contrast_name} / {family_name}")
-    print(f"{'='*60}")
-    
-    true_ws_metrics_df = pd.DataFrame(true_ws_metrics_list)
-    display_metrics = outputs_cfg.get("scoring_metrics", ['auc', 'balanced_accuracy', 'f1'])
-    summary = true_ws_metrics_df.groupby('subject').mean(numeric_only=True)
-    
-    print("\nGlobal Averages across all subjects:")
-    for metric_name in display_metrics:
-        col = f"mean_{metric_name}"
-        if col in summary.columns:
-            val = summary[col].mean()
-            std = summary[col].std()
-            print(f"  {metric_name.upper():18}: {val:.4f} ± {std:.4f}")
+        print(f"\n{'='*60}")
+        print(f"WITHIN-SUBJECT Results — {contrast_name} / {family_name}")
+        print(f"{'='*60}")
+
+        true_ws_metrics_df = pd.DataFrame(true_ws_metrics_list)
+        display_metrics = outputs_cfg.get("scoring_metrics", ['auc', 'balanced_accuracy', 'f1'])
+        summary = true_ws_metrics_df.groupby('subject').mean(numeric_only=True)
+
+        print("\nGlobal Averages across all subjects:")
+        for metric_name in display_metrics:
+            col = f"mean_{metric_name}"
+            if col in summary.columns:
+                val = summary[col].mean()
+                std = summary[col].std()
+                print(f"  {metric_name.upper():18}: {val:.4f} ± {std:.4f}")
 
     if permutation_runs > 0 and not args.skip_permutation:
         print(f"\n{'='*60}")
@@ -371,10 +439,14 @@ def main():
             scaler=prep_cfg.get("scaler", "standard"),
             true_ws_metrics_df=true_ws_metrics_df,
             n_perm_jobs=n_perm_jobs,
+            n_subject_jobs=n_subject_jobs,
             cv_n_jobs=cv_n_jobs,
             lmm_n_jobs=lmm_n_jobs,
+            lmm_prefilter_factor=lmm_prefilter_factor,
             smote_k_neighbors=smote_k_neighbors,
             logger=logger,
+            perm_idx_offset=perm_idx_offset,
+            total_n_permutations=total_n_perms_for_seeds,
         )
         
         if outputs_cfg.get("save_plots", True):

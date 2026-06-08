@@ -42,17 +42,17 @@ min_minority_ratio: 0.2
 # Read by run_cluster.sh to submit jobs. Nothing is hardcoded in the bash scripts.
 slurm:
   job_name: "mw_ws_clf"
-  time: "72:00:00"
-  mem: "64G"
-  cpus_per_task: 32
+  time: "02:00:00"
+  mem: "16G"
+  cpus_per_task: 4
   conda_env: "ML"
 
 # =============================================================================
 # EXPERIMENT PARAMS
 # =============================================================================
 random_seed: 42
-n_runs: 10                      # Base ML training passes — gives 10 data points per subject for distribution plots
-n_permutations: 10              # Runs per permutation pass (useful: 100 or 1000)
+n_runs: 100                     # Base ML training passes — gives 10 data points per subject for distribution plots
+n_permutations: 500              # Runs per permutation pass (useful: 100 or 1000)
 
 # =============================================================================
 # PARALLELISM
@@ -70,9 +70,11 @@ n_permutations: 10              # Runs per permutation pass (useful: 100 or 1000
 #                   avoid nested parallelism and memory blow-up.
 # =============================================================================
 parallelism:
-  n_subject_jobs: -1            # >1 to parallelize subjects within a run
-  n_perm_jobs: 1                # >1 to parallelize permutation passes
-  cv_n_jobs: 1                  # keep 1 when either job level is parallel
+  # 4 CPUs per job → 192/4 = 48 jobs in parallel (vs 6 with 32 CPUs).
+  # mrmr is single-threaded so n_subject_jobs=4 uses all 4 CPUs.
+  n_subject_jobs: 4             # 4 subjects in parallel (= cpus_per_task)
+  n_perm_jobs: 1                # 1 perm per SLURM job
+  cv_n_jobs: 1                  # keep 1 when n_subject_jobs > 1
 
 
 # =============================================================================
@@ -97,25 +99,25 @@ run_contrasts:
   # - on_vs_off_threshold
   # --- Content dimensions: "_offtask" variants classify only within mind-wandering probes ---
   - valence_within_median
-  - valence_within_median_offtask
-  # - selfother_within_median
+  # - valence_within_median_offtask
+  - selfother_within_median
   # - selfother_within_median_offtask
-  # - time_within_median
+  - time_within_median
   # - time_within_median_offtask
-  # - confidence_within_median
+  - confidence_within_median
   # - confidence_within_median_offtask
 
 # Mapping of what each contrast actually means for data extraction.
 # The keys correspond to run_contrasts. The values are dicts specifying the
 # dataframe queries or binarization logic.
 label_contrasts:
-  on_vs_off_threshold:
-    column_name: "onoff"
-    split_method: "threshold"
-    threshold: 50
-    positive_above: true
-    positive_class_name: "ON-task"
-    negative_class_name: "OFF-task"
+  # on_vs_off_threshold:
+  #   column_name: "onoff"
+  #   split_method: "threshold"
+  #   threshold: 50
+  #   positive_above: true
+  #   positive_class_name: "ON-task"
+  #   negative_class_name: "OFF-task"
 
   on_vs_off_within_median:
     column_name: "onoff"
@@ -141,14 +143,14 @@ label_contrasts:
     positive_class_name: "positive"
     negative_class_name: "negative"
 
-  valence_within_median_offtask:    # solo en mind-wandering
-    column_name: "valence"
-    split_method: "within_subject_median"
-    gap: 5
-    positive_above: true
-    positive_class_name: "positive"
-    negative_class_name: "negative"
-    restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+  # valence_within_median_offtask:    # solo en mind-wandering
+  #   column_name: "valence"
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "positive"
+  #   negative_class_name: "negative"
+  #   restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
 
   selfother_within_median:
     column_name: "selfother"
@@ -158,14 +160,14 @@ label_contrasts:
     positive_class_name: "self"
     negative_class_name: "other"
 
-  selfother_within_median_offtask:
-    column_name: "selfother"
-    split_method: "within_subject_median"
-    gap: 5
-    positive_above: true
-    positive_class_name: "self"
-    negative_class_name: "other"
-    restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+  # selfother_within_median_offtask:
+  #   column_name: "selfother"
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "self"
+  #   negative_class_name: "other"
+  #   restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
 
   time_within_median:
     column_name: "time"
@@ -175,14 +177,14 @@ label_contrasts:
     positive_class_name: "future"
     negative_class_name: "past"
 
-  time_within_median_offtask:
-    column_name: "time"
-    split_method: "within_subject_median"
-    gap: 5
-    positive_above: true
-    positive_class_name: "future"
-    negative_class_name: "past"
-    restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+  # time_within_median_offtask:
+  #   column_name: "time"
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "future"
+  #   negative_class_name: "past"
+  #   restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
 
   confidence_within_median:
     column_name: "confidence"
@@ -192,14 +194,14 @@ label_contrasts:
     positive_class_name: "high-confidence"
     negative_class_name: "low-confidence"
 
-  confidence_within_median_offtask:
-    column_name: "confidence"
-    split_method: "within_subject_median"
-    gap: 5
-    positive_above: true
-    positive_class_name: "high-confidence"
-    negative_class_name: "low-confidence"
-    restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+  # confidence_within_median_offtask:
+  #   column_name: "confidence"
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "high-confidence"
+  #   negative_class_name: "low-confidence"
+  #   restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
 
 # =============================================================================
 # FEATURE FAMILIES
@@ -262,7 +264,7 @@ feature_families:
 # Which families to submit as separate jobs via run_local.sh / run_cluster.sh.
 run_families:
   - all
-  - erp
+  # - erp
   # - sleep
   # - spectral
   # - connectivity
@@ -361,9 +363,14 @@ feature_selection:
   # (e.g. k=10) due to low n_samples per subject
   k: 20
 
-  # For LMM: parallel jobs for fitting one LMM per feature.
-  # Use -1 (all cores) only when n_subject_jobs=1 to avoid oversubscription.
-  lmm_n_jobs: -1
+  # lmm_n_jobs: CPUs per subject for LMM fitting.
+  # With n_subject_jobs=8: lmm_n_jobs=4 → 8×4=32 CPUs total.
+  lmm_n_jobs: 4
+
+  # lmm_prefilter_factor: run f_classif first, pass only factor*k features to LMM.
+  # With k=20, factor=3 → 60 features to LMM instead of all N_features.
+  # Set to 0 to disable (run LMM on all features).
+  lmm_prefilter_factor: 3
 
 oversampling:
   # Use Synthetic Minority Over-sampling Technique

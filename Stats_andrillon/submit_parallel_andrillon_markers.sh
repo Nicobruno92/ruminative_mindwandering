@@ -216,21 +216,30 @@ echo "  Array range: ${ARRAY_RANGE}"
 echo "  Total tasks: ${N_MARKERS}"
 echo ""
 
-# Get model folder name and output path from Andrillon config
+# Get model folder name and output path from Andrillon config.
+# IMPORTANT: resolve the formula via _resolve_formula_for_predictor so that
+# per-predictor overrides (e.g. the interaction model for "onoff:confidence")
+# produce the SAME folder name the marker pipeline writes to. Using the default
+# formula here makes the report point at a non-existent additive-named dir.
 MODEL_FOLDER=$(python -c "
 import yaml
 import sys
 import os
 from pathlib import Path
 sys.path.append(os.path.join('${SCRIPT_DIR}', '..', 'Statistics'))
+sys.path.append('${SCRIPT_DIR}')
 from helpers import get_model_folder_name
+from andrillon_pipeline import _resolve_formula_for_predictor
 
 CONFIG_PATH = Path('${CONFIG_FILE}')
 with open(CONFIG_PATH, 'r') as f:
     config = yaml.safe_load(f)
 
-formula = config['lmm']['formula']
 predictor = '${PREDICTOR_OVERRIDE}' or config['lmm'].get('predictor_of_interest', 'auto')
+if predictor and predictor.strip().lower() != 'auto':
+    formula = _resolve_formula_for_predictor(config, predictor)
+else:
+    formula = config['lmm']['formula']
 model_folder = get_model_folder_name(formula, predictor)
 print(model_folder)
 ")

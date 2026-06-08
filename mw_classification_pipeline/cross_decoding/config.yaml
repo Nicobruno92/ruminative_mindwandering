@@ -1,0 +1,51 @@
+# =============================================================================
+# CROSS-DECODING GENERALIZATION MATRIX — CONFIG
+# =============================================================================
+#
+# Assembled POST-HOC from the per-probe predictions each per-dimension run already
+# saves (*_consolidated_sample_predictions.csv). Nothing is retrained, no data is
+# reloaded, and the per-dimension classifications are NOT modified.
+#
+# Cell (model M -> dimension D) = AUC of M's saved out-of-fold scores against D's
+# binary labels, over the probes present in BOTH runs. The diagonal reproduces
+# each dimension's own AUC.
+#
+# USAGE (after the per-dimension classifications have been run):
+#   python run_cross_decoding.py --config config.yaml
+#   python run_cross_decoding.py --config config.yaml --scheme LOSO
+# =============================================================================
+
+cross_decoding:
+  # Root that contains the per-dimension result folders (relative to the
+  # mw_classification_pipeline/ project root, or absolute).
+  results_root: "results/MW_Classification"
+
+  # Which scheme's runs to assemble. Subdir under results_root.
+  # "WithinSubject" or "LOSO" (or pass --scheme to override / loop).
+  schemes: ["WithinSubject", "LOSO"]
+
+  family: all      # feature-family subfolder used by the runs
+  model: rf        # model subfolder used by the runs
+
+  # Minimum shared probes a SUBJECT must contribute (with both classes) to be
+  # scored; AUC is computed per subject and averaged. Subjects below this are
+  # skipped. Per-subject (not per-cell), so keep small.
+  min_overlap: 8
+
+  # Substring identifying the true-run consolidated file (excludes permutation
+  # files which also end in *_consolidated_sample_predictions.csv).
+  predictions_glob: "*consolidated_sample_predictions.csv"
+  exclude_substring: "permutation"
+
+  # dimension label -> contrast folder name (as written by the runs)
+  dimensions:
+    onoff: on_vs_off_within_median
+    valence: valence_within_median
+    selfother: selfother_within_median
+    time: time_within_median
+    confidence: confidence_within_median
+
+  # Per-scheme folder-name overrides (the LOSO runs capitalise onoff differently).
+  scheme_folder_overrides:
+    LOSO:
+      onoff: ON_vs_OFF_within_median

@@ -120,6 +120,7 @@ def run_lmm_per_channel(
     random_state: int = 42,
     return_diagnostics: bool = False,
     abort_on_high_failure: bool = True,
+    obs_weights: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Run linear mixed model for each channel independently.
@@ -758,7 +759,8 @@ def fit_reduced_model_per_channel(
     predictor_of_interest: str,
     method: str = 'powell',
     maxiter: int = 1000,
-    random_state: int = 42
+    random_state: int = 42,
+    obs_weights: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Fit reduced LMM (without predictor of interest) and extract residuals and fitted values.

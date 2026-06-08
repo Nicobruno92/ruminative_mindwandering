@@ -502,17 +502,15 @@ def generate_model_plots(
     else:
         print("    ! SHAP values not available — skipping SHAP beeswarm")
 
-    # Add probability vs raw score plots
+    # Add probability vs raw score plots — exclude permutation files, sort for determinism
     import glob
-    matching_files = glob.glob(os.path.join(model_dir, "*_consolidated_sample_predictions.csv"))
+    all_consolidated = glob.glob(os.path.join(model_dir, "*_consolidated_sample_predictions.csv"))
+    matching_files = sorted(f for f in all_consolidated if "permutation" not in Path(f).name)
     if matching_files:
         consolidated_predictions_file = Path(matching_files[0])
         print(f"    -> Plotting Probability vs Raw Score from {consolidated_predictions_file.name}")
-        try:
-            df_consolidated = pd.read_csv(consolidated_predictions_file)
-            plot_probability_vs_raw(df_consolidated, model_dir, filename_base)
-        except Exception as e:
-            print(f"    ! Failed to plot probability vs raw score: {e}")
+        df_consolidated = pd.read_csv(consolidated_predictions_file)
+        plot_probability_vs_raw(df_consolidated, model_dir, filename_base)
     else:
         print(f"    ! Consolidated predictions not found in {model_dir} — skipping scatter plots")
 

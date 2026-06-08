@@ -19,10 +19,10 @@ def get_comparison_color(comparison):
     """Get color for a comparison label."""
     return COLORS[0]
 
-def set_plot_style(style='seaborn-v0_8'):
+def set_plot_style(style='seaborn-v0_8-white'):
     """Set the plotting style."""
     plt.style.use(style)
-    
+
     # Set figure parameters
     plt.rcParams.update({
         'figure.figsize': (10, 6),
@@ -34,7 +34,10 @@ def set_plot_style(style='seaborn-v0_8'):
         'legend.fontsize': 10,
         'figure.dpi': 300,
         'savefig.dpi': 300,
-        'savefig.bbox': 'tight'
+        'savefig.bbox': 'tight',
+        'axes.facecolor': 'white',
+        'figure.facecolor': 'white',
+        'savefig.facecolor': 'white',
     })
 
 
@@ -2972,8 +2975,8 @@ def plot_global_distribution_comparison(
 
     COLOR_TRUE = "#DE237B"
     COLOR_PERM = "#AAAAAA"
-    ALPHA_TRUE = 0.55
-    ALPHA_PERM = 0.35
+    ALPHA_TRUE = 0.72
+    ALPHA_PERM = 0.48
 
     label_map = {
         "auc": "AUC",
@@ -3000,7 +3003,8 @@ def plot_global_distribution_comparison(
 
     n = len(valid)
     row_h = 2.8
-    fig, axes = plt.subplots(n, 1, figsize=(7, row_h * n), sharey=False)
+    fig, axes = plt.subplots(n, 1, figsize=(7, row_h * n), sharey=False,
+                              facecolor='white')
     if n == 1:
         axes = [axes]
 
@@ -3026,9 +3030,9 @@ def plot_global_distribution_comparison(
             y_p = kde_p(x_grid)
             ax.fill_between(
                 x_grid, y_p, alpha=ALPHA_PERM, color=COLOR_PERM,
+                linewidth=0,
                 label="Shuffled Distribution" if not legend_added else "_nolegend_",
             )
-            ax.plot(x_grid, y_p, color=COLOR_PERM, lw=1.5, alpha=0.85)
 
         # True KDE
         if len(true_vals) >= 3:
@@ -3036,9 +3040,9 @@ def plot_global_distribution_comparison(
             y_t = kde_t(x_grid)
             ax.fill_between(
                 x_grid, y_t, alpha=ALPHA_TRUE, color=COLOR_TRUE,
+                linewidth=0,
                 label="True Distribution" if not legend_added else "_nolegend_",
             )
-            ax.plot(x_grid, y_t, color=COLOR_TRUE, lw=2)
             legend_added = True
 
         # Chance dashed vertical line
@@ -3073,6 +3077,7 @@ def plot_global_distribution_comparison(
                 )
 
         # Metric label as rotated y-axis title
+        ax.set_facecolor('white')
         ax.set_ylabel(ml, fontsize=11, fontweight="bold", rotation=0,
                       ha="right", va="center", labelpad=10)
         ax.set_yticks([])
@@ -3179,7 +3184,8 @@ def plot_subject_violin_comparison(
         pct_sig = 100 * n_sig / len(subjects) if subjects else 0
 
         # Figure layout: left panel = violins, right panel = donut
-        fig = plt.figure(figsize=(10, max(6, 0.55 * len(subjects) + 2)))
+        fig = plt.figure(figsize=(10, max(6, 0.55 * len(subjects) + 2)),
+                         facecolor='white')
         gs = fig.add_gridspec(1, 2, width_ratios=[3.5, 1.2], wspace=0.25)
         ax_v = fig.add_subplot(gs[0])
         ax_d = fig.add_subplot(gs[1])
@@ -3228,10 +3234,8 @@ def plot_subject_violin_comparison(
                 density_scaled = density / density.max() * HALF_HEIGHT
                 # Half-violin: fill between center y=pos and y=pos ± density
                 y_outer = pos + sign * density_scaled
-                # fill_between(x, y1, y2): at each x, fill between y1 and y2
                 ax_v.fill_between(x_grid, pos, y_outer,
-                                  color=color, alpha=0.72, linewidth=0)
-                ax_v.plot(x_grid, y_outer, color=color, lw=1.2, alpha=0.9)
+                                  color=color, alpha=0.80, linewidth=0)
                 # Median tick (vertical line from center to density boundary)
                 med_x = float(np.median(vals))
                 med_y = pos + sign * float(kde([med_x])[0] / density.max() * HALF_HEIGHT)
@@ -3261,6 +3265,7 @@ def plot_subject_violin_comparison(
         if chance is not None:
             ax_v.axvline(chance, color="black", ls="--", lw=1.2, alpha=0.5, label="Chance")
 
+        ax_v.set_facecolor('white')
         ax_v.set_yticks(positions)
         ax_v.set_yticklabels([f"Sub-{s}" for s in subjects], fontsize=9)
         ax_v.set_xlabel(metric_label, fontsize=11)
@@ -3363,7 +3368,8 @@ def plot_roc_comparison(
         print("  ROC comparison: no true ROC data available — skipping")
         return
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 6), facecolor='white')
+    ax.set_facecolor('white')
 
     # Permuted band (drawn first, behind)
     if perm_tprs:
@@ -3466,7 +3472,8 @@ def plot_confusion_matrix_comparison(
     cmap = "RdPu"
 
     n_panels = 2 if perm_has_data else 1
-    fig, axes = plt.subplots(1, n_panels, figsize=(5.5 * n_panels, 4.5))
+    fig, axes = plt.subplots(1, n_panels, figsize=(5.5 * n_panels, 4.5),
+                              facecolor='white')
     if n_panels == 1:
         axes = [axes]
 
@@ -3782,95 +3789,158 @@ def generate_all_comparison_plots(
     )
 
     print(f"\n  All comparison plots saved to: {save_path}")
-def plot_probability_vs_raw(consolidated_df: pd.DataFrame, comparison_results_path: str, filename_base: str, proba_col: str = "proba_mean"):
+def _minmax_within_subject(df: pd.DataFrame, col: str, subject_col: str = "subject") -> pd.Series:
+    """Min-max scale *col* within each subject. Subjects with zero range → NaN."""
+    def _scale(g):
+        mn, mx = g.min(), g.max()
+        if mx == mn:
+            return pd.Series(np.nan, index=g.index)
+        return (g - mn) / (mx - mn)
+    return df.groupby(subject_col)[col].transform(_scale)
+
+
+def plot_probability_vs_raw(
+    consolidated_df: pd.DataFrame,
+    comparison_results_path: str,
+    filename_base: str,
+    proba_col: str = "proba_mean",
+    normalize_within_subject: "list[str] | None" = None,
+):
     '''
-    Plot relationship between the assigned probability and the raw dimension score.
-    Creates a general plot and a subject-faceted plot with beta, r, p-values and y-limits restricted to [0, 1].
+    Plot relationship between the assigned probability and each raw dimension score.
+
+    Iterates over every ``*_first`` column (excluding ``y_true_first``) and
+    produces a general scatter and a by-subject faceted plot for each dimension.
+    Files are named ``{filename_base}_prob_vs_{dim}_{general,faceted}.png``.
+
+    Parameters
+    ----------
+    normalize_within_subject : list of str, optional
+        Dimension names (e.g. ``["confidence"]``) whose ``*_first`` column should
+        be min-max scaled within each subject before plotting.  Produces an
+        additional pair of plots suffixed ``_norm``:
+        ``{filename_base}_prob_vs_{dim}_norm_{general,faceted}.png``.
     '''
     plots_dir = os.path.join(comparison_results_path, "plots")
     os.makedirs(plots_dir, exist_ok=True)
-    
-    possible_raw = [c for c in consolidated_df.columns if c.endswith("_first") and c != "y_true_first"]
-    if not possible_raw:
+
+    raw_cols = [c for c in consolidated_df.columns if c.endswith("_first") and c != "y_true_first"]
+    if not raw_cols:
         print("No raw dimension column found for probability scatter plots.")
         return
-    raw_col = possible_raw[0]
 
-    # Clean data to compute stats
-    mask = ~consolidated_df[raw_col].isna() & ~consolidated_df[proba_col].isna()
-    df_clean = consolidated_df[mask]
+    normalize_within_subject = normalize_within_subject or []
 
-    # 1. General Plot
+    for raw_col in raw_cols:
+        dim = raw_col.replace("_first", "")
+        _plot_prob_vs_dim(consolidated_df, raw_col, dim, proba_col, plots_dir, filename_base)
+
+        if dim in normalize_within_subject and "subject" in consolidated_df.columns:
+            norm_col = f"__{dim}_norm"
+            df_norm = consolidated_df.copy()
+            df_norm[norm_col] = _minmax_within_subject(df_norm, raw_col)
+            df_norm = df_norm.rename(columns={norm_col: f"{norm_col}_first"})
+            _plot_prob_vs_dim(
+                df_norm, f"{norm_col}_first", f"{dim}_norm", proba_col, plots_dir, filename_base,
+                xlabel=f"{dim} (min-max within subject)",
+                title_suffix=" [normalized within subject]",
+            )
+
+
+def _plot_prob_vs_dim(
+    consolidated_df: pd.DataFrame,
+    raw_col: str,
+    dim: str,
+    proba_col: str,
+    plots_dir: str,
+    filename_base: str,
+    xlabel: str = None,
+    title_suffix: str = "",
+):
+    """Render and save the general + faceted scatter for one dimension column."""
+    mask = consolidated_df[raw_col].notna() & consolidated_df[proba_col].notna()
+    df_clean = consolidated_df[mask].copy()
+
+    if len(df_clean) < 2:
+        print(f"Not enough data for prob_vs_{dim} plots — skipping.")
+        return
+
+    xlabel = xlabel or f'Raw Score ({dim.replace("_norm", "")})'
+
+    # ── 1. General plot ──────────────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(8, 6))
-    
-    # Calculate global stats
-    if len(df_clean) > 1:
-        slope, intercept, r_value, p_value, std_err = stats.linregress(df_clean[raw_col], df_clean[proba_col])
-        stats_text = f"$\\beta$ = {slope:.3f}\n$r$ = {r_value:.2f}\n$p$ = {p_value:.1e}"
-    else:
-        stats_text = "Not enough data"
 
-    sns.regplot(data=df_clean, x=raw_col, y=proba_col,
-                scatter_kws={'alpha': 0.5, 's': 20, 'color': get_comparison_color("")},
-                line_kws={'color': 'black', 'lw': 2},
-                ax=ax)
-    
+    slope, intercept, r_value, p_value, std_err = stats.linregress(
+        df_clean[raw_col], df_clean[proba_col]
+    )
+    stats_text = f"$\\beta$ = {slope:.3f}\n$r$ = {r_value:.2f}\n$p$ = {p_value:.1e}"
+
+    sns.regplot(
+        data=df_clean, x=raw_col, y=proba_col,
+        scatter_kws={'alpha': 0.5, 's': 20, 'color': get_comparison_color("")},
+        line_kws={'color': 'black', 'lw': 2},
+        ax=ax,
+    )
+
     ax.set_ylim(-0.05, 1.05)
-    ax.set_xlabel(f'Raw Score ({raw_col.replace("_first", "")})')
+    ax.set_xlabel(xlabel)
     ax.set_ylabel('Mean Predicted Probability')
-    ax.set_title('Overall: Probability vs Raw Score')
-    
-    ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=10,
-            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
-    
+    ax.set_title(f'Overall: Probability vs {dim.replace("_norm", "")}{title_suffix}')
+    ax.text(
+        0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=10,
+        verticalalignment='top',
+        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'),
+    )
+
     sns.despine()
     plt.tight_layout()
-    general_path = os.path.join(plots_dir, f"{filename_base}_prob_vs_raw_general.png")
-    plt.savefig(general_path, dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(plots_dir, f"{filename_base}_prob_vs_{dim}_general.png"), dpi=300, bbox_inches='tight')
     plt.close(fig)
-    
-    # 2. Faceted Plot by Subject
+
+    # ── 2. Faceted by subject ────────────────────────────────────────────────
     if "subject" not in df_clean.columns:
-        print("No subject column found. Skipping faceted plot.")
+        print(f"No subject column — skipping faceted plot for {dim}.")
         return
-    
+
     n_subj = df_clean['subject'].nunique()
-    cols = min(6, n_subj)
-    if cols < 1: cols = 1
-    
+    cols = min(6, max(1, n_subj))
+
     g = sns.lmplot(
-        data=df_clean, 
-        x=raw_col, 
-        y=proba_col, 
+        data=df_clean,
+        x=raw_col,
+        y=proba_col,
         col="subject",
         col_wrap=cols,
-        height=3.5, 
+        height=3.5,
         aspect=1,
-        sharex=True,
-        sharey=True,
+        facet_kws={"sharex": True, "sharey": True},
         scatter_kws={'alpha': 0.6, 's': 15, 'color': get_comparison_color("")},
-        line_kws={'color': 'black', 'lw': 1.5}
+        line_kws={'color': 'black', 'lw': 1.5},
     )
-    
+
     g.set(ylim=(-0.05, 1.05))
-    
-    def annotate_stats(data, **kws):
+
+    def _annotate(data, **kws):
         ax = plt.gca()
         x = data[raw_col]
         y = data[proba_col]
         if len(x) > 1:
-            s, i, r, p, se = stats.linregress(x, y)
-            text = f"$\\beta$={s:.3f}\n$r$={r:.2f}\n$p$={p:.1e}"
-            ax.text(0.05, 0.95, text, transform=ax.transAxes, fontsize=8,
-                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.7, edgecolor='none'))
+            s, _, r, p, _ = stats.linregress(x, y)
+            ax.text(
+                0.05, 0.95,
+                f"$\\beta$={s:.3f}\n$r$={r:.2f}\n$p$={p:.1e}",
+                transform=ax.transAxes, fontsize=8,
+                verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.7, edgecolor='none'),
+            )
 
-    g.map_dataframe(annotate_stats)
-    
-    g.set_axis_labels(f'Raw ({raw_col.replace("_first", "")})', 'Pred Probability')
+    g.map_dataframe(_annotate)
+    g.set_axis_labels(xlabel, 'Pred Probability')
     g.fig.subplots_adjust(top=0.92)
-    g.fig.suptitle('By Subject: Probability vs Raw Score', fontsize=16)
+    dim_label = dim.replace("_norm", "")
+    g.fig.suptitle(f'By Subject: Probability vs {dim_label}{title_suffix}', fontsize=16)
 
-    faceted_path = os.path.join(plots_dir, f"{filename_base}_prob_vs_raw_faceted.png")
+    faceted_path = os.path.join(plots_dir, f"{filename_base}_prob_vs_{dim}_faceted.png")
     g.savefig(faceted_path, dpi=300, bbox_inches='tight')
     plt.close(g.fig)
 
@@ -4002,3 +4072,143 @@ def plot_auc_vs_onoff_dispersion(
 
     plot_df.to_csv(f"{out_path}_data.csv", index=False)
     print(f"  Saved AUC vs {label_col} dispersion → {out_path}.png")
+
+
+# =============================================================================
+# AUC VS CLASS IMBALANCE
+# =============================================================================
+
+def plot_auc_vs_class_imbalance(
+    subject_auc_df: pd.DataFrame,
+    df_prepared: pd.DataFrame,
+    results_path: str,
+    filename_base: str,
+    pipeline_label: str = "LOSO",
+    label_col: str = "onoff",
+) -> None:
+    """
+    Scatter plot of per-subject AUC vs per-subject class imbalance.
+
+    Class imbalance is expressed as the minority-class ratio (n_minority /
+    n_total), ranging from 0 (maximally imbalanced) to 0.5 (perfectly
+    balanced).  This relates classification performance to whether each
+    subject's binary labels are evenly split after the median binarization.
+
+    Parameters
+    ----------
+    subject_auc_df : pd.DataFrame
+        Columns: 'subject', 'auc'. One row per subject, AUC averaged over runs.
+    df_prepared : pd.DataFrame
+        Full prepared DataFrame with 'subject' and 'target' (binary 0/1).
+    results_path : str
+        Directory where plot files are saved.
+    filename_base : str
+        Filename prefix (matches the other result files for this run).
+    pipeline_label : str
+        Pipeline name for the plot title ('LOSO' or 'WithinSubject').
+    label_col : str
+        Dimension name used only for labelling (e.g. 'onoff', 'valence').
+    """
+    if "target" not in df_prepared.columns:
+        print("Warning: 'target' column not found in df_prepared — skipping AUC vs imbalance plot.")
+        return
+
+    def _minority_ratio(s: pd.Series) -> float:
+        counts = s.value_counts()
+        if len(counts) < 2:
+            return 0.0
+        return float(counts.min()) / float(counts.sum())
+
+    df_work = df_prepared.copy()
+    df_work["subject"] = df_work["subject"].astype(str)
+    imbalance_stats = (
+        df_work.groupby("subject")["target"]
+        .agg(minority_ratio=_minority_ratio, n_trials="count")
+        .reset_index()
+    )
+
+    auc_work = subject_auc_df.copy()
+    auc_work["subject"] = auc_work["subject"].astype(str)
+    plot_df = pd.merge(auc_work, imbalance_stats, on="subject", how="inner")
+    if plot_df.empty:
+        print("Warning: No subjects matched between AUC data and target data — skipping imbalance plot.")
+        return
+
+    x = plot_df["minority_ratio"].values.astype(float)
+    y = plot_df["auc"].values.astype(float)
+    valid = np.isfinite(x) & np.isfinite(y)
+
+    r_val, p_val = np.nan, np.nan
+    slope, intercept = np.nan, np.nan
+    if valid.sum() >= 3:
+        r_val, p_val = stats.pearsonr(x[valid], y[valid])
+        slope, intercept, *_ = stats.linregress(x[valid], y[valid])
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=plot_df["minority_ratio"],
+        y=plot_df["auc"],
+        mode='markers+text',
+        text=plot_df["subject"].astype(str),
+        textposition='top center',
+        textfont=dict(size=9),
+        marker=dict(color=COLORS[0], size=10, opacity=0.85,
+                    line=dict(color='white', width=1)),
+        name='Subjects',
+        hovertemplate=(
+            'Subject: %{text}<br>'
+            'Minority ratio: %{x:.3f}<br>'
+            'AUC: %{y:.3f}<extra></extra>'
+        ),
+    ))
+
+    if np.isfinite(slope):
+        x_line = np.array([np.nanmin(x[valid]), np.nanmax(x[valid])])
+        y_line = slope * x_line + intercept
+        fig.add_trace(go.Scatter(
+            x=x_line,
+            y=y_line,
+            mode='lines',
+            line=dict(color='black', width=2, dash='dash'),
+            name=f'r = {r_val:.2f}, p = {p_val:.3f}',
+        ))
+
+    fig.add_hline(
+        y=0.5, line_dash='dash', line_color='gray', opacity=0.5,
+        annotation_text='Chance (0.5)', annotation_position='bottom right',
+    )
+    fig.add_vline(
+        x=0.5, line_dash='dot', line_color='gray', opacity=0.4,
+        annotation_text='Perfect balance', annotation_position='top left',
+    )
+
+    corr_label = (
+        f"r = {r_val:.3f}, p = {p_val:.3f}" if np.isfinite(r_val) else "r = N/A"
+    )
+    fig.update_layout(
+        template='plotly_white',
+        title=dict(
+            text=(
+                f'<b>{pipeline_label}: AUC vs {label_col} Class Imbalance</b><br>'
+                f'<sup>{corr_label} | n = {valid.sum()} subjects</sup>'
+            ),
+            font=dict(size=16),
+        ),
+        xaxis_title='Minority-class ratio (0 = fully imbalanced, 0.5 = balanced)',
+        yaxis_title='AUC',
+        xaxis=dict(range=[0.0, 0.55]),
+        yaxis=dict(range=[max(0.0, float(np.nanmin(y)) - 0.1),
+                          min(1.0, float(np.nanmax(y)) + 0.1)]),
+        width=800,
+        height=650,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    )
+
+    os.makedirs(results_path, exist_ok=True)
+    out_path = os.path.join(results_path, f"{filename_base}_auc_vs_{label_col}_imbalance")
+    fig.write_image(f"{out_path}.png", scale=2)
+    fig.write_image(f"{out_path}.pdf")
+    fig.write_html(f"{out_path}.html")
+    plot_df.to_csv(f"{out_path}_data.csv", index=False)
+    print(f"  Saved AUC vs {label_col} class imbalance → {out_path}.png")

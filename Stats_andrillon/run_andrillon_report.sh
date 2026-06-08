@@ -6,10 +6,24 @@
 #SBATCH --output=logs/mw_report_%j.out
 #SBATCH --error=logs/mw_report_%j.err
 
-# One-off report job for the `onoff` predictor model (target_onoff), submitted
-# after re-running its 9 previously-failed markers (array job for indices
-# 17,18,21,24,28,30,35,55,56). Runs only on afterok, so it will not regenerate
-# a report on incomplete data.
+# Reusable report job: MCC post-processing + summary report for a single,
+# already-complete Andrillon model directory.
+#
+# Usage:
+#   sbatch Stats_andrillon/run_andrillon_report.sh <MODEL_DIR> [CONFIG_FILE]
+#
+#   MODEL_DIR    Path to results/andrillon_cluster/<model_folder> (absolute or
+#                relative to the project root).
+#   CONFIG_FILE  Optional; defaults to Stats_andrillon/config_andrillon.yaml.
+
+MODEL_DIR="$1"
+CONFIG_FILE="${2:-Stats_andrillon/config_andrillon.yaml}"
+
+if [ -z "${MODEL_DIR}" ]; then
+    echo "ERROR: MODEL_DIR argument is required."
+    echo "Usage: sbatch Stats_andrillon/run_andrillon_report.sh <MODEL_DIR> [CONFIG_FILE]"
+    exit 2
+fi
 
 # Load modules
 module load proxy
@@ -38,14 +52,17 @@ export MPLBACKEND=Agg
 
 cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 
-MODEL_DIR="results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence__target_onoff"
-CONFIG_FILE="Stats_andrillon/config_andrillon.yaml"
+if [ ! -d "${MODEL_DIR}" ]; then
+    echo "ERROR: Model directory not found: ${MODEL_DIR}"
+    exit 1
+fi
 
 echo "=========================================="
 echo "RUNNING MCC POST-PROCESSING"
 echo "=========================================="
-python Statistics/apply_mcc_postprocessing.py ${MODEL_DIR} \
-    --config ${CONFIG_FILE}
+python Statistics/apply_mcc_postprocessing.py "${MODEL_DIR}" \
+    --config "${CONFIG_FILE}"
+MCC_EXIT=$?
 
 echo ""
 echo "=========================================="
@@ -55,16 +72,23 @@ echo "Start time: $(date)"
 echo "Model directory: ${MODEL_DIR}"
 echo ""
 
-python Statistics/generate_summary_report.py ${MODEL_DIR}
+python Statistics/generate_summary_report.py "${MODEL_DIR}"
+REPORT_EXIT=$?
 
-EXIT_CODE=$?
+# Fail the job if either step failed, so sacct records it and any afterok
+# dependency is respected.
+if [ ${MCC_EXIT} -ne 0 ]; then
+    EXIT_CODE=${MCC_EXIT}
+else
+    EXIT_CODE=${REPORT_EXIT}
+fi
 
 if [ ${EXIT_CODE} -eq 0 ]; then
     echo ""
     echo "✓ Report generation completed successfully at $(date)"
 else
     echo ""
-    echo "✗ Report generation failed with exit code ${EXIT_CODE} at $(date)"
+    echo "✗ Report generation failed (MCC=${MCC_EXIT}, report=${REPORT_EXIT}) at $(date)"
 fi
 
 echo "=========================================="

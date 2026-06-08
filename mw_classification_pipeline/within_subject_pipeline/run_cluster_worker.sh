@@ -2,53 +2,40 @@
 # =============================================================================
 # run_cluster_worker.sh — Within-Subject MW Pipeline (SLURM worker)
 # =============================================================================
-# Submitted by run_cluster.sh as a SLURM array element.
-# Reads its (model, contrast, family) from logs/.combinations.txt via
-# SLURM_ARRAY_TASK_ID. All parameters come from config.yaml.
-#
-# DO NOT submit this script directly — use run_cluster.sh instead.
+# Arguments: $1 = config path, $2 = mode ("true" or "perm")
+# DO NOT submit directly — use run_cluster.sh.
 # =============================================================================
-# Note: --chdir is passed explicitly by run_cluster.sh as an absolute path.
-# SLURM_SUBMIT_DIR is used as a fallback to guarantee the correct working
-# directory even if SLURM copies the script to a temp location before execution.
 
 set -euo pipefail
 
-# Use SLURM_SUBMIT_DIR (set by SLURM at submission time) as the authoritative
-# working directory — reliable even when SLURM copies the script to a tmpdir.
 SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 cd "$SCRIPT_DIR"
 
 CONFIG="${1:-config.yaml}"
-# If CONFIG was passed as an absolute path (by run_cluster.sh), use it as-is;
-# otherwise resolve relative to SCRIPT_DIR.
+MODE="${2:-true}"
 [[ "$CONFIG" != /* ]] && CONFIG="$SCRIPT_DIR/$CONFIG"
 
-# ---------------------------------------------------------------------------
-# Resolve this array task's (model, contrast, family) combination
-# ---------------------------------------------------------------------------
-COMBINATIONS_FILE="logs/.combinations.txt"
+if [ "$MODE" = "true" ]; then
+    COMBINATIONS_FILE="logs/.true_combinations.txt"
+else
+    COMBINATIONS_FILE="logs/.perm_combinations.txt"
+fi
+
 if [ ! -f "$COMBINATIONS_FILE" ]; then
-    echo "ERROR: Combination file not found: $COMBINATIONS_FILE"
-    echo "Run run_cluster.sh first to generate it."
+    echo "ERROR: $COMBINATIONS_FILE not found. Run run_cluster.sh first."
     exit 1
 fi
 
 COMBO=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$COMBINATIONS_FILE")
-if [ -z "$COMBO" ]; then
-    echo "ERROR: No combination at index $SLURM_ARRAY_TASK_ID"
-    exit 1
-fi
+[ -z "$COMBO" ] && { echo "ERROR: No combination at index $SLURM_ARRAY_TASK_ID"; exit 1; }
 
 MODEL_T=$(echo "$COMBO" | cut -d: -f1)
 CONTRAST=$(echo "$COMBO" | cut -d: -f2)
-FAMILY=$(echo "$COMBO" | cut -d: -f3)
+FAMILY=$(echo "$COMBO"   | cut -d: -f3)
+IDX_FIELD=$(echo "$COMBO" | cut -d: -f4)
+IDX_NUM="${IDX_FIELD#*_}"
 
 # ---------------------------------------------------------------------------
-# Environment setup
-# ---------------------------------------------------------------------------
-module load proxy 2>/dev/null || true  # required for cluster network / conda
-
 CONDA_ENV=$(python3 -c "
 import yaml
 with open('$CONFIG') as f:
@@ -56,72 +43,60 @@ with open('$CONFIG') as f:
 print(cfg.get('slurm', {}).get('conda_env', 'ML'))
 ")
 
-# Activate conda robustly across different cluster setups
+module load proxy 2>/dev/null || true
+
 if [ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
     source "$HOME/miniforge3/etc/profile.d/conda.sh"
 elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
     source "$HOME/miniconda3/etc/profile.d/conda.sh"
 elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
     source "$HOME/anaconda3/etc/profile.d/conda.sh"
-elif [ -f "/opt/anaconda3/etc/profile.d/conda.sh" ]; then
-    source "/opt/anaconda3/etc/profile.d/conda.sh"
 elif command -v conda > /dev/null 2>&1; then
     eval "$(conda shell.bash hook)"
 else
-    echo "ERROR: Cannot find conda. Activate $CONDA_ENV manually."
-    exit 1
+    echo "ERROR: Cannot find conda."; exit 1
 fi
 conda activate "$CONDA_ENV"
-# Force the env's bin onto PATH. SLURM exports the submitting shell's env
-# (--export=ALL), which may carry a half-initialized conda state (CONDA_PREFIX
-# set but the base bin never on PATH). In that case `conda activate` updates
-# CONDA_PREFIX but not PATH, so `python` stays the system interpreter. This
-# guarantees the activated env's python is used regardless of inherited state.
 export PATH="$CONDA_PREFIX/bin:$PATH"
 
-# Propagate SLURM CPU count to threading libraries
-export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-16}
-export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-16}
-export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-16}
-export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK:-16}
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-32}
+export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-32}
+export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-32}
+export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK:-32}
 export PYTHONUNBUFFERED=1
 
-# ---------------------------------------------------------------------------
-# Info
-# ---------------------------------------------------------------------------
 echo "========================================================"
 echo " MW Within-Subject Pipeline — SLURM Worker"
 echo "========================================================"
-echo " Job ID        : ${SLURM_JOB_ID:-local}"
-echo " Array task    : ${SLURM_ARRAY_TASK_ID:-0}"
-echo " Combination   : $COMBO"
-echo " Model         : $MODEL_T"
-echo " Contrast      : $CONTRAST"
-echo " Family        : $FAMILY"
-echo " Config        : $CONFIG"
-echo " Host          : $(hostname)"
-echo " CPUs          : ${SLURM_CPUS_PER_TASK:-?}"
-echo " Conda env     : $CONDA_ENV"
-echo " Started       : $(date)"
+echo " Job ID   : ${SLURM_JOB_ID:-local}"
+echo " Array    : ${SLURM_ARRAY_TASK_ID:-0}"
+echo " Mode     : $MODE"
+echo " Combo    : $COMBO"
+echo " Model    : $MODEL_T | Contrast: $CONTRAST | Family: $FAMILY | Idx: $IDX_NUM"
+echo " CPUs     : ${SLURM_CPUS_PER_TASK:-?}"
+echo " Started  : $(date)"
 echo "========================================================"
 
-# ---------------------------------------------------------------------------
-# Run
-# ---------------------------------------------------------------------------
-python run_within_subject_classification.py \
-    --config     "$CONFIG" \
-    --contrast   "$CONTRAST" \
-    --family     "$FAMILY" \
-    --model_type "$MODEL_T"
+if [ "$MODE" = "true" ]; then
+    python run_within_subject_classification.py \
+        --config     "$CONFIG" \
+        --contrast   "$CONTRAST" \
+        --family     "$FAMILY" \
+        --model_type "$MODEL_T" \
+        --run_idx    "$IDX_NUM" \
+        --skip_permutation
+else
+    python run_within_subject_classification.py \
+        --config     "$CONFIG" \
+        --contrast   "$CONTRAST" \
+        --family     "$FAMILY" \
+        --model_type "$MODEL_T" \
+        --perm_idx   "$IDX_NUM"
+fi
 
 EXIT_CODE=$?
-
 echo "========================================================"
-if [ $EXIT_CODE -ne 0 ]; then
-    echo " FAILED: $MODEL_T | $CONTRAST | $FAMILY (exit $EXIT_CODE)"
-    exit $EXIT_CODE
-else
-    echo " SUCCESS: $MODEL_T | $CONTRAST | $FAMILY"
-    echo " Finished : $(date)"
-fi
+[ $EXIT_CODE -ne 0 ] && echo " FAILED: $MODE $IDX_NUM (exit $EXIT_CODE)" && exit $EXIT_CODE
+echo " SUCCESS: $MODEL_T | $CONTRAST | $FAMILY | $MODE $IDX_NUM"
+echo " Finished: $(date)"
 echo "========================================================"

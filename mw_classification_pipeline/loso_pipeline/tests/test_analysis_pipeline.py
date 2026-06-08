@@ -86,7 +86,7 @@ class TestHelperFunctions:
 
     def test_get_run_dir_multi_creates_subdir(self, tmp_path):
         result = get_run_dir(str(tmp_path), run_idx=2, n_runs=5)
-        assert "run2" in result
+        assert "run_2" in result
         assert Path(result).exists()
 
     def test_get_permutation_dir_is_inside_permutation_subdir(self, tmp_path):
@@ -116,7 +116,7 @@ class TestRunDistributionAnalysis:
     # --- return type ---
 
     def test_returns_nonempty_dataframe(self, setup):
-        result = run_distribution_analysis(
+        result, _, _ = run_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
@@ -126,17 +126,17 @@ class TestRunDistributionAnalysis:
         assert isinstance(result, pd.DataFrame) and not result.empty
 
     def test_result_has_one_row_per_subject(self, setup):
-        result = run_distribution_analysis(
+        result, _, _ = run_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
             model_type="lr", n_runs=1, results_path=setup["results_path"],
             **_NO_PLOTS,
         )
-        assert len(result) == setup["groups"].nunique()
+        assert len(result) == 1  # one row per run, not per subject
 
     def test_result_has_metric_columns(self, setup):
-        result = run_distribution_analysis(
+        result, _, _ = run_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
@@ -147,7 +147,7 @@ class TestRunDistributionAnalysis:
             assert col in result.columns
 
     def test_auc_values_in_valid_range(self, setup):
-        result = run_distribution_analysis(
+        result, _, _ = run_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
@@ -233,14 +233,14 @@ class TestRunDistributionAnalysis:
         assert len(run_dirs) >= 2
 
     def test_multi_run_result_still_per_subject(self, setup):
-        result = run_distribution_analysis(
+        result, _, _ = run_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
             model_type="lr", n_runs=2, results_path=setup["results_path"],
             **_NO_PLOTS,
         )
-        assert len(result) == setup["groups"].nunique()
+        assert len(result) == 2  # one row per run
 
     def test_used_config_yaml_saved(self, setup):
         """A copy of the config should be saved for reproducibility."""
@@ -275,7 +275,7 @@ class TestRunPermutationAnalysis:
                     results_path=results_path)
 
     def test_returns_dataframe_and_dict(self, setup):
-        results_df, perm_summary = run_permutation_distribution_analysis(
+        results_df, perm_summary, _, _ = run_permutation_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
@@ -286,7 +286,7 @@ class TestRunPermutationAnalysis:
         assert isinstance(perm_summary, dict)
 
     def test_p_value_in_zero_one_range(self, setup):
-        _, perm_summary = run_permutation_distribution_analysis(
+        _, perm_summary, _, _ = run_permutation_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
@@ -298,7 +298,7 @@ class TestRunPermutationAnalysis:
         assert 0.0 <= p <= 1.0, f"p-value out of range: {p}"
 
     def test_perm_summary_has_p_for_each_metric(self, setup):
-        _, perm_summary = run_permutation_distribution_analysis(
+        _, perm_summary, _, _ = run_permutation_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
@@ -308,7 +308,7 @@ class TestRunPermutationAnalysis:
         assert "p_mean_auc" in perm_summary
 
     def test_zero_permutations_returns_empty(self, setup):
-        results_df, perm_summary = run_permutation_distribution_analysis(
+        results_df, perm_summary, _, _ = run_permutation_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],
@@ -326,11 +326,11 @@ class TestRunPermutationAnalysis:
             model_type="lr", n_permutations=2, results_path=setup["results_path"],
             save_csv=True, true_auc_list=[0.6], **_NO_PLOTS,
         )
-        perm_csvs = list(Path(setup["results_path"]).rglob("permutation/*.csv"))
+        perm_csvs = list(Path(setup["results_path"]).rglob("permuted_runs/**/*.csv"))
         assert len(perm_csvs) > 0
 
     def test_permutation_result_has_auc_column(self, setup):
-        results_df, _ = run_permutation_distribution_analysis(
+        results_df, _, _, _ = run_permutation_distribution_analysis(
             dimension="ON_vs_OFF",
             df=setup["df"], X=setup["X"], y=setup["y"], groups=setup["groups"],
             feature_cols=setup["feature_cols"], config=setup["config"],

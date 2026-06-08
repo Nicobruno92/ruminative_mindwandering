@@ -72,35 +72,57 @@ lmm:
   predictor_of_interest:
     - "onoff"
     - "valence"
-    - "onoff:confidence"
-    # - "selfother"
-    # - "confidence"
-    # - "time"
+    - "selfother"
+    - "time"
     # - "time_on_task"
+    # - "confidence"
+    # Interaction examples (requires per_predictor_formula override below):
+    # - "onoff:confidence"
+    # - "valence:confidence"
 
   # Per-predictor formula overrides.
-  # When a predictor requires a different formula than the default (e.g. an
-  # interaction term that needs a multiplicative model), specify it here.
-  # Predictors NOT listed here fall back to `formula` above.
-  #
-  # Rules:
-  #   - The formula MUST contain the predictor as a term (or its components for
-  #     interactions). E.g. "onoff:confidence" requires "onoff * confidence" or
-  #     the explicit "onoff + confidence + onoff:confidence" in the formula.
-  #   - Main-effect predictors do not need an override unless you want a
-  #     different covariate set for that specific test.
-  #   - The reduced model for Freedman-Lane is derived automatically by removing
-  #     the predictor from the override formula (interaction removed, main
-  #     effects kept).
-  #
-  # Example — test onoff:confidence interaction while keeping other covariates:
+  # Only needed for interaction terms — main-effect predictors use formula above.
   per_predictor_formula:
-    "onoff:confidence": "power ~ onoff * confidence + valence + selfother + time + time_on_task + (1|subject)"
+    # "onoff:confidence": "power ~ onoff * confidence + valence + selfother + time + time_on_task + (1|subject)"
+    # "valence:confidence": "power ~ valence * confidence + onoff + selfother + time + time_on_task + (1|subject)"
 
   # LMM fitting parameters
-  method: "powell"  # Optimization method
-  maxiter: 200     # Maximum iterations
+  method: "powell"  # Optimization method (ignored by R backend — lme4 uses bobyqa)
+  maxiter: 200     # Maximum iterations (mapped to lmerControl optCtrl maxfun for R backend)
   random_state: 42  # Random seed
+
+  # ── Backend selection ────────────────────────────────────────────────────
+  # "python"  Use statsmodels mixedlm (default, no extra dependencies).
+  # "r"       Use lme4::lmer via rpy2 — required for exact WLS-LMM when
+  #           obs_weight_col is set.
+  #
+  # Dependencies for backend "r":
+  #   Python:  conda install -c conda-forge rpy2  (already installed)
+  #   R:       conda install -c conda-forge r-lme4 r-lmertest  (already installed)
+  backend: "python"
+
+  # ── Observation weighting (IWV / WLS-LMM) ───────────────────────────────
+  # Column in df_behavioral to use as per-observation weights.
+  # null  → no weighting (standard LMM).
+  # "confidence" → weight each probe by the subject's confidence in their
+  #   on/off-task rating, so reliable probes drive the fixed-effect estimates
+  #   more than uncertain ones.  Requires backend: "r" for exact WLS-LMM.
+  obs_weight_col: null
+
+  # How to normalize weights before passing to lmer:
+  #   "subject_minmax" — min-max scale within each subject → [0.01, 1].
+  #               The most confident probe gets weight 1; the least gets 0.01.
+  #               Bounded range: no single probe can dominate via outlier-high
+  #               confidence.  Purely ordinal: only within-subject ranking
+  #               matters.  Recommended.
+  #   "subject_zscore" — z-score within each subject, shifted to be positive.
+  #               Removes mean + SD differences across subjects, but unbounded
+  #               (high-confidence outliers can get weights > 4).
+  #   "subject" — divide by subject mean only (removes mean differences but
+  #               not scale differences between subjects).
+  #   "global"  — divide by global mean.
+  #   null      — use raw values (must all be > 0).
+  weight_normalization: "subject_minmax"
 
 # Andrillon 2020 Cluster-Permutation Parameters
 # ================================================
