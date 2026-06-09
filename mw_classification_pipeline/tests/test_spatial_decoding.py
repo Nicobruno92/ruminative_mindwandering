@@ -68,3 +68,37 @@ def test_permutation_pvalue_plus_one_convention():
 def test_permutation_pvalue_floor_with_empty_null():
     # No null -> p = (1+0)/(1+0) = 1.0
     assert permutation_pvalue(0.7, []) == pytest.approx(1.0)
+
+
+from utils.spatial_decoding_utils import run_spatial_searchlight
+
+
+def _stub_channel_eval(X_ch, channel, **kwargs):
+    """Deterministic stub: AUC scales with number of features; null centered at 0.5."""
+    rng = np.random.default_rng(abs(hash(channel)) % (2**32))
+    mean_auc = 0.5 + 0.01 * X_ch.shape[1]
+    null = (0.5 + 0.02 * rng.standard_normal(20)).tolist()
+    return {
+        "channel": channel,
+        "n_features": X_ch.shape[1],
+        "mean_auc": mean_auc,
+        "std_auc": 0.01,
+        "null_aucs": null,
+        "subject_auc": None,
+    }
+
+
+def test_run_spatial_searchlight_returns_one_row_per_channel(per_channel_X, tmp_path):
+    df = run_spatial_searchlight(
+        X=per_channel_X,
+        channel_eval=_stub_channel_eval,
+        alpha=0.05,
+        results_path=str(tmp_path),
+    )
+    assert sorted(df["channel"].tolist()) == ["Fz", "P1", "P10", "Pz"]
+    for col in ["mean_auc", "std_auc", "perm_p", "perm_p_fdr", "sig", "n_features"]:
+        assert col in df.columns
+    # FDR p >= raw p elementwise
+    assert (df["perm_p_fdr"] >= df["perm_p"] - 1e-9).all()
+    # CSV persisted
+    assert (tmp_path / "per_channel_metrics.csv").exists()

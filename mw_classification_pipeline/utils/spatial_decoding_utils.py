@@ -126,3 +126,88 @@ def permutation_pvalue(true_value: float, null_values: list[float]) -> float:
     n = null.size
     n_ge = int(np.sum(null >= true_value))
     return (1 + n_ge) / (1 + n)
+
+
+def run_spatial_searchlight(
+    X: pd.DataFrame,
+    channel_eval: Callable[..., dict],
+    alpha: float = 0.05,
+    results_path: str | None = None,
+    channels: list[str] | None = None,
+    save_nulls: bool = True,
+    verbose: bool = True,
+    **eval_kwargs,
+) -> pd.DataFrame:
+    """
+    Run a per-electrode searchlight: evaluate one model per channel and aggregate.
+
+    For each channel, restricts ``X`` to that channel's marker columns and calls
+    ``channel_eval`` (the pipeline-specific adapter). Computes the +1 permutation
+    p-value per channel from the returned null distribution, applies BH-FDR across
+    channels, and writes ``per_channel_metrics.csv`` (and optionally the per-channel
+    null distributions) to ``results_path``.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Per-channel feature matrix (``{channel}_{marker}`` columns).
+    channel_eval : callable
+        Adapter returning the normalized result dict (see module/plan contract).
+    alpha : float
+        FDR significance threshold.
+    results_path : str or None
+        Output directory. If None, nothing is written to disk.
+    channels : list of str or None
+        Subset of channels to run. None = all channels parsed from columns.
+    save_nulls : bool
+        Persist per-channel null AUC distributions to ``permutation_nulls.csv``.
+    verbose : bool
+        Print per-channel progress.
+    **eval_kwargs
+        Forwarded to ``channel_eval``.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per channel with columns: channel, n_features, mean_auc, std_auc,
+        perm_p, perm_p_fdr, sig, n_sig_subjects (if provided by the adapter).
+    """
+    if channels is None:
+        channels = parse_channels_from_columns(X.columns.tolist())
+
+    rows = []
+    null_rows = []
+    for i, ch in enumerate(channels):
+        X_ch = select_channel_columns(X, ch)
+        if verbose:
+            print(f"  [{i + 1}/{len(channels)}] channel {ch}: {X_ch.shape[1]} features")
+        res = channel_eval(X_ch, ch, **eval_kwargs)
+        p = permutation_pvalue(res["mean_auc"], res.get("null_aucs", []))
+        row = {
+            "channel": ch,
+            "n_features": res.get("n_features", X_ch.shape[1]),
+            "mean_auc": res["mean_auc"],
+            "std_auc": res.get("std_auc", np.nan),
+            "perm_p": p,
+        }
+        subject_auc = res.get("subject_auc")
+        if subject_auc is not None:
+            row["n_sig_subjects"] = res.get("n_sig_subjects", np.nan)
+        rows.append(row)
+        if save_nulls:
+            for v in res.get("null_aucs", []):
+                null_rows.append({"channel": ch, "null_auc": v})
+
+    metrics = pd.DataFrame(rows)
+    adj, reject = fdr_correct(metrics["perm_p"].to_numpy(), alpha=alpha)
+    metrics["perm_p_fdr"] = adj
+    metrics["sig"] = reject
+
+    if results_path is not None:
+        os.makedirs(results_path, exist_ok=True)
+        metrics.to_csv(os.path.join(results_path, "per_channel_metrics.csv"), index=False)
+        if save_nulls and null_rows:
+            pd.DataFrame(null_rows).to_csv(
+                os.path.join(results_path, "permutation_nulls.csv"), index=False
+            )
+    return metrics
