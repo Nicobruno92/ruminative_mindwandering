@@ -517,3 +517,148 @@ def save_results(
 
     with open(output_dir / "used_config.yaml", "w") as f:
         yaml.dump(config, f, default_flow_style=False)
+
+
+# === Plotting ===
+
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend for server/script use
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+
+def plot_results(
+    results: dict,
+    perm_results: dict,
+    output_dir: Path,
+    feature_names: Optional[List[str]] = None,
+) -> None:
+    """Generate all diagnostic plots and save to output_dir/plots/.
+
+    Parameters
+    ----------
+    results : output of run_loso
+    perm_results : output of run_permutations
+    output_dir : parent directory; plots go to output_dir/plots/
+    feature_names : ordered list of feature names for the importances bar chart
+
+    Plots produced
+    --------------
+    - permutation_distribution_auc.png
+    - permutation_distribution_bacc.png
+    - metric_distributions.png  (AUC + BACC true vs permutation violin)
+    - subject_predictions.png   (per-subject mean predicted probability by true label)
+    - feature_importances.png   (horizontal bar chart, sorted)
+    - confusion_matrix.png      (counts + normalised side by side)
+    """
+    plots_dir = Path(output_dir) / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    perm_aucs = perm_results["auc"]
+    perm_baccs = perm_results["balanced_accuracy"]
+    y_true = np.array(results["y_true"])
+    y_proba = np.array(results["y_proba"])
+    y_pred = (y_proba >= 0.5).astype(int)
+
+    # 1. Permutation distribution — AUC
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(perm_aucs, bins=30, color="steelblue", alpha=0.7, label="Permutations")
+    ax.axvline(results["auc"], color="crimson", linewidth=2,
+               label=f"True AUC = {results['auc']:.3f}")
+    p_auc = compute_pvalue(results["auc"], perm_aucs)
+    ax.set_xlabel("AUC")
+    ax.set_ylabel("Count")
+    ax.set_title(f"Permutation Distribution — AUC (p = {p_auc:.3f})")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(plots_dir / "permutation_distribution_auc.png", dpi=150)
+    plt.close(fig)
+
+    # 2. Permutation distribution — Balanced Accuracy
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(perm_baccs, bins=30, color="steelblue", alpha=0.7, label="Permutations")
+    ax.axvline(results["balanced_accuracy"], color="crimson", linewidth=2,
+               label=f"True BACC = {results['balanced_accuracy']:.3f}")
+    p_bacc = compute_pvalue(results["balanced_accuracy"], perm_baccs)
+    ax.set_xlabel("Balanced Accuracy")
+    ax.set_ylabel("Count")
+    ax.set_title(f"Permutation Distribution — BACC (p = {p_bacc:.3f})")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(plots_dir / "permutation_distribution_bacc.png", dpi=150)
+    plt.close(fig)
+
+    # 3. Metric distributions — true vs permutation violin
+    plot_df = pd.DataFrame({
+        "value": np.concatenate([perm_aucs, perm_baccs]),
+        "metric": ["AUC"] * len(perm_aucs) + ["BACC"] * len(perm_baccs),
+        "type": ["Permutation"] * (len(perm_aucs) + len(perm_baccs)),
+    })
+    fig, ax = plt.subplots(figsize=(6, 5))
+    sns.violinplot(data=plot_df, x="metric", y="value", hue="type",
+                   palette=["steelblue"], ax=ax, inner="box", legend=False)
+    ax.scatter(["AUC", "BACC"], [results["auc"], results["balanced_accuracy"]],
+               color="crimson", zorder=5, s=80, label="True score")
+    ax.set_ylabel("Score")
+    ax.set_title("True Score vs Permutation Distribution")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(plots_dir / "metric_distributions.png", dpi=150)
+    plt.close(fig)
+
+    # 4. Subject predictions — mean predicted probability by true label
+    subj_df = pd.DataFrame(results["subject_metrics"])
+    if "y_proba_mean" in subj_df.columns and "y_true_majority" in subj_df.columns:
+        fig, ax = plt.subplots(figsize=(6, 5))
+        for label, color, name in [(0, "steelblue", "Class 0"), (1, "crimson", "Class 1")]:
+            subset = subj_df[subj_df["y_true_majority"] == label]
+            ax.scatter(
+                [name] * len(subset),
+                subset["y_proba_mean"],
+                color=color, alpha=0.7, s=60, label=name,
+            )
+        ax.axhline(0.5, color="gray", linestyle="--", linewidth=1)
+        ax.set_ylabel("Mean predicted probability")
+        ax.set_title("Per-Subject Predictions")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(plots_dir / "subject_predictions.png", dpi=150)
+        plt.close(fig)
+    else:
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, "Subject prediction data not available", ha="center")
+        fig.savefig(plots_dir / "subject_predictions.png", dpi=150)
+        plt.close(fig)
+
+    # 5. Feature importances
+    if feature_names is not None and len(feature_names) == len(results["feature_importances"]):
+        imp_df = pd.DataFrame({
+            "feature": feature_names,
+            "importance": results["feature_importances"],
+        }).sort_values("importance")
+        fig, ax = plt.subplots(figsize=(7, max(4, len(feature_names) * 0.4)))
+        ax.barh(imp_df["feature"], imp_df["importance"], color="steelblue")
+        ax.set_xlabel("Importance")
+        ax.set_title("Feature Importances (mean across folds)")
+        fig.tight_layout()
+        fig.savefig(plots_dir / "feature_importances.png", dpi=150)
+        plt.close(fig)
+    else:
+        fig, ax = plt.subplots()
+        ax.bar(range(len(results["feature_importances"])), results["feature_importances"])
+        ax.set_xlabel("Feature index")
+        fig.savefig(plots_dir / "feature_importances.png", dpi=150)
+        plt.close(fig)
+
+    # 6. Confusion matrix (counts + normalised)
+    cm = confusion_matrix(y_true, y_pred)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    ConfusionMatrixDisplay(cm).plot(ax=axes[0], colorbar=False)
+    axes[0].set_title("Confusion Matrix (counts)")
+    cm_norm = confusion_matrix(y_true, y_pred, normalize="true")
+    ConfusionMatrixDisplay(cm_norm).plot(ax=axes[1], colorbar=False)
+    axes[1].set_title("Confusion Matrix (normalised)")
+    fig.tight_layout()
+    fig.savefig(plots_dir / "confusion_matrix.png", dpi=150)
+    plt.close(fig)

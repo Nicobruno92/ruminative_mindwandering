@@ -309,3 +309,38 @@ def test_save_results_summary_values(tmp_path, config):
     assert summary["true_auc"].iloc[0] == pytest.approx(0.72)
     assert "p_value_auc" in summary.columns
     assert summary["p_value_auc"].iloc[0] == pytest.approx(1 / 4)  # (1+0)/(1+3)
+
+
+from utils import plot_results
+
+
+def test_plot_results_creates_all_files(tmp_path):
+    rng = np.random.RandomState(0)
+    results = {
+        "auc": 0.70,
+        "balanced_accuracy": 0.63,
+        "y_true": [0] * 20 + [1] * 20,
+        "y_proba": list(rng.uniform(0.1, 0.5, 20)) + list(rng.uniform(0.5, 0.9, 20)),
+        "subject_metrics": [
+            {"subject": str(i), "n_samples": 2,
+             "y_true_majority": i % 2, "y_proba_mean": float(rng.rand()),
+             "auc": float(rng.uniform(0.4, 0.9)),
+             "balanced_accuracy": float(rng.uniform(0.4, 0.9))}
+            for i in range(20)
+        ],
+        "feature_importances": rng.rand(4),
+    }
+    perm_results = {
+        "auc": rng.uniform(0.4, 0.6, 100),
+        "balanced_accuracy": rng.uniform(0.4, 0.6, 100),
+    }
+
+    plot_results(results, perm_results, tmp_path, feature_names=["f1", "f2", "f3", "f4"])
+
+    plots_dir = tmp_path / "plots"
+    assert (plots_dir / "permutation_distribution_auc.png").exists()
+    assert (plots_dir / "permutation_distribution_bacc.png").exists()
+    assert (plots_dir / "metric_distributions.png").exists()
+    assert (plots_dir / "subject_predictions.png").exists()
+    assert (plots_dir / "feature_importances.png").exists()
+    assert (plots_dir / "confusion_matrix.png").exists()
