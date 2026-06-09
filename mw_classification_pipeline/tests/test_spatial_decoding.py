@@ -53,3 +53,18 @@ def test_fdr_correct_rejects_nothing_when_all_large():
     p = np.array([0.4, 0.6, 0.8])
     p_adj, reject = fdr_correct(p, alpha=0.05)
     assert reject.tolist() == [False, False, False]
+
+
+from utils.spatial_decoding_utils import permutation_pvalue
+
+
+def test_permutation_pvalue_plus_one_convention():
+    # true=0.70, null has 9 values; 1 of them >= 0.70 -> p = (1+1)/(1+9) = 0.2
+    null = [0.50, 0.55, 0.60, 0.45, 0.52, 0.58, 0.49, 0.71, 0.40]
+    p = permutation_pvalue(true_value=0.70, null_values=null)
+    assert p == pytest.approx((1 + 1) / (1 + 9))
+
+
+def test_permutation_pvalue_floor_with_empty_null():
+    # No null -> p = (1+0)/(1+0) = 1.0
+    assert permutation_pvalue(0.7, []) == pytest.approx(1.0)

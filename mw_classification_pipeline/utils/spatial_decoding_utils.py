@@ -99,3 +99,30 @@ def fdr_correct(p_values: np.ndarray, alpha: float = 0.05) -> tuple[np.ndarray, 
     adj[order] = adj_sorted
     reject = adj <= alpha
     return adj, reject
+
+
+def permutation_pvalue(true_value: float, null_values: list[float]) -> float:
+    """
+    One-sided permutation p-value with the +1 convention.
+
+    ``p = (1 + #{null >= true}) / (1 + n_perm)``. This is the project-standard
+    estimator (never returns exactly 0). Higher metric = better, so the test is
+    right-tailed.
+
+    Parameters
+    ----------
+    true_value : float
+        Observed statistic (e.g. mean AUC).
+    null_values : list of float
+        Permutation null distribution of the same statistic.
+
+    Returns
+    -------
+    float
+        Permutation p-value in ``(0, 1]``.
+    """
+    null = np.asarray(null_values, dtype=float)
+    null = null[~np.isnan(null)]
+    n = null.size
+    n_ge = int(np.sum(null >= true_value))
+    return (1 + n_ge) / (1 + n)
