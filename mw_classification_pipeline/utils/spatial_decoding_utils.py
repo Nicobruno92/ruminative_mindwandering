@@ -375,6 +375,73 @@ def load_or_prepare_data(config: dict, contrast: str, family: str, prefixes, cac
     return df, X, y, groups, feature_cols
 
 
+def load_true_per_channel(results_dir: str) -> "pd.DataFrame":
+    """Load and de-duplicate per-channel true AUC from ``true/*.csv`` (shards or combined)."""
+    import glob
+    files = sorted(glob.glob(os.path.join(results_dir, "true", "*.csv")))
+    if not files:
+        raise FileNotFoundError(f"No true/*.csv in {results_dir}")
+    df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+    return df.drop_duplicates(subset="channel", keep="last")
+
+
+def build_max_null_from_perms(results_dir: str) -> np.ndarray:
+    """Max-over-channels AUC for each permutation draw, from ``perms/perm-*.csv``."""
+    import glob
+    files = sorted(glob.glob(os.path.join(results_dir, "perms", "perm-*.csv")))
+    if not files:
+        raise FileNotFoundError(f"No perms/perm-*.csv in {results_dir}")
+    return np.asarray(
+        [float(np.nanmax(pd.read_csv(f)["auc"].to_numpy(dtype=float))) for f in files],
+        dtype=float,
+    )
+
+
+def merge_spatial_maxstat(results_dir: str, alpha: float = 0.05,
+                          montage: str = "standard_1020", title: str = "Decoding AUC") -> "pd.DataFrame":
+    """
+    Combine true per-channel AUCs + permutation max-null into FWER metrics + topomaps.
+
+    Reads ``true/`` and ``perms/`` under ``results_dir``, builds the max-over-channels
+    null, computes per-channel family-wise (FWER) p-values via the max-statistic test,
+    writes ``per_channel_metrics.csv``, and renders ``topomap_auc.png`` (+ FWER-masked
+    ``topomap_sig.png``).
+
+    Parameters
+    ----------
+    results_dir : str
+        ``…/SpatialDecoding/{LOSO|WithinSubject}/{contrast}/{family}/{model}``.
+    alpha : float
+        FWER level.
+    montage : str
+        MNE standard montage name.
+    title : str
+        Topomap title prefix.
+
+    Returns
+    -------
+    pd.DataFrame
+        The per-channel metrics table.
+    """
+    true_df = load_true_per_channel(results_dir)
+    true_auc = dict(zip(true_df["channel"], true_df["mean_auc"]))
+    max_null = build_max_null_from_perms(results_dir)
+
+    metrics = maxstat_pvalues(true_auc, max_null, alpha=alpha)
+    carry = [c for c in ("n_features", "std_auc") if c in true_df.columns]
+    if carry:
+        metrics = metrics.merge(true_df[["channel", *carry]], on="channel", how="left")
+    metrics = metrics.sort_values("channel").reset_index(drop=True)
+    metrics.to_csv(os.path.join(results_dir, "per_channel_metrics.csv"), index=False)
+
+    plot_channel_topomap(metrics, "mean_auc", os.path.join(results_dir, "topomap_auc.png"),
+                         montage=montage, title=title)
+    plot_channel_topomap(metrics, "mean_auc", os.path.join(results_dir, "topomap_sig.png"),
+                         montage=montage, mask_col="sig",
+                         title=f"{title} (FWER-significant electrodes marked)")
+    return metrics
+
+
 def build_info_from_channels(channels: list[str], montage: str = "standard_1020"):
     """
     Build an MNE Info with positions from a standard montage for the given channels.

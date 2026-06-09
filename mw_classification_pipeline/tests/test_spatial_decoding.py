@@ -1,4 +1,5 @@
 """Unit and smoke tests for utils/spatial_decoding_utils.py."""
+import os
 import sys
 from pathlib import Path
 import numpy as np
@@ -202,3 +203,79 @@ def test_maxstat_pvalues_fwer_and_threshold():
     assert bool(row.loc["Cz", "sig"]) is False
     # threshold = (1-alpha) quantile of the max-null
     assert df["fwer_threshold"].iloc[0] == pytest.approx(float(np.quantile(max_null, 0.85)))
+
+
+# --- Integration: full 64-channel merge (max-stat) on synthetic true/perm shards -----
+
+from utils.spatial_decoding_utils import (
+    build_max_null_from_perms,
+    load_true_per_channel,
+    merge_spatial_maxstat,
+)
+
+# The 64 electrodes of this dataset (standard 10-20 names).
+DATASET_CHANNELS = [
+    'AF3','AF4','AF7','AF8','AFz','C1','C2','C3','C4','C5','C6','CP1','CP2','CP3','CP4',
+    'CP5','CP6','CPz','Cz','F1','F2','F3','F4','F5','F6','F7','F8','FC1','FC2','FC3','FC4',
+    'FC5','FC6','FT10','FT7','FT8','FT9','Fp1','Fp2','Fz','Iz','O1','O2','Oz','P1','P2','P3',
+    'P4','P5','P6','P7','P8','PO3','PO4','PO7','PO8','POz','Pz','T7','T8','TP10','TP7','TP8','TP9',
+]
+
+
+def _write_synthetic_run(results_dir, n_perms=200, seed=0):
+    """Write true/ and perms/ CSVs for 64 channels with one planted signal at Pz."""
+    rng = np.random.default_rng(seed)
+    os.makedirs(os.path.join(results_dir, "true"), exist_ok=True)
+    os.makedirs(os.path.join(results_dir, "perms"), exist_ok=True)
+
+    # True AUCs: chance everywhere except a strong Pz and a moderate Cz.
+    true_rows = []
+    for ch in DATASET_CHANNELS:
+        auc = 0.50 + rng.normal(0, 0.01)
+        if ch == "Pz":
+            auc = 0.72
+        elif ch == "Cz":
+            auc = 0.60
+        true_rows.append({"channel": ch, "n_features": 34, "mean_auc": auc, "std_auc": 0.01})
+    pd.DataFrame(true_rows).to_csv(
+        os.path.join(results_dir, "true", "true_per_channel_auc.csv"), index=False)
+
+    # Permutation draws: every channel ~ chance under H0.
+    for p in range(n_perms):
+        rows = [{"perm_idx": p, "channel": ch, "auc": 0.50 + rng.normal(0, 0.02)}
+                for ch in DATASET_CHANNELS]
+        pd.DataFrame(rows).to_csv(
+            os.path.join(results_dir, "perms", f"perm-{p}.csv"), index=False)
+
+
+def test_build_max_null_takes_max_over_channels_per_perm(tmp_path):
+    import os
+    _write_synthetic_run(str(tmp_path), n_perms=50, seed=1)
+    max_null = build_max_null_from_perms(str(tmp_path))
+    assert max_null.shape == (50,)
+    # Each draw is a max of ~chance values: comfortably between 0.5 and ~0.6
+    assert (max_null >= 0.5).all() and (max_null < 0.65).all()
+
+
+def test_full_merge_maxstat_64_channels(tmp_path):
+    import os
+    _write_synthetic_run(str(tmp_path), n_perms=200, seed=2)
+    metrics = merge_spatial_maxstat(str(tmp_path), alpha=0.05, montage="standard_1020",
+                                    title="test")
+    assert len(metrics) == 64
+    row = metrics.set_index("channel")
+    # Planted strong signal at Pz must clear the FWER threshold; a chance channel must not.
+    assert bool(row.loc["Pz", "sig"]) is True
+    assert bool(row.loc["AF3", "sig"]) is False
+    # Outputs persisted with the expected columns.
+    out = pd.read_csv(tmp_path / "per_channel_metrics.csv")
+    assert set(["channel", "mean_auc", "perm_p", "sig", "fwer_threshold"]).issubset(out.columns)
+    assert (tmp_path / "topomap_auc.png").stat().st_size > 0
+    assert (tmp_path / "topomap_sig.png").stat().st_size > 0
+    # n_features carried through from the true table.
+    assert "n_features" in out.columns
+
+
+def test_merge_raises_when_no_shards(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_true_per_channel(str(tmp_path))
