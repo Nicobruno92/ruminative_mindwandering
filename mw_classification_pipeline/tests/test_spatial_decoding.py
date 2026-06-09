@@ -102,3 +102,27 @@ def test_run_spatial_searchlight_returns_one_row_per_channel(per_channel_X, tmp_
     assert (df["perm_p_fdr"] >= df["perm_p"] - 1e-9).all()
     # CSV persisted
     assert (tmp_path / "per_channel_metrics.csv").exists()
+
+
+from utils.spatial_decoding_utils import build_info_from_channels, plot_channel_topomap
+
+
+def test_build_info_positions_known_1020_channels():
+    info = build_info_from_channels(["Fz", "Cz", "Pz", "Oz"], montage="standard_1020")
+    assert info["nchan"] == 4
+    assert info["ch_names"] == ["Fz", "Cz", "Pz", "Oz"]
+
+
+def test_plot_channel_topomap_writes_png(tmp_path):
+    metrics = pd.DataFrame({
+        "channel": ["Fz", "Cz", "Pz", "Oz"],
+        "mean_auc": [0.55, 0.60, 0.70, 0.52],
+        "perm_p_fdr": [0.20, 0.04, 0.01, 0.50],
+        "sig": [False, True, True, False],
+    })
+    out = tmp_path / "topomap_auc.png"
+    plot_channel_topomap(
+        metrics, value_col="mean_auc", montage="standard_1020",
+        out_path=str(out), mask_col=None, title="AUC",
+    )
+    assert out.exists() and out.stat().st_size > 0

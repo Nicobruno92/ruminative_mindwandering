@@ -211,3 +211,81 @@ def run_spatial_searchlight(
                 os.path.join(results_path, "permutation_nulls.csv"), index=False
             )
     return metrics
+
+
+def build_info_from_channels(channels: list[str], montage: str = "standard_1020"):
+    """
+    Build an MNE Info with positions from a standard montage for the given channels.
+
+    Parameters
+    ----------
+    channels : list of str
+        EEG channel names (must exist in the montage).
+    montage : str
+        MNE standard montage name.
+
+    Returns
+    -------
+    mne.Info
+        Info object with the montage applied, ready for ``plot_topomap``.
+    """
+    import mne
+
+    info = mne.create_info(ch_names=list(channels), sfreq=1.0, ch_types="eeg")
+    info.set_montage(mne.channels.make_standard_montage(montage), match_case=False)
+    return info
+
+
+def plot_channel_topomap(
+    metrics: pd.DataFrame,
+    value_col: str,
+    out_path: str,
+    montage: str = "standard_1020",
+    mask_col: str | None = None,
+    title: str = "",
+    cmap: str = "RdBu_r",
+    vlim: tuple | None = None,
+) -> None:
+    """
+    Render a scalp topomap of a per-channel metric.
+
+    Parameters
+    ----------
+    metrics : pd.DataFrame
+        Per-channel metrics; must contain ``channel`` and ``value_col``.
+    value_col : str
+        Column to map (e.g. ``mean_auc``).
+    out_path : str
+        Output PNG path.
+    montage : str
+        MNE standard montage name.
+    mask_col : str or None
+        Boolean column used to mark significant electrodes.
+    title : str
+        Figure title.
+    cmap : str
+        Matplotlib colormap.
+    vlim : tuple or None
+        (vmin, vmax). None = auto.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import mne
+
+    channels = metrics["channel"].tolist()
+    info = build_info_from_channels(channels, montage=montage)
+    values = metrics[value_col].to_numpy(dtype=float)
+    mask = metrics[mask_col].to_numpy(dtype=bool) if mask_col else None
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    mne.viz.plot_topomap(
+        values, info, axes=ax, show=False, cmap=cmap,
+        vlim=(None, None) if vlim is None else vlim,
+        mask=mask,
+        mask_params=dict(marker="o", markerfacecolor="k", markersize=6),
+    )
+    ax.set_title(title)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
