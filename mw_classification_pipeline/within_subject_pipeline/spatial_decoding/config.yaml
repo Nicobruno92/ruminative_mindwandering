@@ -1,0 +1,437 @@
+# =============================================================================
+# WITHIN-SUBJECT CLASSIFICATION PIPELINE CONFIGURATION
+# =============================================================================
+# Strict rules:
+# 1. No CLI kwargs (only `--config`). Everything must be defined here.
+# 2. Hard failure if paths don't exist (no try-excepts).
+# 3. Determinism enforced via random keys.
+# =============================================================================
+
+project:
+  # Base project directory — absolute path to the project root on the cluster.
+  root_dir: "/network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering"
+  data_file: "BIDS/derivatives/dataset_classification.csv"   # The aggregated probes CSV
+  results_dir: "results/MW_Classification"
+
+# =============================================================================
+# DATA PATHS
+# =============================================================================
+# Used by the shared data_utils.py loader. Must match the loso pipeline paths
+# since both pipelines read from the same BIDS features directory.
+data_paths:
+  features_root: "/network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features"
+  results_root: "results/MW_Classification"
+
+# =============================================================================
+# SUBJECTS AND TASKS
+# =============================================================================
+subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+           "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+           "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34",
+           "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+
+tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+
+# Subject filters
+min_samples: 10
+min_minority_ratio: 0.2
+
+# =============================================================================
+# SLURM CONFIGURATION
+# =============================================================================
+# Read by run_cluster.sh to submit jobs. Nothing is hardcoded in the bash scripts.
+slurm:
+  job_name: "mw_ws_clf"
+  time: "02:00:00"
+  mem: "16G"
+  cpus_per_task: 4
+  conda_env: "ML"
+
+# =============================================================================
+# EXPERIMENT PARAMS
+# =============================================================================
+random_seed: 42
+n_runs: 20                      # SPATIAL: per-channel true group-AUC runs (mean stabilises fast; lighter for a 64-channel searchlight)
+n_permutations: 500              # SPATIAL: number of max-null draws (each = one within-subject shuffle scored across all channels)
+
+# =============================================================================
+# PARALLELISM
+# Controls joblib Parallel workers at each level of the pipeline.
+#
+# n_subject_jobs  — subjects processed in parallel within each true run.
+#                   Set to the number of available CPU cores (or -1 for all).
+#                   Disable nested parallelism: keep cv_n_jobs=1 when
+#                   n_subject_jobs > 1.
+# n_perm_jobs     — permutation passes run in parallel. Each worker runs the
+#                   full subject loop, so RAM usage scales with n_perm_jobs.
+#                   Typical: 4–8 for a 16-core machine.
+# cv_n_jobs       — joblib workers *inside* each subject's k-fold CV loop.
+#                   Keep at 1 when n_subject_jobs or n_perm_jobs > 1 to
+#                   avoid nested parallelism and memory blow-up.
+# =============================================================================
+parallelism:
+  # 4 CPUs per job → 192/4 = 48 jobs in parallel (vs 6 with 32 CPUs).
+  # mrmr is single-threaded so n_subject_jobs=4 uses all 4 CPUs.
+  n_subject_jobs: 4             # 4 subjects in parallel (= cpus_per_task)
+  n_perm_jobs: 1                # 1 perm per SLURM job
+  cv_n_jobs: 1                  # keep 1 when n_subject_jobs > 1
+
+
+# =============================================================================
+# CROSS-VALIDATION SETTINGS (WITHIN-SUBJECT)
+# =============================================================================
+cv:
+  # Strategy: 'stratified_kfold', 'group_kfold', or 'repeated_stratified_kfold'
+  # 'group_kfold' forces all trials of a given Task ID (e.g. Sart1) into the same fold
+  strategy: "stratified_kfold"
+  folds: 5
+  
+  # Absolute minimum samples in the minority class to prevent
+  # StratifiedKFold from throwing errors due to split size > class size.
+  # Must be >= cv.folds
+  min_samples_per_class: 5
+
+# =============================================================================
+# CLASSIFICATION TARGETS (CONTRASTS)
+# =============================================================================
+run_contrasts:
+  - on_vs_off_within_median
+  # - on_vs_off_threshold
+  # --- Content dimensions: "_offtask" variants classify only within mind-wandering probes ---
+  - valence_within_median
+  # - valence_within_median_offtask
+  - selfother_within_median
+  # - selfother_within_median_offtask
+  - time_within_median
+  # - time_within_median_offtask
+  - confidence_within_median
+  # - confidence_within_median_offtask
+
+# Mapping of what each contrast actually means for data extraction.
+# The keys correspond to run_contrasts. The values are dicts specifying the
+# dataframe queries or binarization logic.
+label_contrasts:
+  # on_vs_off_threshold:
+  #   column_name: "onoff"
+  #   split_method: "threshold"
+  #   threshold: 50
+  #   positive_above: true
+  #   positive_class_name: "ON-task"
+  #   negative_class_name: "OFF-task"
+
+  on_vs_off_within_median:
+    column_name: "onoff"
+    split_method: "within_subject_median"
+    gap: 5          # ±points around subject median to exclude (0 = no neutral zone)
+    positive_above: true
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+  # on_vs_off_extreme:
+  #   column_name: "onoff"
+  #   split_method: "extreme_groups"
+  #   threshold_low: 30
+  #   threshold_high: 70
+  #   positive_class_name: "ON-task"
+  #   negative_class_name: "OFF-task"
+
+  valence_within_median:            # sobre todas las probes
+    column_name: "valence"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  # valence_within_median_offtask:    # solo en mind-wandering
+  #   column_name: "valence"
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "positive"
+  #   negative_class_name: "negative"
+  #   restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+
+  selfother_within_median:
+    column_name: "selfother"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  # selfother_within_median_offtask:
+  #   column_name: "selfother"
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "self"
+  #   negative_class_name: "other"
+  #   restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+
+  time_within_median:
+    column_name: "time"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  # time_within_median_offtask:
+  #   column_name: "time"
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "future"
+  #   negative_class_name: "past"
+  #   restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+
+  confidence_within_median:
+    column_name: "confidence"
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+
+  # confidence_within_median_offtask:
+  #   column_name: "confidence"
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "high-confidence"
+  #   negative_class_name: "low-confidence"
+  #   restrict_to: {column_name: "onoff", split_method: "within_subject_median", keep: "negative"}
+
+# =============================================================================
+# FEATURE FAMILIES
+# =============================================================================
+# Each family declares TWO things:
+#   epoch_types — which files to load from disk (sleep / evoked / state)
+#   prefixes    — which column subsets to keep after loading (null = all)
+#
+# When you add a family to run_families, the pipeline automatically loads
+# only the relevant epoch files and filters to the declared columns.
+
+feature_families:
+
+  all:
+    epoch_types: [sleep, state, evoked]   # load both sleep and evoked files
+    prefixes: null                  # keep all columns
+
+  erp:
+    epoch_types: [evoked]          # only load evoked (go-stimulus locked) files
+    prefixes:
+      - "P1"
+      - "N1"
+      - "P2"
+      - "P3a"
+      - "P3b"
+
+  sleep:
+    epoch_types: [sleep]           # only load sleep-epoch files
+    prefixes:
+      - "slowwaves"
+      - "spindles"
+
+  spectral:
+    epoch_types: [state]
+    prefixes:
+      - "power_delta"
+      - "power_theta"
+      - "power_alpha"
+      - "power_beta"
+      - "power_gamma"
+      - "power_normalized"
+
+  connectivity:
+    epoch_types: [state]
+    prefixes:
+      - "wsmi_theta"
+      - "wsmi_alpha"
+      - "wsmi_beta"
+      - "wsmi_gamma"
+
+  information_theory:
+    epoch_types: [state]
+    prefixes:
+      - "PE_theta"
+      - "PE_alpha"
+      - "PE_beta"
+      - "PE_gamma"
+      - "kolmogorov_complexity"
+
+# Which families to submit as separate jobs via run_local.sh / run_cluster.sh.
+run_families:
+  - all
+  # - erp
+  # - sleep
+  # - spectral
+  # - connectivity
+
+# =============================================================================
+# DATA FORMAT
+# =============================================================================
+# Either "per_channel" or "per_roi".
+# Determines if the pipeline expects channel-level columns (e.g., Fz, Cz) 
+# or spatial ROI-level columns (e.g., frontal, parietal).
+data_format: "per_channel"   # SPATIAL DECODING: searchlight needs channel-level columns
+# Whether to include pair-wise connectivity features.
+include_connectivity_pairs: false
+
+# SPATIAL DECODING: single model per electrode (searchlight runs one per channel).
+model_type: rf
+
+
+
+
+
+# =============================================================================
+# ML PIPELINE SETTINGS
+# =============================================================================
+
+classifiers:
+  run_models: ["rf"]
+  rf:
+    n_estimators: 200            # fewer than LOSO (500) — each subject has less data
+    max_depth: 8                 # same as LOSO
+    min_samples_split: 10        # same as LOSO
+    min_samples_leaf: 5          # same as LOSO
+    max_features: "sqrt"         # same as LOSO
+    bootstrap: true
+    class_weight: "balanced_subsample"  # same as LOSO
+  xgb:
+    n_estimators: 100
+    max_depth: 3
+    learning_rate: 0.1
+    scale_pos_weight: "auto"
+  lr:
+    C: 1.0
+    penalty: "l2"
+    solver: "lbfgs"
+    class_weight: "balanced"
+
+  # --- One-class (outlier detection) models ---
+  # One-class counterpart of SVM (analogous to 'lr'/'svm')
+  ocsvm:
+    nu: 0.1          # Upper bound on fraction of training outliers / lower bound on support vectors
+    kernel: "rbf"
+    gamma: "scale"
+  # One-class counterpart of RandomForest
+  iforest:
+    n_estimators: 100
+    contamination: "auto"  # Expected fraction of outliers; "auto" uses 0.1
+
+  # Which class to use as the training set for one-class models.
+  # "minority" → train on minority class (MB); inlier = minority.
+  # "majority" → train on majority class; outlier = minority.
+  oneclass_target: "minority"
+
+preprocessing:
+  # Maximum tolerated fraction of NaN per feature column (global).
+  # Columns above this are dropped before imputation. Event-property markers
+  # (spindles/slowwaves amplitude/duration/slope/...) are undefined when no
+  # event occurs and are mostly NaN in awake SART data — this removes them
+  # without erasing samples. 0.0 keeps only fully-observed features.
+  max_feature_nan_frac: 0.25
+
+  # Imputation strategy for residual NaNs after the sparsity filter:
+  # 'median' or 'mean' fill per-subject (within-subject context, no leakage);
+  # 'none' drops the remaining NaN samples instead of imputing.
+  imputation: 'median'
+  
+  # Standardize features (mean 0, std 1)
+  scaler: "standard"
+  
+  # Participant-level scaling ('none' because this IS a within-subject pipeline inherently)
+  scale_by_participant: "none"
+  
+  # Dimensionality reduction
+  pca:
+    use_pca: false
+    n_components: null
+    pca_type: "standard"
+    pca_kernel: "rbf"
+
+feature_selection:
+  # Algorithm: "mrmr", "lmm_encoding", "lmm_decoding", "mutual_info", "f_classif", "chi2", or null
+  # LMM notes (within-subject): groups = task labels (Sart1-4), model = Feature ~ Label + (1|Task).
+  #   lmm_encoding  → Feature ~ Label + (1|Task) — better convergence, continuous outcome.
+  #   lmm_decoding  → Label   ~ Feature + (1|Task) — binary outcome, use linear probability approx.
+  # Keep lmm_n_jobs=-1 when n_subject_jobs=1 (fine). Set lmm_n_jobs=1 when n_subject_jobs>1.
+  method: "mrmr"
+
+  # Number of features to select. (Use "all" to skip selection completely).
+  # For within subject, 'k' may need to be strictly restricted
+  # (e.g. k=10) due to low n_samples per subject
+  # SPATIAL DECODING: k=10 — smaller per-channel feature pool.
+  k: 10
+
+  # lmm_n_jobs: CPUs per subject for LMM fitting.
+  # With n_subject_jobs=8: lmm_n_jobs=4 → 8×4=32 CPUs total.
+  lmm_n_jobs: 4
+
+  # lmm_prefilter_factor: run f_classif first, pass only factor*k features to LMM.
+  # With k=20, factor=3 → 60 features to LMM instead of all N_features.
+  # Set to 0 to disable (run LMM on all features).
+  lmm_prefilter_factor: 3
+
+oversampling:
+  # Use Synthetic Minority Over-sampling Technique
+  use_smote: true
+
+  # "SMOTE", "SVMSMOTE", "ADASYN", "SMOTETomek"
+  method: "SMOTE"
+
+  # "global" (within the sklearn Pipeline directly)
+  # "within" (manually applied solely inside the CV training fold before fitting)
+  # Note: The output is mathematically identical, "within" handles unique single-subject edge cases
+  scope: "within"
+
+  # k_neighbors for SMOTE-based oversamplers (also used by SVMSMOTE, SMOTETomek)
+  k_neighbors: 5
+
+# =============================================================================
+# OUTPUT CONFIGURATION
+# =============================================================================
+outputs:
+  # If true, computes permutation tests natively inside the subjects
+  run_permutations: true
+  
+  # Whether to save full models and data to disk
+  save_pickle: false
+  
+  # Whether to save sample-by-sample probabilities
+  save_probabilities: true
+  
+  # Metrics reported in the UI
+  scoring_metrics: ["auc", "balanced_accuracy", "f1", "mcc", "precision", "recall"]
+  
+  # Generate visual plots (ROC curves, confusion matrices) -> Note: single-subject average logic applies
+  save_plots: true
+
+  # Run SHAP explainer
+  save_shap: true
+
+# =============================================================================
+# SPATIAL DECODING (per-electrode searchlight)
+# =============================================================================
+# One classifier per electrode, using only that electrode's markers (filtered by
+# the active feature family). k / feature_selection.method are set above. The
+# per-channel statistic is the group-mean AUC across subjects; topomaps are built
+# from that AUC + FDR-corrected permutation significance.
+spatial_decoding:
+  channels: "all"                 # or an explicit list to subset electrodes
+  montage: "standard_1020"
+  multiple_comparisons:
+    method: "fdr_bh"              # Benjamini-Hochberg across channels, per dimension
+    alpha: 0.05
+  topomap:
+    cmap: "RdBu_r"
+    vlim: null                    # or [0.4, 0.7] to fix the AUC color scale
+  contrasts:                      # the 5 dimensions to map (WS contrast names)
+    - on_vs_off_within_median
+    - valence_within_median
+    - selfother_within_median
+    - time_within_median
+    - confidence_within_median
