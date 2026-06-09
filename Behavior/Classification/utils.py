@@ -16,6 +16,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
+# Decision threshold for converting predicted probabilities to class labels
+_DECISION_THRESHOLD: float = 0.5
+
 
 # === Data Loading ===
 
@@ -316,7 +319,7 @@ def _run_fold(
     proba = m.predict_proba(X_test)[:, 1]
     importances = _extract_importances(m, X_train.shape[1])
 
-    y_pred = (proba >= 0.5).astype(int)
+    y_pred = (proba >= _DECISION_THRESHOLD).astype(int)
     subj_auc = roc_auc_score(y_test, proba) if len(np.unique(y_test)) == 2 else np.nan
 
     return {
@@ -382,7 +385,7 @@ def run_loso(
 
     y_true_arr = np.array(y_true_all)
     y_proba_arr = np.array(y_proba_all)
-    y_pred_arr = (y_proba_arr >= 0.5).astype(int)
+    y_pred_arr = (y_proba_arr >= _DECISION_THRESHOLD).astype(int)
 
     return {
         "auc": roc_auc_score(y_true_arr, y_proba_arr),
@@ -559,7 +562,7 @@ def plot_results(
     perm_baccs = perm_results["balanced_accuracy"]
     y_true = np.array(results["y_true"])
     y_proba = np.array(results["y_proba"])
-    y_pred = (y_proba >= 0.5).astype(int)
+    y_pred = (y_proba >= _DECISION_THRESHOLD).astype(int)
 
     # 1. Permutation distribution — AUC
     fig, ax = plt.subplots(figsize=(6, 4))
