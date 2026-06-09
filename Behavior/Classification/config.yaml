@@ -1,8 +1,8 @@
 data:
-  probe_data_path: "../../results/Behavior/probe_data/probe_level_aggregated_data.csv"
-  pca_results_path: "../../results/Behavior/probe_data/pca_results.csv"
-  objective_markers_path: "../../results/Behavior/objective_markers/probe_level_with_objective_markers.csv"
-  results_root: "../../results/Behavior/classification"
+  probe_data_path: "results/Behavior/probe_data/probe_level_aggregated_data.csv"
+  pca_results_path: "results/Behavior/probe_data/pca_results.csv"
+  objective_markers_path: "results/Behavior/objective_markers/probe_level_with_objective_markers.csv"
+  results_root: "results/Behavior/classification"
 
 features:
   probe_dimensions: [onoff, valence, selfother, time, confidence]

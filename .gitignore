@@ -172,9 +172,10 @@ results/*
 # Ignorar el archivo all_extracted_event_components.csv de la carpeta probe_data pesa 15gb
 results/Behavior/probe_data/all_extracted_event_components.csv
 
-# Test outputs
+# Test outputs (results directories only, not source files)
 Statistics/tests/test_results/
-**tests/**
+**tests/results/**
+!tests/*.py
 
 .DS_Store
 mw_classification_pipeline/results
