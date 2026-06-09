@@ -143,3 +143,17 @@ def test_plot_combined_panel_writes_png(tmp_path):
     plot_combined_topomap_panel(per_dim, value_col="mean_auc", mask_col="sig",
                                 out_path=str(out), montage="standard_1020")
     assert out.exists() and out.stat().st_size > 0
+
+
+from utils.spatial_decoding_utils import spatial_cache_path
+
+
+def test_spatial_cache_path_includes_data_format_and_is_collision_safe(tmp_path):
+    p_roi = spatial_cache_path(str(tmp_path), "ON_vs_OFF_within_median", "all", "per_roi")
+    p_ch = spatial_cache_path(str(tmp_path), "ON_vs_OFF_within_median", "all", "per_channel")
+    # per_roi and per_channel caches must NOT collide
+    assert p_roi != p_ch
+    assert p_ch.endswith("ON_vs_OFF_within_median__all__per_channel.pkl")
+    # slashes in contrast names are sanitised
+    p_slash = spatial_cache_path(str(tmp_path), "a/b", "all", "per_channel")
+    assert "/a_b__" in p_slash or p_slash.endswith("a_b__all__per_channel.pkl")

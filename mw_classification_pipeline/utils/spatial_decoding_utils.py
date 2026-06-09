@@ -213,6 +213,91 @@ def run_spatial_searchlight(
     return metrics
 
 
+def spatial_cache_path(cache_dir: str, contrast: str, family: str, data_format: str) -> str:
+    """
+    Build a cache file path keyed by (contrast, family, data_format).
+
+    Including ``data_format`` keeps per-channel caches from colliding with the
+    per-roi caches written by the main pipelines (same contrast/family names).
+
+    Parameters
+    ----------
+    cache_dir : str
+        Directory holding cache pickles.
+    contrast : str
+        Contrast name (slashes are sanitised).
+    family : str
+        Feature family name.
+    data_format : str
+        ``per_channel`` or ``per_roi``.
+
+    Returns
+    -------
+    str
+        Absolute-or-relative cache file path.
+    """
+    safe = contrast.replace("/", "_")
+    return os.path.join(cache_dir, f"{safe}__{family}__{data_format}.pkl")
+
+
+def load_or_prepare_data(config: dict, contrast: str, family: str, prefixes, cache_dir: str,
+                         verbose: bool = False):
+    """
+    Load a cached per-channel dataset or build it once and cache it.
+
+    On a cache miss this calls ``prepare_data_for_contrast`` (slow: reads many CSVs
+    and pivots to wide form), filters columns to the family prefixes, and writes a
+    pickle so subsequent runs (and SLURM jobs) load in under a second.
+
+    Parameters
+    ----------
+    config : dict
+        Pipeline configuration (must define ``data_format`` and ``epoch_types``).
+    contrast : str
+        Contrast name.
+    family : str
+        Feature family name.
+    prefixes : list[str] or None
+        Family column prefixes (None keeps all columns).
+    cache_dir : str
+        Directory for cache pickles.
+    verbose : bool
+        Verbose data loading.
+
+    Returns
+    -------
+    tuple
+        (df, X, y, groups, feature_cols)
+    """
+    import pickle
+    import re
+    from utils.data_utils import prepare_data_for_contrast
+
+    data_format = config.get("data_format", "per_channel")
+    os.makedirs(cache_dir, exist_ok=True)
+    path = spatial_cache_path(cache_dir, contrast, family, data_format)
+
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            c = pickle.load(f)
+        return c["df"], c["X"], c["y"], c["groups"], c["feature_cols"]
+
+    df, X, y, groups, feature_cols = prepare_data_for_contrast(config, contrast, verbose=verbose)
+
+    if prefixes is not None:
+        def _matches(col, prefix):
+            p = re.escape(prefix)
+            return bool(re.search(rf"_{p}(_|$)", col)) or bool(re.match(rf"{p}(_|$)", col))
+        selected = [c for c in X.columns if any(_matches(c, p) for p in prefixes)]
+        X = X[selected]
+    feature_cols = X.columns.tolist()
+
+    with open(path, "wb") as f:
+        pickle.dump({"df": df, "X": X, "y": y, "groups": groups,
+                     "feature_cols": feature_cols}, f, protocol=5)
+    return df, X, y, groups, feature_cols
+
+
 def build_info_from_channels(channels: list[str], montage: str = "standard_1020"):
     """
     Build an MNE Info with positions from a standard montage for the given channels.
