@@ -266,3 +266,46 @@ def test_run_permutations_within_subject_scope():
     perm_results = run_permutations(X, y, groups, model, n_perms=5,
                                     random_state=0, scope="within_subject", n_jobs=1)
     assert perm_results["auc"].shape == (5,)
+
+
+from utils import save_results
+
+
+def test_save_results_creates_expected_files(tmp_path, config):
+    results = {
+        "auc": 0.72,
+        "balanced_accuracy": 0.65,
+        "y_true": [0, 1, 0, 1, 0, 1],
+        "y_proba": [0.3, 0.7, 0.4, 0.8, 0.2, 0.9],
+        "subject_metrics": [
+            {"subject": "02", "n_samples": 1, "y_true_majority": 0,
+             "y_proba_mean": 0.3, "auc": float("nan"), "balanced_accuracy": 0.5},
+        ],
+        "feature_importances": np.array([0.5, 0.3, 0.2]),
+    }
+    perm_results = {"auc": np.array([0.5, 0.48, 0.52]), "balanced_accuracy": np.array([0.5, 0.49, 0.51])}
+    feature_cols = ["onoff", "valence", "selfother"]
+
+    save_results(results, perm_results, feature_cols, tmp_path, config)
+
+    assert (tmp_path / "summary.csv").exists()
+    assert (tmp_path / "subject_metrics.csv").exists()
+    assert (tmp_path / "feature_importances.csv").exists()
+    assert (tmp_path / "permutation_aucs.csv").exists()
+    assert (tmp_path / "used_config.yaml").exists()
+
+
+def test_save_results_summary_values(tmp_path, config):
+    results = {
+        "auc": 0.72, "balanced_accuracy": 0.65,
+        "y_true": [0, 1], "y_proba": [0.3, 0.7],
+        "subject_metrics": [],
+        "feature_importances": np.array([0.5, 0.3]),
+    }
+    perm_results = {"auc": np.array([0.4, 0.45, 0.5]), "balanced_accuracy": np.array([0.5, 0.5, 0.5])}
+    save_results(results, perm_results, ["f1", "f2"], tmp_path, config)
+
+    summary = pd.read_csv(tmp_path / "summary.csv")
+    assert summary["true_auc"].iloc[0] == pytest.approx(0.72)
+    assert "p_value_auc" in summary.columns
+    assert summary["p_value_auc"].iloc[0] == pytest.approx(1 / 4)  # (1+0)/(1+3)

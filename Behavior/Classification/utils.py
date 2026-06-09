@@ -458,3 +458,62 @@ def run_permutations(
         perm_baccs[i] = perm_result["balanced_accuracy"]
 
     return {"auc": perm_aucs, "balanced_accuracy": perm_baccs}
+
+
+# === Result Saving ===
+
+def save_results(
+    results: dict,
+    perm_results: dict,
+    feature_cols: List[str],
+    output_dir: Path,
+    config: dict,
+) -> None:
+    """Write all result files to output_dir.
+
+    Parameters
+    ----------
+    results : output of run_loso
+    perm_results : output of run_permutations (dict with 'auc' and 'balanced_accuracy')
+    feature_cols : feature names matching results['feature_importances'] order
+    output_dir : destination directory (created if missing)
+    config : full config dict (written verbatim as used_config.yaml)
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    perm_aucs = perm_results["auc"]
+    perm_baccs = perm_results["balanced_accuracy"]
+
+    summary = pd.DataFrame([{
+        "true_auc": results["auc"],
+        "true_balanced_accuracy": results["balanced_accuracy"],
+        "perm_auc_mean": float(np.mean(perm_aucs)),
+        "perm_auc_std": float(np.std(perm_aucs)),
+        "p_value_auc": compute_pvalue(results["auc"], perm_aucs),
+        "perm_bacc_mean": float(np.mean(perm_baccs)),
+        "perm_bacc_std": float(np.std(perm_baccs)),
+        "p_value_bacc": compute_pvalue(results["balanced_accuracy"], perm_baccs),
+        "n_perms": len(perm_aucs),
+    }])
+    summary.to_csv(output_dir / "summary.csv", index=False)
+
+    pd.DataFrame(results["subject_metrics"]).to_csv(
+        output_dir / "subject_metrics.csv", index=False
+    )
+
+    pd.DataFrame({
+        "feature": feature_cols,
+        "importance": results["feature_importances"],
+    }).sort_values("importance", ascending=False).to_csv(
+        output_dir / "feature_importances.csv", index=False
+    )
+
+    pd.DataFrame({
+        "perm_idx": np.arange(len(perm_aucs)),
+        "auc": perm_aucs,
+        "balanced_accuracy": perm_baccs,
+    }).to_csv(output_dir / "permutation_aucs.csv", index=False)
+
+    with open(output_dir / "used_config.yaml", "w") as f:
+        yaml.dump(config, f, default_flow_style=False)
