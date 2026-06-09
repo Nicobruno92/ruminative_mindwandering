@@ -75,7 +75,14 @@ def make_common(config: dict, model: str) -> dict:
 
 
 def _group_mean_auc(X_ch, y, df, subjects, tasks, contrast, common, n_runs):
-    """Group-mean AUC across subjects for one channel (n_runs averaged)."""
+    """
+    Group-mean AUC across subjects for one channel.
+
+    Returns (mean_auc, std_auc, auc_single):
+      mean_auc   — group mean of each subject's run-averaged AUC (stable; for the map).
+      auc_single — group mean of each subject's FIRST-run AUC (matched to the single-pass
+                   permutation statistic; used for the FWER test).
+    """
     with tempfile.TemporaryDirectory(prefix="spatial_") as scratch:
         metrics, _shap = run_within_subject_distribution_analysis(
             dimension=contrast, df=df, X=X_ch, y=y, subjects=subjects, tasks=tasks,
@@ -83,9 +90,15 @@ def _group_mean_auc(X_ch, y, df, subjects, tasks, contrast, common, n_runs):
         )
     subj_df = pd.DataFrame(metrics)
     if subj_df.empty:
-        return float("nan"), float("nan")
+        return float("nan"), float("nan"), float("nan")
     per_subject = subj_df.groupby("subject")["mean_auc"].mean()
-    return float(per_subject.mean()), float(per_subject.std())
+    mean_auc, std_auc = float(per_subject.mean()), float(per_subject.std())
+    if "run_idx" in subj_df.columns:
+        first = subj_df.loc[subj_df["run_idx"] == subj_df["run_idx"].min()]
+        auc_single = float(first.groupby("subject")["mean_auc"].mean().mean())
+    else:
+        auc_single = mean_auc
+    return mean_auc, std_auc, auc_single
 
 
 def parse_args():
@@ -136,7 +149,7 @@ def main():
         rows = []
         for i, ch in enumerate(all_channels):
             X_ch = select_channel_columns(X, ch)
-            auc, _ = _group_mean_auc(X_ch, y_perm, df, groups, tasks, args.contrast, common, n_runs=1)
+            auc, _, _ = _group_mean_auc(X_ch, y_perm, df, groups, tasks, args.contrast, common, n_runs=1)
             rows.append({"perm_idx": args.perm_idx, "channel": ch, "auc": auc})
             print(f"  [perm {args.perm_idx}] [{i+1}/{len(all_channels)}] {ch}: group_auc={auc:.4f}")
         perm_dir = os.path.join(results_path, "perms")
@@ -151,10 +164,12 @@ def main():
     rows = []
     for i, ch in enumerate(channels):
         X_ch = select_channel_columns(X, ch)
-        mean_auc, std_auc = _group_mean_auc(X_ch, y, df, groups, tasks, args.contrast, common, n_runs)
+        mean_auc, std_auc, auc_single = _group_mean_auc(X_ch, y, df, groups, tasks,
+                                                        args.contrast, common, n_runs)
         rows.append({"channel": ch, "n_features": X_ch.shape[1],
-                     "mean_auc": mean_auc, "std_auc": std_auc})
-        print(f"  [true] [{i+1}/{len(channels)}] {ch}: n_feat={X_ch.shape[1]} group_auc={mean_auc:.4f}")
+                     "mean_auc": mean_auc, "std_auc": std_auc, "auc_single": auc_single})
+        print(f"  [true] [{i+1}/{len(channels)}] {ch}: n_feat={X_ch.shape[1]} "
+              f"group_auc={mean_auc:.4f} auc_single={auc_single:.4f}")
     true_dir = os.path.join(results_path, "true")
     os.makedirs(true_dir, exist_ok=True)
     out = (os.path.join(true_dir, f"channel-{args.channel}.csv") if args.channel

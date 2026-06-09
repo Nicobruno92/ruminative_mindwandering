@@ -424,13 +424,20 @@ def merge_spatial_maxstat(results_dir: str, alpha: float = 0.05,
         The per-channel metrics table.
     """
     true_df = load_true_per_channel(results_dir)
-    true_auc = dict(zip(true_df["channel"], true_df["mean_auc"]))
     max_null = build_max_null_from_perms(results_dir)
 
-    metrics = maxstat_pvalues(true_auc, max_null, alpha=alpha)
-    carry = [c for c in ("n_features", "std_auc") if c in true_df.columns]
-    if carry:
-        metrics = metrics.merge(true_df[["channel", *carry]], on="channel", how="left")
+    # FWER test uses the single-pass AUC (matched to the single-pass permutation null);
+    # the displayed/topomap AUC is the n_runs-averaged mean_auc. Fall back to mean_auc
+    # if a run did not record auc_single (older outputs).
+    test_col = "auc_single" if "auc_single" in true_df.columns else "mean_auc"
+    test_stat = dict(zip(true_df["channel"], true_df[test_col]))
+
+    fwer = maxstat_pvalues(test_stat, max_null, alpha=alpha)  # mean_auc here == test stat
+    fwer = fwer.drop(columns=["mean_auc"])  # keep perm_p / sig / fwer_threshold only
+
+    carry = [c for c in ("mean_auc", "auc_single", "n_features", "std_auc")
+             if c in true_df.columns]
+    metrics = true_df[["channel", *carry]].merge(fwer, on="channel", how="left")
     metrics = metrics.sort_values("channel").reset_index(drop=True)
     metrics.to_csv(os.path.join(results_dir, "per_channel_metrics.csv"), index=False)
 

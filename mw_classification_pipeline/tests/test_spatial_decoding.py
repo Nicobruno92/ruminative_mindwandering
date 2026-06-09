@@ -228,15 +228,19 @@ def _write_synthetic_run(results_dir, n_perms=200, seed=0):
     os.makedirs(os.path.join(results_dir, "true"), exist_ok=True)
     os.makedirs(os.path.join(results_dir, "perms"), exist_ok=True)
 
-    # True AUCs: chance everywhere except a strong Pz and a moderate Cz.
+    # True AUCs: chance everywhere except a strong Pz (both estimators high).
+    # 'Oz' is a DECOY: high averaged mean_auc but chance single-pass auc_single — it must
+    # NOT be FWER-significant, proving the test uses auc_single, not the displayed mean_auc.
     true_rows = []
     for ch in DATASET_CHANNELS:
-        auc = 0.50 + rng.normal(0, 0.01)
+        base = 0.50 + rng.normal(0, 0.01)
+        mean_auc, auc_single = base, base
         if ch == "Pz":
-            auc = 0.72
-        elif ch == "Cz":
-            auc = 0.60
-        true_rows.append({"channel": ch, "n_features": 34, "mean_auc": auc, "std_auc": 0.01})
+            mean_auc, auc_single = 0.72, 0.71
+        elif ch == "Oz":
+            mean_auc, auc_single = 0.71, 0.505   # high display, chance test stat
+        true_rows.append({"channel": ch, "n_features": 34, "mean_auc": mean_auc,
+                          "std_auc": 0.01, "auc_single": auc_single})
     pd.DataFrame(true_rows).to_csv(
         os.path.join(results_dir, "true", "true_per_channel_auc.csv"), index=False)
 
@@ -264,16 +268,19 @@ def test_full_merge_maxstat_64_channels(tmp_path):
                                     title="test")
     assert len(metrics) == 64
     row = metrics.set_index("channel")
-    # Planted strong signal at Pz must clear the FWER threshold; a chance channel must not.
+    # Planted strong signal at Pz (both estimators high) must clear the FWER threshold.
     assert bool(row.loc["Pz", "sig"]) is True
     assert bool(row.loc["AF3", "sig"]) is False
-    # Outputs persisted with the expected columns.
+    # Oz is a decoy: high DISPLAYED mean_auc but chance single-pass test stat -> NOT sig.
+    # This proves the FWER test uses auc_single, while the topomap colours by mean_auc.
+    assert row.loc["Oz", "mean_auc"] > 0.70
+    assert bool(row.loc["Oz", "sig"]) is False
+    # Outputs persisted with the expected columns (display mean_auc + test stat auc_single).
     out = pd.read_csv(tmp_path / "per_channel_metrics.csv")
-    assert set(["channel", "mean_auc", "perm_p", "sig", "fwer_threshold"]).issubset(out.columns)
+    assert set(["channel", "mean_auc", "auc_single", "perm_p", "sig",
+                "fwer_threshold", "n_features"]).issubset(out.columns)
     assert (tmp_path / "topomap_auc.png").stat().st_size > 0
     assert (tmp_path / "topomap_sig.png").stat().st_size > 0
-    # n_features carried through from the true table.
-    assert "n_features" in out.columns
 
 
 def test_merge_raises_when_no_shards(tmp_path):

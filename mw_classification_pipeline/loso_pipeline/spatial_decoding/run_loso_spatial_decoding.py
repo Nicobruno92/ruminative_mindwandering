@@ -102,7 +102,10 @@ def _score_channel(X_ch, y, df, groups, contrast, config, model_type, model_para
             cv_n_jobs=config.get("parallelism", {}).get("true_cv_n_jobs", 1),
         )
     aucs = results_df["mean_auc"].dropna().tolist()
-    return float(np.mean(aucs)) if aucs else float("nan"), float(np.std(aucs)) if aucs else float("nan")
+    if not aucs:
+        return float("nan"), float("nan"), float("nan")
+    # auc_single = first run (run_idx 0), matched to the single-pass permutation statistic.
+    return float(np.mean(aucs)), float(np.std(aucs)), float(aucs[0])
 
 
 def parse_args():
@@ -154,8 +157,8 @@ def main():
         rows = []
         for i, ch in enumerate(all_channels):
             X_ch = select_channel_columns(X, ch)
-            auc, _ = _score_channel(X_ch, y_perm, df, groups, args.contrast,
-                                    config, model_type, model_params, n_runs=1)
+            auc, _, _ = _score_channel(X_ch, y_perm, df, groups, args.contrast,
+                                       config, model_type, model_params, n_runs=1)
             rows.append({"perm_idx": args.perm_idx, "channel": ch, "auc": auc})
             print(f"  [perm {args.perm_idx}] [{i+1}/{len(all_channels)}] {ch}: auc={auc:.4f}")
         import pandas as pd
@@ -173,11 +176,12 @@ def main():
     rows = []
     for i, ch in enumerate(channels):
         X_ch = select_channel_columns(X, ch)
-        mean_auc, std_auc = _score_channel(X_ch, y, df, groups, args.contrast,
-                                           config, model_type, model_params, n_runs)
+        mean_auc, std_auc, auc_single = _score_channel(X_ch, y, df, groups, args.contrast,
+                                                       config, model_type, model_params, n_runs)
         rows.append({"channel": ch, "n_features": X_ch.shape[1],
-                     "mean_auc": mean_auc, "std_auc": std_auc})
-        print(f"  [true] [{i+1}/{len(channels)}] {ch}: n_feat={X_ch.shape[1]} auc={mean_auc:.4f}")
+                     "mean_auc": mean_auc, "std_auc": std_auc, "auc_single": auc_single})
+        print(f"  [true] [{i+1}/{len(channels)}] {ch}: n_feat={X_ch.shape[1]} "
+              f"mean_auc={mean_auc:.4f} auc_single={auc_single:.4f}")
     true_dir = os.path.join(results_path, "true")
     os.makedirs(true_dir, exist_ok=True)
     if args.channel is not None:
