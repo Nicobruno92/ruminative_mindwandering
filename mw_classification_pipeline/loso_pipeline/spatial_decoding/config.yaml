@@ -416,7 +416,7 @@ spatial_decoding:
   channels: "all"                 # or an explicit list to subset electrodes
   montage: "standard_1020"
   multiple_comparisons:
-    method: "fdr_bh"              # Benjamini-Hochberg across channels, per dimension
+    method: "maxstat"            # max-statistic permutation (FWER) across channels; CBPT-consistent. ("fdr_bh" available as secondary)
     alpha: 0.05
   topomap:
     cmap: "RdBu_r"
