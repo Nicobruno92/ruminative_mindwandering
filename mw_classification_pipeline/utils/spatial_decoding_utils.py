@@ -213,6 +213,83 @@ def run_spatial_searchlight(
     return metrics
 
 
+def permute_labels_within_subject(y: pd.Series, groups: pd.Series, seed: int) -> pd.Series:
+    """
+    Permute binary labels independently within each subject.
+
+    Within-subject permutation preserves each subject's class composition (and the
+    LOSO/within-subject structure) while breaking the label–feature association — the
+    correct null for the max-statistic spatial test. The same shuffle (fixed ``seed``)
+    must be applied to every channel within one permutation draw.
+
+    Parameters
+    ----------
+    y : pd.Series
+        Binary labels, positionally aligned to the feature matrix.
+    groups : pd.Series
+        Subject ID per sample, aligned to ``y``.
+    seed : int
+        Permutation seed (typically the permutation index).
+
+    Returns
+    -------
+    pd.Series
+        Permuted labels with the original index/order preserved.
+    """
+    rng = np.random.default_rng(seed)
+    y_arr = np.asarray(y)
+    g_arr = np.asarray(groups)
+    out = y_arr.copy()
+    # Iterate subjects in a fixed order so the permutation is fully deterministic.
+    for subject in sorted(pd.unique(g_arr).tolist()):
+        idx = np.where(g_arr == subject)[0]
+        out[idx] = y_arr[idx][rng.permutation(len(idx))]
+    return pd.Series(out, index=y.index)
+
+
+def maxstat_pvalues(true_auc_by_channel: dict, max_null: np.ndarray,
+                    alpha: float = 0.05) -> pd.DataFrame:
+    """
+    Family-wise (FWER) per-channel p-values from a max-statistic permutation null.
+
+    Each permutation contributes one ``max over channels`` AUC; ``max_null`` is that
+    distribution. An electrode is significant iff its true AUC exceeds the
+    ``(1-alpha)`` quantile of the max-null. The per-channel FWER p-value uses the +1
+    convention: ``p_c = (1 + #{max_null >= true_c}) / (1 + N)``.
+
+    Parameters
+    ----------
+    true_auc_by_channel : dict[str, float]
+        Per-channel true (n_runs-averaged) AUC.
+    max_null : np.ndarray
+        Max-over-channels AUC for each permutation draw.
+    alpha : float
+        FWER level.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: channel, mean_auc, perm_p, sig, fwer_threshold.
+    """
+    null = np.asarray(max_null, dtype=float)
+    null = null[~np.isnan(null)]
+    n = null.size
+    threshold = float(np.quantile(null, 1.0 - alpha)) if n else float("nan")
+
+    rows = []
+    for channel, true_auc in true_auc_by_channel.items():
+        n_ge = int(np.sum(null >= true_auc))
+        p = (1 + n_ge) / (1 + n)
+        rows.append({
+            "channel": channel,
+            "mean_auc": true_auc,
+            "perm_p": p,
+            "sig": p < alpha,
+            "fwer_threshold": threshold,
+        })
+    return pd.DataFrame(rows)
+
+
 def spatial_cache_path(cache_dir: str, contrast: str, family: str, data_format: str) -> str:
     """
     Build a cache file path keyed by (contrast, family, data_format).

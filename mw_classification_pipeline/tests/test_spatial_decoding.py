@@ -157,3 +157,48 @@ def test_spatial_cache_path_includes_data_format_and_is_collision_safe(tmp_path)
     # slashes in contrast names are sanitised
     p_slash = spatial_cache_path(str(tmp_path), "a/b", "all", "per_channel")
     assert "/a_b__" in p_slash or p_slash.endswith("a_b__all__per_channel.pkl")
+
+
+from utils.spatial_decoding_utils import permute_labels_within_subject, maxstat_pvalues
+
+
+def test_permute_within_subject_preserves_per_subject_class_counts():
+    y = pd.Series([0, 0, 1, 1, 0, 1, 1, 1])
+    groups = pd.Series(["02", "02", "02", "02", "03", "03", "03", "03"])
+    y_perm = permute_labels_within_subject(y, groups, seed=0)
+    # Per-subject class composition is preserved (it is a within-subject permutation)
+    for s in ["02", "03"]:
+        orig = sorted(y[groups == s].tolist())
+        perm = sorted(y_perm[groups == s].tolist())
+        assert orig == perm
+    # Index/order preserved
+    assert list(y_perm.index) == list(y.index)
+
+
+def test_permute_within_subject_is_deterministic_by_seed():
+    y = pd.Series([0, 1, 0, 1, 1, 0, 0, 1])
+    groups = pd.Series(["02"] * 4 + ["03"] * 4)
+    a = permute_labels_within_subject(y, groups, seed=7)
+    b = permute_labels_within_subject(y, groups, seed=7)
+    c = permute_labels_within_subject(y, groups, seed=8)
+    assert a.tolist() == b.tolist()
+    # Different seed generally yields a different arrangement
+    assert a.tolist() != c.tolist()
+
+
+def test_maxstat_pvalues_fwer_and_threshold():
+    true_auc = {"Fz": 0.55, "Cz": 0.62, "Pz": 0.70, "Oz": 0.51}
+    # Max-null draws (e.g. from 9 permutations)
+    max_null = np.array([0.58, 0.60, 0.57, 0.63, 0.59, 0.61, 0.56, 0.64, 0.55])
+    # alpha=0.15 so the smallest achievable p (1/10=0.1) can clear the threshold
+    df = maxstat_pvalues(true_auc, max_null, alpha=0.15)
+    row = df.set_index("channel")
+    # Pz=0.70: no null >= 0.70 -> p = 1/10
+    assert row.loc["Pz", "perm_p"] == pytest.approx((1 + 0) / (1 + 9))
+    # Cz=0.62: nulls >= 0.62 are {0.63,0.64} = 2 -> p = 3/10
+    assert row.loc["Cz", "perm_p"] == pytest.approx((1 + 2) / (1 + 9))
+    # sig flag uses alpha: Pz (p=0.1<0.15) sig, Cz (p=0.3) not
+    assert bool(row.loc["Pz", "sig"]) is True
+    assert bool(row.loc["Cz", "sig"]) is False
+    # threshold = (1-alpha) quantile of the max-null
+    assert df["fwer_threshold"].iloc[0] == pytest.approx(float(np.quantile(max_null, 0.85)))
