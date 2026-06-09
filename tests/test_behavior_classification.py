@@ -212,3 +212,57 @@ def test_run_loso_subject_level_single_sample_per_fold():
     results = run_loso(X, y, groups, model, n_jobs=1)
     assert 0.0 <= results["auc"] <= 1.0
     assert len(results["y_true"]) == n_subjects
+
+
+from utils import run_permutations, compute_pvalue
+
+
+def test_compute_pvalue_with_known_inputs():
+    perm_aucs = np.array([0.4, 0.45, 0.5, 0.48, 0.42])
+    p = compute_pvalue(0.9, perm_aucs)
+    assert p == pytest.approx(1 / 6)
+
+
+def test_compute_pvalue_chance_performance():
+    perm_aucs = np.array([0.5] * 100)
+    p = compute_pvalue(0.5, perm_aucs)
+    assert p == pytest.approx(101 / 101)
+
+
+def test_run_permutations_returns_dict_with_correct_shape():
+    rng = np.random.RandomState(0)
+    n_subjects = 8
+    n_per = 6
+    X = rng.randn(n_subjects * n_per, 3)
+    y = np.array([0, 1] * (n_subjects * n_per // 2))
+    groups = np.array([str(s) for s in range(n_subjects) for _ in range(n_per)])
+    config_stub = {
+        "models": {"random_state": 0, "lr_C": 1.0, "lr_penalty": "l2",
+                   "lr_max_iter": 200, "rf_n_estimators": 10, "rf_max_depth": 2},
+        "loso": {"n_jobs": 1}
+    }
+    model = build_model("lr", config_stub)
+    perm_results = run_permutations(X, y, groups, model, n_perms=10,
+                                    random_state=0, scope="global", n_jobs=1)
+    assert "auc" in perm_results
+    assert "balanced_accuracy" in perm_results
+    assert perm_results["auc"].shape == (10,)
+    assert perm_results["balanced_accuracy"].shape == (10,)
+
+
+def test_run_permutations_within_subject_scope():
+    rng = np.random.RandomState(2)
+    n_subjects = 8
+    n_per = 6
+    X = rng.randn(n_subjects * n_per, 3)
+    y = np.tile([0, 0, 0, 1, 1, 1], n_subjects)
+    groups = np.array([str(s) for s in range(n_subjects) for _ in range(n_per)])
+    config_stub = {
+        "models": {"random_state": 0, "lr_C": 1.0, "lr_penalty": "l2",
+                   "lr_max_iter": 200, "rf_n_estimators": 10, "rf_max_depth": 2},
+        "loso": {"n_jobs": 1}
+    }
+    model = build_model("lr", config_stub)
+    perm_results = run_permutations(X, y, groups, model, n_perms=5,
+                                    random_state=0, scope="within_subject", n_jobs=1)
+    assert perm_results["auc"].shape == (5,)

@@ -392,3 +392,69 @@ def run_loso(
         "subject_metrics": subject_metrics,
         "feature_importances": np.mean(importances_list, axis=0),
     }
+
+
+# === Permutation Testing ===
+
+def compute_pvalue(true_metric: float, perm_metrics: np.ndarray) -> float:
+    """Empirical p-value with +1 convention (Phipson & Smyth 2010).
+
+    Parameters
+    ----------
+    true_metric : the observed metric value
+    perm_metrics : array of permutation metric values
+
+    Returns
+    -------
+    p = (1 + #{perm >= true}) / (1 + n_perms)
+    """
+    return (1 + np.sum(perm_metrics >= true_metric)) / (1 + len(perm_metrics))
+
+
+def run_permutations(
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    model,
+    n_perms: int,
+    random_state: int,
+    scope: str = "global",
+    n_jobs: int = 1,
+) -> dict:
+    """Run permutation testing, returning AUC and balanced_accuracy distributions.
+
+    Parameters
+    ----------
+    X : (n_samples, n_features)
+    y : (n_samples,) binary int labels
+    groups : (n_samples,) subject ID strings
+    model : sklearn estimator (will be cloned per fold)
+    n_perms : number of permutations
+    random_state : seed for reproducibility
+    scope : 'global' shuffles all labels; 'within_subject' shuffles per subject
+    n_jobs : parallel fold workers passed to run_loso
+
+    Returns
+    -------
+    dict with keys:
+        auc : np.ndarray (n_perms,)
+        balanced_accuracy : np.ndarray (n_perms,)
+    """
+    rng = np.random.RandomState(random_state)
+    perm_aucs = np.zeros(n_perms)
+    perm_baccs = np.zeros(n_perms)
+
+    for i in range(n_perms):
+        if scope == "global":
+            y_perm = rng.permutation(y)
+        else:  # within_subject
+            y_perm = y.copy()
+            for subj in np.unique(groups):
+                mask = groups == subj
+                y_perm[mask] = rng.permutation(y[mask])
+
+        perm_result = run_loso(X, y_perm, groups, model, n_jobs=n_jobs)
+        perm_aucs[i] = perm_result["auc"]
+        perm_baccs[i] = perm_result["balanced_accuracy"]
+
+    return {"auc": perm_aucs, "balanced_accuracy": perm_baccs}
