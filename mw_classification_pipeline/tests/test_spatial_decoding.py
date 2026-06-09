@@ -34,3 +34,22 @@ def test_select_channel_columns_returns_only_that_channel(per_channel_X):
 def test_select_channel_columns_raises_on_unknown_channel(per_channel_X):
     with pytest.raises(ValueError, match="no columns"):
         select_channel_columns(per_channel_X, "Cz")
+
+
+from utils.spatial_decoding_utils import fdr_correct
+
+
+def test_fdr_correct_matches_benjamini_hochberg_reference():
+    # Known BH example: p = [0.01, 0.02, 0.03, 0.04, 0.05], n=5
+    p = np.array([0.01, 0.02, 0.03, 0.04, 0.05])
+    p_adj, reject = fdr_correct(p, alpha=0.05)
+    # BH adjusted: each p*(n/rank); monotone-enforced
+    expected_adj = np.array([0.05, 0.05, 0.05, 0.05, 0.05])
+    np.testing.assert_allclose(p_adj, expected_adj, rtol=1e-9)
+    assert reject.tolist() == [True, True, True, True, True]
+
+
+def test_fdr_correct_rejects_nothing_when_all_large():
+    p = np.array([0.4, 0.6, 0.8])
+    p_adj, reject = fdr_correct(p, alpha=0.05)
+    assert reject.tolist() == [False, False, False]

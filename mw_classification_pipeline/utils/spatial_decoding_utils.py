@@ -69,3 +69,33 @@ def select_channel_columns(X: pd.DataFrame, channel: str) -> pd.DataFrame:
     if not cols:
         raise ValueError(f"Channel '{channel}' matched no columns in X.")
     return X[cols]
+
+
+def fdr_correct(p_values: np.ndarray, alpha: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Benjamini-Hochberg FDR correction.
+
+    Parameters
+    ----------
+    p_values : np.ndarray
+        Raw p-values (1-D).
+    alpha : float
+        Target false-discovery rate.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        (adjusted_p_values, reject_mask) in the original input order.
+    """
+    p = np.asarray(p_values, dtype=float)
+    n = p.size
+    order = np.argsort(p)
+    ranked = p[order]
+    # BH-adjusted p in sorted order, with monotone (cumulative-min from the top) enforcement.
+    adj_sorted = ranked * n / (np.arange(n) + 1)
+    adj_sorted = np.minimum.accumulate(adj_sorted[::-1])[::-1]
+    adj_sorted = np.clip(adj_sorted, 0.0, 1.0)
+    adj = np.empty_like(adj_sorted)
+    adj[order] = adj_sorted
+    reject = adj <= alpha
+    return adj, reject
