@@ -21,22 +21,24 @@ Shared core: `utils/spatial_decoding_utils.py`. All parameters live in `config.y
 
 ## Run order
 
+**Always submit from the `mw_classification_pipeline/` root** (the SLURM scripts rely on
+`$SLURM_SUBMIT_DIR` being that directory).
+
 ```bash
 ENV=~/miniforge3/envs/ML/bin/python
-HERE=within_subject_pipeline/spatial_decoding
-
+SD=within_subject_pipeline/spatial_decoding
 cd mw_classification_pipeline
 # 0. Build per-channel caches ONCE.
-$ENV scripts/precompute_spatial_cache.py --config $HERE/config.yaml
-# 1. True per-channel group AUC (one task per dimension).
-sbatch $HERE/run_true_slurm.sh
+$ENV scripts/precompute_spatial_cache.py --config $SD/config.yaml
+# 1. True per-channel group AUC — array over (dimension × channel) = 320 tasks.
+sbatch $SD/run_true_slurm.sh        # writes true/channel-{CH}.csv shards
 # 2. Permutation max-null (array over dimension × permutation block; size
 #    5 * ceil(n_permutations / PERMS_PER_JOB); defaults → 125 tasks, --array=0-124).
-sbatch $HERE/run_perm_slurm.sh
+sbatch $SD/run_perm_slurm.sh
 # 3. Merge per dimension.
 for C in on_vs_off_within_median valence_within_median selfother_within_median \
          time_within_median confidence_within_median; do
-  $ENV $HERE/merge_spatial_results.py \
+  $ENV $SD/merge_spatial_results.py \
     --results_dir results/MW_Classification/SpatialDecoding/WithinSubject/$C/all/rf
 done
 # 4. Combined 5-dimension paper panel.

@@ -20,26 +20,29 @@ Shared core: `utils/spatial_decoding_utils.py`. All parameters live in `config.y
 
 ## Run order
 
+**Always submit from the `mw_classification_pipeline/` root** (the SLURM scripts rely on
+`$SLURM_SUBMIT_DIR` being that directory).
+
 ```bash
 ENV=~/miniforge3/envs/ML/bin/python
-HERE=loso_pipeline/spatial_decoding
+SD=loso_pipeline/spatial_decoding
+cd mw_classification_pipeline
 
 # 0. Build the per-channel caches ONCE (avoids array races; ~minutes per contrast).
-cd mw_classification_pipeline
-$ENV scripts/precompute_spatial_cache.py --config $HERE/config.yaml
+$ENV scripts/precompute_spatial_cache.py --config $SD/config.yaml
 
-# 1. True per-channel AUC — one SLURM task per dimension (all channels in-process).
-sbatch $HERE/run_true_slurm.sh
+# 1. True per-channel AUC — array over (dimension × channel) = 5×64 = 320 tasks.
+sbatch $SD/run_true_slurm.sh        # writes true/channel-{CH}.csv shards
 
 # 2. Permutation max-null — array over (dimension × permutation block).
 #    Array size MUST be 5 * ceil(permutation_runs / PERMS_PER_JOB). Defaults:
 #    permutation_runs=500, PERMS_PER_JOB=20 → 125 tasks (#SBATCH --array=0-124).
-sbatch $HERE/run_perm_slurm.sh
+sbatch $SD/run_perm_slurm.sh
 
 # 3. Merge per dimension → per_channel_metrics.csv + topomap_auc.png + topomap_sig.png
 for C in ON_vs_OFF_within_median valence_within_median selfother_within_median \
          time_within_median confidence_within_median; do
-  $ENV $HERE/merge_spatial_results.py \
+  $ENV $SD/merge_spatial_results.py \
     --results_dir results/MW_Classification/SpatialDecoding/LOSO/$C/all/rf
 done
 
