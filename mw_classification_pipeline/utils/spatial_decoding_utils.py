@@ -289,3 +289,59 @@ def plot_channel_topomap(
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_combined_topomap_panel(
+    per_dimension_metrics: dict,
+    value_col: str,
+    out_path: str,
+    montage: str = "standard_1020",
+    mask_col: str | None = None,
+    cmap: str = "RdBu_r",
+    vlim: tuple | None = None,
+) -> None:
+    """
+    Render a single figure with one topomap per dimension (paper figure).
+
+    Parameters
+    ----------
+    per_dimension_metrics : dict[str, pd.DataFrame]
+        Maps dimension name -> per-channel metrics DataFrame (channel + value_col).
+    value_col : str
+        Metric column to map.
+    out_path : str
+        Output PNG path.
+    montage : str
+        MNE standard montage name.
+    mask_col : str or None
+        Boolean column marking significant electrodes.
+    cmap : str
+        Colormap.
+    vlim : tuple or None
+        Shared (vmin, vmax) across panels. None = auto per panel.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import mne
+
+    dims = list(per_dimension_metrics.keys())
+    fig, axes = plt.subplots(1, len(dims), figsize=(3 * len(dims), 3.2))
+    if len(dims) == 1:
+        axes = [axes]
+    im = None
+    for ax, dim in zip(axes, dims):
+        m = per_dimension_metrics[dim]
+        info = build_info_from_channels(m["channel"].tolist(), montage=montage)
+        mask = m[mask_col].to_numpy(dtype=bool) if mask_col else None
+        im, _ = mne.viz.plot_topomap(
+            m[value_col].to_numpy(dtype=float), info, axes=ax, show=False, cmap=cmap,
+            vlim=(None, None) if vlim is None else vlim, mask=mask,
+            mask_params=dict(marker="o", markerfacecolor="k", markersize=5),
+        )
+        ax.set_title(dim)
+    if im is not None:
+        fig.colorbar(im, ax=axes, fraction=0.025, label=value_col)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)

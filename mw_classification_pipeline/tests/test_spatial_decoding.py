@@ -126,3 +126,20 @@ def test_plot_channel_topomap_writes_png(tmp_path):
         out_path=str(out), mask_col=None, title="AUC",
     )
     assert out.exists() and out.stat().st_size > 0
+
+
+from utils.spatial_decoding_utils import plot_combined_topomap_panel
+
+
+def test_plot_combined_panel_writes_png(tmp_path):
+    chans = ["Fz", "Cz", "Pz", "Oz"]
+    per_dim = {
+        d: pd.DataFrame({"channel": chans,
+                         "mean_auc": [0.55, 0.6, 0.7, 0.52],
+                         "sig": [False, True, True, False]})
+        for d in ["onoff", "valence", "selfother", "time", "confidence"]
+    }
+    out = tmp_path / "panel.png"
+    plot_combined_topomap_panel(per_dim, value_col="mean_auc", mask_col="sig",
+                                out_path=str(out), montage="standard_1020")
+    assert out.exists() and out.stat().st_size > 0
