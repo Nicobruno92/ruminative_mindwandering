@@ -218,3 +218,177 @@ def build_block_level_features(
     y = (y_raw == positive_class).astype(int).values
     groups = agg.index.get_level_values("subject").astype(str).values
     return agg.values.astype(float), y, groups
+
+
+# === Model Building ===
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.base import clone
+from sklearn.metrics import roc_auc_score, balanced_accuracy_score
+import joblib
+
+
+def build_model(model_type: str, config: dict):
+    """Instantiate a classifier with balanced class weights from config params.
+
+    Parameters
+    ----------
+    model_type : 'lr' or 'rf'
+    config : full config dict; reads from config['models']
+
+    Returns
+    -------
+    sklearn classifier with class_weight='balanced'
+    """
+    rs = config["models"]["random_state"]
+    if model_type == "lr":
+        return LogisticRegression(
+            C=config["models"]["lr_C"],
+            penalty=config["models"]["lr_penalty"],
+            solver="lbfgs",
+            max_iter=config["models"]["lr_max_iter"],
+            class_weight="balanced",
+            random_state=rs,
+        )
+    if model_type == "rf":
+        return RandomForestClassifier(
+            n_estimators=config["models"]["rf_n_estimators"],
+            max_depth=config["models"]["rf_max_depth"],
+            class_weight="balanced",
+            n_jobs=1,
+            random_state=rs,
+        )
+    raise ValueError(f"Unknown model_type: {model_type!r}. Use 'lr' or 'rf'.")
+
+
+# === LOSO Engine ===
+
+def _extract_importances(model, n_features: int) -> np.ndarray:
+    """Extract feature importances (RF) or absolute coefficients (LR) from fitted model."""
+    if hasattr(model, "feature_importances_"):
+        return model.feature_importances_
+    if hasattr(model, "coef_"):
+        return np.abs(model.coef_[0])
+    return np.zeros(n_features)
+
+
+def _run_fold(
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    model,
+) -> dict:
+    """Process a single LOSO fold: impute → scale → fit → predict.
+
+    Parameters
+    ----------
+    train_idx : indices for training samples
+    test_idx : indices for test samples
+    X : full feature matrix
+    y : full label array
+    groups : full group (subject) array
+    model : unfitted sklearn estimator
+
+    Returns
+    -------
+    dict with y_test, proba, importances, subject_metric
+    """
+    X_train, X_test = X[train_idx], X[test_idx]
+    y_train, y_test = y[train_idx], y[test_idx]
+    subject = groups[test_idx[0]]
+
+    imputer = SimpleImputer(strategy="mean")
+    X_train = imputer.fit_transform(X_train)
+    X_test = imputer.transform(X_test)
+
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    m = clone(model)
+    m.fit(X_train, y_train)
+    proba = m.predict_proba(X_test)[:, 1]
+    importances = _extract_importances(m, X_train.shape[1])
+
+    y_pred = (proba >= 0.5).astype(int)
+    subj_auc = roc_auc_score(y_test, proba) if len(np.unique(y_test)) == 2 else np.nan
+
+    return {
+        "y_test": y_test,
+        "proba": proba,
+        "importances": importances,
+        "subject_metric": {
+            "subject": subject,
+            "n_samples": len(y_test),
+            "y_true_majority": int(y_test[0]) if len(np.unique(y_test)) == 1 else -1,
+            "y_proba_mean": float(np.mean(proba)),
+            "auc": subj_auc,
+            "balanced_accuracy": balanced_accuracy_score(y_test, y_pred),
+        },
+    }
+
+
+def run_loso(
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    model,
+    n_jobs: int = 1,
+) -> dict:
+    """Run LOSO cross-validation. Returns pooled metrics and per-subject details.
+
+    Parameters
+    ----------
+    X : (n_samples, n_features) feature matrix
+    y : (n_samples,) binary int label array
+    groups : (n_samples,) subject ID string array
+    model : sklearn-compatible classifier with class_weight='balanced'
+    n_jobs : number of parallel fold workers (joblib)
+
+    Returns
+    -------
+    dict with keys:
+        auc : float — pooled ROC AUC
+        balanced_accuracy : float — pooled balanced accuracy
+        y_true : list[int]
+        y_proba : list[float]
+        subject_metrics : list[dict]
+        feature_importances : np.ndarray (n_features,)
+    """
+    logo = LeaveOneGroupOut()
+    folds = list(logo.split(X, y, groups))
+
+    fold_results = joblib.Parallel(n_jobs=n_jobs)(
+        joblib.delayed(_run_fold)(ti, tei, X, y, groups, model)
+        for ti, tei in folds
+    )
+
+    y_true_all: List[int] = []
+    y_proba_all: List[float] = []
+    subject_metrics: List[dict] = []
+    importances_list: List[np.ndarray] = []
+
+    for fr in fold_results:
+        y_true_all.extend(fr["y_test"].tolist())
+        y_proba_all.extend(fr["proba"].tolist())
+        importances_list.append(fr["importances"])
+        subject_metrics.append(fr["subject_metric"])
+
+    y_true_arr = np.array(y_true_all)
+    y_proba_arr = np.array(y_proba_all)
+    y_pred_arr = (y_proba_arr >= 0.5).astype(int)
+
+    return {
+        "auc": roc_auc_score(y_true_arr, y_proba_arr),
+        "balanced_accuracy": balanced_accuracy_score(y_true_arr, y_pred_arr),
+        "y_true": y_true_all,
+        "y_proba": y_proba_all,
+        "subject_metrics": subject_metrics,
+        "feature_importances": np.mean(importances_list, axis=0),
+    }

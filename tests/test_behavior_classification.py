@@ -141,3 +141,74 @@ def test_build_block_level_groups_are_subjects():
     X, y, groups = build_block_level_features(df_ie, FEATURE_COLS, "inclusion_exclusion", "inclusion")
     unique, counts = np.unique(groups.astype(str), return_counts=True)
     assert np.all(counts == 2)
+
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from utils import build_model, run_loso
+
+
+def test_build_model_lr(config):
+    model = build_model("lr", config)
+    assert isinstance(model, LogisticRegression)
+    assert model.class_weight == "balanced"
+    assert model.random_state == config["models"]["random_state"]
+
+
+def test_build_model_rf(config):
+    model = build_model("rf", config)
+    assert isinstance(model, RandomForestClassifier)
+    assert model.class_weight == "balanced"
+    assert model.n_estimators == config["models"]["rf_n_estimators"]
+
+
+def test_run_loso_returns_expected_keys():
+    """LOSO on perfectly separable synthetic data returns valid AUC."""
+    rng = np.random.RandomState(0)
+    n_subjects = 10
+    n_per_subject = 8
+    X_list, y_list, g_list = [], [], []
+    for s in range(n_subjects):
+        label = 0 if s < 5 else 1
+        X_subj = rng.randn(n_per_subject, 4)
+        X_subj[:, 0] += label * 5.0
+        X_list.append(X_subj)
+        y_list.extend([label] * n_per_subject)
+        g_list.extend([str(s)] * n_per_subject)
+    X = np.vstack(X_list)
+    y = np.array(y_list)
+    groups = np.array(g_list)
+
+    config_stub = {
+        "models": {"random_state": 0, "lr_C": 1.0, "lr_penalty": "l2",
+                   "lr_max_iter": 500, "rf_n_estimators": 20, "rf_max_depth": 3},
+        "loso": {"n_jobs": 1}
+    }
+    model = build_model("lr", config_stub)
+    results = run_loso(X, y, groups, model, n_jobs=1)
+    assert set(results.keys()) >= {"auc", "balanced_accuracy", "y_true", "y_proba",
+                                    "subject_metrics", "feature_importances"}
+    assert results["auc"] > 0.8
+    assert 0.0 <= results["balanced_accuracy"] <= 1.0
+    assert len(results["y_true"]) == len(y)
+    assert results["feature_importances"].shape == (4,)
+
+
+def test_run_loso_subject_level_single_sample_per_fold():
+    """LOSO with 1 sample per subject (subject-level mode) aggregates AUC correctly."""
+    rng = np.random.RandomState(1)
+    n_subjects = 10
+    X = rng.randn(n_subjects, 3)
+    X[:5, 0] += 5.0
+    y = np.array([0] * 5 + [1] * 5)
+    groups = np.array([str(i) for i in range(n_subjects)])
+
+    config_stub = {
+        "models": {"random_state": 1, "lr_C": 1.0, "lr_penalty": "l2",
+                   "lr_max_iter": 500, "rf_n_estimators": 20, "rf_max_depth": 3},
+        "loso": {"n_jobs": 1}
+    }
+    model = build_model("rf", config_stub)
+    results = run_loso(X, y, groups, model, n_jobs=1)
+    assert 0.0 <= results["auc"] <= 1.0
+    assert len(results["y_true"]) == n_subjects
