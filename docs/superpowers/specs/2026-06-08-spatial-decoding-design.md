@@ -143,6 +143,15 @@ LOSO smoke test.
 This controls FWER across the scalp with only `N` permutations *total* (not per channel),
 is correctly powered, and is directly comparable to the Section-2 CBPT correction.
 
+**Matched estimator (test vs display).** Each permutation scores a channel with a single
+LOSO pass (`n_runs=1`). To keep the test calibrated, the true statistic entered into the
+FWER comparison is also a *single* pass (`auc_single`, the first run / `run_idx=0`),
+matched to the null. The topomap is coloured by the more stable `n_runs`-averaged
+`mean_auc` (better visual estimate). Both columns are stored in
+`per_channel_metrics.csv`; the `sig` flag derives from `auc_single`, the colour from
+`mean_auc`. (Using the averaged AUC against a single-pass null would still control FWER
+but lose power — the matched single-pass statistic recovers it.)
+
 **Critical correctness requirement:** within a single permutation, the *same* shuffled
 labels must be scored across all 64 channels (so the max is taken over channels for a
 common null draw). This is why the permutation parallelization axis is
