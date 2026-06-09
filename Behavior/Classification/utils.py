@@ -10,9 +10,11 @@ so scripts must be run from the repository root.
 
 # === Imports ===
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
+import yaml
 
 
 # === Data Loading ===
@@ -129,3 +131,90 @@ def get_feature_cols(config: dict) -> List[str]:
     if config["features"]["include_pca"]:
         cols += ["PC1", "PC2", "PC3"]
     return cols
+
+
+# === Feature Building ===
+
+def build_subject_level_features(
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    target_col: str,
+    positive_class: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Aggregate features per subject (mean). Returns X, y, groups.
+
+    Parameters
+    ----------
+    df : DataFrame with probe-level rows
+    feature_cols : column names to use as features
+    target_col : column with the classification target (e.g. 'group')
+    positive_class : value encoded as 1 (e.g. 'Risk of Depression')
+
+    Returns
+    -------
+    X : (n_subjects, n_features) float array
+    y : (n_subjects,) int binary array
+    groups : (n_subjects,) str array of subject IDs
+    """
+    agg = df.groupby("subject")[feature_cols].mean()
+    y_raw = df.groupby("subject")[target_col].first()
+    y = (y_raw == positive_class).astype(int).values
+    groups = agg.index.astype(str).values
+    return agg.values.astype(float), y, groups
+
+
+def build_probe_level_features(
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    target_col: str,
+    positive_class: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return probe-level feature matrix. Label = subject's class (constant within subject).
+
+    Parameters
+    ----------
+    df : DataFrame with probe-level rows
+    feature_cols : column names to use as features
+    target_col : column with the classification target (e.g. 'group')
+    positive_class : value encoded as 1 (e.g. 'Risk of Depression')
+
+    Returns
+    -------
+    X : (n_probes, n_features)
+    y : (n_probes,) — same label for all probes of the same subject
+    groups : (n_probes,) — subject IDs (LOSO fold key)
+    """
+    df = df.copy()
+    subj_labels = df.groupby("subject")[target_col].first()
+    df["_label"] = df["subject"].map(subj_labels)
+    y = (df["_label"] == positive_class).astype(int).values
+    groups = df["subject"].astype(str).values
+    return df[feature_cols].values.astype(float), y, groups
+
+
+def build_block_level_features(
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    target_col: str,
+    positive_class: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Aggregate features per subject × task block (mean). One row per block.
+
+    Parameters
+    ----------
+    df : DataFrame already filtered to the relevant conditions (e.g. intervention only)
+    feature_cols : column names to use as features
+    target_col : column with the classification target (e.g. 'inclusion_exclusion')
+    positive_class : value encoded as 1 (e.g. 'inclusion')
+
+    Returns
+    -------
+    X : (n_blocks, n_features)
+    y : (n_blocks,) binary
+    groups : (n_blocks,) subject IDs (LOSO fold key)
+    """
+    agg = df.groupby(["subject", "task"])[feature_cols].mean()
+    y_raw = df.groupby(["subject", "task"])[target_col].first()
+    y = (y_raw == positive_class).astype(int).values
+    groups = agg.index.get_level_values("subject").astype(str).values
+    return agg.values.astype(float), y, groups
