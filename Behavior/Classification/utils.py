@@ -231,8 +231,16 @@ from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.base import clone
-from sklearn.metrics import roc_auc_score, balanced_accuracy_score
+from sklearn.metrics import (
+    roc_auc_score,
+    balanced_accuracy_score,
+    average_precision_score,
+    precision_score,
+    recall_score,
+    f1_score,
+)
 import joblib
+import shap
 
 
 def build_model(model_type: str, config: dict):
@@ -279,6 +287,32 @@ def _extract_importances(model, n_features: int) -> np.ndarray:
     return np.zeros(n_features)
 
 
+def _compute_shap(model, X_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
+    """Compute mean |SHAP| values for test samples, positive class. Returns (n_features,).
+
+    Uses TreeExplainer for RF and LinearExplainer for LR. Both operate in the
+    scaled feature space (X_train is already scaled at call time).
+    """
+    if hasattr(model, "feature_importances_"):
+        explainer = shap.TreeExplainer(model)
+        sv = explainer.shap_values(X_test)
+        # Binary RF: sv is list[class0, class1] or ndarray of shape (n, f, 2)
+        if isinstance(sv, list):
+            sv_pos = sv[1]
+        elif sv.ndim == 3:
+            sv_pos = sv[:, :, 1]
+        else:
+            sv_pos = sv
+    else:
+        explainer = shap.LinearExplainer(model, X_train)
+        sv_pos = explainer.shap_values(X_test)
+        if isinstance(sv_pos, list):
+            sv_pos = sv_pos[1]
+        elif sv_pos.ndim == 3:
+            sv_pos = sv_pos[:, :, 1]
+    return np.mean(np.abs(sv_pos), axis=0)
+
+
 def _run_fold(
     train_idx: np.ndarray,
     test_idx: np.ndarray,
@@ -318,21 +352,29 @@ def _run_fold(
     m.fit(X_train, y_train)
     proba = m.predict_proba(X_test)[:, 1]
     importances = _extract_importances(m, X_train.shape[1])
+    shap_vals = _compute_shap(m, X_train, X_test)
 
     y_pred = (proba >= _DECISION_THRESHOLD).astype(int)
-    subj_auc = roc_auc_score(y_test, proba) if len(np.unique(y_test)) == 2 else np.nan
+    has_both_classes = len(np.unique(y_test)) == 2
+    subj_auc = roc_auc_score(y_test, proba) if has_both_classes else np.nan
+    subj_auprc = average_precision_score(y_test, proba) if has_both_classes else np.nan
 
     return {
         "y_test": y_test,
         "proba": proba,
         "importances": importances,
+        "shap_vals": shap_vals,
         "subject_metric": {
             "subject": subject,
             "n_samples": len(y_test),
             "y_true_majority": int(y_test[0]) if len(np.unique(y_test)) == 1 else -1,
             "y_proba_mean": float(np.mean(proba)),
             "auc": subj_auc,
+            "auprc": subj_auprc,
             "balanced_accuracy": balanced_accuracy_score(y_test, y_pred),
+            "precision": float(precision_score(y_test, y_pred, zero_division=0)),
+            "recall": float(recall_score(y_test, y_pred, zero_division=0)),
+            "f1": float(f1_score(y_test, y_pred, zero_division=0)),
         },
     }
 
@@ -358,11 +400,16 @@ def run_loso(
     -------
     dict with keys:
         auc : float — pooled ROC AUC
+        auprc : float — pooled Average Precision (area under PR curve)
         balanced_accuracy : float — pooled balanced accuracy
+        precision : float — pooled precision for positive class
+        recall : float — pooled recall for positive class
+        f1 : float — pooled F1 for positive class
         y_true : list[int]
         y_proba : list[float]
         subject_metrics : list[dict]
-        feature_importances : np.ndarray (n_features,)
+        feature_importances : np.ndarray (n_features,) — mean |coef| or RF importance
+        shap_importances : np.ndarray (n_features,) — mean |SHAP| across folds
     """
     logo = LeaveOneGroupOut()
     folds = list(logo.split(X, y, groups))
@@ -376,11 +423,13 @@ def run_loso(
     y_proba_all: List[float] = []
     subject_metrics: List[dict] = []
     importances_list: List[np.ndarray] = []
+    shap_list: List[np.ndarray] = []
 
     for fr in fold_results:
         y_true_all.extend(fr["y_test"].tolist())
         y_proba_all.extend(fr["proba"].tolist())
         importances_list.append(fr["importances"])
+        shap_list.append(fr["shap_vals"])
         subject_metrics.append(fr["subject_metric"])
 
     y_true_arr = np.array(y_true_all)
@@ -389,11 +438,16 @@ def run_loso(
 
     return {
         "auc": roc_auc_score(y_true_arr, y_proba_arr),
+        "auprc": average_precision_score(y_true_arr, y_proba_arr),
         "balanced_accuracy": balanced_accuracy_score(y_true_arr, y_pred_arr),
+        "precision": float(precision_score(y_true_arr, y_pred_arr, zero_division=0)),
+        "recall": float(recall_score(y_true_arr, y_pred_arr, zero_division=0)),
+        "f1": float(f1_score(y_true_arr, y_pred_arr, zero_division=0)),
         "y_true": y_true_all,
         "y_proba": y_proba_all,
         "subject_metrics": subject_metrics,
         "feature_importances": np.mean(importances_list, axis=0),
+        "shap_importances": np.mean(shap_list, axis=0),
     }
 
 
@@ -442,10 +496,12 @@ def run_permutations(
     dict with keys:
         auc : np.ndarray (n_perms,)
         balanced_accuracy : np.ndarray (n_perms,)
+        auprc : np.ndarray (n_perms,)
     """
     rng = np.random.RandomState(random_state)
     perm_aucs = np.zeros(n_perms)
     perm_baccs = np.zeros(n_perms)
+    perm_auprcs = np.zeros(n_perms)
 
     for i in range(n_perms):
         if scope == "global":
@@ -459,8 +515,9 @@ def run_permutations(
         perm_result = run_loso(X, y_perm, groups, model, n_jobs=n_jobs)
         perm_aucs[i] = perm_result["auc"]
         perm_baccs[i] = perm_result["balanced_accuracy"]
+        perm_auprcs[i] = perm_result["auprc"]
 
-    return {"auc": perm_aucs, "balanced_accuracy": perm_baccs}
+    return {"auc": perm_aucs, "balanced_accuracy": perm_baccs, "auprc": perm_auprcs}
 
 
 # === Result Saving ===
@@ -487,16 +544,24 @@ def save_results(
 
     perm_aucs = perm_results["auc"]
     perm_baccs = perm_results["balanced_accuracy"]
+    perm_auprcs = perm_results["auprc"]
 
     summary = pd.DataFrame([{
         "true_auc": results["auc"],
         "true_balanced_accuracy": results["balanced_accuracy"],
+        "true_auprc": results["auprc"],
+        "true_precision": results["precision"],
+        "true_recall": results["recall"],
+        "true_f1": results["f1"],
         "perm_auc_mean": float(np.mean(perm_aucs)),
         "perm_auc_std": float(np.std(perm_aucs)),
         "p_value_auc": compute_pvalue(results["auc"], perm_aucs),
         "perm_bacc_mean": float(np.mean(perm_baccs)),
         "perm_bacc_std": float(np.std(perm_baccs)),
         "p_value_bacc": compute_pvalue(results["balanced_accuracy"], perm_baccs),
+        "perm_auprc_mean": float(np.mean(perm_auprcs)),
+        "perm_auprc_std": float(np.std(perm_auprcs)),
+        "p_value_auprc": compute_pvalue(results["auprc"], perm_auprcs),
         "n_perms": len(perm_aucs),
     }])
     summary.to_csv(output_dir / "summary.csv", index=False)
@@ -513,9 +578,17 @@ def save_results(
     )
 
     pd.DataFrame({
+        "feature": feature_cols,
+        "shap_importance": results["shap_importances"],
+    }).sort_values("shap_importance", ascending=False).to_csv(
+        output_dir / "shap_importances.csv", index=False
+    )
+
+    pd.DataFrame({
         "perm_idx": np.arange(len(perm_aucs)),
         "auc": perm_aucs,
         "balanced_accuracy": perm_baccs,
+        "auprc": perm_auprcs,
     }).to_csv(output_dir / "permutation_aucs.csv", index=False)
 
     with open(output_dir / "used_config.yaml", "w") as f:
@@ -550,9 +623,11 @@ def plot_results(
     --------------
     - permutation_distribution_auc.png
     - permutation_distribution_bacc.png
+    - permutation_distribution_auprc.png
     - metric_distributions.png  (AUC + BACC true vs permutation violin)
     - subject_predictions.png   (per-subject mean predicted probability by true label)
     - feature_importances.png   (horizontal bar chart, sorted)
+    - shap_importances.png      (horizontal bar chart, mean |SHAP|, sorted)
     - confusion_matrix.png      (counts + normalised side by side)
     """
     plots_dir = Path(output_dir) / "plots"
@@ -560,6 +635,7 @@ def plot_results(
 
     perm_aucs = perm_results["auc"]
     perm_baccs = perm_results["balanced_accuracy"]
+    perm_auprcs = perm_results["auprc"]
     y_true = np.array(results["y_true"])
     y_proba = np.array(results["y_proba"])
     y_pred = (y_proba >= _DECISION_THRESHOLD).astype(int)
@@ -592,7 +668,21 @@ def plot_results(
     fig.savefig(plots_dir / "permutation_distribution_bacc.png", dpi=150)
     plt.close(fig)
 
-    # 3. Metric distributions — true vs permutation violin
+    # 3. Permutation distribution — AUPRC
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(perm_auprcs, bins=30, color="steelblue", alpha=0.7, label="Permutations")
+    ax.axvline(results["auprc"], color="crimson", linewidth=2,
+               label=f"True AUPRC = {results['auprc']:.3f}")
+    p_auprc = compute_pvalue(results["auprc"], perm_auprcs)
+    ax.set_xlabel("Average Precision (AUPRC)")
+    ax.set_ylabel("Count")
+    ax.set_title(f"Permutation Distribution — AUPRC (p = {p_auprc:.3f})")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(plots_dir / "permutation_distribution_auprc.png", dpi=150)
+    plt.close(fig)
+
+    # 4. Metric distributions — true vs permutation violin
     plot_df = pd.DataFrame({
         "value": np.concatenate([perm_aucs, perm_baccs]),
         "metric": ["AUC"] * len(perm_aucs) + ["BACC"] * len(perm_baccs),
@@ -610,7 +700,7 @@ def plot_results(
     fig.savefig(plots_dir / "metric_distributions.png", dpi=150)
     plt.close(fig)
 
-    # 4. Subject predictions — mean predicted probability by true label
+    # 5. Subject predictions — mean predicted probability by true label
     subj_df = pd.DataFrame(results["subject_metrics"])
     if "y_proba_mean" in subj_df.columns and "y_true_majority" in subj_df.columns:
         fig, ax = plt.subplots(figsize=(6, 5))
@@ -634,7 +724,7 @@ def plot_results(
         fig.savefig(plots_dir / "subject_predictions.png", dpi=150)
         plt.close(fig)
 
-    # 5. Feature importances
+    # 6. Feature importances (coef/RF)
     if feature_names is not None and len(feature_names) == len(results["feature_importances"]):
         imp_df = pd.DataFrame({
             "feature": feature_names,
@@ -654,7 +744,28 @@ def plot_results(
         fig.savefig(plots_dir / "feature_importances.png", dpi=150)
         plt.close(fig)
 
-    # 6. Confusion matrix (counts + normalised)
+    # 7. SHAP importances (mean |SHAP| across folds)
+    if feature_names is not None and len(feature_names) == len(results["shap_importances"]):
+        shap_df = pd.DataFrame({
+            "feature": feature_names,
+            "shap_importance": results["shap_importances"],
+        }).sort_values("shap_importance")
+        fig, ax = plt.subplots(figsize=(7, max(4, len(feature_names) * 0.4)))
+        ax.barh(shap_df["feature"], shap_df["shap_importance"], color="darkorange")
+        ax.set_xlabel("Mean |SHAP value|")
+        ax.set_title("SHAP Importances (mean |SHAP| across folds, positive class)")
+        fig.tight_layout()
+        fig.savefig(plots_dir / "shap_importances.png", dpi=150)
+        plt.close(fig)
+    else:
+        fig, ax = plt.subplots()
+        ax.bar(range(len(results["shap_importances"])), results["shap_importances"])
+        ax.set_xlabel("Feature index")
+        ax.set_title("SHAP Importances")
+        fig.savefig(plots_dir / "shap_importances.png", dpi=150)
+        plt.close(fig)
+
+    # 8. Confusion matrix (counts + normalised)
     cm = confusion_matrix(y_true, y_pred)
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
     ConfusionMatrixDisplay(cm).plot(ax=axes[0], colorbar=False)

@@ -186,12 +186,16 @@ def test_run_loso_returns_expected_keys():
     }
     model = build_model("lr", config_stub)
     results = run_loso(X, y, groups, model, n_jobs=1)
-    assert set(results.keys()) >= {"auc", "balanced_accuracy", "y_true", "y_proba",
-                                    "subject_metrics", "feature_importances"}
+    assert set(results.keys()) >= {
+        "auc", "auprc", "balanced_accuracy", "precision", "recall", "f1",
+        "y_true", "y_proba", "subject_metrics", "feature_importances", "shap_importances",
+    }
     assert results["auc"] > 0.8
+    assert 0.0 <= results["auprc"] <= 1.0
     assert 0.0 <= results["balanced_accuracy"] <= 1.0
     assert len(results["y_true"]) == len(y)
     assert results["feature_importances"].shape == (4,)
+    assert results["shap_importances"].shape == (4,)
 
 
 def test_run_loso_subject_level_single_sample_per_fold():
@@ -246,8 +250,10 @@ def test_run_permutations_returns_dict_with_correct_shape():
                                     random_state=0, scope="global", n_jobs=1)
     assert "auc" in perm_results
     assert "balanced_accuracy" in perm_results
+    assert "auprc" in perm_results
     assert perm_results["auc"].shape == (10,)
     assert perm_results["balanced_accuracy"].shape == (10,)
+    assert perm_results["auprc"].shape == (10,)
 
 
 def test_run_permutations_within_subject_scope():
@@ -271,19 +277,40 @@ def test_run_permutations_within_subject_scope():
 from utils import save_results
 
 
-def test_save_results_creates_expected_files(tmp_path, config):
-    results = {
+def _make_results_stub(n_features: int = 3) -> dict:
+    """Minimal results dict matching run_loso output (with new metrics)."""
+    rng = np.random.RandomState(7)
+    return {
         "auc": 0.72,
+        "auprc": 0.65,
         "balanced_accuracy": 0.65,
+        "precision": 0.60,
+        "recall": 0.70,
+        "f1": 0.65,
         "y_true": [0, 1, 0, 1, 0, 1],
         "y_proba": [0.3, 0.7, 0.4, 0.8, 0.2, 0.9],
         "subject_metrics": [
             {"subject": "02", "n_samples": 1, "y_true_majority": 0,
-             "y_proba_mean": 0.3, "auc": float("nan"), "balanced_accuracy": 0.5},
+             "y_proba_mean": 0.3, "auc": float("nan"), "auprc": float("nan"),
+             "balanced_accuracy": 0.5, "precision": 0.0, "recall": 0.0, "f1": 0.0},
         ],
-        "feature_importances": np.array([0.5, 0.3, 0.2]),
+        "feature_importances": rng.rand(n_features),
+        "shap_importances": rng.rand(n_features),
     }
-    perm_results = {"auc": np.array([0.5, 0.48, 0.52]), "balanced_accuracy": np.array([0.5, 0.49, 0.51])}
+
+
+def _make_perm_stub(n_perms: int = 3) -> dict:
+    rng = np.random.RandomState(8)
+    return {
+        "auc": rng.uniform(0.4, 0.6, n_perms),
+        "balanced_accuracy": rng.uniform(0.4, 0.6, n_perms),
+        "auprc": rng.uniform(0.3, 0.5, n_perms),
+    }
+
+
+def test_save_results_creates_expected_files(tmp_path, config):
+    results = _make_results_stub(n_features=3)
+    perm_results = _make_perm_stub()
     feature_cols = ["onoff", "valence", "selfother"]
 
     save_results(results, perm_results, feature_cols, tmp_path, config)
@@ -291,23 +318,32 @@ def test_save_results_creates_expected_files(tmp_path, config):
     assert (tmp_path / "summary.csv").exists()
     assert (tmp_path / "subject_metrics.csv").exists()
     assert (tmp_path / "feature_importances.csv").exists()
+    assert (tmp_path / "shap_importances.csv").exists()
     assert (tmp_path / "permutation_aucs.csv").exists()
     assert (tmp_path / "used_config.yaml").exists()
 
 
 def test_save_results_summary_values(tmp_path, config):
     results = {
-        "auc": 0.72, "balanced_accuracy": 0.65,
+        "auc": 0.72, "auprc": 0.60, "balanced_accuracy": 0.65,
+        "precision": 0.55, "recall": 0.65, "f1": 0.60,
         "y_true": [0, 1], "y_proba": [0.3, 0.7],
         "subject_metrics": [],
         "feature_importances": np.array([0.5, 0.3]),
+        "shap_importances": np.array([0.4, 0.2]),
     }
-    perm_results = {"auc": np.array([0.4, 0.45, 0.5]), "balanced_accuracy": np.array([0.5, 0.5, 0.5])}
+    perm_results = {
+        "auc": np.array([0.4, 0.45, 0.5]),
+        "balanced_accuracy": np.array([0.5, 0.5, 0.5]),
+        "auprc": np.array([0.3, 0.35, 0.4]),
+    }
     save_results(results, perm_results, ["f1", "f2"], tmp_path, config)
 
     summary = pd.read_csv(tmp_path / "summary.csv")
     assert summary["true_auc"].iloc[0] == pytest.approx(0.72)
+    assert summary["true_auprc"].iloc[0] == pytest.approx(0.60)
     assert "p_value_auc" in summary.columns
+    assert "p_value_auprc" in summary.columns
     assert summary["p_value_auc"].iloc[0] == pytest.approx(1 / 4)  # (1+0)/(1+3)
 
 
@@ -318,21 +354,28 @@ def test_plot_results_creates_all_files(tmp_path):
     rng = np.random.RandomState(0)
     results = {
         "auc": 0.70,
+        "auprc": 0.58,
         "balanced_accuracy": 0.63,
+        "precision": 0.55,
+        "recall": 0.60,
+        "f1": 0.57,
         "y_true": [0] * 20 + [1] * 20,
         "y_proba": list(rng.uniform(0.1, 0.5, 20)) + list(rng.uniform(0.5, 0.9, 20)),
         "subject_metrics": [
             {"subject": str(i), "n_samples": 2,
              "y_true_majority": i % 2, "y_proba_mean": float(rng.rand()),
-             "auc": float(rng.uniform(0.4, 0.9)),
-             "balanced_accuracy": float(rng.uniform(0.4, 0.9))}
+             "auc": float(rng.uniform(0.4, 0.9)), "auprc": float(rng.uniform(0.3, 0.8)),
+             "balanced_accuracy": float(rng.uniform(0.4, 0.9)),
+             "precision": 0.5, "recall": 0.5, "f1": 0.5}
             for i in range(20)
         ],
         "feature_importances": rng.rand(4),
+        "shap_importances": rng.rand(4),
     }
     perm_results = {
         "auc": rng.uniform(0.4, 0.6, 100),
         "balanced_accuracy": rng.uniform(0.4, 0.6, 100),
+        "auprc": rng.uniform(0.3, 0.5, 100),
     }
 
     plot_results(results, perm_results, tmp_path, feature_names=["f1", "f2", "f3", "f4"])
@@ -340,7 +383,9 @@ def test_plot_results_creates_all_files(tmp_path):
     plots_dir = tmp_path / "plots"
     assert (plots_dir / "permutation_distribution_auc.png").exists()
     assert (plots_dir / "permutation_distribution_bacc.png").exists()
+    assert (plots_dir / "permutation_distribution_auprc.png").exists()
     assert (plots_dir / "metric_distributions.png").exists()
     assert (plots_dir / "subject_predictions.png").exists()
     assert (plots_dir / "feature_importances.png").exists()
+    assert (plots_dir / "shap_importances.png").exists()
     assert (plots_dir / "confusion_matrix.png").exists()
