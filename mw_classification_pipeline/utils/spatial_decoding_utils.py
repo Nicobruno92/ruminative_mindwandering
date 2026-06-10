@@ -493,9 +493,11 @@ def plot_channel_topomap(
     vlim: tuple | None = (0.5, None),
 ) -> None:
     """
-    Render a scalp topomap of a per-channel metric, matching the project's CBPT
-    topoplot style (no sensor dots, no contour lines, open-circle significance markers)
-    plus a colorbar labelled with its limits.
+    Render a scalp topomap of a per-channel metric using the EXACT plotting code of the
+    project's CBPT topoplots (``Statistics/plot_results.py::plot_cluster_topomap``):
+    same figure size, head-extrapolated cubic interpolation, 6 contours, circular clip,
+    filled-black-dot significance markers, and colorbar. Only the colormap (viridis),
+    the value scale (vmin/vmax), and the colorbar label differ from the CBPT default.
 
     Parameters
     ----------
@@ -508,56 +510,146 @@ def plot_channel_topomap(
     montage : str
         MNE standard montage name.
     mask_col : str or None
-        Boolean column used to mark significant electrodes (open black circles).
+        Boolean column flagging significant electrodes (filled black dots).
     title : str
         Figure title.
     cmap : str
-        Matplotlib colormap (default ``viridis``).
+        Colormap (default ``viridis``).
     vlim : tuple or None
-        (vmin, vmax). ``vmax=None`` auto-sets it to the data max; values below vmin
-        clamp to the bottom colour.
+        (vmin, vmax); ``vmax=None`` -> data max. Default ``(0.5, None)``.
+    """
+    channels = metrics["channel"].tolist()
+    info = build_info_from_channels(channels, montage=montage)
+    values = metrics[value_col].to_numpy(dtype=float)
+
+    # Express the FWER-significant electrodes as a single "cluster" so the CBPT plotter
+    # marks them with filled black dots.
+    if mask_col and mask_col in metrics:
+        sig_idx = np.where(metrics[mask_col].to_numpy(dtype=bool))[0]
+        clusters = [sig_idx] if sig_idx.size else []
+        cluster_p_values = np.array([0.0]) if sig_idx.size else np.array([])
+    else:
+        clusters, cluster_p_values = [], np.array([])
+
+    vmin = 0.5 if vlim is None else (vlim[0] if vlim[0] is not None else 0.5)
+    vmax = (vlim[1] if (vlim is not None and vlim[1] is not None) else float(np.nanmax(values)))
+
+    _plot_cbpt_style_topomap(
+        values, clusters, cluster_p_values, info,
+        alpha=0.05, title=title, vmin=vmin, vmax=vmax, cmap=cmap,
+        save_path=out_path, cbar_label=value_col, footer=None,
+    )
+
+
+def _plot_cbpt_style_topomap(
+    t_stats: np.ndarray,
+    clusters: list,
+    cluster_p_values: np.ndarray,
+    info,
+    alpha: float = 0.05,
+    title: str = "Spatial Cluster Permutation Test",
+    vmin=None,
+    vmax=None,
+    cmap: str = "RdBu_r",
+    save_path: str | None = None,
+    dpi: int = 300,
+    cluster_p_values_uncorrected=None,
+    cbar_label: str = "T-statistic",
+    footer: str | None = "auto",
+):
+    """
+    Verbatim copy of ``Statistics/plot_results.py::plot_cluster_topomap`` (the project's
+    CBPT topoplot), so spatial-decoding maps render identically. Only additions:
+    ``cbar_label`` (colorbar label) and ``footer`` (set to None to omit the cluster-count
+    caption, which is meaningless for a per-electrode searchlight).
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import mne
+    from pathlib import Path as _Path
 
-    channels = metrics["channel"].tolist()
-    info = build_info_from_channels(channels, montage=montage)
-    values = metrics[value_col].to_numpy(dtype=float)
-    mask = metrics[mask_col].to_numpy(dtype=bool) if mask_col else None
+    # Create masks for significant clusters (filled black dots).
+    mask_corrected = np.zeros(len(t_stats), dtype=bool)
+    for cluster, pval in zip(clusters, cluster_p_values):
+        if pval < alpha:
+            mask_corrected[cluster] = True
 
-    fig, ax = plt.subplots(figsize=(4.4, 4))
-    # Match Statistics/plot_results.py (the project's CBPT topoplots): smooth head-
-    # extrapolated interpolation, 6 contours, filled black dots for significant sensors.
+    mask_uncorrected = None
+    if cluster_p_values_uncorrected is not None:
+        mask_uncorrected = np.zeros(len(t_stats), dtype=bool)
+        for cluster, pval in zip(clusters, cluster_p_values_uncorrected):
+            if pval < alpha:
+                mask_uncorrected[cluster] = True
+
+    if vmin is None or vmax is None:
+        abs_max = np.nanmax(np.abs(t_stats))
+        if np.isnan(abs_max) or abs_max == 0:
+            abs_max = 1.0
+        vmin = -abs_max
+        vmax = abs_max
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    t_stats_plot = np.copy(t_stats)
+    t_stats_plot[np.isnan(t_stats_plot)] = 0
+
     im, _ = mne.viz.plot_topomap(
-        values, info, axes=ax, show=False, cmap=cmap,
-        vlim=(None, None) if vlim is None else vlim,
+        t_stats_plot,
+        info,
+        axes=ax,
+        show=False,
+        cmap=cmap,
+        vlim=(vmin, vmax),
         sensors=False,
-        mask=mask,
-        mask_params=dict(marker="o", markerfacecolor="k",
-                         markeredgecolor="k", linewidth=0, markersize=6),
+        mask=mask_corrected,
+        mask_params=dict(marker='o', markerfacecolor='k',
+                         markeredgecolor='k', linewidth=0, markersize=6),
         contours=6,
-        ch_type="eeg",
-        sphere="auto",
-        outlines="head",
-        extrapolate="head",
-        image_interp="cubic",
-        border="mean",
+        ch_type='eeg',
+        sphere='auto',
+        outlines='head',
+        extrapolate='head',
+        image_interp='cubic',
+        border='mean',
         res=128,
     )
-    # Colorbar labelled with its actual limits (vmin .. vmax-after-autoscale).
-    vmin, vmax = im.get_clim()
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(value_col, rotation=270, labelpad=20, fontsize=9)
-    cbar.set_ticks([vmin, vmax])
-    cbar.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"])
-    cbar.ax.tick_params(labelsize=8)
 
-    ax.set_title(title)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    if mask_uncorrected is not None:
+        from mne.channels import find_layout
+        layout = find_layout(info, ch_type='eeg')
+        pos = layout.pos[:len(t_stats), :2]
+        uncorrected_only = mask_uncorrected & ~mask_corrected
+        if np.any(uncorrected_only):
+            ax.plot(pos[uncorrected_only, 0], pos[uncorrected_only, 1],
+                    'o', markerfacecolor='none', markeredgecolor='k',
+                    markeredgewidth=1.5, markersize=6, zorder=10)
+
+    from matplotlib.patches import Circle
+    circle = Circle((0.5, 0.5), 0.5, transform=ax.transAxes,
+                    facecolor='none', edgecolor='none')
+    im.set_clip_path(circle)
+
+    cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label(cbar_label, rotation=270, labelpad=20)
+
+    ax.set_title(title, fontsize=14, fontweight='bold')
+
+    if footer == "auto":
+        n_sig_corrected = int(np.sum(np.asarray(cluster_p_values) < alpha))
+        n_total = len(clusters)
+        fig.text(0.5, 0.02, f'Clusters: {n_sig_corrected}/{n_total} significant (α = {alpha})',
+                 ha='center', fontsize=9)
+    elif footer:
+        fig.text(0.5, 0.02, footer, ha='center', fontsize=9)
+
+    plt.tight_layout()
+    if save_path:
+        _Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
+        plt.close(fig)
+        return None
+    return fig
 
 
 def plot_combined_topomap_panel(
