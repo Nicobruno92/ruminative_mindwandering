@@ -419,8 +419,8 @@ spatial_decoding:
     method: "maxstat"            # max-statistic permutation (FWER) across channels; CBPT-consistent. ("fdr_bh" available as secondary)
     alpha: 0.05
   topomap:
-    cmap: "RdBu_r"
-    vlim: null                    # or [0.4, 0.7] to fix the AUC color scale
+    cmap: "viridis"
+    vlim: [0.5, null]            # vmin=0.5 fixed, vmax=per-map max; <0.5 clamps to bottom colour
   contrasts:                      # the 5 dimensions to map (LOSO contrast names)
     - ON_vs_OFF_within_median
     - valence_within_median

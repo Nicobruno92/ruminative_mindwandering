@@ -398,7 +398,9 @@ def build_max_null_from_perms(results_dir: str) -> np.ndarray:
 
 
 def merge_spatial_maxstat(results_dir: str, alpha: float = 0.05,
-                          montage: str = "standard_1020", title: str = "Decoding AUC") -> "pd.DataFrame":
+                          montage: str = "standard_1020", title: str = "Decoding AUC",
+                          cmap: str = "viridis",
+                          vlim: tuple | None = (0.5, None)) -> "pd.DataFrame":
     """
     Combine true per-channel AUCs + permutation max-null into FWER metrics + topomaps.
 
@@ -417,6 +419,13 @@ def merge_spatial_maxstat(results_dir: str, alpha: float = 0.05,
         MNE standard montage name.
     title : str
         Topomap title prefix.
+    cmap : str
+        Topomap colormap (default ``viridis``).
+    vlim : tuple or None
+        (vmin, vmax) AUC colour limits (default ``(0.5, None)``: vmin=0.5 fixed, vmax
+        auto-set to each map's own maximum). Values below vmin are clamped to the bottom
+        colour, so every chance-level (≤0.5) electrode looks the same and the 0.5→max
+        range carries all the contrast.
 
     Returns
     -------
@@ -441,10 +450,11 @@ def merge_spatial_maxstat(results_dir: str, alpha: float = 0.05,
     metrics = metrics.sort_values("channel").reset_index(drop=True)
     metrics.to_csv(os.path.join(results_dir, "per_channel_metrics.csv"), index=False)
 
+    _vlim = tuple(vlim) if vlim is not None else None
     plot_channel_topomap(metrics, "mean_auc", os.path.join(results_dir, "topomap_auc.png"),
-                         montage=montage, title=title)
+                         montage=montage, title=title, cmap=cmap, vlim=_vlim)
     plot_channel_topomap(metrics, "mean_auc", os.path.join(results_dir, "topomap_sig.png"),
-                         montage=montage, mask_col="sig",
+                         montage=montage, mask_col="sig", cmap=cmap, vlim=_vlim,
                          title=f"{title} (FWER-significant electrodes marked)")
     return metrics
 
