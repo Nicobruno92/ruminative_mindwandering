@@ -66,3 +66,128 @@ DIMENSIONS: List[Dict[str, str]] = [
     {"contrast": "confidence_within_median", "label": "Confidence", "color": "#27AE60"},
     {"contrast": "time_within_median", "label": "Time", "color": "#2980B9"},
 ]
+
+
+# =============================================================================
+# Core data-shaping functions
+# =============================================================================
+
+def compute_pearson_fit(x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+    """
+    Pearson correlation and OLS line fit between two 1-D arrays.
+
+    Parameters
+    ----------
+    x, y : np.ndarray
+        Equal-length arrays of paired observations.
+
+    Returns
+    -------
+    Dict[str, float]
+        Keys 'r', 'p', 'slope', 'intercept', 'n'. If fewer than
+        `MIN_POINTS_FOR_FIT` finite pairs are available, 'r', 'p', 'slope'
+        and 'intercept' are NaN.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    valid = np.isfinite(x) & np.isfinite(y)
+    n_valid = int(valid.sum())
+
+    if n_valid < MIN_POINTS_FOR_FIT:
+        return {"r": np.nan, "p": np.nan, "slope": np.nan, "intercept": np.nan, "n": n_valid}
+
+    r_val, p_val = stats.pearsonr(x[valid], y[valid])
+    slope, intercept, _, _, _ = stats.linregress(x[valid], y[valid])
+    return {
+        "r": float(r_val),
+        "p": float(p_val),
+        "slope": float(slope),
+        "intercept": float(intercept),
+        "n": n_valid,
+    }
+
+
+def compute_subject_medians(
+    probe_df: pd.DataFrame, label_source: str, subjects_final: List[str]
+) -> pd.DataFrame:
+    """
+    Per-subject median rating for one dimension, restricted to a subject set.
+
+    Parameters
+    ----------
+    probe_df : pd.DataFrame
+        Probe-level data with a 'subject' column (zero-padded strings) and
+        a `label_source` column.
+    label_source : str
+        Name of the dimension column (e.g. 'onoff', 'valence').
+    subjects_final : List[str]
+        Zero-padded subject IDs to keep — the LOSO subject set for this
+        dimension.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: 'subject', 'subject_median'.
+    """
+    medians = (
+        probe_df.groupby("subject")[label_source]
+        .median()
+        .reset_index()
+        .rename(columns={label_source: "subject_median"})
+    )
+    return medians[medians["subject"].isin(subjects_final)].reset_index(drop=True)
+
+
+def build_fig_a_row(
+    dimension_label: str, subject_medians: pd.DataFrame, subject_aucs: pd.DataFrame
+) -> Dict[str, object]:
+    """
+    One Fig A summary row: across-subject SD of medians vs mean LOSO AUC.
+
+    Parameters
+    ----------
+    dimension_label : str
+        Display name of the dimension (e.g. 'On/Off-Task').
+    subject_medians : pd.DataFrame
+        Output of `compute_subject_medians` — columns 'subject', 'subject_median'.
+    subject_aucs : pd.DataFrame
+        Output of `load_subject_aucs` — columns 'subject', 'auc'.
+
+    Returns
+    -------
+    Dict[str, object]
+        Keys: 'dimension', 'median_sd', 'mean_auc', 'n_subjects'.
+    """
+    return {
+        "dimension": dimension_label,
+        "median_sd": float(subject_medians["subject_median"].std()),
+        "mean_auc": float(subject_aucs["auc"].mean()),
+        "n_subjects": int(len(subject_aucs)),
+    }
+
+
+def build_fig_b_rows(
+    dimension_label: str, subject_medians: pd.DataFrame, subject_aucs: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Per-subject Fig B rows: distance of the subject's median from the scale
+    midpoint vs that subject's LOSO AUC.
+
+    Parameters
+    ----------
+    dimension_label : str
+        Display name of the dimension (e.g. 'On/Off-Task').
+    subject_medians : pd.DataFrame
+        Output of `compute_subject_medians`.
+    subject_aucs : pd.DataFrame
+        Output of `load_subject_aucs`.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: 'dimension', 'subject', 'subject_median', 'dist_from_50', 'auc'.
+    """
+    merged = pd.merge(subject_medians, subject_aucs, on="subject", how="inner")
+    merged["dist_from_50"] = (merged["subject_median"] - SCALE_MIDPOINT).abs()
+    merged["dimension"] = dimension_label
+    return merged[["dimension", "subject", "subject_median", "dist_from_50", "auc"]]
