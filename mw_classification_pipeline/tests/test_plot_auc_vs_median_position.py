@@ -124,3 +124,30 @@ def test_plot_fig_a_creates_output_files(tmp_path):
     assert (tmp_path / "dimension_auc_vs_median_variability.png").exists()
     assert (tmp_path / "dimension_auc_vs_median_variability.pdf").exists()
     assert (tmp_path / "dimension_auc_vs_median_variability.html").exists()
+
+
+from scripts.plot_auc_vs_median_position import plot_fig_b
+
+
+def test_plot_fig_b_creates_output_files(tmp_path):
+    rng = np.random.default_rng(42)
+    dimension_order = ["On/Off-Task", "Valence", "Self/Other", "Confidence", "Time"]
+    dimension_colors = {d: "#000000" for d in dimension_order}
+
+    rows = []
+    for dim in dimension_order:
+        for i in range(5):
+            rows.append({
+                "dimension": dim,
+                "subject": f"{i + 2:02d}",
+                "subject_median": 50.0,
+                "dist_from_50": float(rng.uniform(0, 30)),
+                "auc": float(rng.uniform(0.4, 0.8)),
+            })
+    fig_b_df = pd.DataFrame(rows)
+
+    plot_fig_b(fig_b_df, dimension_colors, dimension_order, tmp_path)
+
+    assert (tmp_path / "auc_vs_median_distance_from_50_faceted.png").exists()
+    assert (tmp_path / "auc_vs_median_distance_from_50_faceted.pdf").exists()
+    assert (tmp_path / "auc_vs_median_distance_from_50_faceted.html").exists()
