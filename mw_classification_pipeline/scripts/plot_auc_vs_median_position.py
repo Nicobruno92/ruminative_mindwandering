@@ -191,3 +191,51 @@ def build_fig_b_rows(
     merged["dist_from_50"] = (merged["subject_median"] - SCALE_MIDPOINT).abs()
     merged["dimension"] = dimension_label
     return merged[["dimension", "subject", "subject_median", "dist_from_50", "auc"]]
+
+
+# =============================================================================
+# Data loaders
+# =============================================================================
+
+def load_dimension_metadata(rf_dir: Path) -> Tuple[List[str], str]:
+    """
+    Read the LOSO `used_config.yaml` for one dimension.
+
+    Parameters
+    ----------
+    rf_dir : Path
+        Directory containing `used_config.yaml` and the subject-metrics CSV
+        (e.g. `.../LOSO/ON_vs_OFF_within_median/all/rf`).
+
+    Returns
+    -------
+    Tuple[List[str], str]
+        (subjects_final as zero-padded strings, label_source column name).
+    """
+    config = yaml.safe_load((rf_dir / "used_config.yaml").read_text())
+    contrast = config["contrast"]
+    subjects_final = [str(s).zfill(2) for s in config["_data_provenance"]["subjects_final"]]
+    label_source = config["label_contrasts"][contrast]["label_source"]
+    return subjects_final, label_source
+
+
+def load_subject_aucs(rf_dir: Path, subjects_final: List[str]) -> pd.DataFrame:
+    """
+    Load per-subject LOSO AUC, restricted to `subjects_final`.
+
+    Parameters
+    ----------
+    rf_dir : Path
+        Directory containing `rf_loso_100runs_loso_subject_metrics.csv`.
+    subjects_final : List[str]
+        Zero-padded subject IDs to keep.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: 'subject' (zero-padded string), 'auc'.
+    """
+    df = pd.read_csv(rf_dir / "rf_loso_100runs_loso_subject_metrics.csv", dtype={"subject": str})
+    df["subject"] = df["subject"].str.zfill(2)
+    df = df[df["subject"].isin(subjects_final)][["subject", "auc"]]
+    return df.reset_index(drop=True)

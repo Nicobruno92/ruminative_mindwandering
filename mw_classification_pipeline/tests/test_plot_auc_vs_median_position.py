@@ -78,3 +78,29 @@ def test_build_fig_b_rows_computes_distance_and_merges():
     assert result.loc["03", "dist_from_50"] == pytest.approx(30.0)
     assert (result["dimension"] == "Test Dim").all()
     assert list(result.columns) == ["dimension", "subject_median", "dist_from_50", "auc"]
+
+
+# =============================================================================
+# Integration tests against real ON_vs_OFF LOSO results
+# =============================================================================
+
+from scripts.plot_auc_vs_median_position import load_dimension_metadata, load_subject_aucs
+
+ON_OFF_RF_DIR = LOSO_RESULTS_ROOT / "ON_vs_OFF_within_median" / "all" / "rf"
+
+
+def test_load_dimension_metadata_on_off():
+    subjects_final, label_source = load_dimension_metadata(ON_OFF_RF_DIR)
+    assert label_source == "onoff"
+    assert len(subjects_final) == 29
+    assert "03" in subjects_final
+    assert "16" not in subjects_final
+    assert all(len(s) == 2 for s in subjects_final)
+
+
+def test_load_subject_aucs_on_off():
+    subjects_final, _ = load_dimension_metadata(ON_OFF_RF_DIR)
+    aucs = load_subject_aucs(ON_OFF_RF_DIR, subjects_final)
+    assert len(aucs) == 29
+    assert set(aucs["subject"]) == set(subjects_final)
+    assert aucs["auc"].mean() == pytest.approx(0.628, abs=0.001)
