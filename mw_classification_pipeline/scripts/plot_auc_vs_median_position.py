@@ -396,3 +396,65 @@ def plot_fig_b(
     fig.write_image(f"{out_path}.png", scale=2)
     fig.write_image(f"{out_path}.pdf")
     fig.write_html(f"{out_path}.html")
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+def main() -> None:
+    """Build Fig A and Fig B and write data CSVs + provenance to OUTPUT_DIR."""
+    probe_df = pd.read_csv(PROBE_DATA_PATH, dtype={"subject": str})
+    probe_df["subject"] = probe_df["subject"].astype(str).str.zfill(2)
+
+    fig_a_rows: List[Dict[str, object]] = []
+    fig_b_frames: List[pd.DataFrame] = []
+    dimension_colors: Dict[str, str] = {}
+    dimension_order: List[str] = []
+    provenance: Dict[str, Dict[str, object]] = {}
+
+    for dim in DIMENSIONS:
+        rf_dir = LOSO_RESULTS_ROOT / dim["contrast"] / "all" / "rf"
+        subjects_final, label_source = load_dimension_metadata(rf_dir)
+        subject_aucs = load_subject_aucs(rf_dir, subjects_final)
+        subject_medians = compute_subject_medians(probe_df, label_source, subjects_final)
+
+        fig_a_rows.append(build_fig_a_row(dim["label"], subject_medians, subject_aucs))
+        fig_b_frames.append(build_fig_b_rows(dim["label"], subject_medians, subject_aucs))
+
+        dimension_colors[dim["label"]] = dim["color"]
+        dimension_order.append(dim["label"])
+        provenance[dim["label"]] = {
+            "contrast": dim["contrast"],
+            "label_source": label_source,
+            "n_subjects": int(len(subject_aucs)),
+            "subjects_final": subjects_final,
+        }
+
+    fig_a_df = pd.DataFrame(fig_a_rows)
+    fig_b_df = pd.concat(fig_b_frames, ignore_index=True)
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    fig_a_df.to_csv(OUTPUT_DIR / "dimension_auc_vs_median_variability_data.csv", index=False)
+    fig_b_df.to_csv(OUTPUT_DIR / "auc_vs_median_distance_from_50_data.csv", index=False)
+
+    plot_fig_a(fig_a_df, OUTPUT_DIR)
+    plot_fig_b(fig_b_df, dimension_colors, dimension_order, OUTPUT_DIR)
+
+    used_config = {
+        "analysis": "loso_median_position_vs_decodability",
+        "status": "exploratory",
+        "data_sources": {
+            "probe_data": str(PROBE_DATA_PATH.relative_to(PROJECT_ROOT)),
+            "loso_results_root": str(LOSO_RESULTS_ROOT.relative_to(PROJECT_ROOT)),
+        },
+        "scale_midpoint": SCALE_MIDPOINT,
+        "dimensions": provenance,
+    }
+    (OUTPUT_DIR / "used_config.yaml").write_text(yaml.safe_dump(used_config, sort_keys=False))
+
+    print(f"Saved Fig A + Fig B + data CSVs + used_config.yaml -> {OUTPUT_DIR}")
+
+
+if __name__ == "__main__":
+    main()
