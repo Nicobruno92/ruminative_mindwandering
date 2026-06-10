@@ -607,7 +607,7 @@ def _plot_cbpt_style_topomap(
                          markeredgecolor='k', linewidth=0, markersize=6),
         contours=6,
         ch_type='eeg',
-        sphere='auto',
+        sphere=None,
         outlines='head',
         extrapolate='head',
         image_interp='cubic',
@@ -709,7 +709,7 @@ def plot_combined_topomap_panel(
             vlim=shared_vlim, sensors=False, mask=mask,
             mask_params=dict(marker="o", markerfacecolor="k",
                              markeredgecolor="k", linewidth=0, markersize=5),
-            contours=6, ch_type="eeg", sphere="auto", outlines="head",
+            contours=6, ch_type="eeg", sphere=None, outlines="head",
             extrapolate="head", image_interp="cubic", border="mean", res=128,
         )
         ax.set_title(dim)
