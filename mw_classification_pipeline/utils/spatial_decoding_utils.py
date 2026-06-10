@@ -489,11 +489,13 @@ def plot_channel_topomap(
     montage: str = "standard_1020",
     mask_col: str | None = None,
     title: str = "",
-    cmap: str = "RdBu_r",
-    vlim: tuple | None = None,
+    cmap: str = "viridis",
+    vlim: tuple | None = (0.5, None),
 ) -> None:
     """
-    Render a scalp topomap of a per-channel metric.
+    Render a scalp topomap of a per-channel metric, matching the project's CBPT
+    topoplot style (no sensor dots, no contour lines, open-circle significance markers)
+    plus a colorbar labelled with its limits.
 
     Parameters
     ----------
@@ -506,13 +508,14 @@ def plot_channel_topomap(
     montage : str
         MNE standard montage name.
     mask_col : str or None
-        Boolean column used to mark significant electrodes.
+        Boolean column used to mark significant electrodes (open black circles).
     title : str
         Figure title.
     cmap : str
-        Matplotlib colormap.
+        Matplotlib colormap (default ``viridis``).
     vlim : tuple or None
-        (vmin, vmax). None = auto.
+        (vmin, vmax). ``vmax=None`` auto-sets it to the data max; values below vmin
+        clamp to the bottom colour.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -524,13 +527,24 @@ def plot_channel_topomap(
     values = metrics[value_col].to_numpy(dtype=float)
     mask = metrics[mask_col].to_numpy(dtype=bool) if mask_col else None
 
-    fig, ax = plt.subplots(figsize=(4, 4))
-    mne.viz.plot_topomap(
+    fig, ax = plt.subplots(figsize=(4.4, 4))
+    im, _ = mne.viz.plot_topomap(
         values, info, axes=ax, show=False, cmap=cmap,
         vlim=(None, None) if vlim is None else vlim,
+        sensors=False,          # CBPT style: no sensor dots
+        contours=0,             # CBPT style: no contour lines
         mask=mask,
-        mask_params=dict(marker="o", markerfacecolor="k", markersize=6),
+        mask_params=dict(marker="o", markerfacecolor="none",
+                         markeredgecolor="k", markersize=4, linewidth=1.2),
     )
+    # Colorbar labelled with its actual limits (vmin .. vmax-after-autoscale).
+    vmin, vmax = im.get_clim()
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label(value_col, fontsize=9)
+    cbar.set_ticks([vmin, vmax])
+    cbar.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"])
+    cbar.ax.tick_params(labelsize=8)
+
     ax.set_title(title)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -543,8 +557,8 @@ def plot_combined_topomap_panel(
     out_path: str,
     montage: str = "standard_1020",
     mask_col: str | None = None,
-    cmap: str = "RdBu_r",
-    vlim: tuple | None = None,
+    cmap: str = "viridis",
+    vlim: tuple | None = (0.5, None),
 ) -> None:
     """
     Render a single figure with one topomap per dimension (paper figure).
@@ -572,6 +586,15 @@ def plot_combined_topomap_panel(
     import mne
 
     dims = list(per_dimension_metrics.keys())
+    # Shared colour scale across panels so dimensions are directly comparable. With
+    # vmax=None, use the global maximum across all dimensions (vmin stays 0.5).
+    vmin = 0.5 if vlim is None else (vlim[0] if vlim[0] is not None else 0.5)
+    if vlim is not None and vlim[1] is not None:
+        vmax = vlim[1]
+    else:
+        vmax = max(float(m[value_col].max()) for m in per_dimension_metrics.values())
+    shared_vlim = (vmin, vmax)
+
     fig, axes = plt.subplots(1, len(dims), figsize=(3 * len(dims), 3.2))
     if len(dims) == 1:
         axes = [axes]
@@ -582,12 +605,15 @@ def plot_combined_topomap_panel(
         mask = m[mask_col].to_numpy(dtype=bool) if mask_col else None
         im, _ = mne.viz.plot_topomap(
             m[value_col].to_numpy(dtype=float), info, axes=ax, show=False, cmap=cmap,
-            vlim=(None, None) if vlim is None else vlim, mask=mask,
-            mask_params=dict(marker="o", markerfacecolor="k", markersize=5),
+            vlim=shared_vlim, sensors=False, contours=0, mask=mask,
+            mask_params=dict(marker="o", markerfacecolor="none",
+                             markeredgecolor="k", markersize=4, linewidth=1.2),
         )
         ax.set_title(dim)
     if im is not None:
-        fig.colorbar(im, ax=axes, fraction=0.025, label=value_col)
+        cbar = fig.colorbar(im, ax=axes, fraction=0.025, label=value_col)
+        cbar.set_ticks([shared_vlim[0], shared_vlim[1]])
+        cbar.set_ticklabels([f"{shared_vlim[0]:.2f}", f"{shared_vlim[1]:.2f}"])
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
