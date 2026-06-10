@@ -528,19 +528,28 @@ def plot_channel_topomap(
     mask = metrics[mask_col].to_numpy(dtype=bool) if mask_col else None
 
     fig, ax = plt.subplots(figsize=(4.4, 4))
+    # Match Statistics/plot_results.py (the project's CBPT topoplots): smooth head-
+    # extrapolated interpolation, 6 contours, filled black dots for significant sensors.
     im, _ = mne.viz.plot_topomap(
         values, info, axes=ax, show=False, cmap=cmap,
         vlim=(None, None) if vlim is None else vlim,
-        sensors=False,          # CBPT style: no sensor dots
-        contours=0,             # CBPT style: no contour lines
+        sensors=False,
         mask=mask,
-        mask_params=dict(marker="o", markerfacecolor="none",
-                         markeredgecolor="k", markersize=4, linewidth=1.2),
+        mask_params=dict(marker="o", markerfacecolor="k",
+                         markeredgecolor="k", linewidth=0, markersize=6),
+        contours=6,
+        ch_type="eeg",
+        sphere="auto",
+        outlines="head",
+        extrapolate="head",
+        image_interp="cubic",
+        border="mean",
+        res=128,
     )
     # Colorbar labelled with its actual limits (vmin .. vmax-after-autoscale).
     vmin, vmax = im.get_clim()
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(value_col, fontsize=9)
+    cbar.set_label(value_col, rotation=270, labelpad=20, fontsize=9)
     cbar.set_ticks([vmin, vmax])
     cbar.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"])
     cbar.ax.tick_params(labelsize=8)
@@ -605,9 +614,11 @@ def plot_combined_topomap_panel(
         mask = m[mask_col].to_numpy(dtype=bool) if mask_col else None
         im, _ = mne.viz.plot_topomap(
             m[value_col].to_numpy(dtype=float), info, axes=ax, show=False, cmap=cmap,
-            vlim=shared_vlim, sensors=False, contours=0, mask=mask,
-            mask_params=dict(marker="o", markerfacecolor="none",
-                             markeredgecolor="k", markersize=4, linewidth=1.2),
+            vlim=shared_vlim, sensors=False, mask=mask,
+            mask_params=dict(marker="o", markerfacecolor="k",
+                             markeredgecolor="k", linewidth=0, markersize=5),
+            contours=6, ch_type="eeg", sphere="auto", outlines="head",
+            extrapolate="head", image_interp="cubic", border="mean", res=128,
         )
         ax.set_title(dim)
     if im is not None:
