@@ -22,34 +22,109 @@ project:
   # Data filtering
   subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
   tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
-  marker_types: ["sleep", "evoked"]  # Processed independently
-  
   # Filter probes by onoff value (optional)
   onoff_max_value: 100
-  
+
   # Filter subjects by predictor variability (optional)
   min_predictor_variability: 30
-  
-  # Markers to analyze
-  markers: "all"  # or specify list of markers
 
-# Derived ratio markers — computed at load time as numerator / denominator
-# channel-wise. Each spec produces a new "<marker_type>/<name>" entry that is
-# appended to the marker list and goes through the rest of the pipeline
-# (normalization, LMM, permutation, clustering, plotting) exactly like any
-# other marker.
+# =============================================================================
+# FEATURE FAMILIES (identical to Statistics — same Junifer marker names)
+# =============================================================================
+feature_families:
+  all: null
+
+  erp:
+    - "P1"
+    - "N1"
+    - "P2"
+    - "P3a"
+    - "P3b"
+
+  spectral:
+    - "psd_bands_delta"
+    - "psd_bands_theta"
+    - "psd_bands_alpha"
+    - "psd_bands_beta"
+    - "psd_bands_jota"
+    - "psd_bands_gamma"
+
+  spectral_ratio:
+    - "psd_bands_theta_beta_ratio"
+    - "psd_bands_alpha_theta_ratio"
+    - "psd_relative_theta_beta_ratio"
+    - "psd_relative_alpha_theta_ratio"
+
+  spectral_relative:
+    - "psd_relative_delta"
+    - "psd_relative_theta"
+    - "psd_relative_alpha"
+    - "psd_relative_beta"
+    - "psd_relative_jota"
+    - "psd_relative_gamma"
+
+  connectivity:
+    - "wsmi_theta"
+    - "wsmi_alpha"
+    - "wsmi_beta"
+    - "wsmi_gamma"
+
+  information_theory:
+    - "PE_theta"
+    - "PE_alpha"
+    - "PE_beta"
+    - "PE_gamma"
+    - "kolmogorov_complexity"
+
+  sleep:
+    - "slowwaves"
+    # spindles excluded: LMM design matrix is singular on every channel for
+    # spindle markers under treatment*mind_state (too few non-zero observations
+    # per cell). Re-add when sparsity is fixed.
+
+# =============================================================================
+# SELECTED MARKERS
+# =============================================================================
+# Which families to run, per epoch type.
+# Epoch types must match the marker_type column in the aggregated CSVs:
+#   evoked — ERP time-locked epochs
+#   sleep  — pre-probe state epochs (spectral, connectivity, IT, slow waves)
 #
-# Useful for spectral-ratio markers that are not pre-computed by Junifer but
-# are biologically meaningful (theta/beta, alpha/theta, etc.).
+# Use ["all"] to include every available marker for that epoch type.
+selected_markers:
+  evoked:
+    - erp
+  state:
+    - spectral
+    - spectral_ratio
+    - spectral_relative
+    - connectivity
+    - information_theory
+  sleep:
+    - sleep
+
+# =============================================================================
+# DERIVED RATIO MARKERS
+# =============================================================================
+# Virtual markers computed channel-wise as numerator / denominator.
+# epoch_type must match the epoch type used in selected_markers above.
 derived_ratios:
-  - name: "psd_bands_theta_beta_ratio"
-    marker_type: "sleep"
-    numerator: "psd_bands_theta"
-    denominator: "psd_bands_beta"
-  - name: "psd_bands_alpha_theta_ratio"
-    marker_type: "sleep"
-    numerator: "psd_bands_alpha"
-    denominator: "psd_bands_theta"
+  psd_bands_theta_beta_ratio:
+    epoch_type: state
+    numerator: psd_bands_theta
+    denominator: psd_bands_beta
+  psd_bands_alpha_theta_ratio:
+    epoch_type: state
+    numerator: psd_bands_alpha
+    denominator: psd_bands_theta
+  psd_relative_theta_beta_ratio:
+    epoch_type: state
+    numerator: psd_relative_theta
+    denominator: psd_relative_beta
+  psd_relative_alpha_theta_ratio:
+    epoch_type: state
+    numerator: psd_relative_alpha
+    denominator: psd_relative_theta
 
 # Preprocessing parameters
 preprocessing:

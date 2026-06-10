@@ -1,0 +1,48 @@
+data:
+  objective_markers_path: results/Behavior/objective_markers/probe_level_with_objective_markers.csv
+  pca_results_path: results/Behavior/probe_data/pca_results.csv
+  probe_data_path: results/Behavior/probe_data/probe_level_aggregated_data.csv
+  results_root: results/Behavior/classification
+features:
+  include_objective_markers: true
+  include_pca: true
+  objective_marker_cols:
+  - omission_rate
+  - commission_rate
+  - rt_mean
+  - rtcv
+  pca_impute_value: 0.0
+  probe_dimensions:
+  - onoff
+  - valence
+  - selfother
+  - time
+  - confidence
+group_classification:
+  modes:
+  - subject_level
+  positive_class: Risk of Depression
+  run_probe_level: false
+  target_col: group
+ie_classification:
+  exclude_conditions:
+  - baseline
+  positive_class: inclusion
+  target_col: inclusion_exclusion
+loso:
+  n_jobs: 4
+models:
+  lr_C: 1.0
+  lr_max_iter: 2000
+  lr_penalty: l2
+  random_state: 42
+  rf_max_depth: 4
+  rf_n_estimators: 100
+  types:
+  - lr
+  - rf
+permutation:
+  n_perms: 500
+  random_state: 42
+  scope_group: global
+  scope_ie: within_subject

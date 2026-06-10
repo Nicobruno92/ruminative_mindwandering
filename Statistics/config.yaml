@@ -91,6 +91,12 @@ feature_families:
     - "psd_bands_jota"               # 25-35 Hz
     - "psd_bands_gamma"              # 35-45 Hz
 
+  spectral_ratio:               # Derived band-power ratios (requires derived_ratios config + pipeline support)
+    - "psd_bands_theta_beta_ratio"      # theta / beta (absolute)
+    - "psd_bands_alpha_theta_ratio"     # alpha / theta (absolute)
+    - "psd_relative_theta_beta_ratio"   # theta / beta (relative)
+    - "psd_relative_alpha_theta_ratio"  # alpha / theta (relative)
+
   spectral_relative:            # Relative (normalized) band power (SpectralPower, normalize=true)
     - "psd_relative_delta"
     - "psd_relative_theta"
@@ -118,6 +124,32 @@ feature_families:
 
 
 # =============================================================================
+# DERIVED RATIO MARKERS
+# =============================================================================
+# Virtual markers computed channel-wise as numerator / denominator.
+# NOTE: run_pipeline.py does not yet support derived_ratios computation.
+#       These definitions are kept here for consistency with Stats_andrillon.
+#       Do NOT add spectral_ratio to selected_markers until pipeline support
+#       is implemented.
+derived_ratios:
+  psd_bands_theta_beta_ratio:
+    epoch_type: state
+    numerator: psd_bands_theta
+    denominator: psd_bands_beta
+  psd_bands_alpha_theta_ratio:
+    epoch_type: state
+    numerator: psd_bands_alpha
+    denominator: psd_bands_theta
+  psd_relative_theta_beta_ratio:
+    epoch_type: state
+    numerator: psd_relative_theta
+    denominator: psd_relative_beta
+  psd_relative_alpha_theta_ratio:
+    epoch_type: state
+    numerator: psd_relative_alpha
+    denominator: psd_relative_theta
+
+# =============================================================================
 # SELECTED MARKERS
 # =============================================================================
 # Which families to use, per epoch type.
@@ -133,15 +165,16 @@ feature_families:
 selected_markers:
   evoked:
     - erp
-  # state:
-  #   - spectral
-  #   - spectral_relative
-  #   - connectivity
-  #   - information_theory
-  sleep:
+  state:
+    # - spectral
     - spectral_relative
+    - spectral_ratio
     - connectivity
     - information_theory
+  sleep:
+    # - spectral_relative
+    # - connectivity
+    # - information_theory
     - sleep
 
 # Preprocessing parameters

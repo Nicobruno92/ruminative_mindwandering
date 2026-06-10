@@ -184,7 +184,7 @@ include_connectivity_pairs: false
 feature_families:
 
   all:
-    epoch_types: [sleep, evoked]   # load both sleep and evoked files
+    epoch_types: [sleep, state, evoked]   # load both sleep and evoked files
     prefixes: null                  # keep all columns
 
   erp:

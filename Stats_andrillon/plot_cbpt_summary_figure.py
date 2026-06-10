@@ -13,8 +13,10 @@ Usage:
 
 import os
 import re
+import sys
 import csv
 import glob
+import yaml
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -32,7 +34,50 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESULTS_DIR  = os.path.join(PROJECT_ROOT, 'results', 'andrillon_cluster')
 CHAN_ORDER    = os.path.join(PROJECT_ROOT, 'results', 'lmm_cluster', 'channel_order.txt')
 OUTPUT_DIR   = os.path.join(PROJECT_ROOT, 'results', 'figures')
+CONFIG_PATH  = os.path.join(PROJECT_ROOT, 'Stats_andrillon', 'config_andrillon.yaml')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def _build_active_marker_lookup(config_path: str) -> dict:
+    """Return {marker_name: epoch_type} for markers in MARKER_GROUPS / PANEL_A_MARKERS.
+
+    Resolves selected_markers × feature_families (substring match, same logic as
+    get_marker_list) + derived_ratios (exact match) without scanning the filesystem.
+    Markers not covered by any active family are absent from the returned dict,
+    so callers can use `.get(name)` to test whether a marker is active.
+    """
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+    ff = config.get('feature_families', {})
+    sm = config.get('selected_markers', {})
+    dr = config.get('derived_ratios', {})
+
+    # Build fragment → epoch_type from selected_markers × feature_families.
+    frag_to_type: dict = {}
+    for epoch_type, fam_list in sm.items():
+        if not isinstance(fam_list, list):
+            continue
+        for fam in fam_list:
+            for frag in (ff.get(fam) or []):
+                frag_to_type[frag] = epoch_type
+    # Derived ratios use exact names.
+    for name, spec in dr.items():
+        frag_to_type[name] = spec['epoch_type']
+
+    # Resolve full marker names used in MARKER_GROUPS / PANEL_A_MARKERS via
+    # substring match (mirrors get_marker_list behaviour).
+    all_plot_names = (
+        [mname for mname, _ in PANEL_A_MARKERS]
+        + [mname for _, names in MARKER_GROUPS for mname in names]
+    )
+    lookup: dict = {}
+    for name in all_plot_names:
+        for frag, epoch_type in frag_to_type.items():
+            if frag in name:
+                lookup[name] = epoch_type
+                break
+    return lookup
+
 
 # ===== Configuration =====
 
@@ -51,68 +96,53 @@ DIMS = [
      'valence × conf'),
 ]
 
-# Representative markers for Panel A (type, name, row label)
+# Representative markers for Panel A — (marker_name, row_label).
+# Epoch type is resolved at runtime from the config via ACTIVE_MARKER_LOOKUP.
 PANEL_A_MARKERS = [
-    ('evoked', 'P3b',             'Attentional ERP\n(P3b)'),
-    ('evoked', 'PE_gamma',        'Complexity\n(PE γ)'),
-    ('evoked', 'psd_bands_gamma', 'Broadband power\n(PSD γ)'),
-    ('sleep',  'psd_bands_alpha', 'Sleep oscillations\n(α power)'),
+    ('P3b',             'Attentional ERP\n(P3b)'),
+    ('PE_gamma',        'Complexity\n(PE γ)'),
+    ('psd_bands_gamma', 'Broadband power\n(PSD γ)'),
+    ('psd_bands_alpha', 'Sleep oscillations\n(α power)'),
 ]
 
-# Marker groups for Panel B
+# Marker groups for Panel B — (group_label, [marker_names]).
+# Epoch types are NOT hardcoded here; they are resolved from the config at
+# runtime via ACTIVE_MARKER_LOOKUP.  Markers absent from the config's
+# selected_markers are automatically excluded from the figure.
 MARKER_GROUPS = [
     ('ERPs', [
-        ('evoked', 'N1'), ('evoked', 'P1'),
-        ('evoked', 'P3a'), ('evoked', 'P3b'),
+        'N1', 'P1', 'P3a', 'P3b',
     ]),
-    ('Complexity\n(evoked)', [
-        ('evoked', 'kolmogorov_complexity'),
-        ('evoked', 'PE_alpha'), ('evoked', 'PE_beta'),
-        ('evoked', 'PE_gamma'), ('evoked', 'PE_theta'),
-        ('evoked', 'msf_psdsummary'),
-        ('evoked', 'sef90_psdsummary'), ('evoked', 'sef95_psdsummary'),
+    ('Complexity', [
+        'kolmogorov_complexity',
+        'PE_alpha', 'PE_beta', 'PE_gamma', 'PE_theta',
+        'per_channel_msf_psdsummary',
+        'per_channel_sef90_psdsummary', 'per_channel_sef95_psdsummary',
     ]),
-    ('Spectral power\n(evoked)', [
-        ('evoked', 'psd_bands_alpha'), ('evoked', 'psd_bands_beta'),
-        ('evoked', 'psd_bands_gamma'), ('evoked', 'psd_bands_delta'),
-        ('evoked', 'psd_bands_theta'),
-        ('evoked', 'psd_relative_alpha'), ('evoked', 'psd_relative_beta'),
-        ('evoked', 'psd_relative_gamma'), ('evoked', 'psd_relative_delta'),
-        ('evoked', 'psd_relative_theta'),
+    ('Spectral power', [
+        'psd_bands_alpha', 'psd_bands_beta', 'psd_bands_gamma',
+        'psd_bands_delta', 'psd_bands_theta', 'psd_bands_jota',
+        'psd_bands_theta_beta_ratio', 'psd_bands_alpha_theta_ratio',
+        'psd_relative_alpha', 'psd_relative_beta', 'psd_relative_gamma',
+        'psd_relative_delta', 'psd_relative_theta', 'psd_relative_jota',
+        'psd_relative_theta_beta_ratio', 'psd_relative_alpha_theta_ratio',
     ]),
-    ('Connectivity\n(evoked)', [
-        ('evoked', 'wsmi_alpha'), ('evoked', 'wsmi_gamma'),
-    ]),
-    ('Complexity\n(sleep)', [
-        ('sleep', 'kolmogorov_complexity'),
-        ('sleep', 'PE_alpha'), ('sleep', 'PE_beta'),
-        ('sleep', 'PE_gamma'), ('sleep', 'PE_theta'),
-    ]),
-    ('Spectral power\n(sleep)', [
-        ('sleep', 'psd_bands_alpha'), ('sleep', 'psd_bands_alpha_theta_ratio'),
-        ('sleep', 'psd_bands_beta'),  ('sleep', 'psd_bands_gamma'),
-        ('sleep', 'psd_bands_delta'), ('sleep', 'psd_bands_theta'),
-        ('sleep', 'psd_bands_jota'),  ('sleep', 'psd_bands_theta_beta_ratio'),
-        ('sleep', 'psd_relative_alpha'), ('sleep', 'psd_relative_beta'),
-        ('sleep', 'psd_relative_gamma'), ('sleep', 'psd_relative_delta'),
-        ('sleep', 'psd_relative_theta'), ('sleep', 'psd_relative_jota'),
+    ('Connectivity', [
+        'wsmi_alpha', 'wsmi_beta', 'wsmi_gamma', 'wsmi_theta',
     ]),
     ('Sleep events', [
-        ('sleep', 'slowwaves_Density'), ('sleep', 'slowwaves_Duration'),
-        ('sleep', 'slowwaves_Frequency'), ('sleep', 'slowwaves_PTP'),
-        ('sleep', 'slowwaves_Slope'),
-        ('sleep', 'spindles_Amplitude'), ('sleep', 'spindles_Density'),
-        ('sleep', 'wsmi_alpha'), ('sleep', 'wsmi_beta'),
-        ('sleep', 'wsmi_gamma'), ('sleep', 'wsmi_theta'),
+        'slowwaves_Density', 'slowwaves_Duration',
+        'slowwaves_Frequency', 'slowwaves_PTP', 'slowwaves_Slope',
+        'spindles_Amplitude', 'spindles_Density',
     ]),
 ]
 
 # Pretty labels for Panel B y-axis
 MARKER_LABELS = {
     'kolmogorov_complexity': 'KoC',
-    'msf_psdsummary': 'MSF',
-    'sef90_psdsummary': 'SEF90',
-    'sef95_psdsummary': 'SEF95',
+    'per_channel_msf_psdsummary': 'MSF',
+    'per_channel_sef90_psdsummary': 'SEF90',
+    'per_channel_sef95_psdsummary': 'SEF95',
     'psd_bands_alpha': 'α power',
     'psd_bands_beta': 'β power',
     'psd_bands_gamma': 'γ power',
@@ -127,6 +157,8 @@ MARKER_LABELS = {
     'psd_relative_delta': 'rel. δ',
     'psd_relative_theta': 'rel. θ',
     'psd_relative_jota': 'rel. ι',
+    'psd_relative_alpha_theta_ratio': 'rel. α/θ ratio',
+    'psd_relative_theta_beta_ratio': 'rel. θ/β ratio',
     'slowwaves_Density': 'SW density',
     'slowwaves_Duration': 'SW duration',
     'slowwaves_Frequency': 'SW frequency',
@@ -213,7 +245,8 @@ def draw_panel_a(fig, gs, info, ch_names):
     """Topomaps: rows = marker families, cols = 4 main dimensions."""
     dims_subset = DIMS[:4]
 
-    for ri, (mtype, mname, family_label) in enumerate(PANEL_A_MARKERS):
+    for ri, (mname, family_label) in enumerate(PANEL_A_MARKERS):
+        mtype = ACTIVE_MARKER_LOOKUP.get(mname, 'evoked')
         for ci, (dim_folder, dim_label) in enumerate(dims_subset):
             ax = fig.add_subplot(gs[ri, ci])
 
@@ -275,13 +308,18 @@ def draw_panel_a(fig, gs, info, ch_names):
 def draw_panel_b(ax, ch_names):
     """Heatmap: all markers with ≥1 significant result × all 6 dimensions."""
 
-    # Flatten all markers preserving group order
-    all_markers   = []
+    # Flatten all markers preserving group order.
+    # Only include markers that are active in the config (present in lookup).
+    all_markers   = []  # list of (epoch_type, marker_name)
     group_slices  = []  # (start, end, label)
-    for group_label, markers in MARKER_GROUPS:
+    for group_label, marker_names in MARKER_GROUPS:
         start = len(all_markers)
-        all_markers.extend(markers)
-        group_slices.append((start, len(all_markers), group_label))
+        for mname in marker_names:
+            mtype = ACTIVE_MARKER_LOOKUP.get(mname)
+            if mtype is not None:
+                all_markers.append((mtype, mname))
+        if len(all_markers) > start:
+            group_slices.append((start, len(all_markers), group_label))
 
     n_rows = len(all_markers)
     n_cols = len(DIMS)
@@ -321,10 +359,10 @@ def draw_panel_b(ax, ch_names):
     ax.imshow(grey_mask, cmap='Greys', vmin=0, vmax=1,
               aspect='auto', interpolation='none', alpha=0.45)
 
-    # Y-axis labels
+    # Y-axis labels — prefix with epoch type when it differs from evoked
     def fmt_label(mtype, mname):
         base = MARKER_LABELS.get(mname, mname.replace('_', ' '))
-        return f's: {base}' if mtype == 'sleep' else base
+        return f'{mtype}: {base}' if mtype != 'evoked' else base
 
     ax.set_yticks(range(len(markers_filt)))
     ax.set_yticklabels(
@@ -370,6 +408,10 @@ def draw_panel_b(ax, ch_names):
 # ===== Main =====
 
 def main():
+    global ACTIVE_MARKER_LOOKUP
+    ACTIVE_MARKER_LOOKUP = _build_active_marker_lookup(CONFIG_PATH)
+    print(f"Active markers from config: {len(ACTIVE_MARKER_LOOKUP)} entries")
+
     info, ch_names = load_channel_info()
 
     # Figure layout

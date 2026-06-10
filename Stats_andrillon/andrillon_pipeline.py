@@ -133,74 +133,114 @@ def _resolve_formula_for_predictor(config: Dict, predictor: str) -> str:
 
 def _get_derived_ratios_lookup(config: Dict) -> Dict[str, Dict]:
     """
-    Build a lookup `{ "<marker_type>/<name>": spec }` for derived ratio markers
-    declared in `config.derived_ratios`. A ratio spec has keys:
-      - name        : output marker name (e.g. "psd_bands_theta_beta_ratio")
-      - marker_type : type the ratio belongs to ("sleep", "evoked", ...)
-      - numerator   : base marker name to use as numerator
-      - denominator : base marker name to use as denominator
+    Build a lookup ``{ "<epoch_type>/<name>": spec }`` for derived ratio markers
+    declared in ``config.derived_ratios``.
 
-    Ratios are computed at load time by channel-wise division of the numerator
-    and denominator arrays for matching (subject, task, probe) observations.
+    Config format (dict keyed by marker name)::
+
+        derived_ratios:
+          psd_bands_theta_beta_ratio:
+            epoch_type: sleep
+            numerator: psd_bands_theta
+            denominator: psd_bands_beta
+
+    The returned spec always contains a ``name`` key (the dict key) and an
+    ``epoch_type`` key, so downstream code can access both without re-parsing
+    the lookup key.
     """
-    ratios = config.get('derived_ratios', []) or []
+    raw = config.get('derived_ratios', {}) or {}
     lookup: Dict[str, Dict] = {}
-    for spec in ratios:
-        required = {'name', 'marker_type', 'numerator', 'denominator'}
+    for name, spec in raw.items():
+        required = {'epoch_type', 'numerator', 'denominator'}
         missing = required - set(spec.keys())
         if missing:
             raise ValueError(
-                f"derived_ratios entry is missing required keys {missing}: {spec}"
+                f"derived_ratios['{name}'] is missing required keys {missing}: {spec}"
             )
-        key = f"{spec['marker_type']}/{spec['name']}"
+        key = f"{spec['epoch_type']}/{name}"
         if key in lookup:
-            raise ValueError(f"Duplicate derived_ratios entry for {key}")
-        lookup[key] = spec
+            raise ValueError(f"Duplicate derived_ratios entry for '{key}'")
+        lookup[key] = {**spec, 'name': name}
     return lookup
 
 
 def get_marker_list(config: Dict) -> List[str]:
-    """
-    Get list of markers to analyze based on config.
+    """Resolve the marker list from ``selected_markers`` × ``feature_families``.
 
-    Returns list of marker names based on config.project.markers setting plus
-    any derived ratio markers declared in config.derived_ratios. Uses
-    get_available_markers from Statistics/reader.py (proven implementation).
+    Mirrors the resolution logic of Statistics/run_pipeline.py so the same
+    config pattern drives both pipelines.
+
+    Returns
+    -------
+    list of str
+        Marker identifiers in the form ``"<epoch_type>/<marker_name>"``.
     """
-    markers_setting = config['project']['markers']
     features_root = config['project']['features_root']
-    subjects = config['project']['subjects']
-    tasks = config['project']['tasks']
-    marker_types = config['project']['marker_types']
+    selected_markers = config.get('selected_markers', {})
+    feature_families = config.get('feature_families', {})
 
-    # Derived ratios are appended to whatever marker list is in use.
-    derived_keys = list(_get_derived_ratios_lookup(config).keys())
+    if not selected_markers:
+        raise ValueError("No selected_markers section found in config_andrillon.yaml")
 
-    if markers_setting == 'all':
-        # Auto-discover all available markers using proven function
-        markers = get_available_markers(
-            features_root=features_root,
-            marker_types=marker_types
-        )
+    available = get_available_markers(features_root=features_root)
+    logger.info(f"get_marker_list: available epoch types: {list(available.keys())}")
 
-        # Format as "marker_type/marker_name" for consistency
-        formatted_markers = []
-        for marker_type, marker_names in markers.items():
-            for marker_name in marker_names:
-                # Exclude pair-wise matrix markers to avoid memory & channel count issues
-                if marker_name.endswith('_pairs'):
-                    continue
-                formatted_markers.append(f"{marker_type}/{marker_name}")
+    formatted: List[str] = []
+    derived_ratios = config.get('derived_ratios', {})
 
-        formatted_markers.extend(derived_keys)
-        logger.info(
-            f"Auto-discovered {len(formatted_markers) - len(derived_keys)} markers "
-            f"across {len(markers)} types + {len(derived_keys)} derived ratios"
-        )
-        return formatted_markers
-    else:
-        # Use specified markers from config plus derived ratios
-        return list(markers_setting) + derived_keys
+    for marker_type, fam_list in selected_markers.items():
+        if marker_type not in available:
+            logger.warning(f"Epoch type '{marker_type}' not found in data — skipping.")
+            continue
+
+        type_markers = available[marker_type]
+
+        # ["all"] sentinel — include every marker for this epoch type
+        if (
+            isinstance(fam_list, list)
+            and len(fam_list) == 1
+            and str(fam_list[0]).lower() == 'all'
+        ):
+            for m in type_markers:
+                if not m.endswith('_pairs'):
+                    formatted.append(f"{marker_type}/{m}")
+            continue
+
+        if not isinstance(fam_list, list):
+            raise ValueError(
+                f"selected_markers['{marker_type}'] must be a list, got {type(fam_list)}"
+            )
+
+        # Resolve family names → fragments → substring match against available markers
+        resolved_fragments: List[str] = []
+        for family_name in fam_list:
+            if family_name not in feature_families:
+                raise ValueError(
+                    f"Family '{family_name}' (in selected_markers['{marker_type}']) "
+                    f"is not defined in feature_families. "
+                    f"Available: {list(feature_families.keys())}"
+                )
+            resolved_fragments.extend(feature_families[family_name] or [])
+
+        for m in type_markers:
+            if m.endswith('_pairs'):
+                continue
+            for frag in resolved_fragments:
+                if frag in m:
+                    formatted.append(f"{marker_type}/{m}")
+                    break  # first match wins
+
+        # Derived ratio markers are virtual (not on disk) — inject those whose
+        # name exactly matches a resolved fragment.
+        for frag in resolved_fragments:
+            if frag in derived_ratios:
+                entry = f"{marker_type}/{frag}"
+                if entry not in formatted:
+                    formatted.append(entry)
+                    logger.info(f"  Injected derived ratio marker: {entry}")
+
+    logger.info(f"Resolved {len(formatted)} markers from selected_markers × feature_families")
+    return formatted
 
 
 def _load_ratio_marker_data(
@@ -229,7 +269,7 @@ def _load_ratio_marker_data(
     """
     num_name = spec['numerator']
     den_name = spec['denominator']
-    marker_type = spec['marker_type']
+    marker_type = spec['epoch_type']
 
     preprocessing_cfg = config.get('preprocessing', {})
     project_cfg = config.get('project', {})
@@ -419,9 +459,10 @@ def run_marker_analysis(
         )
     else:
         # Standard single-marker loading path.
-        marker_types_to_load = config['project']['marker_types']
-        if marker_type is not None:
-            marker_types_to_load = [marker_type]
+        marker_types_to_load = (
+            [marker_type] if marker_type is not None
+            else list(config.get('selected_markers', {}).keys())
+        )
         df_all = load_all_probe_data(
             features_root=config['project']['features_root'],
             subjects=config['project'].get('subjects'),
