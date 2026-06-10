@@ -239,3 +239,62 @@ def load_subject_aucs(rf_dir: Path, subjects_final: List[str]) -> pd.DataFrame:
     df["subject"] = df["subject"].str.zfill(2)
     df = df[df["subject"].isin(subjects_final)][["subject", "auc"]]
     return df.reset_index(drop=True)
+
+
+# =============================================================================
+# Fig A: dimension-level scatter
+# =============================================================================
+
+def plot_fig_a(fig_a_df: pd.DataFrame, output_dir: Path) -> None:
+    """
+    Scatter of dimension-level median variability vs mean LOSO AUC.
+
+    One point per dimension (n=5 in the full run). Exploratory — no
+    correlation statistic is computed given the small n.
+
+    Parameters
+    ----------
+    fig_a_df : pd.DataFrame
+        Columns: 'dimension', 'median_sd', 'mean_auc', 'n_subjects'.
+    output_dir : Path
+        Directory to write `dimension_auc_vs_median_variability.{png,pdf,html}`.
+    """
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=fig_a_df["median_sd"],
+        y=fig_a_df["mean_auc"],
+        mode="markers+text",
+        text=fig_a_df["dimension"],
+        textposition="top center",
+        textfont=dict(size=11),
+        marker=dict(color=COLORS[0], size=14, opacity=0.85, line=dict(color="white", width=1)),
+        hovertemplate="%{text}<br>Median SD: %{x:.2f}<br>Mean AUC: %{y:.3f}<extra></extra>",
+    ))
+
+    fig.add_hline(
+        y=CHANCE_AUC, line_dash="dash", line_color="gray", opacity=0.5,
+        annotation_text="Chance (0.5)", annotation_position="bottom right",
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        title=dict(
+            text=(
+                "<b>LOSO: Dimension Decodability vs Across-Subject Median Variability</b>"
+                f"<br><sup>Exploratory — n = {len(fig_a_df)} dimensions, "
+                "descriptive only (no correlation statistic)</sup>"
+            ),
+            font=dict(size=15),
+        ),
+        xaxis_title="SD across subjects of within-subject median rating",
+        yaxis_title="Mean LOSO AUC",
+        width=750,
+        height=600,
+    )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / "dimension_auc_vs_median_variability"
+    fig.write_image(f"{out_path}.png", scale=2)
+    fig.write_image(f"{out_path}.pdf")
+    fig.write_html(f"{out_path}.html")

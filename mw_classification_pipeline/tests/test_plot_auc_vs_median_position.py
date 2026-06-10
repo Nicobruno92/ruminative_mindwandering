@@ -104,3 +104,23 @@ def test_load_subject_aucs_on_off():
     assert len(aucs) == 29
     assert set(aucs["subject"]) == set(subjects_final)
     assert aucs["auc"].mean() == pytest.approx(0.628, abs=0.001)
+
+
+# =============================================================================
+# Smoke tests for plotting functions
+# =============================================================================
+
+from scripts.plot_auc_vs_median_position import plot_fig_a
+
+
+def test_plot_fig_a_creates_output_files(tmp_path):
+    fig_a_df = pd.DataFrame({
+        "dimension": ["On/Off-Task", "Valence"],
+        "median_sd": [10.0, 20.0],
+        "mean_auc": [0.628, 0.571],
+        "n_subjects": [29, 27],
+    })
+    plot_fig_a(fig_a_df, tmp_path)
+    assert (tmp_path / "dimension_auc_vs_median_variability.png").exists()
+    assert (tmp_path / "dimension_auc_vs_median_variability.pdf").exists()
+    assert (tmp_path / "dimension_auc_vs_median_variability.html").exists()
