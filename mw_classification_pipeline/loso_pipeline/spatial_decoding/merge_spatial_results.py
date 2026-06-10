@@ -15,7 +15,7 @@ import numpy as np
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from utils.spatial_decoding_utils import merge_spatial_maxstat, build_max_null_from_perms
+from utils.spatial_decoding_utils import merge_spatial_maxstat, build_max_null_from_perms, DEFAULT_MONTAGE
 
 
 def topomap_opts(results_dir: str):
@@ -34,7 +34,7 @@ def main():
     ap.add_argument("--results_dir", required=True,
                     help="…/SpatialDecoding/LOSO/{contrast}/{family}/{model}")
     ap.add_argument("--alpha", type=float, default=0.05)
-    ap.add_argument("--montage", default="standard_1020")
+    ap.add_argument("--montage", default=DEFAULT_MONTAGE)
     args = ap.parse_args()
 
     max_null = build_max_null_from_perms(args.results_dir)

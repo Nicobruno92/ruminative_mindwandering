@@ -14,10 +14,18 @@ Column convention: per-channel feature columns are named ``{channel}_{marker}``.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
 import pandas as pd
+
+# Canonical cap montage used by the project's CBPT pipeline (Statistics/run_pipeline.py).
+# Resolved relative to the repo root so the spatial topomaps use the SAME electrode
+# positions as results/andrillon_cluster/*_topomap.png.
+DEFAULT_MONTAGE = str(
+    Path(__file__).resolve().parents[2] / "Preprocessing_pipeline_new" / "CACS-64_REF.bvef"
+)
 
 
 def parse_channels_from_columns(columns: list[str]) -> list[str]:
@@ -398,7 +406,7 @@ def build_max_null_from_perms(results_dir: str) -> np.ndarray:
 
 
 def merge_spatial_maxstat(results_dir: str, alpha: float = 0.05,
-                          montage: str = "standard_1020", title: str = "Decoding AUC",
+                          montage: str = DEFAULT_MONTAGE, title: str = "Decoding AUC",
                           cmap: str = "viridis",
                           vlim: tuple | None = (0.5, None)) -> "pd.DataFrame":
     """
@@ -459,16 +467,21 @@ def merge_spatial_maxstat(results_dir: str, alpha: float = 0.05,
     return metrics
 
 
-def build_info_from_channels(channels: list[str], montage: str = "standard_1020"):
+def build_info_from_channels(channels: list[str], montage: str = DEFAULT_MONTAGE):
     """
-    Build an MNE Info with positions from a standard montage for the given channels.
+    Build an MNE Info with electrode positions for the given channels.
+
+    Defaults to the project's real cap montage (``CACS-64_REF.bvef``, read with
+    ``read_custom_montage``) so spatial topomaps match the CBPT topoplots exactly. A
+    standard montage name (e.g. ``standard_1020``) is also accepted and built with
+    ``make_standard_montage``.
 
     Parameters
     ----------
     channels : list of str
         EEG channel names (must exist in the montage).
     montage : str
-        MNE standard montage name.
+        Path to a montage file (``.bvef``/``.elc``/…) or an MNE standard montage name.
 
     Returns
     -------
@@ -477,8 +490,20 @@ def build_info_from_channels(channels: list[str], montage: str = "standard_1020"
     """
     import mne
 
+    montage_arg = montage
+    # Resolve a relative montage path against the repo root.
+    if not os.path.isabs(montage_arg) and not str(montage_arg).startswith("standard"):
+        cand = Path(__file__).resolve().parents[2] / montage_arg
+        if cand.exists():
+            montage_arg = str(cand)
+
+    if os.path.exists(montage_arg):
+        mont = mne.channels.read_custom_montage(montage_arg)
+    else:
+        mont = mne.channels.make_standard_montage(montage_arg)
+
     info = mne.create_info(ch_names=list(channels), sfreq=1.0, ch_types="eeg")
-    info.set_montage(mne.channels.make_standard_montage(montage), match_case=False)
+    info.set_montage(mont, match_case=False, on_missing="ignore")
     return info
 
 
@@ -486,7 +511,7 @@ def plot_channel_topomap(
     metrics: pd.DataFrame,
     value_col: str,
     out_path: str,
-    montage: str = "standard_1020",
+    montage: str = DEFAULT_MONTAGE,
     mask_col: str | None = None,
     title: str = "",
     cmap: str = "viridis",
@@ -607,7 +632,7 @@ def _plot_cbpt_style_topomap(
                          markeredgecolor='k', linewidth=0, markersize=6),
         contours=6,
         ch_type='eeg',
-        sphere=None,
+        sphere='auto',
         outlines='head',
         extrapolate='head',
         image_interp='cubic',
@@ -656,7 +681,7 @@ def plot_combined_topomap_panel(
     per_dimension_metrics: dict,
     value_col: str,
     out_path: str,
-    montage: str = "standard_1020",
+    montage: str = DEFAULT_MONTAGE,
     mask_col: str | None = None,
     cmap: str = "viridis",
     vlim: tuple | None = (0.5, None),
@@ -709,7 +734,7 @@ def plot_combined_topomap_panel(
             vlim=shared_vlim, sensors=False, mask=mask,
             mask_params=dict(marker="o", markerfacecolor="k",
                              markeredgecolor="k", linewidth=0, markersize=5),
-            contours=6, ch_type="eeg", sphere=None, outlines="head",
+            contours=6, ch_type="eeg", sphere='auto', outlines="head",
             extrapolate="head", image_interp="cubic", border="mean", res=128,
         )
         ax.set_title(dim)
