@@ -24,7 +24,7 @@ import pandas as pd
 # fiducials, so MNE falls back to an identity head transform and the scalp comes out
 # oval/misplaced; the standard_1020 template (built by name, with fiducials) gives the
 # clean centred circular head used in the figures.
-DEFAULT_MONTAGE = "standard_1020"
+DEFAULT_MONTAGE = str(Path(__file__).resolve().parents[2] / "data_harmonization" / "utils" / "CACS-64_REF.bvef")
 
 
 def parse_channels_from_columns(columns: list[str]) -> list[str]:
@@ -585,7 +585,7 @@ def _draw_cbpt_topomap(ax, values: np.ndarray, info, mask: np.ndarray | None,
         sensors=False, mask=mask,
         mask_params=dict(marker='o', markerfacecolor='k', markeredgecolor='k',
                          linewidth=0, markersize=markersize),
-        contours=6, ch_type='eeg', sphere=None, outlines='head',
+        contours=6, ch_type='eeg', sphere='auto', outlines='head',
         extrapolate='head', image_interp='cubic', border='mean', res=128,
     )
     circle = Circle((0.5, 0.5), 0.5, transform=ax.transAxes,

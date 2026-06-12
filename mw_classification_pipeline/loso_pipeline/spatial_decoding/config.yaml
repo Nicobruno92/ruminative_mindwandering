@@ -414,7 +414,7 @@ slurm:
 # are built from the per-channel AUC + FDR-corrected permutation significance.
 spatial_decoding:
   channels: "all"                 # or an explicit list to subset electrodes
-  montage: "standard_1020"
+  montage: "data_harmonization/utils/CACS-64_REF.bvef"
   multiple_comparisons:
     method: "maxstat"            # max-statistic permutation (FWER) across channels; CBPT-consistent. ("fdr_bh" available as secondary)
     alpha: 0.05
