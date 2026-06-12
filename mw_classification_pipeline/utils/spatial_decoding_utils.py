@@ -566,6 +566,35 @@ def plot_channel_topomap(
     )
 
 
+def _draw_cbpt_topomap(ax, values: np.ndarray, info, mask: np.ndarray | None,
+                       vmin: float, vmax: float, cmap: str, markersize: int = 6):
+    """
+    Draw ONE CBPT-style topomap into ``ax`` and return the image handle.
+
+    This is the exact per-axes rendering of ``Statistics/plot_results.py`` (sensors off,
+    6 contours, head extrapolation, cubic interpolation, filled-black-dot mask, circular
+    clip). Both the single-map and the multi-panel figures call this, so they render
+    identically.
+    """
+    import mne
+    from matplotlib.patches import Circle
+
+    v = np.copy(values)
+    v[np.isnan(v)] = 0
+    im, _ = mne.viz.plot_topomap(
+        v, info, axes=ax, show=False, cmap=cmap, vlim=(vmin, vmax),
+        sensors=False, mask=mask,
+        mask_params=dict(marker='o', markerfacecolor='k', markeredgecolor='k',
+                         linewidth=0, markersize=markersize),
+        contours=6, ch_type='eeg', sphere='auto', outlines='head',
+        extrapolate='head', image_interp='cubic', border='mean', res=128,
+    )
+    circle = Circle((0.5, 0.5), 0.5, transform=ax.transAxes,
+                    facecolor='none', edgecolor='none')
+    im.set_clip_path(circle)
+    return im
+
+
 def _plot_cbpt_style_topomap(
     t_stats: np.ndarray,
     clusters: list,
@@ -583,29 +612,19 @@ def _plot_cbpt_style_topomap(
     footer: str | None = "auto",
 ):
     """
-    Verbatim copy of ``Statistics/plot_results.py::plot_cluster_topomap`` (the project's
-    CBPT topoplot), so spatial-decoding maps render identically. Only additions:
-    ``cbar_label`` (colorbar label) and ``footer`` (set to None to omit the cluster-count
-    caption, which is meaningless for a per-electrode searchlight).
+    Single CBPT-style topomap (figure + colorbar), built on ``_draw_cbpt_topomap`` —
+    the exact per-axes rendering of ``Statistics/plot_results.py::plot_cluster_topomap``.
+    Additions vs the original: ``cbar_label`` and ``footer`` (None omits the caption).
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import mne
     from pathlib import Path as _Path
 
-    # Create masks for significant clusters (filled black dots).
     mask_corrected = np.zeros(len(t_stats), dtype=bool)
     for cluster, pval in zip(clusters, cluster_p_values):
         if pval < alpha:
             mask_corrected[cluster] = True
-
-    mask_uncorrected = None
-    if cluster_p_values_uncorrected is not None:
-        mask_uncorrected = np.zeros(len(t_stats), dtype=bool)
-        for cluster, pval in zip(clusters, cluster_p_values_uncorrected):
-            if pval < alpha:
-                mask_uncorrected[cluster] = True
 
     if vmin is None or vmax is None:
         abs_max = np.nanmax(np.abs(t_stats))
@@ -615,55 +634,15 @@ def _plot_cbpt_style_topomap(
         vmax = abs_max
 
     fig, ax = plt.subplots(figsize=(8, 6))
-
-    t_stats_plot = np.copy(t_stats)
-    t_stats_plot[np.isnan(t_stats_plot)] = 0
-
-    im, _ = mne.viz.plot_topomap(
-        t_stats_plot,
-        info,
-        axes=ax,
-        show=False,
-        cmap=cmap,
-        vlim=(vmin, vmax),
-        sensors=False,
-        mask=mask_corrected,
-        mask_params=dict(marker='o', markerfacecolor='k',
-                         markeredgecolor='k', linewidth=0, markersize=6),
-        contours=6,
-        ch_type='eeg',
-        sphere='auto',
-        outlines='head',
-        extrapolate='head',
-        image_interp='cubic',
-        border='mean',
-        res=128,
-    )
-
-    if mask_uncorrected is not None:
-        from mne.channels import find_layout
-        layout = find_layout(info, ch_type='eeg')
-        pos = layout.pos[:len(t_stats), :2]
-        uncorrected_only = mask_uncorrected & ~mask_corrected
-        if np.any(uncorrected_only):
-            ax.plot(pos[uncorrected_only, 0], pos[uncorrected_only, 1],
-                    'o', markerfacecolor='none', markeredgecolor='k',
-                    markeredgewidth=1.5, markersize=6, zorder=10)
-
-    from matplotlib.patches import Circle
-    circle = Circle((0.5, 0.5), 0.5, transform=ax.transAxes,
-                    facecolor='none', edgecolor='none')
-    im.set_clip_path(circle)
+    im = _draw_cbpt_topomap(ax, t_stats, info, mask_corrected, vmin, vmax, cmap)
 
     cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label(cbar_label, rotation=270, labelpad=20)
-
     ax.set_title(title, fontsize=14, fontweight='bold')
 
     if footer == "auto":
-        n_sig_corrected = int(np.sum(np.asarray(cluster_p_values) < alpha))
-        n_total = len(clusters)
-        fig.text(0.5, 0.02, f'Clusters: {n_sig_corrected}/{n_total} significant (α = {alpha})',
+        n_sig = int(np.sum(np.asarray(cluster_p_values) < alpha))
+        fig.text(0.5, 0.02, f'Clusters: {n_sig}/{len(clusters)} significant (α = {alpha})',
                  ha='center', fontsize=9)
     elif footer:
         fig.text(0.5, 0.02, footer, ha='center', fontsize=9)
@@ -709,7 +688,6 @@ def plot_combined_topomap_panel(
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import mne
 
     dims = list(per_dimension_metrics.keys())
     # Shared colour scale across panels so dimensions are directly comparable. With
@@ -719,9 +697,8 @@ def plot_combined_topomap_panel(
         vmax = vlim[1]
     else:
         vmax = max(float(m[value_col].max()) for m in per_dimension_metrics.values())
-    shared_vlim = (vmin, vmax)
 
-    fig, axes = plt.subplots(1, len(dims), figsize=(3 * len(dims), 3.2))
+    fig, axes = plt.subplots(1, len(dims), figsize=(3.4 * len(dims), 3.6))
     if len(dims) == 1:
         axes = [axes]
     im = None
@@ -729,19 +706,14 @@ def plot_combined_topomap_panel(
         m = per_dimension_metrics[dim]
         info = build_info_from_channels(m["channel"].tolist(), montage=montage)
         mask = m[mask_col].to_numpy(dtype=bool) if mask_col else None
-        im, _ = mne.viz.plot_topomap(
-            m[value_col].to_numpy(dtype=float), info, axes=ax, show=False, cmap=cmap,
-            vlim=shared_vlim, sensors=False, mask=mask,
-            mask_params=dict(marker="o", markerfacecolor="k",
-                             markeredgecolor="k", linewidth=0, markersize=5),
-            contours=6, ch_type="eeg", sphere='auto', outlines="head",
-            extrapolate="head", image_interp="cubic", border="mean", res=128,
-        )
-        ax.set_title(dim)
+        # Same per-axes renderer as the single-map figures (identical style).
+        im = _draw_cbpt_topomap(ax, m[value_col].to_numpy(dtype=float), info, mask,
+                                vmin, vmax, cmap, markersize=5)
+        ax.set_title(dim, fontsize=11, fontweight="bold")
     if im is not None:
         cbar = fig.colorbar(im, ax=axes, fraction=0.025, label=value_col)
-        cbar.set_ticks([shared_vlim[0], shared_vlim[1]])
-        cbar.set_ticklabels([f"{shared_vlim[0]:.2f}", f"{shared_vlim[1]:.2f}"])
+        cbar.set_ticks([vmin, vmax])
+        cbar.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"])
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
