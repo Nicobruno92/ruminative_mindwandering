@@ -23,7 +23,7 @@ ie_classification:
   exclude_conditions: [baseline]
 
 models:
-  types: [lr, rf]
+  types: [lr]
   random_state: 42
   lr_C: 1.0
   lr_penalty: l2

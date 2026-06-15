@@ -3,6 +3,7 @@
 # run_cluster_worker.sh — Within-Subject MW Pipeline (SLURM worker)
 # =============================================================================
 # Arguments: $1 = config path, $2 = mode ("true" or "perm")
+#            $3 = combination-index offset (for arrays chunked under MaxArraySize)
 # DO NOT submit directly — use run_cluster.sh.
 # =============================================================================
 
@@ -13,6 +14,7 @@ cd "$SCRIPT_DIR"
 
 CONFIG="${1:-config.yaml}"
 MODE="${2:-true}"
+OFFSET="${3:-0}"
 [[ "$CONFIG" != /* ]] && CONFIG="$SCRIPT_DIR/$CONFIG"
 
 if [ "$MODE" = "true" ]; then
@@ -26,8 +28,9 @@ if [ ! -f "$COMBINATIONS_FILE" ]; then
     exit 1
 fi
 
-COMBO=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$COMBINATIONS_FILE")
-[ -z "$COMBO" ] && { echo "ERROR: No combination at index $SLURM_ARRAY_TASK_ID"; exit 1; }
+COMBO_INDEX=$((SLURM_ARRAY_TASK_ID + OFFSET))
+COMBO=$(sed -n "$((COMBO_INDEX + 1))p" "$COMBINATIONS_FILE")
+[ -z "$COMBO" ] && { echo "ERROR: No combination at index $COMBO_INDEX"; exit 1; }
 
 MODEL_T=$(echo "$COMBO" | cut -d: -f1)
 CONTRAST=$(echo "$COMBO" | cut -d: -f2)
@@ -69,7 +72,7 @@ echo "========================================================"
 echo " MW Within-Subject Pipeline — SLURM Worker"
 echo "========================================================"
 echo " Job ID   : ${SLURM_JOB_ID:-local}"
-echo " Array    : ${SLURM_ARRAY_TASK_ID:-0}"
+echo " Array    : ${SLURM_ARRAY_TASK_ID:-0} (offset $OFFSET → combo index $COMBO_INDEX)"
 echo " Mode     : $MODE"
 echo " Combo    : $COMBO"
 echo " Model    : $MODEL_T | Contrast: $CONTRAST | Family: $FAMILY | Idx: $IDX_NUM"

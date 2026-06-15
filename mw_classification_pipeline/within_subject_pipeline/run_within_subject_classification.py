@@ -265,6 +265,13 @@ def main():
         y = _cached["y"]
         groups = _cached["groups"]
         feature_cols = _cached["feature_cols"]
+        # Apply suffix exclusions declared in config (e.g. ["_std"]) so that
+        # the cache path and the slow path produce identical feature spaces.
+        _excl = config.get("exclude_column_suffixes", [])
+        if _excl:
+            _keep = [c for c in feature_cols if not any(c.endswith(s) for s in _excl)]
+            X = X[_keep]
+            feature_cols = _keep
         print(f"  Cache loaded in {__import__('time').time() - _t0:.1f}s "
               f"({len(X)} samples × {len(feature_cols)} features)")
     else:

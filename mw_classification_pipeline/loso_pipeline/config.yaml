@@ -170,6 +170,10 @@ run_contrasts:
 data_format: per_roi
 include_connectivity_pairs: false
 
+# Drop feature columns ending with any of these suffixes before classification.
+exclude_column_suffixes:
+  - "_std"
+
 # =============================================================================
 # FEATURE FAMILIES
 # =============================================================================
@@ -249,7 +253,7 @@ random_seed: 42
 # =============================================================================
 
 k: 20
-feature_selection_method: lmm_encoding   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
+feature_selection_method: mrmr   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
 
 # Missing-value handling (handle_missing_features). Defaults are now explicit
 # instead of relying on the function signature.
@@ -406,3 +410,6 @@ slurm:
   cpus_per_task: 8
   job_name: "mw_class"
   conda_env: "ML"
+  # Cluster's SLURM MaxArraySize (check: scontrol show config | grep MaxArraySize).
+  # run_cluster.sh splits true/perm arrays into chunks of at most this size.
+  max_array_size: 2000

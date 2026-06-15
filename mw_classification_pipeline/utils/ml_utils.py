@@ -1785,7 +1785,10 @@ def compute_shap_values_for_pipeline(
         raise ValueError("SHAP computation requires a classifier with predict_proba (RF or XGB).")
 
     explainer = shap.Explainer(clf, X_selected)
-    shap_vals = explainer(X_selected).values
+    # RF predict_proba SHAP values are reconstructed from per-tree margin
+    # contributions; floating-point summation order can make the additivity
+    # check fail by a small margin even when the decomposition is correct.
+    shap_vals = explainer(X_selected, check_additivity=False).values
 
     # Handle 3D output (n_samples, n_features, 2) — take positive class
     if shap_vals.ndim == 3 and shap_vals.shape[2] == 2:

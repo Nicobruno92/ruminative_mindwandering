@@ -8,16 +8,48 @@ from pathlib import Path
 from scipy import stats
 import warnings
 import plotly.graph_objects as go
+import yaml
+from pathlib import Path
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
 
-# Color palette for classification plots
-COLORS = ["#DE237B", "#9AC529", "#F38A31", "#42B9B2"]
+# Shared project color palette (single source of truth). Resolved path-relative
+# to this module so it works regardless of the current working directory.
+PALETTE = yaml.safe_load(
+    open(Path(__file__).resolve().parents[2] / "color_palette.yaml")
+)
+DIM_COLORS = PALETTE["dimensions"]
+
+# Categorical color cycle for classification plots.
+COLORS = PALETTE["order"]
+# Default single-series accent and permuted/null baseline color.
+ACCENT = PALETTE["neutral"]["accent"]            # blue
+PERM_COLOR = PALETTE["neutral"]["permutation"]   # gray
+
+
+def hex_to_rgba(hex_color: str, alpha: float) -> str:
+    """Convert a ``#RRGGBB`` hex string to a plotly ``rgba(r,g,b,a)`` string."""
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+# Translucent fill matching the accent (e.g. ± 1 std. dev. bands).
+ACCENT_FILL = hex_to_rgba(ACCENT, 0.1)
+
 
 def get_comparison_color(comparison):
-    """Get color for a comparison label."""
-    return COLORS[0]
+    """Return the palette color for a comparison/dimension label.
+
+    Looks the label up in the shared per-dimension palette (case-insensitive,
+    common separators stripped); falls back to the default accent color when the
+    label is empty or not a known dimension.
+    """
+    key = str(comparison).lower().replace("-", "").replace("_", "").replace("/", "")
+    aliases = {"onoff": "onoff", "ontask": "onoff", "offtask": "onoff"}
+    key = aliases.get(key, key)
+    return DIM_COLORS.get(key, ACCENT)
 
 def set_plot_style(style='seaborn-v0_8-white'):
     """Set the plotting style."""
@@ -95,7 +127,7 @@ def plot_auc_distribution(mean_auc_list, comparison_results_path, filename_base,
     pd.DataFrame({'auc_values': auc_array}).to_csv(f"{comparison_results_path}/{filename_base}_auc_distribution_data.csv", index=False)
     
     fig = go.Figure()
-    fig.add_trace(go.Histogram(x=auc_array, marker_color='#DE237B', opacity=0.7, nbinsx=20))
+    fig.add_trace(go.Histogram(x=auc_array, marker_color=ACCENT, opacity=0.7, nbinsx=20))
     mean_val = np.mean(auc_array)
     fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text=f"Mean: {mean_val:.3f}")
     fig.add_vline(x=0.5, line_dash="dash", line_color="red", annotation_text="Chance (0.5)")
@@ -117,7 +149,7 @@ def plot_balanced_accuracy_distribution(mean_bal_acc_list, comparison_results_pa
     pd.DataFrame({'balanced_accuracy_values': bal_acc_array}).to_csv(f"{comparison_results_path}/{filename_base}_balanced_acc_distribution_data.csv", index=False)
     
     fig = go.Figure()
-    fig.add_trace(go.Histogram(x=bal_acc_array, marker_color='#DE237B', opacity=0.7, nbinsx=20))
+    fig.add_trace(go.Histogram(x=bal_acc_array, marker_color=ACCENT, opacity=0.7, nbinsx=20))
     mean_val = np.mean(bal_acc_array)
     fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text=f"Mean: {mean_val:.3f}")
     fig.add_vline(x=0.5, line_dash="dash", line_color="red", annotation_text="Chance (0.5)")
@@ -139,7 +171,7 @@ def plot_auprc_distribution(mean_auprc_list, comparison_results_path, filename_b
     pd.DataFrame({'auprc_values': auprc_array}).to_csv(f"{comparison_results_path}/{filename_base}_auprc_distribution_data.csv", index=False)
     
     fig = go.Figure()
-    fig.add_trace(go.Histogram(x=auprc_array, marker_color='#DE237B', opacity=0.7, nbinsx=20))
+    fig.add_trace(go.Histogram(x=auprc_array, marker_color=ACCENT, opacity=0.7, nbinsx=20))
     mean_val = np.mean(auprc_array)
     fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text=f"Mean: {mean_val:.3f}")
     fig.update_layout(template='plotly_white', title=f"<b>AUPRC Distribution</b> ({n_runs} runs)",
@@ -160,7 +192,7 @@ def plot_mcc_distribution(mean_mcc_list, comparison_results_path, filename_base,
     pd.DataFrame({'mcc_values': mcc_array}).to_csv(f"{comparison_results_path}/{filename_base}_mcc_distribution_data.csv", index=False)
     
     fig = go.Figure()
-    fig.add_trace(go.Histogram(x=mcc_array, marker_color='#DE237B', opacity=0.7, nbinsx=20))
+    fig.add_trace(go.Histogram(x=mcc_array, marker_color=ACCENT, opacity=0.7, nbinsx=20))
     mean_val = np.mean(mcc_array)
     fig.add_vline(x=mean_val, line_dash="dash", line_color="black", annotation_text=f"Mean: {mean_val:.3f}")
     fig.add_vline(x=0.0, line_dash="dash", line_color="red", annotation_text="Chance (0.0)")
@@ -180,7 +212,7 @@ def plot_roc_curve(mean_fpr, mean_tpr, std_tpr, comparison_results_path, filenam
     Plot and save ROC curve using Plotly.
     """
     fig = go.Figure()
-    color = '#DE237B'
+    color = ACCENT
     
     if all_fprs is not None and all_tprs is not None:
         for fpr, tpr in zip(all_fprs, all_tprs):
@@ -188,7 +220,7 @@ def plot_roc_curve(mean_fpr, mean_tpr, std_tpr, comparison_results_path, filenam
             
     tprs_upper = np.minimum(mean_tpr + std_tpr, 1); tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
     fig.add_trace(go.Scatter(x=np.concatenate([mean_fpr, mean_fpr[::-1]]), y=np.concatenate([tprs_upper, tprs_lower[::-1]]),
-                             fill='toself', fillcolor='rgba(222,35,123,0.1)', line=dict(color='rgba(255,255,255,0)'), name='± 1 std. dev.'))
+                             fill='toself', fillcolor=ACCENT_FILL, line=dict(color='rgba(255,255,255,0)'), name='± 1 std. dev.'))
     
     fig.add_trace(go.Scatter(x=mean_fpr, y=mean_tpr, mode='lines', line=dict(color=color, width=3), name=f"Mean ROC (AUC={mean_auc:.3f})"))
     fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash', color='black'), name='Chance'))
@@ -224,11 +256,11 @@ def plot_feature_importances(feature_names, mean_importances, std_importances, c
         x=x_means,
         y=y_labels,
         mode='markers',
-        marker=dict(color='#DE237B', size=8, symbol='circle'),
+        marker=dict(color=ACCENT, size=8, symbol='circle'),
         error_x=dict(
             type='data',
             array=x_errs,
-            color='#DE237B',
+            color=ACCENT,
             thickness=1.5,
             width=3
         ),
@@ -332,7 +364,7 @@ def plot_shap_beeswarm(shap_values, x_test, feature_names, comparison, save_dir,
             name=f_name,
             marker=dict(
                 size=5,
-                color=norm_values if x_test is not None else '#DE237B',
+                color=norm_values if x_test is not None else ACCENT,
                 colorscale='Viridis' if x_test is not None else None,
                 showscale=True if (i == len(top_indices)-1 and x_test is not None) else False,
                 colorbar=dict(title=dict(text="Feature Value", side="top"), tickvals=[0, 1], ticktext=["Low", "High"]) if (i == len(top_indices)-1 and x_test is not None) else None,
@@ -392,7 +424,7 @@ def plot_shap_feature_importance(shap_values, X, feature_names, comparison_resul
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=x_values, y=y_labels, orientation='h',
-        marker_color='#DE237B'
+        marker_color=ACCENT
     ))
     
     fig.update_layout(
@@ -440,18 +472,18 @@ def plot_auc_distribution_comparison(true_results, perm_results, dimension, mode
     
     # Histograms
     fig.add_trace(go.Histogram(
-        x=perm_aucs, name='Permuted', marker_color='#999999', opacity=0.6,
+        x=perm_aucs, name='Permuted', marker_color=PERM_COLOR, opacity=0.6,
         histnorm='probability density', nbinsx=20
     ))
     fig.add_trace(go.Histogram(
-        x=true_aucs, name='True Model', marker_color='#DE237B', opacity=0.7,
+        x=true_aucs, name='True Model', marker_color=ACCENT, opacity=0.7,
         histnorm='probability density', nbinsx=20
     ))
     
     # Statistical lines
     true_mean = np.mean(true_aucs)
     
-    fig.add_vline(x=true_mean, line_dash="dash", line_color="#DE237B", 
+    fig.add_vline(x=true_mean, line_dash="dash", line_color=ACCENT, 
                  annotation_text=f"Mean True: {true_mean:.3f}", annotation_position="top right")
     fig.add_vline(x=0.5, line_dash="dash", line_color="black", 
                  annotation_text="Chance (0.5)", annotation_position="top left")
@@ -501,16 +533,16 @@ def plot_balanced_accuracy_distribution_comparison(true_results, perm_results, d
     fig = go.Figure()
     
     fig.add_trace(go.Histogram(
-        x=perm_vals, name='Permuted', marker_color='#999999', opacity=0.6,
+        x=perm_vals, name='Permuted', marker_color=PERM_COLOR, opacity=0.6,
         histnorm='probability density', nbinsx=20
     ))
     fig.add_trace(go.Histogram(
-        x=true_vals, name='True Model', marker_color='#DE237B', opacity=0.7,
+        x=true_vals, name='True Model', marker_color=ACCENT, opacity=0.7,
         histnorm='probability density', nbinsx=20
     ))
     
     true_mean = np.mean(true_vals)
-    fig.add_vline(x=true_mean, line_dash="dash", line_color="#DE237B", 
+    fig.add_vline(x=true_mean, line_dash="dash", line_color=ACCENT, 
                  annotation_text=f"Mean True: {true_mean:.3f}", annotation_position="top right")
     fig.add_vline(x=0.5, line_dash="dash", line_color="black", 
                  annotation_text="Chance (0.5)", annotation_position="top left")
@@ -580,8 +612,8 @@ def plot_feature_importance_distribution(results_df, feature_cols, dimension, mo
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=x_means, y=y_labels, mode='markers+text',
-        marker=dict(color='#DE237B', size=8),
-        error_x=dict(type='data', array=x_errs, color='#DE237B', thickness=1.5),
+        marker=dict(color=ACCENT, size=8),
+        error_x=dict(type='data', array=x_errs, color=ACCENT, thickness=1.5),
         text=[f"{m:.3f}" for m in x_means], textposition="middle right"
     ))
 
@@ -626,7 +658,7 @@ def plot_performance_metrics_summary(true_results, dimension, model_type, save_p
             values = true_results[metric].dropna().values
             if len(values) > 0:
                 fig.add_trace(go.Histogram(
-                    x=values, name=name, marker_color='#DE237B', opacity=0.7, nbinsx=15
+                    x=values, name=name, marker_color=ACCENT, opacity=0.7, nbinsx=15
                 ), row=row, col=col)
                 
                 # Add mean line
@@ -684,7 +716,7 @@ def create_dimension_comparison_plot(results_summary, model_type, metric='mean_a
     fig.add_trace(go.Bar(
         x=dimension_names, y=metric_means,
         error_y=dict(type='data', array=metric_stds),
-        marker_color='#DE237B'
+        marker_color=ACCENT
     ))
     
     fig.update_layout(
@@ -727,18 +759,18 @@ def plot_permutation_test_results(true_results, perm_results, dimension, model_t
     )
     
     # AUC Histogram
-    fig.add_trace(go.Histogram(x=perm_aucs, name='Permuted AUC', marker_color='#999999', opacity=0.6, histnorm='probability density'), row=1, col=1)
-    fig.add_trace(go.Histogram(x=true_aucs, name='True AUC', marker_color='#DE237B', opacity=0.7, histnorm='probability density'), row=1, col=1)
+    fig.add_trace(go.Histogram(x=perm_aucs, name='Permuted AUC', marker_color=PERM_COLOR, opacity=0.6, histnorm='probability density'), row=1, col=1)
+    fig.add_trace(go.Histogram(x=true_aucs, name='True AUC', marker_color=ACCENT, opacity=0.7, histnorm='probability density'), row=1, col=1)
     
     # Balanced Accuracy Histogram
-    fig.add_trace(go.Histogram(x=perm_bal, name='Permuted BalAcc', marker_color='#999999', opacity=0.6, histnorm='probability density'), row=1, col=2)
-    fig.add_trace(go.Histogram(x=true_bal, name='True BalAcc', marker_color='#DE237B', opacity=0.7, histnorm='probability density'), row=1, col=2)
+    fig.add_trace(go.Histogram(x=perm_bal, name='Permuted BalAcc', marker_color=PERM_COLOR, opacity=0.6, histnorm='probability density'), row=1, col=2)
+    fig.add_trace(go.Histogram(x=true_bal, name='True BalAcc', marker_color=ACCENT, opacity=0.7, histnorm='probability density'), row=1, col=2)
     
     # Box Plot Summary
-    fig.add_trace(go.Box(y=true_aucs, name='True AUC', marker_color='#DE237B'), row=2, col=1)
-    fig.add_trace(go.Box(y=perm_aucs, name='Perm AUC', marker_color='#999999'), row=2, col=1)
-    fig.add_trace(go.Box(y=true_bal, name='True BalAcc', marker_color='#DE237B'), row=2, col=1)
-    fig.add_trace(go.Box(y=perm_bal, name='Perm BalAcc', marker_color='#999999'), row=2, col=1)
+    fig.add_trace(go.Box(y=true_aucs, name='True AUC', marker_color=ACCENT), row=2, col=1)
+    fig.add_trace(go.Box(y=perm_aucs, name='Perm AUC', marker_color=PERM_COLOR), row=2, col=1)
+    fig.add_trace(go.Box(y=true_bal, name='True BalAcc', marker_color=ACCENT), row=2, col=1)
+    fig.add_trace(go.Box(y=perm_bal, name='Perm BalAcc', marker_color=PERM_COLOR), row=2, col=1)
 
     fig.update_layout(
         template='plotly_white',
@@ -1037,7 +1069,7 @@ def create_permutation_comparison_plot(results_dict, perm_results_dict, metric='
     df_plot = pd.DataFrame(plot_data)
     
     fig = px.violin(df_plot, x='Dimension', y='Value', color='Type', facet_row='Model',
-                    box=True, template='plotly_white', color_discrete_map={'True': '#DE237B', 'Permuted': '#999999'})
+                    box=True, template='plotly_white', color_discrete_map={'True': ACCENT, 'Permuted': PERM_COLOR})
     
     fig.add_hline(y=0.5, line_dash="dash", line_color="gray")
     
@@ -1275,12 +1307,12 @@ def plot_metric_distribution_with_stats(
     fig = go.Figure()
     
     if len(perm_vals) > 0:
-        fig.add_trace(go.Histogram(x=perm_vals, name='Permuted', marker_color='#999999', opacity=0.6, nbinsx=20))
+        fig.add_trace(go.Histogram(x=perm_vals, name='Permuted', marker_color=PERM_COLOR, opacity=0.6, nbinsx=20))
         fig.add_vline(x=np.mean(perm_vals), line_dash="dash", line_color="black", annotation_text=f"Perm Mean: {np.mean(perm_vals):.3f}")
         
     if len(true_vals) > 0:
-        fig.add_trace(go.Histogram(x=true_vals, name='True Labels', marker_color='#DE237B', opacity=0.7, nbinsx=20))
-        fig.add_vline(x=np.mean(true_vals), line_dash="dash", line_color="#DE237B", annotation_text=f"True Mean: {np.mean(true_vals):.3f}")
+        fig.add_trace(go.Histogram(x=true_vals, name='True Labels', marker_color=ACCENT, opacity=0.7, nbinsx=20))
+        fig.add_vline(x=np.mean(true_vals), line_dash="dash", line_color=ACCENT, annotation_text=f"True Mean: {np.mean(true_vals):.3f}")
 
     if chance_value is not None:
         fig.add_vline(x=chance_value, line_dash="dot", line_color="red", annotation_text=f"Chance ({chance_value})")
@@ -1420,7 +1452,7 @@ def plot_consolidated_permutation_results(
                 go.Histogram(
                     x=perm_values,
                     name=f'Permuted ({metric_name})',
-                    marker_color='#999999',
+                    marker_color=PERM_COLOR,
                     opacity=0.6,
                     histnorm='probability density',
                     nbinsx=20,
@@ -1695,7 +1727,7 @@ def plot_subject_level_densities(true_subject_metrics_list, perm_subject_metrics
                                     fillcolor='#d3d3d3', opacity=0.6, name='Permuted', hoverinfo='none', showlegend=(i==0)), row=1, col=1)
         if len(t_vals) > 0:
             fig.add_trace(go.Violin(x=t_vals, y=[sub]*len(t_vals), side='negative', line_color='rgba(0,0,0,0)',
-                                    fillcolor='#DE237B', opacity=0.8, name='True', hoverinfo='none', showlegend=(i==0)), row=1, col=1)
+                                    fillcolor=ACCENT, opacity=0.8, name='True', hoverinfo='none', showlegend=(i==0)), row=1, col=1)
             
         # Add significance stars
         p = p_values.get(sub, 1.0)
@@ -1711,10 +1743,10 @@ def plot_subject_level_densities(true_subject_metrics_list, perm_subject_metrics
     
     # Add Donut pie chart for % significant
     fig.add_trace(go.Pie(labels=['Sig', 'Not Sig'], values=[pct_sig, 100-pct_sig], hole=0.6,
-                         marker=dict(colors=['#DE237B', '#d3d3d3']), textinfo='none', hoverinfo='none', showlegend=False), row=2, col=1)
+                         marker=dict(colors=[ACCENT, '#d3d3d3']), textinfo='none', hoverinfo='none', showlegend=False), row=2, col=1)
     # Donut annotation
     fig.add_annotation(text=f"<b>{pct_sig:.0f}%</b>", xref='x domain', yref='y domain', x=0.5, y=0.5, 
-                       showarrow=False, font=dict(size=16, color='#DE237B'), row=2, col=1)
+                       showarrow=False, font=dict(size=16, color=ACCENT), row=2, col=1)
     
     fig.update_layout(title=f"<b>Subject-Level Density: {dimension_name} ({metric.upper()})</b>",
                       template='plotly_white', height=max(600, len(subjects)*40), width=400,
@@ -1866,7 +1898,7 @@ def plot_subject_distribution_ridgelines(
         key=lambda x: int(x) if str(x).isdigit() else x,
     )
 
-    TRUE_COLOR  = "#DE237B"
+    TRUE_COLOR  = ACCENT
     PERM_COLOR  = "rgba(180,180,180,0.65)"
     PERM_LINE   = "rgba(100,100,100,0.8)"
     CHANCE = 0.5 if metric in ("auc", "balanced_accuracy", "auprc") else 0.0
@@ -2347,7 +2379,7 @@ def plot_global_permutation_histogram(
         true_vals = true_vals[np.isfinite(true_vals)]
         perm_vals = perm_vals[np.isfinite(perm_vals)]
 
-        true_color = METRIC_COLORS.get(metric_name, "#DE237B")
+        true_color = METRIC_COLORS.get(metric_name, ACCENT)
         p_val = data.get("p_value", np.nan)
         emp_p = data.get("empirical_p", np.nan)
 
@@ -2528,7 +2560,7 @@ def plot_feature_importances_true_vs_perm(
         print("    ! No feature importances to compare — skipping")
         return None
 
-    TRUE_COLOR = "#DE237B"
+    TRUE_COLOR = ACCENT
     PERM_COLOR = "#BBBBBB"
     PERM_LINE = "#888888"
 
@@ -2973,7 +3005,7 @@ def plot_global_distribution_comparison(
 
     from scipy.stats import gaussian_kde
 
-    COLOR_TRUE = "#DE237B"
+    COLOR_TRUE = ACCENT
     COLOR_PERM = "#AAAAAA"
     ALPHA_TRUE = 0.72
     ALPHA_PERM = 0.48
@@ -3149,7 +3181,7 @@ def plot_subject_violin_comparison(
     if metrics is None:
         metrics = ["auc", "balanced_accuracy", "mcc", "auprc"]
 
-    COLOR_TRUE = "#DE237B"
+    COLOR_TRUE = ACCENT
     COLOR_PERM = "#AAAAAA"
     CHANCE = {"auc": 0.5, "balanced_accuracy": 0.5, "mcc": 0.0, "auprc": None}
 
@@ -3346,7 +3378,7 @@ def plot_roc_comparison(
     positive_class_name, negative_class_name : str
         Human-readable class labels for the plot title.
     """
-    COLOR_TRUE = "#DE237B"
+    COLOR_TRUE = ACCENT
     COLOR_PERM = "#888888"
     FPR_GRID = np.linspace(0, 1, 200)
 
@@ -3558,7 +3590,7 @@ def plot_feature_importance_comparison(
         If provided, a second panel with SHAP values is generated.
     """
     feature_names = list(feature_names)
-    COLOR_TRUE = "#DE237B"
+    COLOR_TRUE = ACCENT
     COLOR_PERM = "#AAAAAA"
     COLOR_PERM_RANK = "#D3E0A3"  # light greenish for same-rank permuted feature
 
@@ -4072,6 +4104,132 @@ def plot_auc_vs_onoff_dispersion(
 
     plot_df.to_csv(f"{out_path}_data.csv", index=False)
     print(f"  Saved AUC vs {label_col} dispersion → {out_path}.png")
+
+
+def plot_auc_vs_median_position(
+    subject_auc_df: pd.DataFrame,
+    df_prepared: pd.DataFrame,
+    results_path: str,
+    filename_base: str,
+    pipeline_label: str = "LOSO",
+    label_col: str = "onoff",
+) -> None:
+    """
+    Scatter plot of per-subject AUC vs distance of the subject's within-subject
+    median from the scale midpoint (50).
+
+    Tests whether subjects whose median rating sits near the centre of the
+    0-100 scale are more or less decodable than those with an extreme median.
+    x = |per-subject median of label_col - 50| (distance from midpoint).
+    y = per-subject AUC.
+
+    Parameters
+    ----------
+    subject_auc_df : pd.DataFrame
+        Columns: 'subject', 'auc'. One row per subject, AUC averaged over runs.
+    df_prepared : pd.DataFrame
+        Full prepared DataFrame with 'subject' and the ``label_col`` column.
+    results_path : str
+        Directory where plot files are saved.
+    filename_base : str
+        Filename prefix (matches the other result files for this run).
+    pipeline_label : str
+        Pipeline name for the plot title ('LOSO' or 'WithinSubject').
+    label_col : str
+        Name of the continuous rating column (e.g. 'onoff', 'valence').
+    """
+    if label_col not in df_prepared.columns:
+        print(f"Warning: '{label_col}' column not found in df_prepared — skipping AUC vs median position plot.")
+        return
+
+    median_stats = (
+        df_prepared.groupby("subject")[label_col]
+        .median()
+        .reset_index()
+        .rename(columns={label_col: "subject_median"})
+    )
+    median_stats["dist_from_50"] = (median_stats["subject_median"] - 50.0).abs()
+
+    auc_work = subject_auc_df.copy()
+    auc_work["subject"] = auc_work["subject"].astype(str)
+    median_stats["subject"] = median_stats["subject"].astype(str)
+    plot_df = pd.merge(auc_work, median_stats, on="subject", how="inner")
+    if plot_df.empty:
+        print(f"Warning: No subjects matched — skipping AUC vs median position plot.")
+        return
+
+    x = plot_df["dist_from_50"].values.astype(float)
+    y = plot_df["auc"].values.astype(float)
+    valid = np.isfinite(x) & np.isfinite(y)
+
+    r_val, p_val = np.nan, np.nan
+    slope, intercept = np.nan, np.nan
+    if valid.sum() >= 3:
+        r_val, p_val = stats.pearsonr(x[valid], y[valid])
+        slope, intercept, *_ = stats.linregress(x[valid], y[valid])
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=plot_df["dist_from_50"],
+        y=plot_df["auc"],
+        mode='markers+text',
+        text=plot_df["subject"].astype(str),
+        textposition='top center',
+        textfont=dict(size=9),
+        marker=dict(color=COLORS[0], size=10, opacity=0.85,
+                    line=dict(color='white', width=1)),
+        name='Subjects',
+        hovertemplate=(
+            'Subject: %{text}<br>'
+            f'|median({label_col})−50|: %{{x:.1f}}<br>'
+            'AUC: %{y:.3f}<extra></extra>'
+        ),
+    ))
+
+    if np.isfinite(slope):
+        x_line = np.array([np.nanmin(x[valid]), np.nanmax(x[valid])])
+        y_line = slope * x_line + intercept
+        fig.add_trace(go.Scatter(
+            x=x_line, y=y_line, mode='lines',
+            line=dict(color='black', width=2, dash='dash'),
+            name=f'r = {r_val:.2f}, p = {p_val:.3f}',
+        ))
+
+    fig.add_hline(
+        y=0.5, line_dash='dash', line_color='gray', opacity=0.5,
+        annotation_text='Chance (0.5)', annotation_position='bottom right',
+    )
+
+    corr_label = (
+        f"r = {r_val:.3f}, p = {p_val:.3f}" if np.isfinite(r_val) else "r = N/A"
+    )
+    fig.update_layout(
+        template='plotly_white',
+        title=dict(
+            text=(
+                f'<b>{pipeline_label}: AUC vs {label_col} Median Position</b><br>'
+                f'<sup>{corr_label} | n = {valid.sum()} subjects</sup>'
+            ),
+            font=dict(size=16),
+        ),
+        xaxis_title=f'|per-subject median of {label_col} ratings − 50|',
+        yaxis_title='AUC',
+        yaxis=dict(range=[max(0.0, float(np.nanmin(y)) - 0.1),
+                          min(1.0, float(np.nanmax(y)) + 0.1)]),
+        width=800,
+        height=650,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    )
+
+    os.makedirs(results_path, exist_ok=True)
+    out_path = os.path.join(results_path, f"{filename_base}_auc_vs_{label_col}_median_position")
+    fig.write_image(f"{out_path}.png", scale=2)
+    fig.write_image(f"{out_path}.pdf")
+    fig.write_html(f"{out_path}.html")
+
+    plot_df.to_csv(f"{out_path}_data.csv", index=False)
+    print(f"  Saved AUC vs {label_col} median position → {out_path}.png")
 
 
 # =============================================================================

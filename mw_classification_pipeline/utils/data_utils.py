@@ -1094,6 +1094,27 @@ def prepare_data_for_contrast(
     # Get feature columns
     feature_cols = get_feature_columns(df_wide)
 
+    # Drop columns whose suffix matches any pattern in exclude_column_suffixes.
+    # Declared in config to keep the decision in one place (e.g. ["_std"] to
+    # keep only _trimmean aggregations and halve the feature space).
+    exclude_suffixes = config.get("exclude_column_suffixes", [])
+    if exclude_suffixes:
+        before = len(feature_cols)
+        feature_cols = [
+            c for c in feature_cols
+            if not any(c.endswith(s) for s in exclude_suffixes)
+        ]
+        df_wide = df_wide.drop(
+            columns=[c for c in df_wide.columns
+                     if c not in feature_cols and c in df_wide.columns
+                     and any(c.endswith(s) for s in exclude_suffixes)],
+            errors="ignore",
+        )
+        if verbose:
+            print(f"  Dropped {before - len(feature_cols)} columns matching "
+                  f"exclude_column_suffixes={exclude_suffixes} "
+                  f"({len(feature_cols)} remaining)")
+
     if verbose:
         print(f"\nIdentified {len(feature_cols)} feature columns")
         if len(feature_cols) > 10:

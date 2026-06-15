@@ -16,6 +16,37 @@ import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
 
+def save_figure_multiformat(
+    fig: plt.Figure,
+    save_path: "str | Path",
+    dpi: int = 300,
+    formats: Tuple[str, ...] = ("png", "svg"),
+) -> None:
+    """
+    Save a figure to disk in multiple formats from a single base path.
+
+    The base ``save_path`` extension is ignored; the figure is written once per
+    entry in ``formats`` using the same stem. SVG is always included by default
+    so CBPT result figures are available as editable vector graphics.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to save.
+    save_path : str or pathlib.Path
+        Base output path. Its parent directory is created if needed; its
+        extension is replaced by each requested format.
+    dpi : int, default 300
+        Resolution for raster formats (e.g. PNG). Ignored by vector formats.
+    formats : tuple of str, default ("png", "svg")
+        File formats to write.
+    """
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    for fmt in formats:
+        fig.savefig(save_path.with_suffix(f".{fmt}"), dpi=dpi, bbox_inches="tight")
+
+
 def validate_montage_and_channels(info: mne.Info, values: np.ndarray) -> tuple:
     """
     Validate that the montage and channels are properly configured for plotting.
@@ -222,13 +253,12 @@ def plot_cluster_topomap(
     
     plt.tight_layout()
     
-    # Save figure if path provided
+    # Save figure if path provided (PNG + SVG by default)
     if save_path:
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
+        save_figure_multiformat(fig, save_path, dpi=dpi)
         plt.close(fig)  # Close to free memory
         return None
-    
+
     return fig
 
 
@@ -306,11 +336,10 @@ def plot_cluster_details(
     
     plt.tight_layout()
     
-    # Save figure if path provided
+    # Save figure if path provided (PNG + SVG by default)
     if save_path:
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
-    
+        save_figure_multiformat(fig, save_path, dpi=dpi)
+
     return fig
 
 
@@ -390,11 +419,10 @@ def plot_t_statistics_distribution(
     
     plt.tight_layout()
     
-    # Save figure if path provided
+    # Save figure if path provided (PNG + SVG by default)
     if save_path:
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
-    
+        save_figure_multiformat(fig, save_path, dpi=dpi)
+
     return fig
 
 
@@ -487,11 +515,11 @@ def create_results_report(
     )
     plt.close(fig3)
     
-    print(f"✓ Figures saved to {output_dir}")
-    print(f"  - Topographic map: {prefix}_topomap.png")
+    print(f"✓ Figures saved to {output_dir} (PNG + SVG)")
+    print(f"  - Topographic map: {prefix}_topomap.{{png,svg}}")
     if len(clusters) > 0:
-        print(f"  - Cluster details: {prefix}_cluster_details.png")
-    print(f"  - T-statistics distribution: {prefix}_t_distribution.png")
+        print(f"  - Cluster details: {prefix}_cluster_details.{{png,svg}}")
+    print(f"  - T-statistics distribution: {prefix}_t_distribution.{{png,svg}}")
 
 
 def plot_raw_topomap(

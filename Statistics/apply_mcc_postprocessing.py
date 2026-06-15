@@ -97,7 +97,84 @@ def load_marker_results(model_dir: Path, verbose: bool = True) -> List[Dict]:
     return results
 
 
-def save_corrected_summaries(results: List[Dict], model_dir: Path, 
+def persist_corrected_pvalues(
+    results: List[Dict],
+    model_dir: Path,
+    mcc_alpha: float,
+    verbose: bool = True,
+) -> None:
+    """
+    Write corrected cluster p-values back into each marker's pickle files.
+
+    ``generate_summary_report`` reads ``results.pkl`` and only enters its
+    corrected-p-value branch when the ``cluster_p_values_corrected`` key is
+    present. The correction is computed in-memory by ``correct_cluster_p_values``
+    but was never persisted, so the summary report silently fell back to the
+    UNCORRECTED p-values while ``multiple_comparisons_summary.csv`` held the
+    corrected ones — two outputs that could disagree. This function closes that
+    gap by writing the corrected keys into both ``results.pkl`` (the file the
+    report reads) and the marker-specific ``<marker>_results.pkl`` so they stay
+    consistent.
+
+    Markers with no clusters receive an empty corrected array plus correction
+    metadata, so every marker uniformly carries the same correction provenance.
+
+    Parameters
+    ----------
+    results : List[Dict]
+        Corrected result dictionaries (already mutated in-place with
+        ``cluster_p_values_corrected`` where clusters existed).
+    model_dir : Path
+        Path to the model directory containing the marker subdirectories.
+    mcc_alpha : float
+        Alpha level used for the correction (stored as provenance).
+    verbose : bool
+        Print progress information.
+    """
+    if verbose:
+        print("\nPersisting corrected p-values back into marker pickles...")
+
+    n_written = 0
+    for result in results:
+        marker_name = result.get('marker_name')
+        marker_type = result.get('marker_type', 'unknown')
+        if marker_name is None:
+            continue
+
+        # Ensure corrected keys exist even for markers with no clusters, so the
+        # summary report uniformly enters its corrected-p-value branch.
+        if 'cluster_p_values_corrected' not in result:
+            p_vals = np.asarray(result.get('cluster_p_values', []), dtype=float)
+            result['cluster_p_values_corrected'] = p_vals.copy()
+            result['cluster_rejected'] = p_vals <= mcc_alpha
+            result['correction_method'] = result.get('correction_method', 'none')
+            result['correction_alpha'] = mcc_alpha
+
+        safe_marker_name = marker_name.replace('/', '_').replace(' ', '_')
+        marker_dir = model_dir / f"{marker_type}_{safe_marker_name}"
+        if not marker_dir.exists():
+            if verbose:
+                print(f"  ⚠ Directory not found, cannot persist: {marker_dir}")
+            continue
+
+        # Drop transient keys that loaders attach (e.g. generate_summary_report
+        # sets 'marker_dir') so the round-tripped pickle stays clean.
+        result.pop('marker_dir', None)
+
+        # Update both the generic results.pkl (read by generate_summary_report)
+        # and the marker-specific pickle so the two never diverge.
+        for pkl_name in ("results.pkl", f"{safe_marker_name}_results.pkl"):
+            pkl_path = marker_dir / pkl_name
+            if pkl_path.exists():
+                with open(pkl_path, 'wb') as f:
+                    pickle.dump(result, f)
+                n_written += 1
+
+    if verbose:
+        print(f"  ✓ Updated {n_written} pickle file(s) with corrected p-values")
+
+
+def save_corrected_summaries(results: List[Dict], model_dir: Path,
                             mcc_alpha: float, verbose: bool = True) -> None:
     """
     Save corrected cluster summaries for each marker.
@@ -306,17 +383,26 @@ def main():
         )
         
         corrected_results.extend(type_corrected)
-    
+
+    # Persist corrected p-values back into the marker pickles so that
+    # generate_summary_report (which reads results.pkl) reports CORRECTED
+    # significance instead of silently falling back to uncorrected.
+    print("\n" + "-"*80)
+    print("STEP 3: Persisting corrected p-values into marker pickles")
+    print("-"*80)
+
+    persist_corrected_pvalues(corrected_results, model_dir, mcc_alpha, verbose=args.verbose)
+
     # Save corrected summaries
     print("\n" + "-"*80)
-    print("STEP 3: Saving corrected cluster summaries")
+    print("STEP 4: Saving corrected cluster summaries")
     print("-"*80)
     
     save_corrected_summaries(corrected_results, model_dir, mcc_alpha, verbose=args.verbose)
     
     # Save correction summary
     print("\n" + "-"*80)
-    print("STEP 4: Creating correction summary report")
+    print("STEP 5: Creating correction summary report")
     print("-"*80)
     
     correction_summary_path = model_dir / "multiple_comparisons_summary.csv"
@@ -332,7 +418,7 @@ def main():
     pipeline_summary_path = model_dir / "pipeline_summary.csv"
     if pipeline_summary_path.exists():
         print("\n" + "-"*80)
-        print("STEP 5: Updating pipeline summary")
+        print("STEP 6: Updating pipeline summary")
         print("-"*80)
         
         try:

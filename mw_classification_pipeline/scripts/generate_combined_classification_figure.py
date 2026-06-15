@@ -24,6 +24,7 @@ import os
 import sys
 import warnings
 import pickle
+import yaml
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -42,49 +43,66 @@ warnings.filterwarnings("ignore")
 # Configuration
 # =============================================================================
 
-RESULTS_ROOT = Path("mw_classification_pipeline/results/MW_Classification")
-OUTPUT_DIR   = Path("mw_classification_pipeline/results/combined_figures")
+# Shared project color palette (single source of truth). Resolved path-relative
+# to this script so it works regardless of the current working directory.
+PALETTE = yaml.safe_load(
+    open(Path(__file__).resolve().parents[2] / "color_palette.yaml")
+)
+DIM_COLORS = PALETTE["dimensions"]
+
+RESULTS_ROOT    = Path("mw_classification_pipeline/results/MW_Classification")
+OUTPUT_DIR      = Path("mw_classification_pipeline/results/combined_figures")
+PROBE_DATA_PATH = Path("results/Behavior/probe_data/probe_level_aggregated_data.csv")
+
+# WS-vs-LOSO feature scatter figures: show the union of each pipeline's
+# top-N features (by its own ranking metric).
+SHAP_SCATTER_TOP_N = 10
 
 # Per-dimension color, consistent across every figure
 DIMENSIONS = [
     {
-        "key":      "on_off",
-        "ws_dir":   "on_vs_off_within_median",
-        "loso_dir": "ON_vs_OFF_within_median",
-        "label":    "On/Off-Task",
-        "color":    "#DE237B",   # pink
+        "key":          "on_off",
+        "ws_dir":       "on_vs_off_within_median",
+        "loso_dir":     "ON_vs_OFF_within_median",
+        "label":        "On/Off-Task",
+        "color":        DIM_COLORS["onoff"],   # red
+        "label_source": "onoff",
     },
     {
-        "key":      "valence",
-        "ws_dir":   "valence_within_median",
-        "loso_dir": "valence_within_median",
-        "label":    "Valence",
-        "color":    "#7B4FBA",   # purple
+        "key":          "valence",
+        "ws_dir":       "valence_within_median",
+        "loso_dir":     "valence_within_median",
+        "label":        "Valence",
+        "color":        DIM_COLORS["valence"],   # blue
+        "label_source": "valence",
     },
     {
-        "key":      "selfother",
-        "ws_dir":   "selfother_within_median",
-        "loso_dir": "selfother_within_median",
-        "label":    "Self/Other",
-        "color":    "#E67E22",   # orange
+        "key":          "selfother",
+        "ws_dir":       "selfother_within_median",
+        "loso_dir":     "selfother_within_median",
+        "label":        "Self/Other",
+        "color":        DIM_COLORS["selfother"],   # green
+        "label_source": "selfother",
     },
     {
-        "key":      "confidence",
-        "ws_dir":   "confidence_within_median",
-        "loso_dir": "confidence_within_median",
-        "label":    "Confidence",
-        "color":    "#27AE60",   # green
+        "key":          "confidence",
+        "ws_dir":       "confidence_within_median",
+        "loso_dir":     "confidence_within_median",
+        "label":        "Confidence",
+        "color":        DIM_COLORS["confidence"],   # orange
+        "label_source": "confidence",
     },
     {
-        "key":      "time",
-        "ws_dir":   "time_within_median",
-        "loso_dir": "time_within_median",
-        "label":    "Time",
-        "color":    "#2980B9",   # blue
+        "key":          "time",
+        "ws_dir":       "time_within_median",
+        "loso_dir":     "time_within_median",
+        "label":        "Time",
+        "color":        DIM_COLORS["time"],   # purple
+        "label_source": "time",
     },
 ]
 
-PERM_COLOR   = "#C8C8C8"
+PERM_COLOR   = PALETTE["neutral"]["permutation"]   # gray
 CHANCE       = 0.5
 AUC_RANGE    = (0.35, 1.0)
 BW_GROUP     = 0.4   # Scott multiplier for group-level KDE
@@ -633,7 +651,7 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
         x=sig_pcts,
         y=[i + 0.2 for i in range(n_subjs)],
         orientation="h",
-        marker_color="#DE237B",
+        marker_color=PALETTE["neutral"]["accent"],
         showlegend=False,
         text=[f"{v:.0f}%" if v > 0 else "" for v in sig_pcts],
         textposition="outside",
@@ -700,7 +718,7 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
 
     # --- Save ---
     stem_path = OUTPUT_DIR / stem
-    fig.write_html(str(stem_path.with_suffix(".html")))
+    # fig.write_html(str(stem_path.with_suffix(".html")))  # disabled: HTML rendering issue
     fig.write_image(str(stem_path.with_suffix(".png")), width=total_width, height=total_height, scale=2)
     fig.write_image(str(stem_path.with_suffix(".svg")), width=total_width, height=total_height, scale=2)
     return True
@@ -1098,19 +1116,177 @@ def plot_regression_overlay() -> go.Figure:
 
 
 # =============================================================================
-# SHAP loading helpers
+# WS-vs-LOSO feature scatter helpers (shared by Gini / SHAP figures)
 # =============================================================================
 
 
-def _load_mean_shap(
+def _minmax_scale(values: np.ndarray) -> np.ndarray:
+    """
+    Scale an array to [0, 1] via min-max normalisation.
+
+    A constant array (max == min) maps to all zeros rather than dividing by
+    zero. Used so WS and LOSO importance/SHAP values — which live on very
+    different absolute scales because of differing sample sizes and
+    aggregation depth — can be plotted on a shared 0-1 axis.
+
+    NOTE: Only appropriate for non-negative magnitudes (Gini, |SHAP|). For
+    signed values use _symmetric_scale instead.
+    """
+    v_min, v_max = values.min(), values.max()
+    if v_max == v_min:
+        return np.zeros_like(values)
+    return (values - v_min) / (v_max - v_min)
+
+
+def _symmetric_scale(values: np.ndarray) -> np.ndarray:
+    """
+    Scale signed values to [-1, 1] by dividing by max(|values|).
+
+    Preserves 0 at 0, so a feature with zero net SHAP contribution maps to 0
+    on both axes — unlike min-max, which would map it to an arbitrary
+    non-zero position depending on the distribution asymmetry.
+    """
+    v_max = np.abs(values).max()
+    if v_max == 0:
+        return np.zeros_like(values)
+    return values / v_max
+
+
+def _select_top_union(rank_x: np.ndarray, rank_y: np.ndarray, top_n: int) -> list[int]:
+    """
+    Indices of the union of the top-N entries of ``rank_x`` and of ``rank_y``.
+
+    Ensures a feature important in *either* pipeline is shown, instead of only
+    those that rank highly in a single one (e.g. WS).
+    """
+    top_x = set(np.argsort(rank_x)[-top_n:])
+    top_y = set(np.argsort(rank_y)[-top_n:])
+    return sorted(top_x | top_y)
+
+
+def _common_feature_indices(
+    x_feats: list[str], y_feats: list[str]
+) -> tuple[dict[str, int], dict[str, int], list[str]]:
+    """Return (x_index_map, y_index_map, common_features) for two feature-name lists."""
+    x_idx = {f: i for i, f in enumerate(x_feats)}
+    y_idx = {f: i for i, f in enumerate(y_feats)}
+    common = [f for f in x_feats if f in y_idx]
+    return x_idx, y_idx, common
+
+
+def _new_dimension_grid_fig() -> go.Figure:
+    """Create a 1xN subplot grid (one panel per dimension) with colored titles."""
+    n_dims = len(DIMENSIONS)
+    fig = make_subplots(
+        rows=1, cols=n_dims,
+        shared_xaxes=False,
+        shared_yaxes=False,
+        horizontal_spacing=0.06,
+        subplot_titles=[d["label"] for d in DIMENSIONS],
+    )
+    for i, dim_info in enumerate(DIMENSIONS):
+        fig.layout.annotations[i].font.color  = dim_info["color"]
+        fig.layout.annotations[i].font.size   = 14
+        fig.layout.annotations[i].font.family = "Times New Roman"
+    return fig
+
+
+def _add_scatter_panel(
+    fig: go.Figure, col: int, dim_info: dict,
+    x_vals: np.ndarray, y_vals: np.ndarray, feat_names: list[str],
+    x_label: str, y_label: str,
+    axis_range: list[float] | None = None,
+) -> None:
+    """
+    Add a WS-vs-LOSO scatter panel to ``fig`` at column ``col``.
+
+    Draws the marker+text scatter, a y=x diagonal, a linear regression line,
+    and a correlation annotation, then styles both axes to ``axis_range``.
+
+    Parameters
+    ----------
+    axis_range : list[float], optional
+        [lo, hi] for both axes.  Defaults to [-0.05, 1.05] (min-max figures).
+        Pass [-1.05, 1.05] for signed/directional figures.
+    """
+    if axis_range is None:
+        axis_range = [-0.05, 1.05]
+    color = dim_info["color"]
+
+    fig.add_trace(go.Scatter(
+        x=x_vals, y=y_vals,
+        mode="markers+text",
+        marker=dict(color=color, size=7, opacity=0.75,
+                    line=dict(color="white", width=0.5)),
+        text=[f.split("_")[0] for f in feat_names],
+        textposition="top center",
+        textfont=dict(size=7, family="Times New Roman"),
+        customdata=feat_names,
+        hovertemplate="%{customdata}<br>WS: %{x:.3f}<br>LOSO: %{y:.3f}<extra></extra>",
+        showlegend=False,
+        name=dim_info["label"],
+    ), row=1, col=col)
+
+    x_ref = f"x{col}" if col > 1 else "x"
+    y_ref = f"y{col}" if col > 1 else "y"
+    diag_lo, diag_hi = axis_range[0], axis_range[1]
+
+    # Diagonal y=x
+    fig.add_shape(
+        type="line", x0=diag_lo, x1=diag_hi, y0=diag_lo, y1=diag_hi,
+        xref=x_ref, yref=y_ref,
+        line=dict(color="#AAAAAA", dash="dot", width=1.2),
+    )
+
+    # Regression line
+    m, b = np.polyfit(x_vals, y_vals, 1)
+    x_reg = np.array([diag_lo, diag_hi])
+    fig.add_trace(go.Scatter(
+        x=x_reg, y=m * x_reg + b,
+        mode="lines",
+        line=dict(color=color, width=2.0),
+        showlegend=False,
+    ), row=1, col=col)
+
+    # Correlation
+    r = float(np.corrcoef(x_vals, y_vals)[0, 1])
+    fig.add_annotation(
+        text=f"r = {r:.2f}, n={len(x_vals)}",
+        xref=f"{x_ref} domain" if col > 1 else "x domain",
+        yref=f"{y_ref} domain" if col > 1 else "y domain",
+        x=0.05, y=0.97,
+        xanchor="left", yanchor="top",
+        showarrow=False,
+        font=dict(size=10, color=color, family="Times New Roman"),
+    )
+
+    x_ax = f"xaxis{col}" if col > 1 else "xaxis"
+    y_ax = f"yaxis{col}" if col > 1 else "yaxis"
+    fig.layout[x_ax].range = axis_range
+    fig.layout[y_ax].range = axis_range
+    show_zeroline = diag_lo < 0  # signed [-1,1] range → show zero reference
+    for ax_name in (x_ax, y_ax):
+        fig.layout[ax_name].showgrid   = True
+        fig.layout[ax_name].gridcolor  = "#EEEEEE"
+        fig.layout[ax_name].zeroline   = show_zeroline
+        fig.layout[ax_name].zerolinecolor = "#AAAAAA"
+        fig.layout[ax_name].zerolinewidth = 1.0
+        fig.layout[ax_name].tickfont   = dict(size=9)
+    fig.layout[x_ax].title = dict(text=x_label, font=dict(size=11))
+    if col == 1:
+        fig.layout[y_ax].title = dict(text=y_label, font=dict(size=11))
+
+
+# =============================================================================
+# Feature-importance / SHAP loading helpers
+# =============================================================================
+
+
+def _load_mean_gini_importance(
     pipeline: str, dim_info: dict
 ) -> tuple[np.ndarray, list[str]]:
     """
-    Return (gini_importance, feature_names) averaged across all runs.
-
-    Uses RF Gini feature importance (not SHAP) because LOSO SHAP values are
-    not reliably saved by the current pipeline. Gini is available for both
-    WS (per-run CSVs) and LOSO (aggregate CSV) and is directly comparable.
+    Return (gini_importance, feature_names) averaged across all true runs.
 
     WS:   mean over true_runs/run_N/rf_loso_feature_importances.csv
     LOSO: rf_loso_100runs_feature_importances_data.csv (already aggregated)
@@ -1139,141 +1315,383 @@ def _load_mean_shap(
         return df["mean_importance"].values, feature_names
 
 
-# =============================================================================
-# Figure F — SHAP scatter: LOSO vs WS (absolute and directional)
-# =============================================================================
-
-
-def _build_shap_scatter_fig() -> go.Figure:
+def _load_shap_summary(
+    pipeline: str, dim_info: dict
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """
-    One panel per dimension: scatter of per-feature RF Gini importance (LOSO vs WS).
+    Return (mean_abs_shap, mean_signed_shap, feature_names) averaged over all
+    true runs.
 
-    Uses Gini importance (not SHAP) because LOSO SHAP values are not reliably
-    saved by the current pipeline. Top-20 features selected by WS importance.
+    Per run, SHAP values (n_samples x n_features) are reduced to per-feature
+    mean(|SHAP|) (overall contribution magnitude) and mean(SHAP) (signed: net
+    push toward the positive class). These per-run vectors are then averaged
+    across the 100 true runs. Unselected features have SHAP == 0 for every
+    sample (see compute_shap_values_for_pipeline), so they contribute 0 to both
+    reductions without special-casing.
+
+    WS:   true_runs/run_N/rf_loso_shap_values_stacked.pkl
+    LOSO: true_runs/run_N/rf_loso_100runs_shap_values.pkl
     """
-    n_dims = len(DIMENSIONS)
+    if pipeline == "ws":
+        base     = RESULTS_ROOT / "WithinSubject" / dim_info["ws_dir"] / "all" / "rf"
+        pkl_glob = "true_runs/run_*/rf_loso_shap_values_stacked.pkl"
+    else:
+        base     = RESULTS_ROOT / "LOSO" / dim_info["loso_dir"] / "all" / "rf"
+        pkl_glob = "true_runs/run_*/rf_loso_100runs_shap_values.pkl"
 
-    fig = make_subplots(
-        rows=1, cols=n_dims,
-        shared_xaxes=False,
-        shared_yaxes=False,
-        horizontal_spacing=0.06,
-        subplot_titles=[d["label"] for d in DIMENSIONS],
-    )
+    abs_per_run:    list[np.ndarray] = []
+    signed_per_run: list[np.ndarray] = []
+    feature_names: list[str] = []
+    for pkl_path in sorted(base.glob(pkl_glob)):
+        with open(pkl_path, "rb") as f:
+            run_data = pickle.load(f)
+        shap_vals = np.asarray(run_data["shap_values"])
+        y_true    = np.asarray(run_data["y_true"])
+        if not feature_names:
+            feature_names = list(run_data["feature_names"])
+        abs_per_run.append(np.abs(shap_vals).mean(axis=0))
+        # Signed direction: contrast between on-task (y=1) and off-task (y=0)
+        # trials. mean(shap over all samples) cancels to ~0 for balanced classes
+        # by construction — per-class contrast gives meaningful direction.
+        shap_cls1 = shap_vals[y_true == 1].mean(axis=0)
+        shap_cls0 = shap_vals[y_true == 0].mean(axis=0)
+        signed_per_run.append(shap_cls1 - shap_cls0)
 
-    for i, dim_info in enumerate(DIMENSIONS):
-        fig.layout.annotations[i].font.color  = dim_info["color"]
-        fig.layout.annotations[i].font.size   = 14
-        fig.layout.annotations[i].font.family = "Times New Roman"
+    if not abs_per_run:
+        return np.array([]), np.array([]), []
+
+    mean_abs_shap    = np.mean(abs_per_run, axis=0)
+    mean_signed_shap = np.mean(signed_per_run, axis=0)
+    return mean_abs_shap, mean_signed_shap, feature_names
+
+
+# =============================================================================
+# Figure F — WS-vs-LOSO feature scatter: Gini importance, |SHAP|, signed SHAP
+# =============================================================================
+
+
+def _build_gini_scatter_fig() -> go.Figure:
+    """
+    One panel per dimension: WS vs LOSO RF Gini feature importance.
+
+    Features shown are the union of each pipeline's top-N (``SHAP_SCATTER_TOP_N``)
+    by Gini importance; both axes are min-max scaled to [0, 1] over the common
+    feature set so the two pipelines — whose raw importances live on very
+    different scales — are visually comparable.
+    """
+    fig = _new_dimension_grid_fig()
 
     for col_idx, dim_info in enumerate(DIMENSIONS):
-        col   = col_idx + 1
-        color = dim_info["color"]
-        print(f"  Loading FI [{dim_info['label']}]…", flush=True)
+        col = col_idx + 1
+        print(f"  Loading Gini FI [{dim_info['label']}]…", flush=True)
 
-        ws_fi, ws_feats = _load_mean_shap("ws",   dim_info)
-        lo_fi, lo_feats = _load_mean_shap("loso", dim_info)
-
+        ws_fi, ws_feats = _load_mean_gini_importance("ws",   dim_info)
+        lo_fi, lo_feats = _load_mean_gini_importance("loso", dim_info)
         if len(ws_fi) == 0 or len(lo_fi) == 0:
             continue
 
-        # Align on common features
-        ws_feat_idx = {f: i for i, f in enumerate(ws_feats)}
-        lo_feat_idx = {f: i for i, f in enumerate(lo_feats)}
-        common = [f for f in ws_feats if f in lo_feat_idx]
-
+        x_idx, y_idx, common = _common_feature_indices(ws_feats, lo_feats)
         if not common:
             continue
 
-        x_common = np.array([ws_fi[ws_feat_idx[f]] for f in common])
-        y_common = np.array([lo_fi[lo_feat_idx[f]] for f in common])
+        # Scale over each pipeline's full feature space so that 1.0 = top within
+        # that pipeline (not just within the common intersection).
+        ws_fi_sc = _minmax_scale(ws_fi)
+        lo_fi_sc = _minmax_scale(lo_fi)
+        x_common = np.array([ws_fi_sc[x_idx[f]] for f in common])
+        y_common = np.array([lo_fi_sc[y_idx[f]] for f in common])
 
-        # Keep top-20 by WS Gini importance
-        top_k   = 20
-        top_idx = np.argsort(x_common)[-top_k:]
-        x_vals  = x_common[top_idx]
-        y_vals  = y_common[top_idx]
-        top_feats = [common[i] for i in top_idx]
+        top_idx    = _select_top_union(x_common, y_common, SHAP_SCATTER_TOP_N)
+        feat_names = [common[i] for i in top_idx]
+        x_vals     = x_common[top_idx]
+        y_vals     = y_common[top_idx]
 
-        # Scatter
-        fig.add_trace(go.Scatter(
-            x=x_vals, y=y_vals,
-            mode="markers+text",
-            marker=dict(color=color, size=7, opacity=0.75,
-                        line=dict(color="white", width=0.5)),
-            text=[f.split("_")[0] for f in top_feats],
-            textposition="top center",
-            textfont=dict(size=7, family="Times New Roman"),
-            customdata=top_feats,
-            hovertemplate="%{customdata}<br>WS: %{x:.4f}<br>LOSO: %{y:.4f}<extra></extra>",
-            showlegend=False,
-            name=dim_info["label"],
-        ), row=1, col=col)
-
-        # Axis refs
-        x_ref = f"x{col}" if col > 1 else "x"
-        y_ref = f"y{col}" if col > 1 else "y"
-
-        # Axis range: floor at 0, 5% padding above max
-        pad = 0.05
-        xr = [0, x_vals.max() * (1 + pad)]
-        yr = [0, max(y_vals.max(), x_vals.max()) * (1 + pad)]
-        v_range = [0, max(xr[1], yr[1])]
-
-        # Diagonal y=x
-        fig.add_shape(
-            type="line", x0=0, x1=v_range[1], y0=0, y1=v_range[1],
-            xref=x_ref, yref=y_ref,
-            line=dict(color="#AAAAAA", dash="dot", width=1.2),
+        _add_scatter_panel(
+            fig, col, dim_info, x_vals, y_vals, feat_names,
+            x_label="WS Gini importance (min-max)",
+            y_label="LOSO Gini importance (min-max)",
         )
-
-        # Regression line
-        m, b = np.polyfit(x_vals, y_vals, 1)
-        x_reg = np.array([0, xr[1]])
-        fig.add_trace(go.Scatter(
-            x=x_reg, y=m * x_reg + b,
-            mode="lines",
-            line=dict(color=color, width=2.0),
-            showlegend=False,
-        ), row=1, col=col)
-
-        # Correlation
-        r = float(np.corrcoef(x_vals, y_vals)[0, 1])
-        fig.add_annotation(
-            text=f"r = {r:.2f}, top {top_k}",
-            xref=f"{x_ref} domain" if col > 1 else "x domain",
-            yref=f"{y_ref} domain" if col > 1 else "y domain",
-            x=0.05, y=0.97,
-            xanchor="left", yanchor="top",
-            showarrow=False,
-            font=dict(size=10, color=color, family="Times New Roman"),
-        )
-
-        # Axes
-        x_ax = f"xaxis{col}" if col > 1 else "xaxis"
-        y_ax = f"yaxis{col}" if col > 1 else "yaxis"
-        fig.layout[x_ax].range     = xr
-        fig.layout[y_ax].range     = yr
-        for ax_name in (x_ax, y_ax):
-            fig.layout[ax_name].showgrid  = True
-            fig.layout[ax_name].gridcolor = "#EEEEEE"
-            fig.layout[ax_name].zeroline  = False
-            fig.layout[ax_name].tickfont  = dict(size=9)
-        fig.layout[x_ax].title = dict(text="WS Gini importance", font=dict(size=11))
-        if col == 1:
-            fig.layout[y_ax].title = dict(text="LOSO Gini importance", font=dict(size=11))
 
     fig.update_layout(
         title=dict(
-            text="LOSO vs WS — RF Feature Importance (top 20 by WS, Gini)",
+            text=(f"LOSO vs WS — RF Feature Importance "
+                  f"(Gini, top-{SHAP_SCATTER_TOP_N} ∪ top-{SHAP_SCATTER_TOP_N}, min-max scaled)"),
             font=dict(size=14, family="Times New Roman"),
         ),
         template="plotly_white",
         height=380,
-        width=320 * n_dims,
+        width=320 * len(DIMENSIONS),
         margin=dict(l=60, r=30, t=100, b=60),
         font=dict(family="Times New Roman", size=12),
     )
+    return fig
+
+
+def _build_shap_scatter_figs() -> tuple[go.Figure, go.Figure]:
+    """
+    Build the WS-vs-LOSO mean |SHAP| and mean signed-SHAP scatter figures.
+
+    Both figures share a single data-loading pass (loading the 100 per-run SHAP
+    pkls per pipeline/dimension is the dominant cost) and the same top-N-union
+    feature selection by mean |SHAP|, so the absolute and directional panels
+    show identical feature sets — one for contribution magnitude, one for
+    direction (positive mean SHAP = pushes toward the positive class).
+
+    Returns
+    -------
+    tuple[go.Figure, go.Figure]
+        (fig_absolute, fig_directional)
+    """
+    fig_abs = _new_dimension_grid_fig()
+    fig_dir = _new_dimension_grid_fig()
+
+    for col_idx, dim_info in enumerate(DIMENSIONS):
+        col = col_idx + 1
+        print(f"  Loading SHAP [{dim_info['label']}]…", flush=True)
+
+        ws_abs, ws_signed, ws_feats = _load_shap_summary("ws",   dim_info)
+        lo_abs, lo_signed, lo_feats = _load_shap_summary("loso", dim_info)
+        if len(ws_abs) == 0 or len(lo_abs) == 0:
+            continue
+
+        x_idx, y_idx, common = _common_feature_indices(ws_feats, lo_feats)
+        if not common:
+            continue
+
+        # Scale over each pipeline's full feature space (not just the common
+        # intersection) so that 1.0 means "top feature in that pipeline's own
+        # feature space" — making the two axes truly comparable.
+        ws_abs_sc     = _minmax_scale(ws_abs)
+        lo_abs_sc     = _minmax_scale(lo_abs)
+        ws_signed_sc  = _symmetric_scale(ws_signed)
+        lo_signed_sc  = _symmetric_scale(lo_signed)
+
+        ws_abs_c    = np.array([ws_abs_sc[x_idx[f]]    for f in common])
+        lo_abs_c    = np.array([lo_abs_sc[y_idx[f]]    for f in common])
+        ws_signed_c = np.array([ws_signed_sc[x_idx[f]] for f in common])
+        lo_signed_c = np.array([lo_signed_sc[y_idx[f]] for f in common])
+
+        # Feature selection (and pairing between the two figures) is driven by
+        # |SHAP|; the directional figure re-uses the same features.
+        top_idx    = _select_top_union(ws_abs_c, lo_abs_c, SHAP_SCATTER_TOP_N)
+        feat_names = [common[i] for i in top_idx]
+
+        ws_abs_scaled    = ws_abs_c[top_idx]
+        lo_abs_scaled    = lo_abs_c[top_idx]
+        ws_signed_scaled = ws_signed_c[top_idx]
+        lo_signed_scaled = lo_signed_c[top_idx]
+
+        _add_scatter_panel(
+            fig_abs, col, dim_info, ws_abs_scaled, lo_abs_scaled, feat_names,
+            x_label="WS mean |SHAP| (min-max)",
+            y_label="LOSO mean |SHAP| (min-max)",
+        )
+        _add_scatter_panel(
+            fig_dir, col, dim_info, ws_signed_scaled, lo_signed_scaled, feat_names,
+            x_label="WS mean SHAP, signed (symmetric)",
+            y_label="LOSO mean SHAP, signed (symmetric)",
+            axis_range=[-1.05, 1.05],
+        )
+
+    for fig, title in (
+        (fig_abs, (f"LOSO vs WS — Mean |SHAP| "
+                   f"(top-{SHAP_SCATTER_TOP_N} ∪ top-{SHAP_SCATTER_TOP_N}, min-max scaled)")),
+        (fig_dir, (f"LOSO vs WS — Mean SHAP, signed "
+                   f"(same features as |SHAP|, symmetric scaled ÷ max|SHAP|)")),
+    ):
+        fig.update_layout(
+            title=dict(text=title, font=dict(size=14, family="Times New Roman")),
+            template="plotly_white",
+            height=380,
+            width=320 * len(DIMENSIONS),
+            margin=dict(l=60, r=30, t=100, b=60),
+            font=dict(family="Times New Roman", size=12),
+        )
+
+    return fig_abs, fig_dir
+
+
+# =============================================================================
+# Figure G — Dimension-level median summary (SD + mean vs LOSO AUC)
+# =============================================================================
+
+
+def plot_dimension_median_summary() -> go.Figure:
+    """
+    Two-panel scatter figure at the dimension level (5 points each).
+
+    Panel 1 — SD: x = SD across subjects of per-subject within-subject medians,
+               y = dimension's mean LOSO AUC.
+    Panel 2 — Mean: x = mean across subjects of per-subject within-subject medians,
+               y = dimension's mean LOSO AUC.
+
+    Tests whether a dimension's group-level decodability is related to (a) how
+    consistent subjects' scale-position is, and (b) how far the average subject
+    sits from the midpoint.  Both panels share the same y-axis range.
+
+    Data sources:
+    - Per-subject medians: PROBE_DATA_PATH, filtered to each dimension's subjects_final
+    - Mean LOSO AUC: np.mean of true_mean_aucs from load_group_data("loso", dim_info)
+    - subjects_final: loaded from used_config.yaml in the LOSO results dir
+    """
+    probe_df = pd.read_csv(PROBE_DATA_PATH)
+    probe_df["subject"] = probe_df["subject"].astype(str).str.zfill(2)
+
+    from scipy.stats import pearsonr, linregress
+
+    rows = []
+    for dim_info in DIMENSIONS:
+        loso_cfg_path = (
+            RESULTS_ROOT / "LOSO" / dim_info["loso_dir"] / "all" / "rf" / "used_config.yaml"
+        )
+        if not loso_cfg_path.exists():
+            print(f"  Warning: missing used_config.yaml for {dim_info['label']} — skipping")
+            continue
+        with open(loso_cfg_path) as fh:
+            cfg = yaml.safe_load(fh)
+        subjects_final = [str(s).zfill(2) for s in cfg["_data_provenance"]["subjects_final"]]
+
+        label_col = dim_info["label_source"]
+        if label_col not in probe_df.columns:
+            print(f"  Warning: column '{label_col}' not in probe data — skipping {dim_info['label']}")
+            continue
+
+        sub_medians = (
+            probe_df[probe_df["subject"].isin(subjects_final)]
+            .groupby("subject")[label_col]
+            .median()
+        )
+        if sub_medians.empty:
+            continue
+
+        true_aucs, _ = load_group_data("loso", dim_info)
+        if len(true_aucs) == 0:
+            continue
+
+        rows.append({
+            "label":       dim_info["label"],
+            "color":       dim_info["color"],
+            "median_sd":   float(sub_medians.std(ddof=1)),
+            "median_mean": float(sub_medians.mean()),
+            "mean_auc":    float(np.mean(true_aucs)),
+            "n_subjects":  len(sub_medians),
+        })
+
+    if not rows:
+        print("  No data available for dimension median summary — skipping.")
+        return go.Figure()
+
+    dim_df = pd.DataFrame(rows)
+
+    def _panel_traces(
+        fig: go.Figure,
+        x_col: str,
+        col: int,
+        show_yaxis_title: bool,
+    ) -> None:
+        x_vals = dim_df[x_col].values.astype(float)
+        y_vals = dim_df["mean_auc"].values.astype(float)
+
+        for _, row in dim_df.iterrows():
+            fig.add_trace(go.Scatter(
+                x=[row[x_col]],
+                y=[row["mean_auc"]],
+                mode="markers+text",
+                marker=dict(color=row["color"], size=14,
+                            line=dict(color="white", width=1.5)),
+                text=[f"<b>{row['label']}</b>"],
+                textposition="top center",
+                textfont=dict(size=11, color=row["color"]),
+                showlegend=False,
+                hovertemplate=(
+                    f"{row['label']}<br>"
+                    f"{x_col}: %{{x:.2f}}<br>"
+                    f"mean AUC: %{{y:.3f}}<extra></extra>"
+                ),
+            ), row=1, col=col)
+
+        if len(x_vals) >= 3:
+            r_val, p_val = pearsonr(x_vals, y_vals)
+            slope, intercept, *_ = linregress(x_vals, y_vals)
+            x_line = np.array([x_vals.min(), x_vals.max()])
+            fig.add_trace(go.Scatter(
+                x=x_line, y=slope * x_line + intercept,
+                mode="lines",
+                line=dict(color="black", width=2, dash="dash"),
+                showlegend=False,
+            ), row=1, col=col)
+
+            x_ref = "x" if col == 1 else f"x{col}"
+            y_ref = "y" if col == 1 else f"y{col}"
+            fig.add_annotation(
+                text=f"r = {r_val:.2f}, p = {p_val:.3f}",
+                xref=f"{x_ref} domain", yref=f"{y_ref} domain",
+                x=0.05, y=0.97, xanchor="left", yanchor="top",
+                showarrow=False,
+                font=dict(size=12, color="black"),
+            )
+
+        # chance line
+        fig.add_hline(
+            y=0.5, line_dash="dash", line_color="gray", opacity=0.5, row=1, col=col,
+        )
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        horizontal_spacing=0.12,
+        subplot_titles=[
+            "SD of per-subject medians vs LOSO AUC",
+            "Mean of per-subject medians vs LOSO AUC",
+        ],
+    )
+
+    _panel_traces(fig, "median_sd",   col=1, show_yaxis_title=True)
+    _panel_traces(fig, "median_mean", col=2, show_yaxis_title=False)
+
+    y_all = dim_df["mean_auc"].values
+    y_lo  = max(0.45, float(y_all.min()) - 0.05)
+    y_hi  = min(1.0,  float(y_all.max()) + 0.07)
+
+    fig.update_layout(
+        template="plotly_white",
+        title=dict(
+            text="<b>LOSO Decodability vs Dimension-level Median Position</b>",
+            font=dict(size=15, family="Times New Roman"),
+        ),
+        height=480,
+        width=900,
+        margin=dict(l=70, r=40, t=100, b=70),
+        font=dict(family="Times New Roman", size=13),
+    )
+
+    fig.update_yaxes(
+        title_text="Mean LOSO AUC",
+        range=[y_lo, y_hi],
+        showgrid=True, gridcolor="#EEEEEE", zeroline=False,
+        row=1, col=1,
+    )
+    fig.update_yaxes(
+        range=[y_lo, y_hi],
+        showgrid=True, gridcolor="#EEEEEE", zeroline=False,
+        showticklabels=False,
+        row=1, col=2,
+    )
+    fig.update_xaxes(
+        title_text="SD of per-subject medians",
+        showgrid=True, gridcolor="#EEEEEE", zeroline=False,
+        row=1, col=1,
+    )
+    fig.update_xaxes(
+        title_text="Mean of per-subject medians (0–100 scale)",
+        showgrid=True, gridcolor="#EEEEEE", zeroline=False,
+        row=1, col=2,
+    )
+
+    # Style subplot titles
+    for ann in fig.layout.annotations:
+        ann.font.size = 13
+        ann.font.family = "Times New Roman"
+
     return fig
 
 
@@ -1293,13 +1711,13 @@ def main() -> None:
     def _save_plotly(fig: go.Figure, stem: str) -> None:
         total_width  = fig.layout.width  or 800
         total_height = fig.layout.height or 600
-        for fmt in ("html", "png", "svg"):
+        for fmt in ("png", "svg"):  # "html" disabled: HTML rendering issue
             p = OUTPUT_DIR / f"{stem}.{fmt}"
-            if fmt == "html":
-                fig.write_html(str(p))
-            else:
-                fig.write_image(str(p), width=total_width, height=total_height, scale=2)
+            fig.write_image(str(p), width=total_width, height=total_height, scale=2)
             print(f"  Saved: {p}")
+        # p = OUTPUT_DIR / f"{stem}.html"
+        # fig.write_html(str(p))
+        # print(f"  Saved: {p}")
 
     for pipeline, title_prefix, group_stem, indiv_stem in tasks:
         # Group-level (now Plotly)
@@ -1315,7 +1733,7 @@ def main() -> None:
         print("=" * 60)
         saved = plot_individual(pipeline, title_prefix, indiv_stem)
         if saved:
-            for fmt in ("png", "svg", "html"):
+            for fmt in ("png", "svg"):  # "html" disabled: HTML rendering issue
                 print(f"  Saved: {OUTPUT_DIR / f'{indiv_stem}.{fmt}'}")
 
     # Combined group-level comparison (now Plotly)
@@ -1343,8 +1761,24 @@ def main() -> None:
     print("=" * 60)
     print("Feature importance scatter — Gini (WS vs LOSO)")
     print("=" * 60)
-    fig_fi = _build_shap_scatter_fig()
+    fig_fi = _build_gini_scatter_fig()
     _save_plotly(fig_fi, "scatter_feature_importance")
+
+    # SHAP scatter: WS vs LOSO (absolute + directional)
+    print("=" * 60)
+    print("SHAP scatter — absolute & directional (WS vs LOSO)")
+    print("=" * 60)
+    fig_shap_abs, fig_shap_dir = _build_shap_scatter_figs()
+    _save_plotly(fig_shap_abs, "scatter_shap_absolute")
+    _save_plotly(fig_shap_dir, "scatter_shap_directional")
+
+    # Dimension-level median summary (SD + mean vs LOSO AUC)
+    print("=" * 60)
+    print("Dimension median summary (SD + mean vs LOSO AUC)")
+    print("=" * 60)
+    fig_ms = plot_dimension_median_summary()
+    if fig_ms.data:
+        _save_plotly(fig_ms, "dimension_median_summary")
 
     print("\nDone. Figures in:", OUTPUT_DIR)
 

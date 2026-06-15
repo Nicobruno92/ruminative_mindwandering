@@ -201,6 +201,37 @@ classify_onoff_epochs(epochs, split='median')          # {'high': on, 'low': off
 
 ---
 
+## Color Palette
+
+Single source of truth: `color_palette.yaml` (repo root). **Never hardcode hex values in plots** — load this file and key into it, so every figure stays consistent. Load it path-relative to the script (`Path(__file__).resolve().parents[N] / "color_palette.yaml"`), not via cwd.
+
+**Base palette (Observable10):**
+
+| Name | Hex | | Name | Hex |
+|------|-----|--|------|-----|
+| Blue | `#4269D0` | | Pink | `#FF8AB7` |
+| Orange | `#EFB118` | | Purple | `#A463F2` |
+| Red | `#FF725C` | | Light Blue | `#97BBF5` |
+| Cyan | `#6CC5B0` | | Brown | `#9C6B4E` |
+| Green | `#3CA951` | | Gray | `#9498A0` |
+
+**Per-dimension assignment (stable across all figures):**
+
+| Dimension | Color | Hex | | Dimension | Color | Hex |
+|-----------|-------|-----|--|-----------|-------|-----|
+| `onoff` | red | `#FF725C` | | `confidence` | orange | `#EFB118` |
+| `valence` | blue | `#4269D0` | | `pc1` | cyan | `#6CC5B0` |
+| `selfother` | green | `#3CA951` | | `pc2` | pink | `#FF8AB7` |
+| `time` | purple | `#A463F2` | | `pc3` | light blue | `#97BBF5` |
+
+Neutral: gray `#9498A0` = permutation/chance baseline and non-dimension covariates (e.g. `time_on_task`); accent (default single-series) = blue `#4269D0`.
+
+**Significance encoding (project-wide convention):** color encodes the *dimension*, never significance. Significance is encoded by **fill**: significant (after correction) = **filled/solid** marker; non-significant = **hollow/empty** (white face, colored edge) or **dashed**. Keep this consistent across forest plots, topomaps, heatmaps, and any new figure — so a reader can read dimension from hue and significance from fill independently.
+
+Currently wired into the Paper 2 plots: `mw_classification_pipeline/` and `results/Behavior/objective_markers/lmm_probe_dimensions/` (generators in `Behavior/Objective_Markers/lmm_probe_dimensions.py`). Apply the same palette to any new plot.
+
+---
+
 ## Code Style
 
 - **Docstrings**: Numpy/Scipy style. Every function, class, and module must be documented.

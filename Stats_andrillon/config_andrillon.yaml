@@ -213,11 +213,16 @@ andrillon_clustering:
   # Andrillon uses 1000 (paper line 106-107)
   # "We then created permuted datasets by permuting the labels of the 
   # predictor within each subject, each task and each electrode (N=1,000 permutations)"
-  n_permutations: 1000
+  n_permutations: 5000
   
-  # Parallel processing for permutations
-  # -1 = use all available CPUs, 1 = sequential (for debugging)
-  n_jobs: -1
+  # Parallel processing for permutations.
+  # Must match `#SBATCH --cpus-per-task` in run_andrillon_marker_array.sh.
+  # Do NOT use -1 on SLURM: loky reads the node's physical core count
+  # (28 here), not the cgroup allocation, so -1 oversubscribes the 16
+  # allocated cores → heavy context-switching that made 5000 permutations
+  # take ~8h on 2 cores and time out. A fixed n_jobs matching the allocation
+  # keeps one worker per allocated core.
+  n_jobs: 16
   
   # Monte Carlo alpha: threshold for significant clusters
   # Andrillon uses 0.05 (paper line 111-113)
@@ -289,20 +294,31 @@ channel_exclusion:
     - "Iz"
 
 # Multiple comparisons correction
-# Applied when testing multiple markers
+# Applied when testing multiple markers (cluster-permutation tests).
+#
+# Rationale for FDR over Bonferroni here: Bonferroni multiplies each cluster
+# p-value by the number of clusters in the family. Combined with the
+# permutation-floor p (~1/(n_permutations+1)), this makes significance
+# unreachable in the larger families (sleep/evoked ~55-90 clusters → minimum
+# corrected p ~0.06-0.09 regardless of effect size). FDR (Benjamini-Hochberg)
+# controls the false discovery rate by rank, has no fixed per-test penalty,
+# and is the standard choice when testing many markers, so it preserves power
+# while still controlling for multiplicity. Correction is applied separately
+# within each marker family (evoked / state / sleep).
 multiple_comparisons:
-  # Correction method for evoked markers
+  # Correction method per marker family.
   # Options:
-  #   - "bonferroni": Bonferroni correction (Andrillon method)
-  #   - "fdr_bh" or "fdr_indep": Benjamini-Hochberg FDR
+  #   - "fdr_bh" or "fdr_indep": Benjamini-Hochberg FDR (recommended)
+  #   - "fdr_by" or "fdr_negcorr": Benjamini-Yekutieli FDR (for dependent tests)
+  #   - "bonferroni": Bonferroni FWER (very conservative — see note above)
   #   - "none" or false: No correction
-  evoked: "bonferroni"  # Andrillon uses Bonferroni
-  
-  # Correction for state markers
-  state: "bonferroni"
+  evoked: "fdr_bh"
 
-  sleep: "bonferroni"
-  
+  # Correction for state markers
+  state: "fdr_bh"
+
+  sleep: "fdr_bh"
+
   # Alpha level
   alpha: 0.05
 

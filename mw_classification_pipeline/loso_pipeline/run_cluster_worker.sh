@@ -9,6 +9,7 @@
 # Arguments:
 #   $1 — path to config.yaml
 #   $2 — mode: "true" (true-run array) or "perm" (permutation array)
+#   $3 — combination-index offset (for arrays chunked under MaxArraySize)
 #
 # DO NOT submit this script directly — use run_cluster.sh instead.
 # =============================================================================
@@ -20,6 +21,7 @@ cd "$SCRIPT_DIR"
 
 CONFIG="${1:-config.yaml}"
 MODE="${2:-true}"   # "true" or "perm"
+OFFSET="${3:-0}"    # combination-index offset for chunked arrays
 
 [[ "$CONFIG" != /* ]] && CONFIG="$SCRIPT_DIR/$CONFIG"
 
@@ -38,9 +40,10 @@ if [ ! -f "$COMBINATIONS_FILE" ]; then
     exit 1
 fi
 
-COMBO=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$COMBINATIONS_FILE")
+COMBO_INDEX=$((SLURM_ARRAY_TASK_ID + OFFSET))
+COMBO=$(sed -n "$((COMBO_INDEX + 1))p" "$COMBINATIONS_FILE")
 if [ -z "$COMBO" ]; then
-    echo "ERROR: No combination at index $SLURM_ARRAY_TASK_ID"
+    echo "ERROR: No combination at index $COMBO_INDEX"
     exit 1
 fi
 
@@ -88,7 +91,7 @@ echo "========================================================"
 echo " MW Classification Pipeline — SLURM Worker"
 echo "========================================================"
 echo " Job ID        : ${SLURM_JOB_ID:-local}"
-echo " Array task    : ${SLURM_ARRAY_TASK_ID:-0}"
+echo " Array task    : ${SLURM_ARRAY_TASK_ID:-0} (offset $OFFSET → combo index $COMBO_INDEX)"
 echo " Mode          : $MODE"
 echo " Combination   : $COMBO"
 echo " Model         : $MODEL_T"

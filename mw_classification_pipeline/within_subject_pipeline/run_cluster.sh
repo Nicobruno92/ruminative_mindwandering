@@ -60,6 +60,7 @@ print(f'n_runs    : {n_runs}',    file=sys.stderr)
 print(f'n_perms   : {n_perms}',   file=sys.stderr)
 print(f'True jobs : {len(true_combos)}', file=sys.stderr)
 print(f'Perm jobs : {len(perm_combos)}', file=sys.stderr)
+print(f'Max array : {slurm.get(\"max_array_size\", 2000)}', file=sys.stderr)
 
 with open('logs/.true_combinations.txt', 'w') as f:
     f.write('\n'.join(true_combos) + '\n')
@@ -72,42 +73,53 @@ print(f'SLURM_CPUS={slurm.get(\"cpus_per_task\", 32)}')
 print(f'SLURM_JOBNAME={slurm.get(\"job_name\", \"mw_ws_clf\")}')
 print(f'N_TRUE={len(true_combos)}')
 print(f'N_PERM={len(perm_combos)}')
+print(f'MAX_ARRAY_SIZE={slurm.get(\"max_array_size\", 2000)}')
 ")" || exit 1
 
 echo ""
 
+# Submit a SLURM array, splitting into multiple sbatch calls if the
+# combination count exceeds the cluster's MaxArraySize limit
+# (check with: scontrol show config | grep MaxArraySize).
+#
+# SLURM requires every array task ID to be < MaxArraySize (the limit applies
+# to the index value itself, not just the array's element count), so each
+# chunk is submitted as "0-(chunk_size-1)" and the combination-index offset
+# is passed to run_cluster_worker.sh as $3.
+submit_chunked_array() {
+    local label="$1"       # sbatch --job-name
+    local mode="$2"        # "true" or "perm" (passed through to worker)
+    local n_total="$3"     # number of combinations
+    local out_suffix="$4"  # "true" or "perm" (log filename suffix)
+
+    local offset=0 chunk_size job_id
+    while [ "$offset" -lt "$n_total" ]; do
+        chunk_size=$((n_total - offset))
+        [ "$chunk_size" -gt "$MAX_ARRAY_SIZE" ] && chunk_size=$MAX_ARRAY_SIZE
+        echo "Submitting ${label} array: offset=${offset} [0-$((chunk_size - 1))] (${chunk_size} jobs)"
+        job_id=$(sbatch \
+            --job-name="${label}" \
+            --time="$SLURM_TIME" \
+            --mem="$SLURM_MEM" \
+            --cpus-per-task="$SLURM_CPUS" \
+            --ntasks=1 \
+            --array="0-$((chunk_size - 1))" \
+            --chdir="$SCRIPT_DIR" \
+            --output="logs/slurm_%A_%a_${out_suffix}.out" \
+            --error="logs/slurm_%A_%a_${out_suffix}.err" \
+            "$SCRIPT_DIR/run_cluster_worker.sh" "$SCRIPT_DIR/$CONFIG" "$mode" "$offset" \
+            | awk '{print $NF}')
+        echo "  → Job ID: $job_id"
+        offset=$((offset + chunk_size))
+    done
+}
+
 if [ "$N_TRUE" -gt 0 ]; then
-    echo "Submitting true-run array: ${SLURM_JOBNAME}_true [0-$((N_TRUE-1))] ($N_TRUE jobs)"
-    TRUE_JOB_ID=$(sbatch \
-        --job-name="${SLURM_JOBNAME}_true" \
-        --time="$SLURM_TIME" \
-        --mem="$SLURM_MEM" \
-        --cpus-per-task="$SLURM_CPUS" \
-        --ntasks=1 \
-        --array="0-$((N_TRUE-1))" \
-        --chdir="$SCRIPT_DIR" \
-        --output="logs/slurm_%A_%a_true.out" \
-        --error="logs/slurm_%A_%a_true.err" \
-        "$SCRIPT_DIR/run_cluster_worker.sh" "$SCRIPT_DIR/$CONFIG" true \
-        | awk '{print $NF}')
-    echo "  → Job ID: $TRUE_JOB_ID"
+    submit_chunked_array "${SLURM_JOBNAME}_true" true "$N_TRUE" true
 fi
 
 if [ "$N_PERM" -gt 0 ]; then
-    echo "Submitting perm array:     ${SLURM_JOBNAME}_perm  [0-$((N_PERM-1))] ($N_PERM jobs)"
-    PERM_JOB_ID=$(sbatch \
-        --job-name="${SLURM_JOBNAME}_perm" \
-        --time="$SLURM_TIME" \
-        --mem="$SLURM_MEM" \
-        --cpus-per-task="$SLURM_CPUS" \
-        --ntasks=1 \
-        --array="0-$((N_PERM-1))" \
-        --chdir="$SCRIPT_DIR" \
-        --output="logs/slurm_%A_%a_perm.out" \
-        --error="logs/slurm_%A_%a_perm.err" \
-        "$SCRIPT_DIR/run_cluster_worker.sh" "$SCRIPT_DIR/$CONFIG" perm \
-        | awk '{print $NF}')
-    echo "  → Job ID: $PERM_JOB_ID"
+    submit_chunked_array "${SLURM_JOBNAME}_perm" perm "$N_PERM" perm
 fi
 
 echo ""

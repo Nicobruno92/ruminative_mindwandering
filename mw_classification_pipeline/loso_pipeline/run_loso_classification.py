@@ -51,6 +51,7 @@ from utils.plotting_utils import (
     generate_all_comparison_plots,
     plot_auc_vs_onoff_dispersion,
     plot_auc_vs_class_imbalance,
+    plot_auc_vs_median_position,
 )
 
 
@@ -590,6 +591,10 @@ def main():
                 label_col=_label_col,
             )
             plot_auc_vs_class_imbalance(
+                _loso_subject_auc_df, df_prepared, _dim_path, _fname_base, "LOSO",
+                label_col=_label_col,
+            )
+            plot_auc_vs_median_position(
                 _loso_subject_auc_df, df_prepared, _dim_path, _fname_base, "LOSO",
                 label_col=_label_col,
             )

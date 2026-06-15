@@ -46,6 +46,9 @@ slurm:
   mem: "16G"
   cpus_per_task: 4
   conda_env: "ML"
+  # Cluster's SLURM MaxArraySize (check: scontrol show config | grep MaxArraySize).
+  # run_cluster.sh splits true/perm arrays into chunks of at most this size.
+  max_array_size: 2000
 
 # =============================================================================
 # EXPERIMENT PARAMS
@@ -278,6 +281,12 @@ run_families:
 data_format: "per_roi"
 # Whether to include pair-wise connectivity features.
 include_connectivity_pairs: false
+
+# Drop feature columns ending with any of these suffixes before classification.
+# Keeps only _trimmean aggregation and removes _std (within-probe variability
+# is redundant given the trimmean already captures the central tendency).
+exclude_column_suffixes:
+  - "_std"
 
 
 
