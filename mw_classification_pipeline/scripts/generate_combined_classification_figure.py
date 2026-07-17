@@ -20,11 +20,13 @@ Usage (from project root):
 # Imports
 # =============================================================================
 
+import asyncio
 import os
 import sys
 import warnings
 import pickle
 import yaml
+import kaleido as _kaleido
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -77,6 +79,14 @@ DIMENSIONS = [
         "label_source": "valence",
     },
     {
+        "key":          "time",
+        "ws_dir":       "time_within_median",
+        "loso_dir":     "time_within_median",
+        "label":        "Time",
+        "color":        DIM_COLORS["time"],   # purple
+        "label_source": "time",
+    },
+    {
         "key":          "selfother",
         "ws_dir":       "selfother_within_median",
         "loso_dir":     "selfother_within_median",
@@ -91,14 +101,6 @@ DIMENSIONS = [
         "label":        "Confidence",
         "color":        DIM_COLORS["confidence"],   # orange
         "label_source": "confidence",
-    },
-    {
-        "key":          "time",
-        "ws_dir":       "time_within_median",
-        "loso_dir":     "time_within_median",
-        "label":        "Time",
-        "color":        DIM_COLORS["time"],   # purple
-        "label_source": "time",
     },
 ]
 
@@ -716,12 +718,7 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
     fig.layout[bar_ax].dtick = 25
     fig.layout[bar_ax].range = [0, 115]
 
-    # --- Save ---
-    stem_path = OUTPUT_DIR / stem
-    # fig.write_html(str(stem_path.with_suffix(".html")))  # disabled: HTML rendering issue
-    fig.write_image(str(stem_path.with_suffix(".png")), width=total_width, height=total_height, scale=2)
-    fig.write_image(str(stem_path.with_suffix(".svg")), width=total_width, height=total_height, scale=2)
-    return True
+    return fig, total_width, total_height
 
 
 # =============================================================================
@@ -1696,6 +1693,190 @@ def plot_dimension_median_summary() -> go.Figure:
 
 
 # =============================================================================
+# Probe-level probability scatter: WS proba vs LOSO proba
+# =============================================================================
+
+
+def _load_probe_predictions_ws(dim_info: dict) -> pd.DataFrame:
+    """
+    Load WS consolidated sample predictions for a dimension.
+
+    Returns DataFrame with columns [subject, task, probe_number, ws_proba, y_true].
+    """
+    base = RESULTS_ROOT / "WithinSubject" / dim_info["ws_dir"] / "all" / "rf"
+    path = base / "rf_loso_consolidated_sample_predictions.csv"
+    if not path.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    return df[["subject", "task", "probe_number", "proba_mean", "y_true_first"]].rename(
+        columns={"proba_mean": "ws_proba", "y_true_first": "y_true"}
+    )
+
+
+def _load_probe_predictions_loso(dim_info: dict) -> pd.DataFrame:
+    """
+    Load and aggregate LOSO sample predictions across all runs for a dimension.
+
+    Returns DataFrame with columns [subject, task, probe_number, loso_proba, y_true].
+    """
+    base = RESULTS_ROOT / "LOSO" / dim_info["loso_dir"] / "all" / "rf"
+    run_csvs = sorted(base.glob("true_runs/run_*/*_sample_predictions.csv"))
+    if not run_csvs:
+        return pd.DataFrame()
+    dfs = [pd.read_csv(p) for p in run_csvs]
+    all_runs = pd.concat(dfs, ignore_index=True)
+    agg = (
+        all_runs.groupby(["subject", "task", "probe_number"])
+        .agg(loso_proba=("y_proba", "mean"), y_true=("y_true", "first"))
+        .reset_index()
+    )
+    return agg
+
+
+def plot_proba_ws_vs_loso_scatter() -> go.Figure:
+    """
+    One panel per dimension: scatter of per-probe predicted probability (WS vs LOSO).
+
+    Each point is one probe. Fill encodes true label per project convention:
+      - filled marker  → y_true = 1 (high end of dimension)
+      - hollow marker  → y_true = 0 (low end of dimension)
+    Diagonal y=x and chance lines at 0.5 drawn for reference.
+    """
+    n_dims = len(DIMENSIONS)
+
+    fig = make_subplots(
+        rows=1, cols=n_dims,
+        shared_xaxes=False,
+        shared_yaxes=False,
+        horizontal_spacing=0.05,
+        subplot_titles=[d["label"] for d in DIMENSIONS],
+    )
+
+    for i, dim_info in enumerate(DIMENSIONS):
+        fig.layout.annotations[i].font.color  = dim_info["color"]
+        fig.layout.annotations[i].font.size   = 14
+        fig.layout.annotations[i].font.family = "Times New Roman"
+
+    proba_min, proba_max = 0.0, 1.0
+
+    for col_idx, dim_info in enumerate(DIMENSIONS):
+        col   = col_idx + 1
+        color = dim_info["color"]
+
+        ws_df   = _load_probe_predictions_ws(dim_info)
+        loso_df = _load_probe_predictions_loso(dim_info)
+
+        if ws_df.empty or loso_df.empty:
+            continue
+
+        merged = ws_df.merge(loso_df, on=["subject", "task", "probe_number"], suffixes=("_ws", "_loso"))
+        merged = merged.dropna(subset=["ws_proba", "loso_proba"])
+        if merged.empty:
+            continue
+
+        y_true = merged["y_true_ws"] if "y_true_ws" in merged.columns else merged["y_true"]
+
+        for label_val, symbol, marker_label in [
+            (1, "circle",      "High (y=1)"),
+            (0, "circle-open", "Low (y=0)"),
+        ]:
+            mask = y_true == label_val
+            show_leg = (col_idx == 0)
+            fig.add_trace(go.Scatter(
+                x=merged.loc[mask, "ws_proba"].values,
+                y=merged.loc[mask, "loso_proba"].values,
+                mode="markers",
+                name=marker_label,
+                marker=dict(
+                    symbol=symbol,
+                    color=color,
+                    size=5,
+                    opacity=0.65,
+                    line=dict(color=color, width=1.2),
+                ),
+                showlegend=show_leg,
+                legendgroup=marker_label,
+            ), row=1, col=col)
+
+        # Diagonal y = x
+        fig.add_shape(
+            type="line",
+            x0=proba_min, x1=proba_max,
+            y0=proba_min, y1=proba_max,
+            xref=f"x{col}" if col > 1 else "x",
+            yref=f"y{col}" if col > 1 else "y",
+            line=dict(color="#888888", dash="dot", width=1.2),
+        )
+
+        # Chance lines at 0.5
+        for x0, x1, y0, y1 in [
+            (0.5, 0.5, proba_min, proba_max),
+            (proba_min, proba_max, 0.5, 0.5),
+        ]:
+            fig.add_shape(
+                type="line", x0=x0, x1=x1, y0=y0, y1=y1,
+                xref=f"x{col}" if col > 1 else "x",
+                yref=f"y{col}" if col > 1 else "y",
+                line=dict(color="#BBBBBB", dash="dash", width=1.0),
+            )
+
+        # Pearson r + n annotation
+        if len(merged) >= 3:
+            r = float(np.corrcoef(merged["ws_proba"].values, merged["loso_proba"].values)[0, 1])
+            n = len(merged)
+            fig.add_annotation(
+                text=f"r = {r:.2f}<br>n = {n}",
+                xref=f"x{col} domain" if col > 1 else "x domain",
+                yref=f"y{col} domain" if col > 1 else "y domain",
+                x=0.05, y=0.97,
+                xanchor="left", yanchor="top",
+                showarrow=False,
+                font=dict(size=10, color=color, family="Times New Roman"),
+            )
+
+        x_ax = f"xaxis{col}" if col > 1 else "xaxis"
+        y_ax = f"yaxis{col}" if col > 1 else "yaxis"
+        for ax_name in (x_ax, y_ax):
+            fig.layout[ax_name].range     = [proba_min, proba_max]
+            fig.layout[ax_name].tickmode  = "array"
+            fig.layout[ax_name].tickvals  = [0.0, 0.25, 0.5, 0.75, 1.0]
+            fig.layout[ax_name].ticktext  = ["0", ".25", ".5", ".75", "1"]
+            fig.layout[ax_name].tickfont  = dict(size=10)
+            fig.layout[ax_name].showgrid  = True
+            fig.layout[ax_name].gridcolor = "#EEEEEE"
+            fig.layout[ax_name].zeroline  = False
+
+        fig.layout[x_ax].title = dict(text="WS predicted probability", font=dict(size=11))
+        if col == 1:
+            fig.layout[y_ax].title = dict(text="LOSO predicted probability", font=dict(size=11))
+
+    fig.update_layout(
+        title=dict(
+            text="Per-probe predicted probability: Within-Subject vs LOSO",
+            font=dict(size=16, family="Times New Roman"),
+            x=0.5,
+        ),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        font=dict(family="Times New Roman"),
+        width=350 * n_dims,
+        height=400,
+        legend=dict(
+            orientation="v",
+            x=1.01,
+            y=0.5,
+            xanchor="left",
+            yanchor="middle",
+            font=dict(size=11, family="Times New Roman"),
+            title=dict(text="True label", font=dict(size=11)),
+        ),
+        margin=dict(t=80, b=60, l=70, r=130),
+    )
+
+    return fig
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -1703,83 +1884,90 @@ def plot_dimension_median_summary() -> go.Figure:
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Accumulate (fig, path, opts) — written in one kaleido/Chrome session at the end
+    # so Chrome launches only once instead of once per write_image() call.
+    pending: list[tuple[go.Figure, Path, dict]] = []
+
+    def _queue(fig: go.Figure, stem: str) -> None:
+        w = int(fig.layout.width  or 800)
+        h = int(fig.layout.height or 600)
+        for fmt in ("png", "svg"):
+            pending.append((fig, OUTPUT_DIR / f"{stem}.{fmt}",
+                            {"format": fmt, "width": w, "height": h, "scale": 2}))
+
     tasks = [
         ("ws",   "Within-Subject", "group_ws",   "individual_ws"),
         ("loso", "LOSO",           "group_loso",  "individual_loso"),
     ]
 
-    def _save_plotly(fig: go.Figure, stem: str) -> None:
-        total_width  = fig.layout.width  or 800
-        total_height = fig.layout.height or 600
-        for fmt in ("png", "svg"):  # "html" disabled: HTML rendering issue
-            p = OUTPUT_DIR / f"{stem}.{fmt}"
-            fig.write_image(str(p), width=total_width, height=total_height, scale=2)
-            print(f"  Saved: {p}")
-        # p = OUTPUT_DIR / f"{stem}.html"
-        # fig.write_html(str(p))
-        # print(f"  Saved: {p}")
-
     for pipeline, title_prefix, group_stem, indiv_stem in tasks:
-        # Group-level (now Plotly)
         print("=" * 60)
         print(f"Group-level: {title_prefix}")
         print("=" * 60)
         fig_g = plot_group_level(pipeline, title_prefix)
-        _save_plotly(fig_g, group_stem)
+        _queue(fig_g, group_stem)
 
-        # Individual-level (Plotly — saves internally)
         print("=" * 60)
         print(f"Individual-level: {title_prefix}")
         print("=" * 60)
-        saved = plot_individual(pipeline, title_prefix, indiv_stem)
-        if saved:
-            for fmt in ("png", "svg"):  # "html" disabled: HTML rendering issue
-                print(f"  Saved: {OUTPUT_DIR / f'{indiv_stem}.{fmt}'}")
+        result = plot_individual(pipeline, title_prefix, indiv_stem)
+        if result is not None:
+            fig_i, w_i, h_i = result
+            for fmt in ("png", "svg"):
+                pending.append((fig_i, OUTPUT_DIR / f"{indiv_stem}.{fmt}",
+                                {"format": fmt, "width": int(w_i), "height": int(h_i), "scale": 2}))
 
-    # Combined group-level comparison (now Plotly)
     print("=" * 60)
     print("Group-level comparison: WS vs LOSO")
     print("=" * 60)
-    fig_c = plot_group_comparison()
-    _save_plotly(fig_c, "group_comparison")
+    _queue(plot_group_comparison(), "group_comparison")
 
-    # LOSO vs WS scatter
     print("=" * 60)
     print("LOSO vs WS scatter")
     print("=" * 60)
-    fig_s = plot_loso_vs_ws_scatter()
-    _save_plotly(fig_s, "scatter_loso_vs_ws")
+    _queue(plot_loso_vs_ws_scatter(), "scatter_loso_vs_ws")
 
-    # Regression overlay
     print("=" * 60)
     print("Regression overlay")
     print("=" * 60)
-    fig_r = plot_regression_overlay()
-    _save_plotly(fig_r, "scatter_regression_overlay")
+    _queue(plot_regression_overlay(), "scatter_regression_overlay")
 
-    # Feature importance scatter: WS vs LOSO (Gini)
     print("=" * 60)
     print("Feature importance scatter — Gini (WS vs LOSO)")
     print("=" * 60)
-    fig_fi = _build_gini_scatter_fig()
-    _save_plotly(fig_fi, "scatter_feature_importance")
+    _queue(_build_gini_scatter_fig(), "scatter_feature_importance")
 
-    # SHAP scatter: WS vs LOSO (absolute + directional)
     print("=" * 60)
     print("SHAP scatter — absolute & directional (WS vs LOSO)")
     print("=" * 60)
     fig_shap_abs, fig_shap_dir = _build_shap_scatter_figs()
-    _save_plotly(fig_shap_abs, "scatter_shap_absolute")
-    _save_plotly(fig_shap_dir, "scatter_shap_directional")
+    _queue(fig_shap_abs, "scatter_shap_absolute")
+    _queue(fig_shap_dir, "scatter_shap_directional")
 
-    # Dimension-level median summary (SD + mean vs LOSO AUC)
+    print("=" * 60)
+    print("Probe-level probability scatter: WS vs LOSO")
+    print("=" * 60)
+    _queue(plot_proba_ws_vs_loso_scatter(), "scatter_proba_ws_vs_loso")
+
     print("=" * 60)
     print("Dimension median summary (SD + mean vs LOSO AUC)")
     print("=" * 60)
     fig_ms = plot_dimension_median_summary()
     if fig_ms.data:
-        _save_plotly(fig_ms, "dimension_median_summary")
+        _queue(fig_ms, "dimension_median_summary")
 
+    # Write all images through ONE kaleido/Chrome instance (one cold-start total)
+    print("=" * 60)
+    print(f"Writing {len(pending)} images (1 kaleido instance)…")
+    print("=" * 60)
+
+    async def _write_all() -> None:
+        async with _kaleido.Kaleido() as k:
+            for fig, path, opts in pending:
+                await k.write_fig(fig, path=path, opts=opts)
+                print(f"  Saved: {path}", flush=True)
+
+    asyncio.run(_write_all())
     print("\nDone. Figures in:", OUTPUT_DIR)
 
 

@@ -54,6 +54,59 @@ Focuses on neural correlates of mind-wandering independent of patient status.
 
 ---
 
+## SART Task Design
+
+**Paradigm**: Sustained Attention Response Task (SART) — go/no-go.
+**Software**: MATLAB + Psychophysics Toolbox 2017b.
+**Setup**: BenQ XL2430t 24" 1080p screen, ~70 cm from participant's eyes, dark grey background.
+
+### Stimuli & Timing
+
+| Element | Duration |
+|---------|----------|
+| Digit display (1–9, white) | 800–1100 ms (variable) |
+| Fixation cross (ISI) | 900–1200 ms (variable) |
+
+- **Go**: press right-index mouse button for any non-target digit.
+- **No-go** (inhibit): withhold response when the target digit appears.
+- **Target mapping**: digit **3** → Sart1 & Sart2 ; digit **5** → Sart3 & Sart4.
+
+### Block & Trial Structure
+
+| Per SART | Value |
+|----------|-------|
+| Total trials | 450 |
+| Blocks | 15 (pseudo-random mix of 20-, 30-, 40-trial blocks) |
+| Probes per SART | 15 (one at block end) |
+| Total probes across 4 SARTs | 60 |
+
+**Target frequency per block** (pseudo-randomised):
+- 20-trial block → 1–2 targets
+- 30-trial block → 2–3 targets
+- 40-trial block → 3–4 targets
+
+**Target constraints**:
+- Minimum spacing: 5 trials between consecutive targets.
+- No target in the **last 8 trials** before a probe (avoids re-engaging attention immediately pre-probe).
+
+### Thought Probes — MDES
+
+Multi-Dimensional Experience Sampling (MDES); continuous horizontal slider (0–100) for each question.
+
+| Question | Poles | Dimension label |
+|----------|-------|-----------------|
+| Q1 | Completely on-task ↔ Not at all on-task | `onoff` |
+| Q2a (order randomised) | Centered on self ↔ Not centered on self | `selfother` |
+| Q2b | Negative ↔ Positive | `valence` |
+| Q2c | Past-oriented ↔ Future-oriented | `time` |
+| Q3 | Confidence in self-assessment (low ↔ high) | `confidence` |
+
+- Q1 presented on screen 1; Q2 (3 sub-questions, random order) on screen 2; Q3 on screen 3.
+- Scale convention: **0 = off-task / negative / past / self-focused / low confidence**, **100 = on-task / positive / future / other-focused / high confidence**.
+- These raw scores map directly onto the event-label scale in the event string (`onoff99`, `valence47`, etc.).
+
+---
+
 ## Critical Rules (Always Apply)
 
 1. **NEVER hardcode paths** → use `utils/bids_compliance.py`

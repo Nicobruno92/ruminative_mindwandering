@@ -31,11 +31,15 @@ CONDA_ENV=$(python3 -c "import yaml; c=yaml.safe_load(open('${PARENT_CONFIG}'));
 N_SIMULATIONS=$(python3 -c "import yaml; c=yaml.safe_load(open('${SIM_CONFIG}')); print(c['simulation']['n_simulations'])")
 ARRAY_END=$((N_SIMULATIONS - 1))
 
-# Read contrasts, families, models from parent config
+# Contrasts to evaluate for Type I error: prefer the simulation config's
+# 'simulation.contrasts' override (a single representative contrast is enough
+# for FPR calibration); fall back to the parent config's run_contrasts (sweep
+# all) when the override is absent/null. Families and models come from parent.
 CONTRASTS=$(python3 -c "
 import yaml
-c = yaml.safe_load(open('${PARENT_CONFIG}'))
-v = c.get('contrast', ['ON_vs_OFF_within_median'])
+sim = yaml.safe_load(open('${SIM_CONFIG}')).get('simulation', {})
+parent = yaml.safe_load(open('${PARENT_CONFIG}'))
+v = sim.get('contrasts') or parent.get('run_contrasts', parent.get('contrast', ['ON_vs_OFF_within_median']))
 print(' '.join(v if isinstance(v, list) else [v]))
 ")
 

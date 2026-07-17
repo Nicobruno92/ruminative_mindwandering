@@ -4,17 +4,18 @@ LMM Analysis: Probe Dimensions → Objective Behavioral Markers
 TWO ANALYSES:
 
 1. ADDITIVE MODEL (one per marker):
-    marker ~ onoff + valence + selfother + time + confidence + time_on_task
-             + (1|subject)
-   Tests the independent contribution of each probe dimension.
+    marker ~ onoff + valence + valence_sq + selfother + time + time_sq
+             + confidence + time_on_task + (1|subject)
+   Tests the independent contribution of each probe dimension, including
+   curvature (quadratic) terms for valence and time.
 
 2. MODERATION ANALYSIS (one per marker × moderator):
     marker ~ onoff * moderator + (1|subject)
-   For each non-onoff probe dimension, tests whether it moderates the effect
-   of onoff on the objective marker. The interaction term onoff:moderator
-   is the key test. FDR-BH corrected across all marker × moderator tests.
-   Visualised as an interaction plot: onoff effect at Low vs High moderator
-   (split at within-subject median).
+   For each non-onoff probe dimension (incl. valence_sq, time_sq), tests
+   whether it moderates the effect of onoff on the objective marker. The
+   interaction term onoff:moderator is the key test. FDR-BH corrected across
+   all marker × moderator tests. Visualised as an interaction plot: onoff
+   effect at Low vs High moderator (split at within-subject median).
 
 Note: This analysis intentionally does not discriminate between Controls and
 Risk of Depression (RoD) groups. For the purposes of this pipeline, all subjects
@@ -25,38 +26,41 @@ Preprocessing mirrors objective_markers_analysis.py:
   - Derive time_on_task = probe_number + 15 * (sart_number - 1)
   - Within-subject z-scoring of objective markers (APPLY_WITHIN_SUBJECT_Z)
 
+QUADRATIC TERMS (time_sq, valence_sq) — global orthogonalization:
+  `time_sq = (time-50)^2/50` and `valence_sq = (valence-50)^2/50` (see
+  compute_time_squared / compute_valence_squared) test whether `time` and
+  `valence` have curvature (U-shaped) relationships with the markers, beyond
+  their linear effects. Each is then GLOBALLY ORTHOGONALIZED against its own
+  linear term (orthogonalize_quadratic): a single pooled OLS fit
+  `quad ~ linear` is subtracted off, leaving only the curvature component —
+  the same parametrization as R's `poly(x, 2)`. By the invariance of the
+  highest-order polynomial term, this does NOT change the quadratic term's
+  estimate/SE/t/p; it only removes its collinearity with the linear term
+  (cleaning up the linear term's VIF/SE). The (intercept, slope) of each
+  orthogonalization is saved to `<dataset>/quadratic_orthogonalization.csv`
+  for transparency.
+
+`present` REMOVED: a previous predictor `present = 50 - |time-50|` aimed to
+capture "distance from now". It is a near-perfect monotonic function of
+`|time-50|` (r≈-0.97 with `time_sq`) — the same information as `time_sq`,
+just rescaled/flipped — so it cannot coexist with `time_sq` in one model
+(severe collinearity). `time_sq` (orthogonalized) already captures this
+construct, plus asymmetry, within the single unified model below, so
+`present` is dropped entirely.
+
 Outputs (saved under OUTPUT_BASE_DIR/<dataset>/):
-  present/<marker>_lmm_results.csv       — additive model results + FDR
-  present/<marker>_combined_forest.png    — additive + moderation forest plot
-  present/<marker>_scatter_grid.{html,png,pdf} — scatter grid per predictor
-  present/<marker>_combined_panel.{html,png,pdf} — scatter grid + forest, one figure
-  present/moderation_summary.csv          — interaction term stats, FDR-corrected
-  present/moderation_forest_<marker>.png  — forest of interaction coefficients
-  present/interaction_<marker>_<mod>.png  — interaction plot per significant pair
-  present_vs_time_sq_comparison.csv       — cross-model comparison (dataset root)
+  full_model/<marker>_lmm_results.csv       — additive model results + FDR
+  full_model/<marker>_combined_forest.png    — additive + moderation forest plot
+  full_model/<marker>_scatter_grid.{html,png,pdf} — scatter grid per predictor
+  full_model/<marker>_combined_panel.{html,png,pdf} — scatter grid + forest, one figure
+  full_model/moderation_summary.csv          — interaction term stats, FDR-corrected
+  full_model/moderation_forest_<marker>.png  — forest of interaction coefficients
+  full_model/interaction_<marker>_<mod>.png  — interaction plot per significant pair
+  quadratic_orthogonalization.csv            — (intercept, slope) for time_sq/valence_sq (dataset root)
 
-SQUARE-EFFECTS SENSITIVITY MODELS (time_sq, valence_sq):
-  `time` and `valence` are the two probe dimensions hypothesised to have
-  quadratic (curvature) relationships with the markers. Each gets its own
-  additive model with a centred-squared term added/swapped in (see
-  compute_time_squared / compute_valence_squared), with the same full plot
-  suite as present/ — scatter grid, additive-effects forest, onoff-moderation
-  forest, and combined panel — saved under
-  OUTPUT_BASE_DIR/<dataset>/sensitivity_square_effects/{time_sq,valence_sq}/.
-
-  - time_sq: `present = 50 - |time-50|` and `time_sq = (time-50)^2/50` are
-    both functions of |time-50| and become severely collinear once `time` is
-    in the model, so `time_sq` SWAPS for `present` in a separate model
-    (SENSITIVITY_PREDICTORS_TIME_SQ / FORMULA_TEMPLATE_TIME_SQ), with its
-    moderators mirroring the same swap (SENSITIVITY_MODERATORS_TIME_SQ).
-  - valence_sq: `valence_sq = (valence-50)^2/50` has no `present`-like
-    collinear sibling, so it is ADDED to the primary predictor/moderator sets
-    (SENSITIVITY_PREDICTORS_VALENCE_SQ / FORMULA_TEMPLATE_VALENCE_SQ /
-    SENSITIVITY_MODERATORS_VALENCE_SQ).
-
-  PREDICTOR_SETS ties each named predictor set (predictors, formula, output
-  subdir, moderators) together; `plots_only(predictor_set_names=...)` /
-  `--predictor-set` lets any set's plots be regenerated independently.
+PREDICTOR_SETS ties the named predictor set (predictors, formula, output
+subdir, moderators) together; `plots_only(predictor_set_names=...)` /
+`--predictor-set` lets its plots be regenerated independently of refitting.
 
 Author: Nicolas Bruno
 """
@@ -79,7 +83,7 @@ from statsmodels.stats.multitest import multipletests
 
 # Input data paths (same sources as objective_markers_analysis.py)
 OBJECTIVE_MARKERS_PATHS: dict[str, str] = {
-    "comunes": "results/Behavior/objective_markers/objective_markers_per_probe.csv",
+    "full_segment": "results/Behavior/objective_markers/objective_markers_per_probe.csv",
     "n10": "results/Behavior/objective_markers/objective_markers_per_probe_n10.csv",
 }
 PROBE_DATA_PATH = (
@@ -108,63 +112,34 @@ MARKER_LABELS: dict[str, str] = {
 }
 
 # Probe-level predictors (fixed effects, continuous, 0-100 scale)
-PREDICTORS: list[str] = ["onoff", "valence", "selfother", "time", "present", "confidence", "time_on_task"]
+PREDICTORS: list[str] = [
+    "onoff", "valence", "valence_sq", "selfother", "time", "time_sq",
+    "confidence", "time_on_task",
+]
 
 PREDICTOR_LABELS: dict[str, str] = {
     "onoff": "On/Off Task",
     "valence": "Valence",
+    "valence_sq": "Valence² (curvature)",
     "selfother": "Self/Other",
     "time": "Time (probe dim.)",
-    "present": "Present",
+    "time_sq": "Time² (curvature)",
     "confidence": "Confidence",
     "time_on_task": "Time on Task",
-    "time_sq": "Time² (curvature)",        # only used by the time_sq sensitivity model below
-    "valence_sq": "Valence² (curvature)",  # only used by the valence_sq sensitivity model below
 }
 
 # LMM formula template — marker name is substituted at runtime
 FORMULA_TEMPLATE = (
-    "{marker} ~ onoff + valence + selfother + time + present + confidence"
-    " + time_on_task + (1|subject)"
+    "{marker} ~ onoff + valence + valence_sq + selfother + time + time_sq"
+    " + confidence + time_on_task + (1|subject)"
 )
-
-# --- Square-effects sensitivity models: time_sq and valence_sq --------------
-# `present = 50 - |time-50|` and `time_sq = (time-50)^2/50` (see
-# compute_present_dimension / compute_time_squared) are both functions of
-# |time-50| and become severely collinear (r=-0.97, VIF~16) once `time` is in
-# the model, masking each other's effects on omission_rate. Rather than
-# combine them into one model, fit this as a SEPARATE model that swaps
-# `present` for `time_sq`, so the present/not-present framing of the primary
-# model can be compared against a standard quadratic-in-time parametrization.
-SENSITIVITY_PREDICTORS_TIME_SQ: list[str] = [
-    "onoff", "valence", "selfother", "time", "time_sq", "confidence", "time_on_task",
-]
-FORMULA_TEMPLATE_TIME_SQ = (
-    "{marker} ~ onoff + valence + selfother + time + time_sq + confidence"
-    " + time_on_task + (1|subject)"
-)
-# Moderators for the time_sq model: same present -> time_sq swap as the
-# predictors above, mirroring MODERATORS below.
-SENSITIVITY_MODERATORS_TIME_SQ: list[str] = [
-    "valence", "selfother", "time", "time_sq", "confidence", "time_on_task",
-]
 
 # Potential moderators of the onoff effect (all probe dimensions except onoff)
 # Each will be tested in: marker ~ onoff * moderator + (1|subject)
-MODERATORS: list[str] = ["valence", "selfother", "time", "present", "confidence", "time_on_task"]
-
-# `valence_sq = (valence-50)^2/50` (see compute_valence_squared) tests whether
-# `valence` has a curvature (U-shaped) relationship with the markers, in
-# addition to its linear effect — the other probe dimension (besides `time`)
-# hypothesised to have quadratic effects. Unlike time_sq, valence has no
-# `present`-like collinear sibling, so valence_sq is ADDED to the primary
-# predictor/moderator sets rather than swapped in.
-SENSITIVITY_PREDICTORS_VALENCE_SQ: list[str] = PREDICTORS + ["valence_sq"]
-FORMULA_TEMPLATE_VALENCE_SQ = (
-    "{marker} ~ onoff + valence + selfother + time + present + confidence"
-    " + time_on_task + valence_sq + (1|subject)"
-)
-SENSITIVITY_MODERATORS_VALENCE_SQ: list[str] = MODERATORS + ["valence_sq"]
+MODERATORS: list[str] = [
+    "valence", "valence_sq", "selfother", "time", "time_sq", "confidence",
+    "time_on_task",
+]
 
 # Optimisation settings (mirrors Statistics/config.yaml)
 LMM_METHOD: str = "powell"  # gradient-free, robust
@@ -180,6 +155,12 @@ MCC_ALPHA: float = 0.05
 # Apply within-subject z-scoring to objective markers before modelling.
 # Mirrors the APPLY_WITHIN_SUBJECT_Z flag in objective_markers_analysis.py.
 APPLY_WITHIN_SUBJECT_Z: bool = False
+
+# Z-score all predictors (mean=0, SD=1) before LMM fitting so that β coefficients
+# are in SD units and forest-plot CIs are directly comparable across linear and
+# quadratic terms. The scatter visualisation always uses the original (un-z-scored)
+# data; marginal lines are denormalised via predictor_sds before plotting.
+STANDARDIZE_PREDICTORS: bool = True
 
 # Figure settings
 FIG_DPI: int = 300
@@ -201,52 +182,30 @@ PALETTE_MOD_HIGH = "#F24236"  # red — high moderator
 # figures of the paper. `time_on_task` is a covariate, not a probe dimension
 # → neutral grey.
 PREDICTOR_COLORS: dict[str, str] = {
-    "onoff":        PALETTE["dimensions"]["onoff"],       # red    — On/Off-Task
-    "valence":      PALETTE["dimensions"]["valence"],     # blue   — Valence
-    "selfother":    PALETTE["dimensions"]["selfother"],   # green  — Self/Other
-    "confidence":   PALETTE["dimensions"]["confidence"],  # orange — Confidence
-    "time":         PALETTE["dimensions"]["time"],        # purple — Time (probe dim.)
-    "present":      PALETTE["dimensions"]["present"],     # brown  — Present
-    "time_sq":      PALETTE["dimensions"]["time"],        # purple — Time² (same dimension as `time`)
-    "valence_sq":   PALETTE["dimensions"]["valence"],     # blue   — Valence² (same dimension as `valence`)
-    "time_on_task": PALETTE["neutral"]["covariate"],      # grey   — covariate
+    "onoff":        PALETTE["dimensions"]["onoff"],       # red          — On/Off-Task
+    "valence":      PALETTE["dimensions"]["valence"],     # blue         — Valence
+    "valence_sq":   PALETTE["quadratic"]["valence_sq"],   # light blue   — Valence² tint
+    "selfother":    PALETTE["dimensions"]["selfother"],   # green        — Self/Other
+    "time":         PALETTE["dimensions"]["time"],        # purple       — Time (probe dim.)
+    "time_sq":      PALETTE["quadratic"]["time_sq"],      # light purple — Time² tint
+    "confidence":   PALETTE["dimensions"]["confidence"],  # orange       — Confidence
+    "time_on_task": PALETTE["neutral"]["covariate"],      # grey         — covariate
 }
 DEFAULT_PREDICTOR_COLOR: str = PALETTE["neutral"]["covariate"]
 
 # --- Predictor sets ----------------------------------------------------------
-# Named, swappable predictor sets for the full plot suite (scatter grid +
-# additive forest + onoff-moderation forest + combined panel). "present" is
-# the primary model used in the paper; "time_sq" and "valence_sq" are the
-# square-effects sensitivity models (see SENSITIVITY_PREDICTORS_TIME_SQ /
-# SENSITIVITY_PREDICTORS_VALENCE_SQ above) — the two probe dimensions
-# hypothesised to have quadratic relationships with the markers. All three are
-# fit in run_pipeline_for_dataset and can be independently regenerated via
-# `plots_only(predictor_set_names=...)` / `--predictor-set` on the CLI. Each
-# set gets its own output subdirectory: <dataset>/present/,
-# <dataset>/sensitivity_square_effects/time_sq/ and
-# <dataset>/sensitivity_square_effects/valence_sq/. `moderators` is the list
-# passed to `run_moderation_analysis` for that set's onoff-moderation forest
-# panel.
+# Single unified model: every probe dimension (incl. the orthogonalized
+# quadratic terms time_sq / valence_sq, see orthogonalize_quadratic) in one
+# additive model + one onoff-moderation forest. Kept as a dict (rather than a
+# bare formula) so the full plot suite (scatter grid + additive forest +
+# onoff-moderation forest + combined panel) and `plots_only(...)` /
+# `--predictor-set` can stay generic across `_fit_predictor_set`.
 PREDICTOR_SETS: dict[str, dict] = {
-    "present": {
+    "full_model": {
         "predictors": PREDICTORS,
         "formula_template": FORMULA_TEMPLATE,
-        "output_subdir": "present",
+        "output_subdir": "full_model",
         "moderators": MODERATORS,
-        "with_moderation": True,
-    },
-    "time_sq": {
-        "predictors": SENSITIVITY_PREDICTORS_TIME_SQ,
-        "formula_template": FORMULA_TEMPLATE_TIME_SQ,
-        "output_subdir": "sensitivity_square_effects/time_sq",
-        "moderators": SENSITIVITY_MODERATORS_TIME_SQ,
-        "with_moderation": True,
-    },
-    "valence_sq": {
-        "predictors": SENSITIVITY_PREDICTORS_VALENCE_SQ,
-        "formula_template": FORMULA_TEMPLATE_VALENCE_SQ,
-        "output_subdir": "sensitivity_square_effects/valence_sq",
-        "moderators": SENSITIVITY_MODERATORS_VALENCE_SQ,
         "with_moderation": True,
     },
 }
@@ -309,40 +268,17 @@ def add_time_on_task(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def compute_present_dimension(df: pd.DataFrame) -> pd.DataFrame:
-    """Derive the `present` probe dimension from `time`.
-
-    The time dimension runs 0 (past) → 50 (present) → 100 (future), so the
-    distance from the present |time - 50| ranges 0-50. `present = 50 - |time
-    - 50|` gives 50 when time=50 (fully present-focused) and 0 when time=0 or
-    time=100 (fully past/future-focused).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Dataframe containing a `time` column.
-
-    Returns
-    -------
-    pd.DataFrame
-        Input dataframe with `present` column added (0-50 scale).
-    """
-    df["present"] = 50 - (df["time"] - 50).abs()
-    return df
-
-
 def compute_time_squared(df: pd.DataFrame) -> pd.DataFrame:
     """Derive a quadratic `time_sq` term from `time`.
 
-    `present = 50 - |time - 50|` folds past and future together, which
-    averages out an asymmetric U-shape (e.g. errors are higher for deep-past
-    than deep-future probes). Adding `time_sq = (time - 50)^2 / 50` alongside
-    the linear `time` term lets the additive model fit a parabola whose
-    vertex can fall anywhere in [0, 100] (vertex at `time = 50 -
-    beta_time / (2 * beta_time_sq)`), capturing that asymmetry while `present`
-    retains its present/not-present interpretation. Centring on 50 before
-    squaring reduces collinearity with the linear `time` term. The `/ 50`
-    scaling puts `time_sq` on the same 0-50 range as `present`.
+    `time_sq = (time - 50)^2 / 50` lets the additive model fit a parabola
+    whose vertex can fall anywhere in [0, 100] (vertex at
+    `time = 50 - beta_time / (2 * beta_time_sq)`), capturing asymmetric
+    U-shapes that the linear `time` term alone cannot. Centring on 50 before
+    squaring reduces collinearity with the linear `time` term; the `/ 50`
+    scaling puts `time_sq` on the same 0-50 range as `valence_sq`. Call
+    `orthogonalize_quadratic(df, "time_sq", "time")` afterwards to fully
+    remove the residual correlation (global poly-2 parametrization).
 
     Parameters
     ----------
@@ -362,14 +298,12 @@ def compute_valence_squared(df: pd.DataFrame) -> pd.DataFrame:
     """Derive a quadratic `valence_sq` term from `valence`.
 
     `valence_sq = (valence - 50)^2 / 50` tests whether `valence` has a
-    curvature (U-shaped) relationship with the markers, in addition to its
-    linear effect — `valence` is the other probe dimension (besides `time`)
-    hypothesised to have quadratic effects. Centring on 50 before squaring
-    follows the same "neutral midpoint" convention as `time_sq`
-    (compute_time_squared), even though `valence` has no `present`-like
-    collinear sibling to motivate it on collinearity grounds alone — kept for
-    consistency/interpretability across the two square-effects models. The
-    `/ 50` scaling puts `valence_sq` on the same 0-50 range as `time_sq`.
+    curvature (U-shaped) relationship with the markers beyond its linear
+    effect. Centring on 50 follows the same "neutral midpoint" convention as
+    `time_sq` (compute_time_squared). The `/ 50` scaling puts `valence_sq` on
+    the same 0-50 range as `time_sq`. Call
+    `orthogonalize_quadratic(df, "valence_sq", "valence")` afterwards to fully
+    remove the residual correlation (global poly-2 parametrization).
 
     Parameters
     ----------
@@ -383,6 +317,80 @@ def compute_valence_squared(df: pd.DataFrame) -> pd.DataFrame:
     """
     df["valence_sq"] = (df["valence"] - 50) ** 2 / 50
     return df
+
+
+def orthogonalize_quadratic(
+    df: pd.DataFrame, quad_col: str, linear_col: str
+) -> tuple[pd.DataFrame, float, float]:
+    """Globally orthogonalize a quadratic term against its linear counterpart.
+
+    Fits a pooled OLS regression `quad_col ~ linear_col` across all rows and
+    subtracts the fitted values, leaving only the curvature component. This is
+    the poly(x, 2) parametrization used in R and the EEG/CBPT pipeline, and
+    ensures that the quadratic term's coefficient is unconfounded by the linear
+    term's range (lower VIF). By the invariance of the highest-order polynomial
+    term under invertible linear reparametrizations of the fixed-effects design
+    matrix, the quadratic term's LMM estimate, SE, t, and p are unchanged —
+    only the linear term's SE is affected (reduced collinearity).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe containing `quad_col` and `linear_col`.
+    quad_col : str
+        Name of the quadratic column to orthogonalize in-place (e.g.
+        ``"time_sq"`` or ``"valence_sq"``).
+    linear_col : str
+        Name of the linear column to regress out (e.g. ``"time"`` or
+        ``"valence"``).
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Input dataframe with `quad_col` replaced by the residualised version.
+    intercept : float
+        OLS intercept of `quad_col ~ linear_col` (saved for transparency).
+    slope : float
+        OLS slope of `quad_col ~ linear_col` (saved for transparency).
+    """
+    slope, intercept, *_ = stats.linregress(df[linear_col], df[quad_col])
+    df[quad_col] = df[quad_col] - (intercept + slope * df[linear_col])
+    return df, float(intercept), float(slope)
+
+
+def standardize_predictors(
+    df: pd.DataFrame, predictors: list[str]
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Z-score predictor columns in-place (pooled across all rows: mean=0, SD=1).
+
+    Called on a *copy* of the dataframe so the original remains in original units
+    for scatter visualisation. The returned SDs allow the caller to denormalise
+    LMM coefficients for marginal-line computation on the original-scale data.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe with predictor columns to standardise.
+    predictors : list[str]
+        Column names to z-score.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Same dataframe with predictor columns replaced by their z-scores.
+    predictor_sds : dict[str, float]
+        Mapping ``{predictor: pooled_sd}`` — used for β denormalisation.
+    """
+    predictor_sds: dict[str, float] = {}
+    for col in predictors:
+        if col not in df.columns:
+            continue
+        m = float(df[col].mean())
+        s = float(df[col].std(ddof=0))
+        predictor_sds[col] = s
+        if s > 0:
+            df[col] = (df[col] - m) / s
+    return df, predictor_sds
 
 
 def apply_within_subject_z_scoring(
@@ -472,9 +480,7 @@ def fit_lmm(
         Maximum number of iterations.
     predictors : list[str] | None
         Predictor names used to select model columns and FDR-correct across.
-        Defaults to the module-level `PREDICTORS` (primary model). Pass
-        `SENSITIVITY_PREDICTORS_TIME_SQ` / `SENSITIVITY_PREDICTORS_VALENCE_SQ`
-        for the square-effects sensitivity models.
+        Defaults to the module-level `PREDICTORS`.
 
     Returns
     -------
@@ -545,6 +551,74 @@ def fit_lmm(
 # =============================================================================
 
 
+def _draw_forest_panel(
+    ax: "plt.Axes",
+    plot_df: pd.DataFrame,
+    labels: list[str],
+    colors: list[str],
+    sig_flags: list[bool],
+    ci_lower_col: str,
+    ci_upper_col: str,
+    xlabel: str,
+    title: str,
+    yticks_right: bool = False,
+) -> None:
+    """Draw one forest panel onto *ax*.
+
+    Shared by ``plot_combined_forest`` (standalone) and
+    ``plot_combined_panel`` (embedded). Significance encoded by fill
+    (filled = significant, hollow = not) and line style (solid / dashed).
+
+    Parameters
+    ----------
+    ax : plt.Axes
+    plot_df : pd.DataFrame
+        One row per predictor/moderator with 'estimate', 't_value', 'p_fdr',
+        'significant_fdr', and the CI columns named by ``ci_lower_col`` /
+        ``ci_upper_col``.
+    labels, colors, sig_flags : pre-computed lists aligned to ``plot_df``.
+    yticks_right : bool
+        If True, place y-tick labels on the right side of the axis (used when
+        the panel is in the rightmost column of the combined figure).
+    """
+    dash_style = (0, (4, 2))
+    for i, (_, row) in enumerate(plot_df.iterrows()):
+        c = colors[i]
+        sig = sig_flags[i]
+        lo, hi, est = float(row[ci_lower_col]), float(row[ci_upper_col]), float(row["estimate"])
+        ax.plot([lo, hi], [i, i], color=c, linewidth=2.5,
+                linestyle="-" if sig else dash_style, alpha=0.9, zorder=2)
+        for x_cap in (lo, hi):
+            ax.plot([x_cap, x_cap], [i - 0.12, i + 0.12],
+                    color=c, linewidth=2.0, alpha=0.9, zorder=2)
+        ax.plot(est, i, marker="o", markersize=10,
+                markerfacecolor=c if sig else "white",
+                markeredgecolor=c, markeredgewidth=2.2, zorder=3)
+        p_fdr = row.get("p_fdr", np.nan)
+        p_label = f"p={p_fdr:.3f}" if pd.notna(p_fdr) else ""
+        star = "✱ " if sig else ""
+        ax.text(
+            hi, i + 0.22,
+            f"{star}t={row['t_value']:.2f}  {p_label}",
+            va="bottom", fontsize=8.5, color=c,
+            fontweight="bold" if sig else "normal",
+        )
+    ax.axvline(0, color="black", linewidth=1.2, linestyle="--", alpha=0.7)
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=11)
+    for tick, c in zip(ax.get_yticklabels(), colors):
+        tick.set_color(c)
+        tick.set_fontweight("bold")
+    if yticks_right:
+        ax.yaxis.tick_right()
+        ax.yaxis.set_label_position("right")
+    ax.set_xlabel(xlabel, fontsize=11, fontweight="bold")
+    ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
+    ax.grid(True, axis="x", alpha=0.3)
+    ax.set_ylim(-0.6, len(labels) - 0.4)
+    ax.spines["top"].set_visible(False)
+
+
 def plot_combined_forest(
     additive_df: pd.DataFrame,
     moderation_df: pd.DataFrame | None,
@@ -553,6 +627,7 @@ def plot_combined_forest(
     figsize_override: tuple[float, float] | None = None,
     out_suffix: str = "",
     predictors: list[str] | None = None,
+    standardized: bool = False,
 ) -> Path:
     """Forest plot of additive effects, optionally paired with moderation terms.
 
@@ -581,9 +656,7 @@ def plot_combined_forest(
         Output directory.
     predictors : list[str] | None
         Predictor set shown in the additive panel. Defaults to the
-        module-level `PREDICTORS`. Pass `SENSITIVITY_PREDICTORS_TIME_SQ` /
-        `SENSITIVITY_PREDICTORS_VALENCE_SQ` for the square-effects sensitivity
-        models.
+        module-level `PREDICTORS`.
     """
     from matplotlib.lines import Line2D
 
@@ -612,7 +685,6 @@ def plot_combined_forest(
     else:
         mod_plot = None
 
-    # Dashed style used for non-significant CI lines
     dash_style = (0, (4, 2))
 
     # --- Build figure (one or two panels, shared colour legend) ---
@@ -635,53 +707,14 @@ def plot_combined_forest(
             constrained_layout=True,
         )
 
-    # Helper to draw one panel
-    def _draw_panel(ax, plot_df, labels, colors, sig_flags, ci_lower_col,
-                    ci_upper_col, xlabel, title):
-        for i, (_, row) in enumerate(plot_df.iterrows()):
-            c = colors[i]
-            sig = sig_flags[i]
-            lo, hi, est = row[ci_lower_col], row[ci_upper_col], row["estimate"]
-            # CI whisker: solid (significant) vs dashed (not significant)
-            ax.plot([lo, hi], [i, i], color=c, linewidth=2.5,
-                    linestyle="-" if sig else dash_style, alpha=0.9, zorder=2)
-            # CI caps
-            for x_cap in (lo, hi):
-                ax.plot([x_cap, x_cap], [i - 0.12, i + 0.12],
-                        color=c, linewidth=2.0, alpha=0.9, zorder=2)
-            # Point: filled (significant) vs hollow (not significant)
-            ax.plot(est, i, marker="o", markersize=10,
-                    markerfacecolor=c if sig else "white",
-                    markeredgecolor=c, markeredgewidth=2.2, zorder=3)
-            p_fdr = row.get("p_fdr", np.nan)
-            p_label = f"p={p_fdr:.3f}" if pd.notna(p_fdr) else ""
-            star = "✱ " if sig else ""
-            ax.text(
-                hi, i + 0.22,
-                f"{star}t={row['t_value']:.2f}  {p_label}",
-                va="bottom", fontsize=8.5, color=c,
-                fontweight="bold" if sig else "normal",
-            )
-        ax.axvline(0, color="black", linewidth=1.2, linestyle="--", alpha=0.7)
-        ax.set_yticks(range(len(labels)))
-        ax.set_yticklabels(labels, fontsize=11)
-        # Colour each y-tick label by its dimension to reinforce the legend
-        for tick, c in zip(ax.get_yticklabels(), colors):
-            tick.set_color(c)
-            tick.set_fontweight("bold")
-        ax.set_xlabel(xlabel, fontsize=11, fontweight="bold")
-        ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
-        ax.grid(True, axis="x", alpha=0.3)
-        ax.set_ylim(-0.6, len(labels) - 0.4)
-
-    _draw_panel(
+    _draw_forest_panel(
         ax_add, add_plot, add_labels, add_colors, add_sig,
         ci_lower_col="conf_lower", ci_upper_col="conf_upper",
-        xlabel="Coefficient (95% CI)",
+        xlabel="β (SD units, 95% CI)" if standardized else "Coefficient (95% CI)",
         title="Additive Effects",
     )
     if mod_plot is not None:
-        _draw_panel(
+        _draw_forest_panel(
             ax_mod, mod_plot, mod_labels, mod_colors, mod_sig,
             ci_lower_col="ci_lower", ci_upper_col="ci_upper",
             xlabel="onoff × moderator coefficient (95% CI)",
@@ -793,6 +826,7 @@ def marginal_lmm_line(
     results_df: pd.DataFrame, data: pd.DataFrame, predictor: str,
     x_range: np.ndarray,
     predictors: list[str] | None = None,
+    predictor_sds: dict[str, float] | None = None,
 ) -> np.ndarray:
     """LMM marginal prediction line for one predictor, others held at their mean.
 
@@ -800,9 +834,17 @@ def marginal_lmm_line(
     ``intercept + slope * x`` is wrong for a single-predictor panel because the
     multivariate intercept is the prediction when *every* predictor is 0, so the
     line is vertically offset by the (ignored) contribution of the other
-    predictors. Here we hold the other predictors at their sample means:
+    predictors.
 
+    **Non-standardised model** (``predictor_sds`` is None / empty):
         ŷ(x) = intercept + Σ_{k≠p} β_k · mean(x_k) + β_p · x
+
+    **Standardised model** (``predictor_sds`` provided, ``data`` in original
+    units):
+        The standardised model intercept β₀_std = β₀_orig + Σ_k β_k_orig · m_k,
+        so holding all other predictors at their sample means collapses to:
+            ŷ(x) = β₀_std + (β_p_std / SD_p) · (x − m_p)
+        eliminating the explicit "others at mean" sum.
 
     Parameters
     ----------
@@ -810,16 +852,19 @@ def marginal_lmm_line(
         `fit_lmm` output (must contain 'predictor' and 'estimate', incl. the
         'Intercept' row).
     data : pd.DataFrame
-        Data used for the fit, to compute predictor means.
+        *Original*-scale data (used for predictor means and OLS re-fit for _sq
+        distance conversion); NOT the z-scored fitting copy.
     predictor : str
         The predictor on the x axis of this panel.
     x_range : np.ndarray
-        X values at which to evaluate the line.
+        X values at which to evaluate the line. For ``_sq`` predictors this is
+        in ``|base − 50|`` space (distance from neutral, 0–50).
     predictors : list[str] | None
-        Predictor set this model was fit with (used to sum the "others at
-        their mean" offset). Defaults to the module-level `PREDICTORS`. Pass
-        `SENSITIVITY_PREDICTORS_TIME_SQ` / `SENSITIVITY_PREDICTORS_VALENCE_SQ`
-        for the square-effects sensitivity models.
+        Predictor set this model was fit with. Defaults to `PREDICTORS`.
+    predictor_sds : dict[str, float] | None
+        Pooled SDs used for standardisation (from `standardize_predictors`).
+        When provided, coefficients are treated as standardised and are
+        denormalised before computing the marginal line.
 
     Returns
     -------
@@ -828,8 +873,53 @@ def marginal_lmm_line(
     """
     if predictors is None:
         predictors = PREDICTORS
+    if predictor_sds is None:
+        predictor_sds = {}
+
     coef = dict(zip(results_df["predictor"], results_df["estimate"]))
     intercept = coef.get("Intercept", 0.0)
+
+    if predictor_sds:
+        # --- Standardised model: β in SD units; data in original units ----------
+        def β_orig(k: str) -> float:
+            sd = predictor_sds.get(k, 1.0)
+            return coef.get(k, 0.0) / (sd if sd > 0 else 1.0)
+
+        if predictor.endswith("_sq"):
+            # x_range is |base − 50| (original units, 0–50).
+            # E[quad_orth | dist=d] = d²/50 − (a + b·50)
+            base_pred = predictor[:-3]
+            orig_quad = (data[base_pred] - 50.0) ** 2 / 50.0
+            ols_slope, ols_intercept, *_ = stats.linregress(data[base_pred], orig_quad)
+            quad_orth_at_d = x_range ** 2 / 50.0 - (ols_intercept + ols_slope * 50.0)
+            m_base = float(data[base_pred].mean())
+            return (
+                intercept
+                + β_orig(base_pred) * (50.0 - m_base)
+                + β_orig(predictor) * quad_orth_at_d
+            )
+
+        m_p = float(data[predictor].mean())
+        return intercept + β_orig(predictor) * (x_range - m_p)
+
+    # --- Non-standardised model: original formula with explicit others_offset ---
+    if predictor.endswith("_sq"):
+        # x_range is in |base_pred − 50| space (distance from neutral, 0–50).
+        base_pred = predictor[:-3]
+        orig_quad = (data[base_pred] - 50.0) ** 2 / 50.0
+        ols_slope, ols_intercept, *_ = stats.linregress(data[base_pred], orig_quad)
+        quad_orth_at_d = x_range ** 2 / 50.0 - (ols_intercept + ols_slope * 50.0)
+        others_offset = sum(
+            coef.get(k, 0.0) * float(data[k].mean())
+            for k in predictors
+            if k not in (predictor, base_pred) and k in data.columns
+        )
+        return (
+            intercept + others_offset
+            + coef.get(base_pred, 0.0) * 50.0
+            + coef.get(predictor, 0.0) * quad_orth_at_d
+        )
+
     slope_p = coef.get(predictor, 0.0)
     others_offset = sum(
         coef.get(k, 0.0) * float(data[k].mean())
@@ -844,6 +934,7 @@ def plot_scatter_grid(
     show_stats: bool = True,
     out_suffix: str = "",
     predictors: list[str] | None = None,
+    predictor_sds: dict[str, float] | None = None,
 ) -> Path:
     """Plotly grid of within-subject binscatter panels: one per predictor.
 
@@ -875,9 +966,7 @@ def plot_scatter_grid(
         Optional suffix appended to the output filename before the extension.
     predictors : list[str] | None
         Predictor set to plot (one panel per predictor). Defaults to the
-        module-level `PREDICTORS`. Pass `SENSITIVITY_PREDICTORS_TIME_SQ` /
-        `SENSITIVITY_PREDICTORS_VALENCE_SQ` for the square-effects sensitivity
-        models.
+        module-level `PREDICTORS`.
 
     Returns
     -------
@@ -901,8 +990,16 @@ def plot_scatter_grid(
     z_suffix = " (within-subj. z)" if APPLY_WITHIN_SUBJECT_Z else ""
     marker_label = f"{MARKER_LABELS[marker]}{z_suffix}"
 
-    # Collect all per-subject cloud values to set a shared, robust y-range so the
-    # noisy individual points do not dominate the across-subject mean points.
+    # Pre-compute |base - 50| columns for _sq predictors so binning uses a
+    # meaningful, monotone x-axis (distance from the neutral midpoint, 0–50)
+    # rather than the raw orthogonalized residual (sparse at extremes) or the
+    # linear predictor (would duplicate that panel's scatter).
+    data_plot = data.copy()
+    for pred in predictors:
+        if pred.endswith("_sq"):
+            base = pred[:-3]
+            data_plot[f"_dist_{base}"] = (data_plot[base] - 50.0).abs()
+
     cloud_y: list[float] = []
 
     for ax_idx, predictor in enumerate(predictors):
@@ -910,75 +1007,70 @@ def plot_scatter_grid(
         col = ax_idx % n_cols + 1
         color = PREDICTOR_COLORS.get(predictor, DEFAULT_PREDICTOR_COLOR)
 
+        if predictor.endswith("_sq"):
+            base_pred = predictor[:-3]
+            plot_col = f"_dist_{base_pred}"
+            x_label = f"|{PREDICTOR_LABELS.get(base_pred, base_pred)} − 50|"
+        else:
+            plot_col = predictor
+            x_label = PREDICTOR_LABELS.get(predictor, predictor)
+
         pred_row = results_df[results_df["predictor"] == predictor]
         significant = bool(pred_row["significant_fdr"].values[0]) if len(pred_row) > 0 else False
 
-        if predictor not in data.columns or marker not in data.columns:
+        if plot_col not in data_plot.columns or marker not in data_plot.columns:
             continue
 
-        agg, per_sub = binned_within_subject(
-            data, predictor, marker, SCATTER_BIN_WIDTH
-        )
+        agg, per_sub = binned_within_subject(data_plot, plot_col, marker, SCATTER_BIN_WIDTH)
         if agg is None:
             continue
 
         cloud_y.extend(per_sub["y"].tolist())
 
-        # Faint per-subject bin means (cloud)
         fig.add_trace(
             go.Scatter(
                 x=per_sub["x_real"], y=per_sub["y"],
                 mode="markers",
                 marker=dict(color=color, size=4, opacity=0.18),
-                showlegend=False,
-                hoverinfo="skip",
+                showlegend=False, hoverinfo="skip",
             ),
             row=row, col=col,
         )
 
-        # Across-subject mean ± SE per bin (foreground colour points)
         fig.add_trace(
             go.Scatter(
                 x=agg["x"], y=agg["y_mean"],
                 error_y=dict(type="data", array=agg["y_se"], visible=True,
                              thickness=1.6, width=4, color=color),
                 mode="markers",
-                marker=dict(color=color, size=9,
-                            line=dict(color="white", width=1)),
+                marker=dict(color=color, size=9, line=dict(color="white", width=1)),
                 showlegend=False,
-                hovertemplate=(
-                    f"{PREDICTOR_LABELS.get(predictor, predictor)}: "
-                    "%{x:.0f}<br>mean: %{y:.3f}<extra></extra>"
-                ),
+                hovertemplate=f"{x_label}: %{{x:.0f}}<br>mean: %{{y:.3f}}<extra></extra>",
             ),
             row=row, col=col,
         )
 
-        # LMM marginal slope line (others at their mean → passes through data)
+        # marginal_lmm_line handles _sq predictors in distance space;
+        # pass predictor_sds so it can denormalise standardised β
         x_line = np.linspace(float(agg["x"].min()), float(agg["x"].max()), 100)
-        y_line = marginal_lmm_line(results_df, data, predictor, x_line, predictors=predictors)
+        y_line = marginal_lmm_line(
+            results_df, data, predictor, x_line,
+            predictors=predictors, predictor_sds=predictor_sds,
+        )
         fig.add_trace(
             go.Scatter(
-                x=x_line, y=y_line,
-                mode="lines",
-                line=dict(color=color, width=3,
-                          dash="solid" if significant else "dash"),
-                showlegend=False,
-                hoverinfo="skip",
+                x=x_line, y=y_line, mode="lines",
+                line=dict(color=color, width=3, dash="solid" if significant else "dash"),
+                showlegend=False, hoverinfo="skip",
             ),
             row=row, col=col,
         )
 
-        fig.update_xaxes(title_text=PREDICTOR_LABELS.get(predictor, predictor),
-                         row=row, col=col)
+        fig.update_xaxes(title_text=x_label, row=row, col=col)
         if col == 1:
             fig.update_yaxes(title_text=marker_label, row=row, col=col)
 
-    # Add panel titles anchored to each subplot's own domain (xref/yref = 'x{n}
-    # domain' / 'y{n} domain') so they sit just above their own panel at y=1.07
-    # regardless of where the panel sits in the figure.  This avoids the plotly
-    # subplot_titles overlap bug where row-2 titles land on row-1 x-axis labels.
-    axis_idx = 1  # plotly numbers axes x1,y1 … x6,y6 for a 2×3 grid
+    axis_idx = 1
     for ax_idx, predictor in enumerate(predictors):
         color = PREDICTOR_COLORS.get(predictor, DEFAULT_PREDICTOR_COLOR)
         pred_row_ann = results_df[results_df["predictor"] == predictor]
@@ -1044,8 +1136,8 @@ def plot_scatter_grid(
     out_base = output_dir / f"{marker}_scatter_grid{out_suffix}"
     fig.write_html(f"{out_base}.html")
     fig.write_image(f"{out_base}.png", scale=2)
-    fig.write_image(f"{out_base}.pdf")
-    print(f"Saved: {out_base}.html / .png / .pdf")
+    fig.write_image(f"{out_base}.svg")
+    print(f"Saved: {out_base}.html / .png / .svg")
     return Path(f"{out_base}.png")
 
 
@@ -1055,52 +1147,170 @@ def plot_combined_panel(
     moderation_df: pd.DataFrame | None,
     marker: str,
     output_dir: Path,
+    predictors: list[str] | None = None,
+    predictor_sds: dict[str, float] | None = None,
+    # Legacy keyword args kept for call-site compatibility — ignored
     width: int = 1700,
     height: int = 920,
     forest_col_weight: float = 1.6,
-    predictors: list[str] | None = None,
 ) -> None:
-    """Single plotly figure: scatter grid (left, 4 cols × N rows) + forest (right).
+    """Combined matplotlib figure: binscatter grid (left) + forest panels (right).
 
-    Layout: N rows × 5 cols.  Cols 1-4 hold the binscatter panels (one per
-    predictor in ``predictors``); col 5 holds the additive forest (row 1) and,
-    if ``moderation_df`` is given, the moderation forest (row 2). The forest
-    column is ``forest_col_weight`` times wider than each scatter column.
-    Every predictor set (present, time_sq, valence_sq) now passes a
-    ``moderation_df``, so row 2 is normally drawn; ``moderation_df=None``
-    remains supported (row 2 left empty/hidden, additive-forest-only) for any
-    future set with ``with_moderation=False``.
-
-    Scatter panel titles show only dimension names (statistics are in the
-    forest). Both halves share the same plotly template and font sizes so the
-    figure looks like one coherent object, not two pasted images.
+    Layout: N_scatter_rows × 5 columns. Columns 1-4 hold one binscatter panel
+    per predictor (row-major order); column 5 holds the additive-effects forest
+    (row 1) and, if ``moderation_df`` is given, the onoff-moderation forest
+    (row 2). Scatter x-labels add a "(linear)" suffix when the predictor has a
+    quadratic counterpart in the model, and use a short "Dim²" label for the
+    quadratic panels (which plot |base − 50| on the x-axis).
 
     Parameters
     ----------
-    data, results_df, moderation_df, marker, output_dir : (see other plot fns)
-    width, height : int
-        Output figure size in CSS pixels (scale=2 doubles the export resolution).
-    forest_col_weight : float
-        Width of the forest column relative to one scatter column (default 1.6).
+    data : pd.DataFrame
+        Original-scale probe-level dataframe (scatter + marginal line).
+    results_df : pd.DataFrame
+        Output of `fit_lmm` for this marker.
+    moderation_df : pd.DataFrame | None
+        Output of `run_moderation_analysis`. ``None`` → one forest row.
+    marker : str
+        Dependent variable name.
+    output_dir : Path
+        Output directory.
     predictors : list[str] | None
-        Predictor set shown in the scatter grid + additive forest. Defaults to
-        the module-level `PREDICTORS`. Pass `SENSITIVITY_PREDICTORS_TIME_SQ` /
-        `SENSITIVITY_PREDICTORS_VALENCE_SQ` for the square-effects sensitivity
-        models.
+        Predictor set. Defaults to `PREDICTORS`.
+    predictor_sds : dict[str, float] | None
+        Standardisation SDs for marginal-line denormalisation.
     """
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
+    from matplotlib.gridspec import GridSpec
 
     if predictors is None:
         predictors = PREDICTORS
 
-    # ── Prepare forest data ────────────────────────────────────────────────────
+    n_scatter_cols = 4
+    n_preds = len(predictors)
+    n_scatter_rows = int(np.ceil(n_preds / n_scatter_cols))
+    n_forest_rows = 2 if moderation_df is not None else 1
+    n_total_rows = max(n_scatter_rows, n_forest_rows)
+
+    # ── Figure & GridSpec ──────────────────────────────────────────────────────
+    fig_w = 4.0 * n_scatter_cols + 4.8
+    fig_h = 4.5 * n_total_rows + 1.0
+    fig = plt.figure(figsize=(fig_w, fig_h))
+
+    gs = GridSpec(
+        n_total_rows, n_scatter_cols + 1,
+        figure=fig,
+        width_ratios=[1] * n_scatter_cols + [1.3],
+        hspace=0.60, wspace=0.38,
+        left=0.06, right=0.98, top=0.92, bottom=0.08,
+    )
+
+    # ── x-label helper ────────────────────────────────────────────────────────
+    def _scatter_xlabel(pred: str) -> str:
+        """Short, unambiguous x-axis label for scatter panels.
+
+        Linear predictors that have a _sq counterpart → "Dim (linear)".
+        Quadratic predictors → "Dim²"  (axis is |base − 50|, 0-50 range).
+        Others → standard PREDICTOR_LABELS entry.
+        """
+        if pred.endswith("_sq"):
+            base = pred[:-3]
+            return PREDICTOR_LABELS.get(base, base) + "²"
+        if pred + "_sq" in predictors:
+            return PREDICTOR_LABELS.get(pred, pred) + " (linear)"
+        return PREDICTOR_LABELS.get(pred, pred)
+
+    # ── Pre-compute |base − 50| distance columns for _sq predictors ───────────
+    data_plot = data.copy()
+    for pred in predictors:
+        if pred.endswith("_sq"):
+            base = pred[:-3]
+            data_plot[f"_dist_{base}"] = (data_plot[base] - 50.0).abs()
+
+    z_suffix = " (within-subj. z)" if APPLY_WITHIN_SUBJECT_Z else ""
+    marker_label = f"{MARKER_LABELS[marker]}{z_suffix}"
+
+    # ── Scatter panels ─────────────────────────────────────────────────────────
+    for ax_idx, predictor in enumerate(predictors):
+        s_row = ax_idx // n_scatter_cols
+        s_col = ax_idx % n_scatter_cols
+        ax = fig.add_subplot(gs[s_row, s_col])
+
+        color = PREDICTOR_COLORS.get(predictor, DEFAULT_PREDICTOR_COLOR)
+        x_label = _scatter_xlabel(predictor)
+
+        pred_row = results_df[results_df["predictor"] == predictor]
+        significant = (
+            bool(pred_row["significant_fdr"].values[0]) if len(pred_row) > 0 else False
+        )
+
+        plot_col = (
+            f"_dist_{predictor[:-3]}" if predictor.endswith("_sq") else predictor
+        )
+        if plot_col not in data_plot.columns or marker not in data_plot.columns:
+            ax.set_visible(False)
+            continue
+
+        agg, per_sub = binned_within_subject(data_plot, plot_col, marker, SCATTER_BIN_WIDTH)
+        if agg is None:
+            ax.set_visible(False)
+            continue
+
+        # Background cloud (per-subject bin means)
+        ax.scatter(
+            per_sub["x_real"], per_sub["y"],
+            color=color, alpha=0.15, s=12, zorder=1, linewidths=0,
+        )
+        # Across-subject mean ± SE per bin
+        ax.errorbar(
+            agg["x"], agg["y_mean"], yerr=agg["y_se"],
+            fmt="o", color=color, markersize=7, capsize=3,
+            linewidth=1.5, markeredgewidth=0.5, zorder=2,
+        )
+        # LMM marginal line (denormalised when standardised)
+        x_line = np.linspace(float(agg["x"].min()), float(agg["x"].max()), 100)
+        y_line = marginal_lmm_line(
+            results_df, data, predictor, x_line,
+            predictors=predictors, predictor_sds=predictor_sds,
+        )
+        ax.plot(
+            x_line, y_line, color=color, lw=2.5,
+            linestyle="-" if significant else "--", zorder=3,
+        )
+
+        ax.set_title(x_label, fontsize=11, color=color, fontweight="bold", pad=5)
+        ax.set_xlabel(x_label, fontsize=10, color=color, fontweight="bold")
+        if s_col == 0:
+            ax.set_ylabel(marker_label, fontsize=10)
+        ax.tick_params(labelsize=9)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    # Hide leftover empty scatter cells
+    for ax_idx in range(n_preds, n_scatter_rows * n_scatter_cols):
+        s_row = ax_idx // n_scatter_cols
+        s_col = ax_idx % n_scatter_cols
+        fig.add_subplot(gs[s_row, s_col]).set_visible(False)
+
+    # ── Forest panels ──────────────────────────────────────────────────────────
     add_plot = (
         results_df[results_df["predictor"].isin(predictors)]
         .copy()
         .sort_values("estimate", ascending=True)
         .reset_index(drop=True)
     )
+    add_labels = [PREDICTOR_LABELS.get(p, p) for p in add_plot["predictor"]]
+    add_colors = [PREDICTOR_COLORS.get(p, DEFAULT_PREDICTOR_COLOR) for p in add_plot["predictor"]]
+    add_sig = [bool(s) for s in add_plot["significant_fdr"]]
+    coef_label = "β (SD units, 95% CI)" if predictor_sds else "Coefficient (95% CI)"
+
+    ax_add = fig.add_subplot(gs[0, -1])
+    _draw_forest_panel(
+        ax_add, add_plot, add_labels, add_colors, add_sig,
+        ci_lower_col="conf_lower", ci_upper_col="conf_upper",
+        xlabel=coef_label, title="Additive Effects",
+        yticks_right=True,
+    )
+
     if moderation_df is not None:
         mod_plot = (
             moderation_df[moderation_df["marker"] == marker]
@@ -1110,251 +1320,30 @@ def plot_combined_panel(
         )
         mod_plot["ci_lower"] = mod_plot["estimate"] - 1.96 * mod_plot["std_error"]
         mod_plot["ci_upper"] = mod_plot["estimate"] + 1.96 * mod_plot["std_error"]
-    else:
-        mod_plot = None
+        mod_labels = [PREDICTOR_LABELS.get(m, m) for m in mod_plot["moderator"]]
+        mod_colors = [
+            PREDICTOR_COLORS.get(m, DEFAULT_PREDICTOR_COLOR) for m in mod_plot["moderator"]
+        ]
+        mod_sig = [bool(s) for s in mod_plot["significant_fdr"]]
 
-    n_scatter_cols = 4
-    n_total_cols = n_scatter_cols + 1  # + forest column
-    n_scatter_rows = int(np.ceil(len(predictors) / n_scatter_cols))
-    min_rows = 2 if mod_plot is not None else 1
-    total_rows = max(n_scatter_rows, min_rows)  # ≥2 rows when 2 forest panels are needed
-    unit = 1.0
-    col_widths = [unit] * n_scatter_cols + [unit * forest_col_weight]
-    forest_col = n_total_cols  # rightmost column
+        ax_mod = fig.add_subplot(gs[1, -1])
+        _draw_forest_panel(
+            ax_mod, mod_plot, mod_labels, mod_colors, mod_sig,
+            ci_lower_col="ci_lower", ci_upper_col="ci_upper",
+            xlabel="onoff × moderator (95% CI)", title="onoff Moderation",
+            yticks_right=True,
+        )
 
-    fig = make_subplots(
-        rows=total_rows, cols=n_total_cols,
-        column_widths=col_widths,
-        horizontal_spacing=0.045,
-        vertical_spacing=0.30 if total_rows == 2 else 0.22,
+    fig.suptitle(
+        MARKER_LABELS[marker], fontsize=15, fontweight="bold", y=0.97,
     )
-
-    z_suffix = " (within-subj. z)" if APPLY_WITHIN_SUBJECT_Z else ""
-    marker_label = f"{MARKER_LABELS[marker]}{z_suffix}"
-
-    # ── Scatter panels (cols 1-3, rows 1-2) ───────────────────────────────────
-    cloud_y_all: list[float] = []
-    scatter_data: dict = {}  # cache per predictor so we don't bin twice
-
-    for ax_idx, predictor in enumerate(predictors):
-        if predictor not in data.columns or marker not in data.columns:
-            continue
-        agg, per_sub = binned_within_subject(data, predictor, marker, SCATTER_BIN_WIDTH)
-        if agg is None:
-            continue
-        scatter_data[predictor] = (agg, per_sub)
-        cloud_y_all.extend(per_sub["y"].tolist())
-
-    y_lo, y_hi = None, None
-    if cloud_y_all:
-        y_lo = float(np.percentile(cloud_y_all, 2))
-        y_hi = float(np.percentile(cloud_y_all, 98))
-
-    for ax_idx, predictor in enumerate(predictors):
-        s_row = ax_idx // n_scatter_cols + 1
-        s_col = ax_idx % n_scatter_cols + 1
-        color = PREDICTOR_COLORS.get(predictor, DEFAULT_PREDICTOR_COLOR)
-
-        pred_row_s = results_df[results_df["predictor"] == predictor]
-        significant = bool(pred_row_s["significant_fdr"].values[0]) if len(pred_row_s) > 0 else False
-
-        if predictor not in scatter_data:
-            continue
-        agg, per_sub = scatter_data[predictor]
-
-        # Cloud
-        fig.add_trace(go.Scatter(
-            x=per_sub["x_real"], y=per_sub["y"],
-            mode="markers",
-            marker=dict(color=color, size=4, opacity=0.15),
-            showlegend=False, hoverinfo="skip",
-        ), row=s_row, col=s_col)
-
-        # Mean ± SE per bin
-        fig.add_trace(go.Scatter(
-            x=agg["x"], y=agg["y_mean"],
-            error_y=dict(type="data", array=agg["y_se"].tolist(), visible=True,
-                         thickness=1.5, width=4, color=color),
-            mode="markers",
-            marker=dict(color=color, size=8, line=dict(color="white", width=1)),
-            showlegend=False,
-            hovertemplate=(
-                f"{PREDICTOR_LABELS.get(predictor, predictor)}: %{{x:.0f}}"
-                f"<br>mean: %{{y:.3f}}<extra></extra>"
-            ),
-        ), row=s_row, col=s_col)
-
-        # LMM marginal line (others @ mean)
-        x_line = np.linspace(float(agg["x"].min()), float(agg["x"].max()), 100)
-        y_line = marginal_lmm_line(results_df, data, predictor, x_line, predictors=predictors)
-        fig.add_trace(go.Scatter(
-            x=x_line, y=y_line, mode="lines",
-            line=dict(color=color, width=2.5,
-                      dash="solid" if significant else "dash"),
-            showlegend=False, hoverinfo="skip",
-        ), row=s_row, col=s_col)
-
-        if y_lo is not None:
-            pad = 0.08 * (y_hi - y_lo) if y_hi > y_lo else 0.2
-            fig.update_yaxes(range=[y_lo - pad, y_hi + pad], row=s_row, col=s_col)
-
-        fig.update_xaxes(
-            title_text=PREDICTOR_LABELS.get(predictor, predictor),
-            title_font=dict(size=11), row=s_row, col=s_col,
-        )
-        if s_col == 1:
-            fig.update_yaxes(
-                title_text=marker_label,
-                title_font=dict(size=10), row=s_row, col=s_col,
-            )
-
-    # ── Forest panels (rightmost column, rows 1 and 2) ────────────────────────
-    def _add_forest_panel(
-        plot_df: pd.DataFrame,
-        ci_lo_col: str,
-        ci_hi_col: str,
-        f_row: int,
-        predictor_col: str,
-    ) -> None:
-        labels = [PREDICTOR_LABELS.get(p, p) for p in plot_df[predictor_col]]
-        colors = [PREDICTOR_COLORS.get(p, DEFAULT_PREDICTOR_COLOR) for p in plot_df[predictor_col]]
-        sig_flags = [bool(s) for s in plot_df["significant_fdr"].tolist()]
-
-        # Vertical reference at 0
-        fig.add_trace(go.Scatter(
-            x=[0, 0], y=[-0.6, len(labels) - 0.4],
-            mode="lines",
-            line=dict(color="#888", width=1.2, dash="dash"),
-            showlegend=False, hoverinfo="skip",
-        ), row=f_row, col=forest_col)
-
-        for i, (_, r) in enumerate(plot_df.iterrows()):
-            c = colors[i]
-            sig = sig_flags[i]
-            est, lo, hi = r["estimate"], r[ci_lo_col], r[ci_hi_col]
-            p_fdr = r.get("p_fdr", np.nan)
-            star = " ✱" if sig else ""
-            p_text = f"p={p_fdr:.3f}" if pd.notna(p_fdr) else ""
-
-            # CI line
-            fig.add_trace(go.Scatter(
-                x=[lo, hi], y=[i, i], mode="lines",
-                line=dict(color=c, width=2.5, dash="solid" if sig else "dash"),
-                showlegend=False, hoverinfo="skip",
-            ), row=f_row, col=forest_col)
-
-            # CI caps
-            for x_cap in (lo, hi):
-                fig.add_trace(go.Scatter(
-                    x=[x_cap, x_cap], y=[i - 0.12, i + 0.12], mode="lines",
-                    line=dict(color=c, width=1.8),
-                    showlegend=False, hoverinfo="skip",
-                ), row=f_row, col=forest_col)
-
-            # Point
-            fig.add_trace(go.Scatter(
-                x=[est], y=[i], mode="markers",
-                marker=dict(
-                    color=c if sig else "white", size=11,
-                    line=dict(color=c, width=2.2),
-                ),
-                showlegend=False,
-                hovertemplate=f"{labels[i]}{star}<br>β={est:.5g}<br>{p_text}<extra></extra>",
-            ), row=f_row, col=forest_col)
-
-        # Y-axis: predictor names as tick labels, placed on the right side so
-        # they extend into the right margin instead of bleeding into the
-        # adjacent scatter column on the left (colour already encoded by the
-        # CI line/point, so a single tick colour is sufficient).
-        fig.update_yaxes(
-            tickvals=list(range(len(labels))),
-            ticktext=[f"<b>{label}</b>" for label in labels],
-            tickfont=dict(size=10),
-            side="right",
-            automargin=True,
-            range=[-0.6, len(labels) - 0.4],
-            row=f_row, col=forest_col,
-        )
-
-    _add_forest_panel(add_plot, "conf_lower", "conf_upper", f_row=1,
-                      predictor_col="predictor")
-    if mod_plot is not None:
-        _add_forest_panel(mod_plot, "ci_lower",   "ci_upper",   f_row=2,
-                          predictor_col="moderator")
-
-    # x-axis titles for forest encoded inside panel title (avoids gap overlap)
-    fig.update_xaxes(title_text="", row=1, col=forest_col)
-    if mod_plot is not None:
-        fig.update_xaxes(title_text="", row=2, col=forest_col)
-
-    # ── Panel titles (domain-anchored annotations) ─────────────────────────────
-    for ax_idx, predictor in enumerate(predictors):
-        color = PREDICTOR_COLORS.get(predictor, DEFAULT_PREDICTOR_COLOR)
-        s_row = ax_idx // n_scatter_cols + 1
-        s_col = ax_idx % n_scatter_cols + 1
-        ax_n = (s_row - 1) * n_total_cols + s_col
-        xr = "x domain" if ax_n == 1 else f"x{ax_n} domain"
-        yr = "y domain" if ax_n == 1 else f"y{ax_n} domain"
-        fig.add_annotation(
-            text=f"<b>{PREDICTOR_LABELS.get(predictor, predictor)}</b>",
-            xref=xr, yref=yr,
-            x=0.5, y=1.08, xanchor="center", yanchor="bottom",
-            showarrow=False, font=dict(color=color, size=10),
-        )
-
-    # Forest titles left-aligned (xanchor="left") so the text grows rightward
-    # into the forest panel/margin rather than leftward over the col-4 title.
-    forest_ax_row1 = n_total_cols          # row1, forest_col → axis n_total_cols
-    forest_ax_row2 = n_total_cols * 2      # row2, forest_col → axis 2*n_total_cols
-    fig.add_annotation(
-        text="<b>Additive Effects</b>  <span style='font-size:9px;color:#777'>coef. (95% CI)</span>",
-        xref=f"x{forest_ax_row1} domain", yref=f"y{forest_ax_row1} domain",
-        x=0.0, y=1.08, xanchor="left", yanchor="bottom",
-        showarrow=False, font=dict(color="#333", size=12),
-    )
-    if mod_plot is not None:
-        fig.add_annotation(
-            text="<b>onoff Moderation</b>  <span style='font-size:9px;color:#777'>coef. (95% CI)</span>",
-            xref=f"x{forest_ax_row2} domain", yref=f"y{forest_ax_row2} domain",
-            x=0.0, y=1.08, xanchor="left", yanchor="bottom",
-            showarrow=False, font=dict(color="#333", size=12),
-        )
-
-    # Hide empty grid cells (e.g. the leftover scatter cell when len(predictors)
-    # is not a multiple of n_scatter_cols, or unused forest-col rows)
-    used_cells = {(1, forest_col)}
-    if mod_plot is not None:
-        used_cells.add((2, forest_col))
-    for ax_idx in range(len(predictors)):
-        used_cells.add((ax_idx // n_scatter_cols + 1, ax_idx % n_scatter_cols + 1))
-    for r in range(1, total_rows + 1):
-        for c in range(1, n_total_cols + 1):
-            if (r, c) not in used_cells:
-                fig.update_xaxes(visible=False, row=r, col=c)
-                fig.update_yaxes(visible=False, row=r, col=c)
-
-    effective_height = height if total_rows == 2 else height * total_rows // 2
-
-    fig.update_layout(
-        template="plotly_white",
-        title=dict(
-            text=f"<b>{MARKER_LABELS[marker]}</b>",
-            x=0.5, xanchor="center", font=dict(size=16),
-        ),
-        width=width, height=effective_height,
-        margin=dict(t=80, b=55, l=55, r=140),
-        showlegend=False,
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-    )
-    fig.update_xaxes(showgrid=False, zeroline=False)
-    fig.update_yaxes(showgrid=False, zeroline=False)
 
     out_base = output_dir / f"{marker}_combined_panel"
-    fig.write_html(f"{out_base}.html")
-    fig.write_image(f"{out_base}.png", scale=2)
-    fig.write_image(f"{out_base}.pdf")
+    fig.savefig(f"{out_base}.png", dpi=FIG_DPI, bbox_inches="tight")
+    fig.savefig(f"{out_base}.svg", bbox_inches="tight")
+    plt.close(fig)
     print(f"Saved combined panel: {out_base}.png")
+
 
 
 # =============================================================================
@@ -1721,7 +1710,7 @@ def _fit_predictor_set(
     ----------
     df : pd.DataFrame
         Merged probe-level dataframe with all derived predictor columns
-        (time_on_task, present, time_sq, valence_sq).
+        (time_on_task, time_sq⊥, valence_sq⊥).
     set_name : str
         Key into `PREDICTOR_SETS` (used for log messages only).
     set_cfg : dict
@@ -1743,11 +1732,25 @@ def _fit_predictor_set(
     print(f"PREDICTOR SET: {set_name}  ->  {set_dir}")
     print("="*60)
 
+    # --- Standardise predictors for fitting (original df kept for plots) --------
+    pred_sds: dict[str, float] = {}
+    if STANDARDIZE_PREDICTORS:
+        df_fit, pred_sds = standardize_predictors(df.copy(), predictors)
+        sds_df = pd.DataFrame(
+            [{"predictor": k, "sd": v} for k, v in pred_sds.items()]
+        )
+        sds_path = set_dir / "predictor_standardization.csv"
+        sds_df.to_csv(sds_path, index=False)
+        print(f"\nPredictor SDs saved: {sds_path}")
+        print(sds_df.to_string(index=False))
+    else:
+        df_fit = df
+
     # --- Fit additive LMM per marker ---
     results: dict[str, pd.DataFrame] = {}
     for marker in OBJECTIVE_MARKERS:
         results_df = fit_lmm(
-            data=df,
+            data=df_fit,
             marker=marker,
             formula_template=set_cfg["formula_template"],
             method=LMM_METHOD,
@@ -1789,7 +1792,7 @@ def _fit_predictor_set(
     moderation_df = None
     if set_cfg["with_moderation"]:
         moderation_df = run_moderation_analysis(
-            data=df,
+            data=df_fit,
             markers=OBJECTIVE_MARKERS,
             moderators=set_cfg["moderators"],
             method=LMM_METHOD,
@@ -1797,12 +1800,22 @@ def _fit_predictor_set(
             output_dir=set_dir,
         )
 
-    # --- Plots ---
+    # --- Plots (original-scale df; β denormalised via pred_sds) ---
+    is_std = STANDARDIZE_PREDICTORS
     print(f"\nGenerating plots for {set_name}...")
     for marker, results_df in results.items():
-        plot_scatter_grid(df, results_df, marker, set_dir, predictors=predictors)
-        plot_combined_forest(results_df, moderation_df, marker, set_dir, predictors=predictors)
-        plot_combined_panel(df, results_df, moderation_df, marker, set_dir, predictors=predictors)
+        plot_scatter_grid(
+            df, results_df, marker, set_dir,
+            predictors=predictors, predictor_sds=pred_sds,
+        )
+        plot_combined_forest(
+            results_df, moderation_df, marker, set_dir,
+            predictors=predictors, standardized=is_std,
+        )
+        plot_combined_panel(
+            df, results_df, moderation_df, marker, set_dir,
+            predictors=predictors, predictor_sds=pred_sds,
+        )
 
     return results
 
@@ -1859,47 +1872,29 @@ def run_pipeline_for_dataset(dataset_name: str, markers_path: str, output_base: 
 
     # --- Derived variables ---------------------------------------------------
     df = add_time_on_task(df)
-    df = compute_present_dimension(df)
     df = compute_time_squared(df)
     df = compute_valence_squared(df)
+    df, time_sq_intercept, time_sq_slope = orthogonalize_quadratic(df, "time_sq", "time")
+    df, valence_sq_intercept, valence_sq_slope = orthogonalize_quadratic(df, "valence_sq", "valence")
+    orth_df = pd.DataFrame([
+        {"term": "time_sq", "linear_col": "time",
+         "intercept": time_sq_intercept, "slope": time_sq_slope},
+        {"term": "valence_sq", "linear_col": "valence",
+         "intercept": valence_sq_intercept, "slope": valence_sq_slope},
+    ])
+    orth_path = output_dir / "quadratic_orthogonalization.csv"
+    orth_df.to_csv(orth_path, index=False)
+    print(f"\nQuadratic orthogonalization saved: {orth_path}")
+    print(orth_df.to_string(index=False))
 
     # --- Within-subject z-scoring (same as objective_markers_analysis.py) ----
     if APPLY_WITHIN_SUBJECT_Z:
         print("\nApplying within-subject z-scoring to objective markers...")
         df = apply_within_subject_z_scoring(df, OBJECTIVE_MARKERS)
 
-    # --- Fit + plot each predictor set ----------------------------------------
-    results_by_set: dict[str, dict[str, pd.DataFrame]] = {}
+    # --- Fit + plot unified full_model ----------------------------------------
     for set_name, set_cfg in PREDICTOR_SETS.items():
-        results_by_set[set_name] = _fit_predictor_set(df, set_name, set_cfg, output_dir)
-
-    # --- Sensitivity comparison: present vs time_sq (collinear swap) ----------
-    # present and time_sq are both functions of |time-50| and become severely
-    # collinear (r=-0.97, VIF~16) once `time` is in the model, so they are fit
-    # as SEPARATE models (see SENSITIVITY_PREDICTORS_TIME_SQ); compare the two
-    # estimates side by side.
-    comparison_rows = []
-    for marker in OBJECTIVE_MARKERS:
-        present_row = results_by_set["present"][marker][
-            results_by_set["present"][marker]["predictor"] == "present"
-        ].iloc[0]
-        time_sq_row = results_by_set["time_sq"][marker][
-            results_by_set["time_sq"][marker]["predictor"] == "time_sq"
-        ].iloc[0]
-        comparison_rows.append({
-            "marker": MARKER_LABELS[marker],
-            "present_estimate": present_row["estimate"],
-            "present_p_fdr": present_row["p_fdr"],
-            "present_significant_fdr": present_row["significant_fdr"],
-            "time_sq_estimate": time_sq_row["estimate"],
-            "time_sq_p_fdr": time_sq_row["p_fdr"],
-            "time_sq_significant_fdr": time_sq_row["significant_fdr"],
-        })
-    comparison_df = pd.DataFrame(comparison_rows)
-    comparison_path = output_dir / "present_vs_time_sq_comparison.csv"
-    comparison_df.to_csv(comparison_path, index=False)
-    print(f"\nSensitivity comparison saved: {comparison_path}")
-    print(comparison_df.to_string(index=False))
+        _fit_predictor_set(df, set_name, set_cfg, output_dir)
 
     print(f"\n{'='*60}")
     print(f"PIPELINE COMPLETE FOR {dataset_name.upper()}")
@@ -1921,10 +1916,7 @@ def plots_only(predictor_set_names: list[str] | None = None) -> None:
     ----------
     predictor_set_names : list[str] | None
         Which entries of `PREDICTOR_SETS` to regenerate plots for. Defaults
-        to all of them (`["present", "time_sq", "valence_sq"]`). E.g. pass
-        `["present"]` to regenerate only the primary plots, or `["time_sq"]`
-        / `["valence_sq"]` to regenerate only one
-        `sensitivity_square_effects/<set>/` suite.
+        to all of them (`["full_model"]`).
     """
     if predictor_set_names is None:
         predictor_set_names = list(PREDICTOR_SETS.keys())
@@ -1955,9 +1947,10 @@ def plots_only(predictor_set_names: list[str] | None = None) -> None:
         df["task"] = df["task"].apply(normalize_task_label)
         df = df[df["task"].isin(["Sart1", "Sart2", "Sart3", "Sart4"])].copy()
         df = add_time_on_task(df)
-        df = compute_present_dimension(df)
         df = compute_time_squared(df)
         df = compute_valence_squared(df)
+        df, _, _ = orthogonalize_quadratic(df, "time_sq", "time")
+        df, _, _ = orthogonalize_quadratic(df, "valence_sq", "valence")
         if APPLY_WITHIN_SUBJECT_Z:
             df = apply_within_subject_z_scoring(df, OBJECTIVE_MARKERS)
 
@@ -1979,19 +1972,35 @@ def plots_only(predictor_set_names: list[str] | None = None) -> None:
                 moderation_df = pd.read_csv(set_dir / "moderation_summary.csv")
                 print("    Loaded moderation_summary.csv")
 
+            # Load predictor SDs saved during the fitting run (for marginal lines)
+            pred_sds: dict[str, float] = {}
+            sds_path = set_dir / "predictor_standardization.csv"
+            if sds_path.exists():
+                sds_df = pd.read_csv(sds_path)
+                pred_sds = dict(zip(sds_df["predictor"], sds_df["sd"]))
+                print(f"    Loaded predictor_standardization.csv ({len(pred_sds)} predictors)")
+
+            is_std = bool(pred_sds)
+
             print("    Generating scatter grids...")
             for marker, results_df in results_for_set.items():
-                plot_scatter_grid(df, results_df, marker, set_dir, predictors=set_predictors)
+                plot_scatter_grid(
+                    df, results_df, marker, set_dir,
+                    predictors=set_predictors, predictor_sds=pred_sds,
+                )
 
             print("    Generating forest plots...")
             for marker, results_df in results_for_set.items():
                 plot_combined_forest(results_df, moderation_df, marker, set_dir,
+                                     standardized=is_std,
                                      predictors=set_predictors)
 
             print("    Generating combined panels...")
             for marker, results_df in results_for_set.items():
-                plot_combined_panel(df, results_df, moderation_df, marker, set_dir,
-                                    predictors=set_predictors)
+                plot_combined_panel(
+                    df, results_df, moderation_df, marker, set_dir,
+                    predictors=set_predictors, predictor_sds=pred_sds,
+                )
 
         print(f"  Done → {output_dir}")
 
@@ -2006,11 +2015,9 @@ def main() -> None:
         "--predictor-set", choices=list(PREDICTOR_SETS.keys()) + ["all"],
         default="all",
         help=(
-            "With --plots-only, restrict regeneration to one predictor set: "
-            "'present' (primary, with the `present` dimension), 'time_sq' "
-            "or 'valence_sq' (square-effects sensitivity models, "
-            "results/.../sensitivity_square_effects/<set>/), or 'all' "
-            "(default, regenerates all three)."
+            "With --plots-only, restrict regeneration to one predictor set "
+            "(currently only 'full_model'), or 'all' (default, regenerates "
+            "all sets in PREDICTOR_SETS)."
         ),
     )
     args = parser.parse_args()

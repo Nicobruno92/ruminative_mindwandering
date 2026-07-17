@@ -404,6 +404,11 @@ def run_single_simulation(
         logger=logger,
         n_runs=n_runs,
         permutation_seed=sim_random_state,
+        # Parallelise LOSO folds across the CPUs allocated to this array task.
+        # rf_n_jobs=1, so with cv_n_jobs folds in parallel the thread count stays
+        # at cv_n_jobs (<= cpus_per_task) — no loky oversubscription. Keeps
+        # permutations sequential (n_perm_jobs=1) to avoid nested parallelism.
+        cv_n_jobs=config.get("parallelism", {}).get("perm_cv_n_jobs", 1),
     )
 
     sim_result = {
@@ -510,7 +515,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--contrast", type=str, default=None,
-        help="Label contrast name. Overrides parent config 'contrast' list.",
+        help="Label contrast name. Overrides parent config 'run_contrasts' list.",
     )
     parser.add_argument(
         "--family", type=str, default=None,
@@ -550,10 +555,16 @@ def main() -> None:
     if args.n_simulations is not None:
         sim_block["n_simulations"] = args.n_simulations
 
+    # Contrast resolution (when --contrast is not given): prefer the simulation
+    # config's 'contrasts' override, else fall back to the parent run_contrasts
+    # ('contrast' kept as legacy fallback). The SLURM submit script always passes
+    # --contrast explicitly, so this default only matters for local runs.
+    _contrast_cfg = (
+        sim_block.get("contrasts")
+        or config.get("run_contrasts", config.get("contrast", "ON_vs_OFF_within_median"))
+    )
     contrast_name: str = args.contrast or (
-        config["contrast"][0]
-        if isinstance(config.get("contrast"), list)
-        else config.get("contrast", "ON_vs_OFF_within_median")
+        _contrast_cfg[0] if isinstance(_contrast_cfg, list) else _contrast_cfg
     )
     family_name: str = args.family or (
         config.get("run_families", ["all"])[0]
