@@ -68,10 +68,20 @@ write.csv(coef_df, coef_path, row.names = FALSE)
 
 conv_msgs <- m@optinfo$conv$lme4$messages
 rp <- residuals(m, type = "pearson")
+
+# Optimizer messages alone do NOT catch a singular fit, where a random-effect
+# variance collapses to ~0. That is the real failure mode for the OLRE models,
+# so record it explicitly along with each random-effect SD.
+re_sd <- as.data.frame(VarCorr(m))
+re_sd_str <- paste(sprintf("%s=%.4f", re_sd$grp, re_sd$sdcor), collapse = "; ")
+
 diag_df <- data.frame(
   converged    = is.null(conv_msgs) || length(conv_msgs) == 0,
   conv_message = if (is.null(conv_msgs) || length(conv_msgs) == 0) ""
                  else paste(conv_msgs, collapse = "; "),
+  singular     = isSingular(m),
+  re_sd        = re_sd_str,
+  max_grad     = max(abs(m@optinfo$derivs$gradient)),
   dispersion   = sum(rp^2) / df.residual(m),
   n_obs        = nrow(d),
   n_subjects   = nlevels(droplevels(d$subject)),

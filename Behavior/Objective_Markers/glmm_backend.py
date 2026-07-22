@@ -240,12 +240,18 @@ def fit_glmm(
     )
     results_df["converged"] = bool(diag["converged"])
     results_df["conv_message"] = str(diag["conv_message"])
+    results_df["singular"] = bool(diag["singular"])
+    results_df["re_sd"] = str(diag["re_sd"])
+    results_df["max_grad"] = float(diag["max_grad"])
     results_df["dispersion"] = float(diag["dispersion"])
     results_df["n_obs"] = int(diag["n_obs"])
 
     if not bool(diag["converged"]):
         print(f"  !! CONVERGENCE WARNING for {marker}: {diag['conv_message']}")
-    print(f"  dispersion = {float(diag['dispersion']):.3f}")
+    if bool(diag["singular"]):
+        print(f"  !! SINGULAR FIT for {marker}: re_sd = {diag['re_sd']}")
+    print(f"  dispersion = {float(diag['dispersion']):.3f}  "
+          f"max|grad| = {float(diag['max_grad']):.2e}  re_sd = {diag['re_sd']}")
 
     return results_df
 
