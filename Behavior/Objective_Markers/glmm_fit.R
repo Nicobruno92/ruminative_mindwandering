@@ -75,13 +75,18 @@ rp <- residuals(m, type = "pearson")
 re_sd <- as.data.frame(VarCorr(m))
 re_sd_str <- paste(sprintf("%s=%.4f", re_sd$grp, re_sd$sdcor), collapse = "; ")
 
+# glmer does not always populate optinfo$derivs (it is absent for some
+# optimizer paths), so guard the gradient rather than assume it exists.
+grad <- m@optinfo$derivs$gradient
+max_grad <- if (is.null(grad)) NA_real_ else max(abs(grad))
+
 diag_df <- data.frame(
   converged    = is.null(conv_msgs) || length(conv_msgs) == 0,
   conv_message = if (is.null(conv_msgs) || length(conv_msgs) == 0) ""
                  else paste(conv_msgs, collapse = "; "),
   singular     = isSingular(m),
   re_sd        = re_sd_str,
-  max_grad     = max(abs(m@optinfo$derivs$gradient)),
+  max_grad     = max_grad,
   dispersion   = sum(rp^2) / df.residual(m),
   n_obs        = nrow(d),
   n_subjects   = nlevels(droplevels(d$subject)),
