@@ -132,3 +132,47 @@ def test_fit_glmm_returns_tidy_schema():
     assert res["dispersion"].iloc[0] > 0
     # t_value is an alias of the Wald z, kept so plotting code needs no change
     np.testing.assert_allclose(res["t_value"].values, res["z_value"].values)
+
+
+from glmm_backend import fit_moderation_glmm  # noqa: E402
+
+MARKER_CSVS = {
+    "full_segment": REPO_ROOT / "results/Behavior/objective_markers/objective_markers_per_probe.csv",
+    "n10": REPO_ROOT / "results/Behavior/objective_markers/objective_markers_per_probe_n10.csv",
+}
+
+
+@pytest.mark.parametrize("dataset", ["full_segment", "n10"])
+def test_count_consistency_holds(dataset):
+    """Binomial responses are only defined if no numerator exceeds its denominator."""
+    df = pd.read_csv(MARKER_CSVS[dataset])
+    assert (df["n_omissions"] <= df["n_go"]).all()
+    assert (df["n_commissions"] <= df["n_nogo"]).all()
+    assert (df["n_omissions"] + df["n_commissions"] <= df["n_trials_window"]).all()
+    assert (df["n_go"] + df["n_nogo"] == df["n_trials_window"]).all()
+
+
+def test_n10_zero_nogo_probes_are_dropped():
+    """847 n10 probes have no no-go trials; they must leave the commission model."""
+    df = pd.read_csv(MARKER_CSVS["n10"])
+    n_zero = int((df["n_nogo"] == 0).sum())
+    assert n_zero == 847
+    out = build_binomial_response(df, "n_commissions", "n_nogo")
+    assert len(out) == len(df) - n_zero
+
+
+def test_fit_moderation_glmm_contract():
+    cfg = load_glmm_config(CONFIG_PATH)
+    df = _synthetic_binomial()
+    rng = np.random.default_rng(7)
+    df["valence"] = rng.normal(0.0, 1.0, len(df))
+    out = fit_moderation_glmm(
+        data=df, marker="synthetic", moderator="valence",
+        config=cfg, marker_spec=BINOMIAL_SPEC,
+    )
+    assert set(out) == {
+        "marker", "moderator", "interaction_term", "estimate", "std_error",
+        "t_value", "p_value", "n_obs", "n_subjects", "converged",
+    }
+    assert out["interaction_term"] == "onoff:valence"
+    assert np.isfinite(out["estimate"])

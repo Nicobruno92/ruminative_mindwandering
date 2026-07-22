@@ -215,3 +215,71 @@ def fit_glmm(
     print(f"  dispersion = {float(diag['dispersion']):.3f}")
 
     return results_df
+
+
+def fit_moderation_glmm(
+    data: pd.DataFrame,
+    marker: str,
+    moderator: str,
+    config: dict,
+    marker_spec: dict,
+) -> dict:
+    """Fit ``marker ~ onoff * moderator + (1|subject)`` as a GLMM.
+
+    Mirrors the return contract of ``lmm_probe_dimensions.fit_moderation_lmm``
+    so ``run_moderation_analysis`` can dispatch between backends without any
+    change to its FDR or plotting logic.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Probe-level dataframe.
+    marker : str
+        Dependent variable name.
+    moderator : str
+        Moderator whose interaction with ``onoff`` is the test of interest.
+    config : dict
+        Parsed ``glmm_config.yaml``.
+    marker_spec : dict
+        This marker's entry from ``config["markers"]``.
+
+    Returns
+    -------
+    dict
+        Keys: marker, moderator, interaction_term, estimate, std_error,
+        t_value, p_value, n_obs, n_subjects, converged.
+
+    Raises
+    ------
+    RuntimeError
+        If the interaction term is absent from the glmer output.
+    """
+    interaction_term = f"onoff:{moderator}"
+    results_df = fit_glmm(
+        data=data,
+        marker=marker,
+        predictors=[f"onoff * {moderator}"],
+        config=config,
+        marker_spec=marker_spec,
+        olre=False,
+    )
+    row = results_df[results_df["predictor"] == interaction_term]
+    if len(row) == 0:
+        raise RuntimeError(
+            f"Interaction term {interaction_term!r} absent from glmer output "
+            f"for marker {marker!r}. Terms present: "
+            f"{list(results_df['predictor'])}"
+        )
+    row = row.iloc[0]
+    return {
+        "marker": marker,
+        "moderator": moderator,
+        "interaction_term": interaction_term,
+        "estimate": float(row["estimate"]),
+        "std_error": float(row["std_error"]),
+        "t_value": float(row["t_value"]),
+        "p_value": float(row["p_value"]),
+        "n_obs": int(row["n_obs"]),
+        "n_subjects": int(data["subject"].nunique()),
+        "converged": bool(row["converged"]),
+    }
