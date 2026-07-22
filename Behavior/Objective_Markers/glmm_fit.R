@@ -13,10 +13,11 @@ suppressMessages(library(jsonlite))
 args <- commandArgs(trailingOnly = TRUE)
 get_arg <- function(flag) args[which(args == flag) + 1]
 
-data_path <- get_arg("--data")
-spec_path <- get_arg("--spec")
-coef_path <- get_arg("--out-coef")
-diag_path <- get_arg("--out-diag")
+data_path  <- get_arg("--data")
+spec_path  <- get_arg("--spec")
+coef_path  <- get_arg("--out-coef")
+diag_path  <- get_arg("--out-diag")
+resid_path <- get_arg("--out-resid")
 
 spec <- fromJSON(spec_path)
 d <- read.csv(data_path, stringsAsFactors = FALSE, check.names = FALSE)
@@ -77,3 +78,16 @@ diag_df <- data.frame(
   stringsAsFactors = FALSE
 )
 write.csv(diag_df, diag_path, row.names = FALSE)
+
+# Per-observation fitted values and Pearson residuals, so the Python side can
+# draw QQ / residual-vs-fitted / binned-residual diagnostics. Binned residuals
+# (Gelman-Hill) are the standard substitute for DHARMa here, which cannot be
+# installed because the conda channel is blocked on this network.
+if (!is.na(resid_path) && nzchar(resid_path)) {
+  resid_df <- data.frame(
+    fitted   = fitted(m),
+    residual = rp,
+    stringsAsFactors = FALSE
+  )
+  write.csv(resid_df, resid_path, row.names = FALSE)
+}

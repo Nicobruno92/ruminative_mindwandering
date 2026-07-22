@@ -79,6 +79,7 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from diagnostics import gaussian_residual_diagnostics, save_diagnostic_plots
 from glmm_backend import fit_glmm, fit_moderation_glmm
 from response_transforms import empirical_logit, load_glmm_config, log_transform
 
@@ -473,6 +474,8 @@ def fit_lmm(
     method: str,
     maxiter: int,
     predictors: list[str] | None = None,
+    diagnostics_dir: Path | None = None,
+    diagnostics_label: str | None = None,
 ) -> pd.DataFrame:
     """Fit a single LMM and return a tidy predictor-level results dataframe.
 
@@ -524,6 +527,24 @@ def fit_lmm(
     model = smf.mixedlm(fixed_formula, model_data, groups="subject")
     result = model.fit(method=method.upper(), maxiter=maxiter, reml=True, disp=False)
     print(result.summary())
+
+    # Residual diagnostics — the check this pipeline previously never performed.
+    if diagnostics_dir is not None:
+        label = diagnostics_label or f"gaussian_{marker}"
+        save_diagnostic_plots(
+            fitted=result.fittedvalues.values,
+            residuals=result.resid.values,
+            label=label,
+            output_dir=Path(diagnostics_dir),
+            n_bins=int(GLMM_CONFIG["diagnostics"]["n_residual_bins"]),
+        )
+        summary = gaussian_residual_diagnostics(
+            result.resid.values, result.fittedvalues.values
+        )
+        summary.update({"model": label, "family": "gaussian"})
+        pd.DataFrame([summary]).to_csv(
+            Path(diagnostics_dir) / f"{label}_residual_summary.csv", index=False
+        )
 
     # Build tidy results table
     conf_int = result.conf_int()
@@ -1875,6 +1896,11 @@ def _fit_predictor_set(
         df_fit = df
 
     # --- Fit additive model per marker (backend-dispatched) ---
+    # Diagnostics for every track land in one shared directory so the residual
+    # behaviour of the competing specifications can be compared side by side.
+    diagnostics_dir = output_dir / GLMM_CONFIG["diagnostics"]["output_subdir"]
+    track_tag = set_cfg["output_subdir"]
+
     fit_markers = markers if markers is not None else OBJECTIVE_MARKERS
     results: dict[str, pd.DataFrame] = {}
     for marker in fit_markers:
@@ -1888,6 +1914,7 @@ def _fit_predictor_set(
                 olre=olre,
                 mcc_method=MCC_METHOD,
                 mcc_alpha=MCC_ALPHA,
+                diagnostics_dir=diagnostics_dir,
             )
         else:
             results_df = fit_lmm(
@@ -1897,6 +1924,8 @@ def _fit_predictor_set(
                 method=LMM_METHOD,
                 maxiter=LMM_MAXITER,
                 predictors=predictors,
+                diagnostics_dir=diagnostics_dir,
+                diagnostics_label=f"{track_tag}_{marker}",
             )
         results[marker] = results_df
         csv_path = set_dir / f"{marker}_lmm_results.csv"

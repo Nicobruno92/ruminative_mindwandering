@@ -20,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 from statsmodels.stats.multitest import multipletests
 
+from diagnostics import gaussian_residual_diagnostics, save_diagnostic_plots
 from response_transforms import build_binomial_response
 
 # =============================================================================
@@ -35,8 +36,8 @@ MODULE_DIR = Path(__file__).resolve().parent
 
 def _run_r(
     model_data: pd.DataFrame, spec: dict, rscript_path: str, script_path: Path
-) -> tuple[pd.DataFrame, pd.Series]:
-    """Invoke the R fitting script and return its coefficient and diag tables.
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
+    """Invoke the R fitting script and return coefficients, diagnostics, residuals.
 
     Parameters
     ----------
@@ -55,6 +56,8 @@ def _run_r(
         Fixed-effect coefficient table.
     diag : pd.Series
         One-row diagnostics (converged, dispersion, n_obs, n_subjects).
+    resid_df : pd.DataFrame
+        Per-observation ``fitted`` and Pearson ``residual``.
 
     Raises
     ------
@@ -67,6 +70,7 @@ def _run_r(
         spec_file = tmp_path / "spec.json"
         coef_file = tmp_path / "coef.csv"
         diag_file = tmp_path / "diag.csv"
+        resid_file = tmp_path / "resid.csv"
 
         model_data.to_csv(data_file, index=False)
         spec_file.write_text(json.dumps(spec))
@@ -78,6 +82,7 @@ def _run_r(
                 "--spec", str(spec_file),
                 "--out-coef", str(coef_file),
                 "--out-diag", str(diag_file),
+                "--out-resid", str(resid_file),
             ],
             capture_output=True, text=True,
         )
@@ -87,7 +92,11 @@ def _run_r(
                 f"--- stderr ---\n{proc.stderr}\n"
                 f"--- stdout ---\n{proc.stdout}"
             )
-        return pd.read_csv(coef_file), pd.read_csv(diag_file).iloc[0]
+        return (
+            pd.read_csv(coef_file),
+            pd.read_csv(diag_file).iloc[0],
+            pd.read_csv(resid_file),
+        )
 
 
 # =============================================================================
@@ -104,6 +113,7 @@ def fit_glmm(
     olre: bool = False,
     mcc_method: str = "fdr_bh",
     mcc_alpha: float = 0.05,
+    diagnostics_dir: Path | str | None = None,
 ) -> pd.DataFrame:
     """Fit one GLMM and return a tidy predictor-level results dataframe.
 
@@ -130,6 +140,8 @@ def fit_glmm(
         Multiple-comparisons method passed to ``multipletests``.
     mcc_alpha : float
         Significance threshold after correction.
+    diagnostics_dir : Path | str | None
+        When given, write residual diagnostic plots and a summary CSV there.
 
     Returns
     -------
@@ -179,11 +191,32 @@ def fit_glmm(
           f"N subjects: {model_data['subject'].nunique()}")
     print("="*60)
 
-    coef_df, diag = _run_r(
+    coef_df, diag, resid_df = _run_r(
         model_data, spec,
         config["r"]["rscript_path"],
         MODULE_DIR / config["r"]["script"],
     )
+
+    if diagnostics_dir is not None:
+        label = f"glmm_olre_{marker}" if olre else f"glmm_{marker}"
+        save_diagnostic_plots(
+            fitted=resid_df["fitted"].values,
+            residuals=resid_df["residual"].values,
+            label=label,
+            output_dir=Path(diagnostics_dir),
+            n_bins=int(config["diagnostics"]["n_residual_bins"]),
+        )
+        summary = gaussian_residual_diagnostics(
+            resid_df["residual"].values, resid_df["fitted"].values
+        )
+        summary.update({
+            "model": label, "family": family,
+            "dispersion": float(diag["dispersion"]),
+            "converged": bool(diag["converged"]),
+        })
+        pd.DataFrame([summary]).to_csv(
+            Path(diagnostics_dir) / f"{label}_residual_summary.csv", index=False
+        )
 
     results_df = coef_df.copy()
     results_df["t_value"] = results_df["z_value"]
