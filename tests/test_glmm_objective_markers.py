@@ -176,3 +176,30 @@ def test_fit_moderation_glmm_contract():
     }
     assert out["interaction_term"] == "onoff:valence"
     assert np.isfinite(out["estimate"])
+
+
+from diagnostics import (  # noqa: E402
+    binned_residuals,
+    gaussian_residual_diagnostics,
+)
+
+
+def test_binned_residuals_bin_count_and_band():
+    rng = np.random.default_rng(3)
+    fitted = rng.uniform(0, 1, 1000)
+    resid = rng.normal(0, 1, 1000)
+    out = binned_residuals(fitted, resid, n_bins=20)
+    assert len(out) == 20
+    assert out["n"].sum() == 1000
+    # Well-behaved residuals: most bins inside the +/- 2 SE band
+    assert out["outside_band"].mean() < 0.25
+
+
+def test_gaussian_residual_diagnostics_flags_skew():
+    rng = np.random.default_rng(11)
+    fitted = rng.uniform(0, 1, 2000)
+    skewed = rng.exponential(1.0, 2000)
+    out = gaussian_residual_diagnostics(skewed, fitted)
+    assert out["skew"] > 1.0
+    assert out["n"] == 2000
+    assert 0.0 <= out["breusch_pagan_p"] <= 1.0
