@@ -71,3 +71,64 @@ def test_empirical_logit_finite_at_boundaries():
 def test_log_transform_rejects_non_positive():
     with pytest.raises(ValueError, match="strictly positive"):
         log_transform(np.array([1.0, 0.0]))
+
+
+from glmm_backend import fit_glmm  # noqa: E402
+
+TIDY_COLUMNS = [
+    "predictor", "estimate", "std_error", "t_value", "z_value",
+    "p_value", "conf_lower", "conf_upper", "p_fdr", "significant_fdr",
+]
+
+
+def _synthetic_binomial(random_state: int = 42) -> pd.DataFrame:
+    """Binomial data with a known onoff log-odds effect of 0.8."""
+    rng = np.random.default_rng(random_state)
+    n_subjects, n_probes, n_trials = 60, 40, 20
+    true_beta = 0.8
+    rows = []
+    for s in range(n_subjects):
+        subj_intercept = rng.normal(0.0, 0.5)
+        for _ in range(n_probes):
+            onoff = rng.normal(0.0, 1.0)
+            eta = -1.0 + subj_intercept + true_beta * onoff
+            p = 1.0 / (1.0 + np.exp(-eta))
+            rows.append({
+                "subject": f"S{s:02d}",
+                "onoff": onoff,
+                "n_events": rng.binomial(n_trials, p),
+                "n_total": n_trials,
+            })
+    return pd.DataFrame(rows)
+
+
+BINOMIAL_SPEC = {
+    "family": "binomial",
+    "success_col": "n_events",
+    "total_col": "n_total",
+}
+
+
+def test_fit_glmm_recovers_known_effect():
+    cfg = load_glmm_config(CONFIG_PATH)
+    res = fit_glmm(
+        data=_synthetic_binomial(), marker="synthetic", predictors=["onoff"],
+        config=cfg, marker_spec=BINOMIAL_SPEC,
+    )
+    beta = float(res.loc[res["predictor"] == "onoff", "estimate"].iloc[0])
+    assert beta == pytest.approx(0.8, abs=0.15), f"recovered {beta}"
+    assert bool(res.loc[res["predictor"] == "onoff", "significant_fdr"].iloc[0])
+
+
+def test_fit_glmm_returns_tidy_schema():
+    cfg = load_glmm_config(CONFIG_PATH)
+    res = fit_glmm(
+        data=_synthetic_binomial(), marker="synthetic", predictors=["onoff"],
+        config=cfg, marker_spec=BINOMIAL_SPEC,
+    )
+    for col in TIDY_COLUMNS:
+        assert col in res.columns, f"missing {col}"
+    assert bool(res["converged"].iloc[0])
+    assert res["dispersion"].iloc[0] > 0
+    # t_value is an alias of the Wald z, kept so plotting code needs no change
+    np.testing.assert_allclose(res["t_value"].values, res["z_value"].values)
