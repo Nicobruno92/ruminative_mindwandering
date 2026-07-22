@@ -66,6 +66,7 @@ Author: Nicolas Bruno
 """
 
 import os
+import sys
 from pathlib import Path
 
 import yaml
@@ -76,6 +77,12 @@ import pandas as pd
 import statsmodels.formula.api as smf
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from glmm_backend import fit_glmm, fit_moderation_glmm
+from response_transforms import empirical_logit, load_glmm_config, log_transform
+
+GLMM_CONFIG = load_glmm_config()
 
 # =============================================================================
 # CONFIGURATION
@@ -109,6 +116,9 @@ MARKER_LABELS: dict[str, str] = {
     "commission_rate": "Commission Rate",
     "total_errors": "Total Errors",
     "rtcv": "RTCV (RT Variability)",
+    # Old sum-of-two-rates definition, fitted in the Gaussian track only for
+    # continuity with already-published output. See the design spec, section 4.
+    "total_errors_legacy": "Total Errors (legacy sum-of-rates)",
 }
 
 # Probe-level predictors (fixed effects, continuous, 0-100 scale)
@@ -1602,8 +1612,9 @@ def run_moderation_analysis(
     method: str,
     maxiter: int,
     output_dir: Path,
+    backend: str = "gaussian",
 ) -> pd.DataFrame:
-    """Run all moderation LMMs and produce a FDR-corrected summary.
+    """Run all moderation models and produce a FDR-corrected summary.
 
     For each marker × moderator combination fits:
         marker ~ onoff * moderator + (1|subject)
@@ -1619,11 +1630,16 @@ def run_moderation_analysis(
     moderators : list[str]
         Variables to test as potential moderators.
     method : str
-        LMM optimisation method.
+        LMM optimisation method (Gaussian backend only).
     maxiter : int
-        Maximum iterations.
+        Maximum iterations (Gaussian backend only).
     output_dir : Path
         Output directory for CSVs and figures.
+    backend : str
+        ``"glmm"`` fits binomial/Gamma models via lme4; anything else uses the
+        Gaussian statsmodels backend. Keeping the estimand consistent with the
+        additive model matters — mixing families within one paper section is
+        not defensible.
 
     Returns
     -------
@@ -1640,7 +1656,16 @@ def run_moderation_analysis(
     for marker in markers:
         print(f"\n--- Marker: {MARKER_LABELS[marker]} ---")
         for moderator in moderators:
-            row = fit_moderation_lmm(data, marker, moderator, method, maxiter)
+            if backend == "glmm":
+                row = fit_moderation_glmm(
+                    data=data, marker=marker, moderator=moderator,
+                    config=GLMM_CONFIG,
+                    marker_spec=GLMM_CONFIG["markers"][marker],
+                )
+            else:
+                row = fit_moderation_lmm(
+                    data, marker, moderator, method, maxiter
+                )
             rows.append(row)
 
     moderation_df = pd.DataFrame(rows)
@@ -1693,8 +1718,111 @@ def run_moderation_analysis(
 # MAIN
 # =============================================================================
 
+def apply_response_transforms(
+    df: pd.DataFrame, markers: list[str], glmm_config: dict
+) -> pd.DataFrame:
+    """Return a copy of *df* with each marker replaced by its transformed form.
+
+    Used by the ``sensitivity_transformed`` track: ``log`` for ``rtcv`` and the
+    Haldane-corrected empirical logit for the rate markers, which stays finite
+    at the 65% of probes with zero events.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Probe-level dataframe with raw markers and count columns.
+    markers : list[str]
+        Markers to transform.
+    glmm_config : dict
+        Parsed ``glmm_config.yaml``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy with transformed marker columns.
+
+    Raises
+    ------
+    ValueError
+        If a transform type is not recognised.
+    """
+    out = df.copy()
+    correction = glmm_config["empirical_logit_correction"]
+    for marker in markers:
+        spec = glmm_config["transforms"][marker]
+        if spec["type"] == "empirical_logit":
+            valid = out[spec["total_col"]] > 0
+            out.loc[~valid, marker] = np.nan
+            out.loc[valid, marker] = empirical_logit(
+                out.loc[valid, spec["success_col"]].values,
+                out.loc[valid, spec["total_col"]].values,
+                correction=correction,
+            )
+        elif spec["type"] == "log":
+            valid = out[spec["response_col"]] > 0
+            out.loc[~valid, marker] = np.nan
+            out.loc[valid, marker] = log_transform(
+                out.loc[valid, spec["response_col"]].values
+            )
+        else:
+            raise ValueError(f"Unknown transform type: {spec['type']}")
+    return out
+
+
+def build_model_comparison(
+    track_results: dict[str, dict[str, pd.DataFrame]],
+    predictors: list[str],
+) -> pd.DataFrame:
+    """Assemble the side-by-side specification comparison table.
+
+    One row per marker x predictor, with the estimate, p-value and FDR
+    significance from each track. This is the artefact that lets the manuscript
+    state whether conclusions are robust to specification -- or show exactly
+    where they are not. ``total_errors_legacy`` is excluded because its
+    different marker definition makes it non-comparable.
+
+    Parameters
+    ----------
+    track_results : dict[str, dict[str, pd.DataFrame]]
+        Mapping ``{track_name: {marker: fit results}}``.
+    predictors : list[str]
+        Predictors to include.
+
+    Returns
+    -------
+    pd.DataFrame
+        Wide comparison table, one row per marker x predictor.
+    """
+    rows: list[dict] = []
+    for track, per_marker in track_results.items():
+        for marker, results_df in per_marker.items():
+            if marker == "total_errors_legacy":
+                continue
+            subset = results_df[results_df["predictor"].isin(predictors)]
+            for _, r in subset.iterrows():
+                rows.append({
+                    "marker": marker,
+                    "predictor": r["predictor"],
+                    "track": track,
+                    "estimate": r["estimate"],
+                    "p_value": r["p_value"],
+                    "p_fdr": r.get("p_fdr", np.nan),
+                    "significant_fdr": r.get("significant_fdr", False),
+                })
+    long_df = pd.DataFrame(rows)
+    wide = long_df.pivot_table(
+        index=["marker", "predictor"], columns="track",
+        values=["estimate", "p_fdr", "significant_fdr"],
+        aggfunc="first",
+    )
+    wide.columns = [f"{stat}__{track}" for stat, track in wide.columns]
+    return wide.reset_index()
+
+
 def _fit_predictor_set(
     df: pd.DataFrame, set_name: str, set_cfg: dict, output_dir: Path,
+    backend: str = "gaussian", olre: bool = False,
+    markers: list[str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Fit one predictor set's LMMs and generate its full plot suite.
 
@@ -1746,17 +1874,30 @@ def _fit_predictor_set(
     else:
         df_fit = df
 
-    # --- Fit additive LMM per marker ---
+    # --- Fit additive model per marker (backend-dispatched) ---
+    fit_markers = markers if markers is not None else OBJECTIVE_MARKERS
     results: dict[str, pd.DataFrame] = {}
-    for marker in OBJECTIVE_MARKERS:
-        results_df = fit_lmm(
-            data=df_fit,
-            marker=marker,
-            formula_template=set_cfg["formula_template"],
-            method=LMM_METHOD,
-            maxiter=LMM_MAXITER,
-            predictors=predictors,
-        )
+    for marker in fit_markers:
+        if backend == "glmm":
+            results_df = fit_glmm(
+                data=df_fit,
+                marker=marker,
+                predictors=predictors,
+                config=GLMM_CONFIG,
+                marker_spec=GLMM_CONFIG["markers"][marker],
+                olre=olre,
+                mcc_method=MCC_METHOD,
+                mcc_alpha=MCC_ALPHA,
+            )
+        else:
+            results_df = fit_lmm(
+                data=df_fit,
+                marker=marker,
+                formula_template=set_cfg["formula_template"],
+                method=LMM_METHOD,
+                maxiter=LMM_MAXITER,
+                predictors=predictors,
+            )
         results[marker] = results_df
         csv_path = set_dir / f"{marker}_lmm_results.csv"
         results_df.to_csv(csv_path, index=False)
@@ -1793,11 +1934,12 @@ def _fit_predictor_set(
     if set_cfg["with_moderation"]:
         moderation_df = run_moderation_analysis(
             data=df_fit,
-            markers=OBJECTIVE_MARKERS,
+            markers=fit_markers,
             moderators=set_cfg["moderators"],
             method=LMM_METHOD,
             maxiter=LMM_MAXITER,
             output_dir=set_dir,
+            backend=backend,
         )
 
     # --- Plots (original-scale df; β denormalised via pred_sds) ---
@@ -1833,7 +1975,17 @@ def run_pipeline_for_dataset(dataset_name: str, markers_path: str, output_base: 
     # --- Load data -----------------------------------------------------------
     print("Loading objective markers data...")
     df_markers = pd.read_csv(markers_path)
+    # New definition (all three tracks): a genuine proportion of all trials.
+    # The old sum-of-two-rates mixed denominators (~27 go vs ~3 no-go trials)
+    # and was a proportion of nothing. See the design spec, section 2.
+    df_markers["_total_error_count"] = (
+        df_markers["n_omissions"] + df_markers["n_commissions"]
+    )
     df_markers["total_errors"] = (
+        df_markers["_total_error_count"] / df_markers["n_trials_window"]
+    )
+    # Retained only for continuity with already-published Gaussian output.
+    df_markers["total_errors_legacy"] = (
         df_markers["omission_rate"] + df_markers["commission_rate"]
     )
     print(f"  {len(df_markers)} probe-level observations")
@@ -1893,8 +2045,51 @@ def run_pipeline_for_dataset(dataset_name: str, markers_path: str, output_base: 
         df = apply_within_subject_z_scoring(df, OBJECTIVE_MARKERS)
 
     # --- Fit + plot unified full_model ----------------------------------------
+    track_results: dict[str, dict[str, pd.DataFrame]] = {}
     for set_name, set_cfg in PREDICTOR_SETS.items():
-        _fit_predictor_set(df, set_name, set_cfg, output_dir)
+        # --- PRIMARY: GLMM ---------------------------------------------------
+        glmm_cfg = dict(set_cfg, output_subdir="glmm")
+        track_results["glmm"] = _fit_predictor_set(
+            df, set_name, glmm_cfg, output_dir, backend="glmm",
+        )
+
+        # --- SENSITIVITY: OLRE variant (binomial markers only) ---------------
+        olre_markers = [
+            m for m in OBJECTIVE_MARKERS
+            if GLMM_CONFIG["markers"][m].get("olre", False)
+        ]
+        olre_cfg = dict(set_cfg, output_subdir="sensitivity_olre")
+        track_results["sensitivity_olre"] = _fit_predictor_set(
+            df, set_name, olre_cfg, output_dir, backend="glmm",
+            olre=True, markers=olre_markers,
+        )
+
+        # --- SENSITIVITY: Gaussian (existing model + legacy total_errors) ----
+        gauss_cfg = dict(set_cfg, output_subdir="sensitivity_gaussian")
+        track_results["sensitivity_gaussian"] = _fit_predictor_set(
+            df, set_name, gauss_cfg, output_dir, backend="gaussian",
+            markers=OBJECTIVE_MARKERS + ["total_errors_legacy"],
+        )
+
+        # --- SENSITIVITY: transformed response -------------------------------
+        df_transformed = apply_response_transforms(
+            df, OBJECTIVE_MARKERS, GLMM_CONFIG
+        )
+        trans_cfg = dict(set_cfg, output_subdir="sensitivity_transformed")
+        track_results["sensitivity_transformed"] = _fit_predictor_set(
+            df_transformed, set_name, trans_cfg, output_dir,
+            backend="gaussian",
+        )
+
+    comparison_path = output_dir / "model_comparison.csv"
+    build_model_comparison(track_results, PREDICTORS).to_csv(
+        comparison_path, index=False
+    )
+    print(f"\nModel comparison saved: {comparison_path}")
+
+    used_config_path = output_dir / "used_config.yaml"
+    yaml.safe_dump(GLMM_CONFIG, open(used_config_path, "w"), sort_keys=False)
+    print(f"Config snapshot saved: {used_config_path}")
 
     print(f"\n{'='*60}")
     print(f"PIPELINE COMPLETE FOR {dataset_name.upper()}")
