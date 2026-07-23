@@ -582,6 +582,41 @@ def fit_lmm(
 # =============================================================================
 
 
+# Scale that coefficients live on, per link function. Empty for identity, where
+# the coefficient is already in the marker's own units.
+LINK_SCALE_LABELS: dict[str, str] = {
+    "identity": "",
+    "logit": "log-odds",
+    "log": "log",
+}
+
+
+def coefficient_axis_label(link: str, standardized: bool) -> str:
+    """Axis label stating the scale the plotted coefficients are on.
+
+    A GLMM β is not in the marker's units: binomial coefficients are log-odds
+    and Gamma coefficients are log. Labelling them as bare coefficients invites
+    the reader to interpret a β of -0.49 as a half-unit drop in error rate,
+    which it is not.
+
+    Parameters
+    ----------
+    link : str
+        ``"identity"``, ``"logit"`` or ``"log"``.
+    standardized : bool
+        Whether predictors were z-scored (β is then "per SD").
+
+    Returns
+    -------
+    str
+        Axis label.
+    """
+    scale = LINK_SCALE_LABELS[link]
+    if standardized:
+        return f"β ({scale} per SD, 95% CI)" if scale else "β (SD units, 95% CI)"
+    return f"Coefficient ({scale}, 95% CI)" if scale else "Coefficient (95% CI)"
+
+
 def _draw_forest_panel(
     ax: "plt.Axes",
     plot_df: pd.DataFrame,
@@ -628,9 +663,11 @@ def _draw_forest_panel(
         p_fdr = row.get("p_fdr", np.nan)
         p_label = f"p={p_fdr:.3f}" if pd.notna(p_fdr) else ""
         star = "✱ " if sig else ""
+        # Wald z for both backends: statsmodels MixedLM and lme4 glmer both
+        # report a normal-approximation statistic, not a t.
         ax.text(
             hi, i + 0.22,
-            f"{star}t={row['t_value']:.2f}  {p_label}",
+            f"{star}z={row['t_value']:.2f}  {p_label}",
             va="bottom", fontsize=8.5, color=c,
             fontweight="bold" if sig else "normal",
         )
@@ -659,6 +696,7 @@ def plot_combined_forest(
     out_suffix: str = "",
     predictors: list[str] | None = None,
     standardized: bool = False,
+    link: str = "identity",
 ) -> Path:
     """Forest plot of additive effects, optionally paired with moderation terms.
 
@@ -741,14 +779,19 @@ def plot_combined_forest(
     _draw_forest_panel(
         ax_add, add_plot, add_labels, add_colors, add_sig,
         ci_lower_col="conf_lower", ci_upper_col="conf_upper",
-        xlabel="β (SD units, 95% CI)" if standardized else "Coefficient (95% CI)",
+        xlabel=coefficient_axis_label(link, standardized),
         title="Additive Effects",
     )
     if mod_plot is not None:
         _draw_forest_panel(
             ax_mod, mod_plot, mod_labels, mod_colors, mod_sig,
             ci_lower_col="ci_lower", ci_upper_col="ci_upper",
-            xlabel="onoff × moderator coefficient (95% CI)",
+            xlabel=(
+                "onoff × moderator "
+                f"({LINK_SCALE_LABELS[link]}, 95% CI)"
+                if LINK_SCALE_LABELS[link]
+                else "onoff × moderator coefficient (95% CI)"
+            ),
             title="Moderation of onoff Effect",
         )
 
@@ -1145,6 +1188,11 @@ def plot_scatter_grid(
         if col == 1:
             fig.update_yaxes(title_text=marker_label, row=row, col=col)
 
+    # β is on the link scale for the GLMM tracks; say so next to the number.
+    beta_unit = (
+        f" {LINK_SCALE_LABELS[link]}" if LINK_SCALE_LABELS[link] else ""
+    )
+
     axis_idx = 1
     for ax_idx, predictor in enumerate(predictors):
         color = PREDICTOR_COLORS.get(predictor, DEFAULT_PREDICTOR_COLOR)
@@ -1161,7 +1209,7 @@ def plot_scatter_grid(
         if show_stats:
             title_text = (
                 f"<b>{PREDICTOR_LABELS.get(predictor, predictor)}{star_ann}</b>"
-                f"  β={slope_ann:.3f}  {p_text_ann}"
+                f"  β={slope_ann:.3f}{beta_unit}  {p_text_ann}"
             )
         else:
             title_text = f"<b>{PREDICTOR_LABELS.get(predictor, predictor)}</b>"
@@ -1377,7 +1425,7 @@ def plot_combined_panel(
     add_labels = [PREDICTOR_LABELS.get(p, p) for p in add_plot["predictor"]]
     add_colors = [PREDICTOR_COLORS.get(p, DEFAULT_PREDICTOR_COLOR) for p in add_plot["predictor"]]
     add_sig = [bool(s) for s in add_plot["significant_fdr"]]
-    coef_label = "β (SD units, 95% CI)" if predictor_sds else "Coefficient (95% CI)"
+    coef_label = coefficient_axis_label(link, bool(predictor_sds))
 
     ax_add = fig.add_subplot(gs[0, -1])
     _draw_forest_panel(
@@ -1406,7 +1454,12 @@ def plot_combined_panel(
         _draw_forest_panel(
             ax_mod, mod_plot, mod_labels, mod_colors, mod_sig,
             ci_lower_col="ci_lower", ci_upper_col="ci_upper",
-            xlabel="onoff × moderator (95% CI)", title="onoff Moderation",
+            xlabel=(
+                f"onoff × moderator ({LINK_SCALE_LABELS[link]}, 95% CI)"
+                if LINK_SCALE_LABELS[link]
+                else "onoff × moderator (95% CI)"
+            ),
+            title="onoff Moderation",
             yticks_right=True,
         )
 
@@ -1516,7 +1569,8 @@ def fit_moderation_lmm(
 
 
 def plot_moderation_forest(
-    moderation_df: pd.DataFrame, marker: str, output_dir: Path
+    moderation_df: pd.DataFrame, marker: str, output_dir: Path,
+    link: str = "identity",
 ) -> None:
     """Forest plot of all interaction terms for one marker.
 
@@ -1571,7 +1625,10 @@ def plot_moderation_forest(
     ax.axvline(0, color="black", linewidth=1.2, linestyle="--", alpha=0.7)
     ax.set_yticks(range(len(labels)))
     ax.set_yticklabels(labels, fontsize=11)
-    ax.set_xlabel("Interaction Coefficient: onoff × moderator (95% CI)",
+    link_suffix = (
+        f" ({LINK_SCALE_LABELS[link]})" if LINK_SCALE_LABELS[link] else ""
+    )
+    ax.set_xlabel(f"Interaction Coefficient: onoff × moderator{link_suffix} (95% CI)",
                   fontsize=11, fontweight="bold")
     ax.set_title(
         f"{MARKER_LABELS[marker]}: Moderation of onoff Effect\n"
@@ -2086,7 +2143,7 @@ def _fit_predictor_set(
         )
         plot_combined_forest(
             results_df, moderation_df, marker, set_dir,
-            predictors=predictors, standardized=is_std,
+            predictors=predictors, standardized=is_std, link=link,
         )
         plot_combined_panel(
             df, results_df, moderation_df, marker, set_dir,
@@ -2316,6 +2373,7 @@ def plots_only(predictor_set_names: list[str] | None = None) -> None:
                     plot_combined_forest(
                         results_df, moderation_df, marker, set_dir,
                         standardized=is_std, predictors=set_predictors,
+                        link=link,
                     )
                     plot_combined_panel(
                         track_df, results_df, moderation_df, marker, set_dir,
