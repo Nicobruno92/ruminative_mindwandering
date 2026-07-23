@@ -1503,7 +1503,8 @@ def find_clusters_from_pvalues(
     t_power: float = 1.0,
     separate_signs: bool = True,
     exclude: np.ndarray = None,
-) -> List[Dict]:
+    return_null_distributions: bool = False,
+):
     """Find clusters using p-value thresholding (Andrillon-style).
 
     This helper forms candidate clusters based on p-values (p < cluster_alpha)
@@ -1515,6 +1516,33 @@ def find_clusters_from_pvalues(
     - Null distribution: cluster statistics from permuted data
     - Positive and negative clusters can be treated separately via
       ``separate_signs=True``.
+
+    Parameters
+    ----------
+    return_null_distributions : bool
+        When True, also return the per-permutation maximum cluster statistics
+        that form the null distribution, and compute them even when the
+        observed data yields no cluster.
+
+        These arrays are what a family-level (omnibus) permutation test needs:
+        one summary number per permutation per marker. Recomputing them later
+        is impossible without re-running every permuted LMM fit, so they are
+        cheap to keep (one float per permutation) and expensive to lose.
+
+        The early return on "no observed clusters" is deliberately bypassed in
+        this mode: a marker that produced nothing still has to contribute its
+        null to the family statistic, otherwise the omnibus null would be built
+        from a biased subset of markers.
+
+    Returns
+    -------
+    List[Dict]
+        Cluster dictionaries, when ``return_null_distributions`` is False.
+    Tuple[List[Dict], Dict[str, np.ndarray]]
+        When ``return_null_distributions`` is True, the same list plus a dict
+        with the null distributions. Keys are ``pos_max``/``neg_min`` for
+        ``separate_signs=True`` and ``abs_max`` otherwise; each array has one
+        entry per permutation.
     """
     if n_permutations is None:
         n_permutations = perm_t_stats.shape[0]
@@ -1559,7 +1587,10 @@ def find_clusters_from_pvalues(
             t_stats, adjacency, mask, stat_fun, t_power
         )
 
-    if len(obs_clusters) == 0:
+    # Without the null distributions requested there is nothing left to do when
+    # the observed data produced no cluster. With them requested the permutation
+    # loop must still run — see the docstring.
+    if len(obs_clusters) == 0 and not return_null_distributions:
         return []
 
     # ---------- Permutation null distribution ----------
@@ -1617,6 +1648,8 @@ def find_clusters_from_pvalues(
                 'p_value': p_val,
             })
 
+        if return_null_distributions:
+            return significant_clusters, {'abs_max': null_max_stats}
         return significant_clusters
 
     # Separate nulls for positive and negative clusters (Andrillon-style)
@@ -1693,7 +1726,13 @@ def find_clusters_from_pvalues(
             'p_value': p_val,
         })
 
+    if return_null_distributions:
+        return significant_clusters, {
+            'pos_max': null_pos_max_arr,
+            'neg_min': null_neg_min_arr,
+        }
     return significant_clusters
+
 
 def _compute_bootstrap_ci(
     clusters: List[np.ndarray],
