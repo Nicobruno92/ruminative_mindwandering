@@ -781,6 +781,42 @@ def plot_combined_forest(
     return out_path
 
 
+def inverse_link(eta: np.ndarray, link: str) -> np.ndarray:
+    """Map a linear predictor back to the scale of the observed response.
+
+    GLMM coefficients live on the link scale (log-odds for binomial, log for
+    Gamma), while the binscatter panels plot the marker in its original units.
+    Drawing the marginal line without this transform puts it at, for example,
+    log(0.25) = -1.39 while the data sit at 0.25 -- the line and the cloud end
+    up on entirely different parts of the axis.
+
+    Parameters
+    ----------
+    eta : np.ndarray
+        Linear predictor.
+    link : str
+        One of ``"identity"`` (Gaussian tracks), ``"log"`` (Gamma) or
+        ``"logit"`` (binomial).
+
+    Returns
+    -------
+    np.ndarray
+        Predicted values on the response scale.
+
+    Raises
+    ------
+    ValueError
+        If the link name is not recognised.
+    """
+    if link == "identity":
+        return eta
+    if link == "log":
+        return np.exp(eta)
+    if link == "logit":
+        return 1.0 / (1.0 + np.exp(-eta))
+    raise ValueError(f"Unknown link: {link!r}")
+
+
 def binned_within_subject(
     data: pd.DataFrame, predictor: str, marker: str, bin_width: float
 ) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[None, None]:
@@ -858,6 +894,7 @@ def marginal_lmm_line(
     x_range: np.ndarray,
     predictors: list[str] | None = None,
     predictor_sds: dict[str, float] | None = None,
+    link: str = "identity",
 ) -> np.ndarray:
     """LMM marginal prediction line for one predictor, others held at their mean.
 
@@ -910,6 +947,9 @@ def marginal_lmm_line(
     coef = dict(zip(results_df["predictor"], results_df["estimate"]))
     intercept = coef.get("Intercept", 0.0)
 
+    # Every branch below builds eta, the LINEAR PREDICTOR. For a GLMM that is on
+    # the link scale (log-odds / log), not the scale of the plotted data, so the
+    # inverse link is applied once at the end.
     if predictor_sds:
         # --- Standardised model: β in SD units; data in original units ----------
         def β_orig(k: str) -> float:
@@ -924,18 +964,17 @@ def marginal_lmm_line(
             ols_slope, ols_intercept, *_ = stats.linregress(data[base_pred], orig_quad)
             quad_orth_at_d = x_range ** 2 / 50.0 - (ols_intercept + ols_slope * 50.0)
             m_base = float(data[base_pred].mean())
-            return (
+            eta = (
                 intercept
                 + β_orig(base_pred) * (50.0 - m_base)
                 + β_orig(predictor) * quad_orth_at_d
             )
+        else:
+            m_p = float(data[predictor].mean())
+            eta = intercept + β_orig(predictor) * (x_range - m_p)
 
-        m_p = float(data[predictor].mean())
-        return intercept + β_orig(predictor) * (x_range - m_p)
-
-    # --- Non-standardised model: original formula with explicit others_offset ---
-    if predictor.endswith("_sq"):
-        # x_range is in |base_pred − 50| space (distance from neutral, 0–50).
+    elif predictor.endswith("_sq"):
+        # --- Non-standardised, quadratic: x_range is |base_pred − 50| space -----
         base_pred = predictor[:-3]
         orig_quad = (data[base_pred] - 50.0) ** 2 / 50.0
         ols_slope, ols_intercept, *_ = stats.linregress(data[base_pred], orig_quad)
@@ -945,19 +984,23 @@ def marginal_lmm_line(
             for k in predictors
             if k not in (predictor, base_pred) and k in data.columns
         )
-        return (
+        eta = (
             intercept + others_offset
             + coef.get(base_pred, 0.0) * 50.0
             + coef.get(predictor, 0.0) * quad_orth_at_d
         )
 
-    slope_p = coef.get(predictor, 0.0)
-    others_offset = sum(
-        coef.get(k, 0.0) * float(data[k].mean())
-        for k in predictors
-        if k != predictor and k in data.columns
-    )
-    return intercept + others_offset + slope_p * x_range
+    else:
+        # --- Non-standardised, linear -------------------------------------------
+        slope_p = coef.get(predictor, 0.0)
+        others_offset = sum(
+            coef.get(k, 0.0) * float(data[k].mean())
+            for k in predictors
+            if k != predictor and k in data.columns
+        )
+        eta = intercept + others_offset + slope_p * x_range
+
+    return inverse_link(eta, link)
 
 
 def plot_scatter_grid(
@@ -966,6 +1009,7 @@ def plot_scatter_grid(
     out_suffix: str = "",
     predictors: list[str] | None = None,
     predictor_sds: dict[str, float] | None = None,
+    link: str = "identity",
 ) -> Path:
     """Plotly grid of within-subject binscatter panels: one per predictor.
 
@@ -1086,7 +1130,7 @@ def plot_scatter_grid(
         x_line = np.linspace(float(agg["x"].min()), float(agg["x"].max()), 100)
         y_line = marginal_lmm_line(
             results_df, data, predictor, x_line,
-            predictors=predictors, predictor_sds=predictor_sds,
+            predictors=predictors, predictor_sds=predictor_sds, link=link,
         )
         fig.add_trace(
             go.Scatter(
@@ -1180,6 +1224,7 @@ def plot_combined_panel(
     output_dir: Path,
     predictors: list[str] | None = None,
     predictor_sds: dict[str, float] | None = None,
+    link: str = "identity",
     # Legacy keyword args kept for call-site compatibility — ignored
     width: int = 1700,
     height: int = 920,
@@ -1301,7 +1346,7 @@ def plot_combined_panel(
         x_line = np.linspace(float(agg["x"].min()), float(agg["x"].max()), 100)
         y_line = marginal_lmm_line(
             results_df, data, predictor, x_line,
-            predictors=predictors, predictor_sds=predictor_sds,
+            predictors=predictors, predictor_sds=predictor_sds, link=link,
         )
         ax.plot(
             x_line, y_line, color=color, lw=2.5,
@@ -1739,6 +1784,65 @@ def run_moderation_analysis(
 # MAIN
 # =============================================================================
 
+def build_track_specs() -> list[dict]:
+    """Single definition of the four model tracks.
+
+    Shared by ``run_pipeline_for_dataset`` and ``plots_only`` so the fitting
+    and the figure-regeneration paths can never drift apart on which tracks
+    exist, where they are written, or which markers each one contains.
+
+    Returns
+    -------
+    list[dict]
+        One entry per track with keys ``name``, ``output_subdir``,
+        ``backend``, ``olre``, ``markers`` and ``transform``.
+    """
+    olre_markers = [
+        m for m in OBJECTIVE_MARKERS
+        if GLMM_CONFIG["markers"][m].get("olre", False)
+    ]
+    return [
+        {"name": "glmm", "output_subdir": "glmm", "backend": "glmm",
+         "olre": False, "markers": list(OBJECTIVE_MARKERS), "transform": False},
+        {"name": "sensitivity_olre", "output_subdir": "sensitivity_olre",
+         "backend": "glmm", "olre": True, "markers": olre_markers,
+         "transform": False},
+        {"name": "sensitivity_gaussian", "output_subdir": "sensitivity_gaussian",
+         "backend": "gaussian", "olre": False,
+         "markers": list(OBJECTIVE_MARKERS) + ["total_errors_legacy"],
+         "transform": False},
+        {"name": "sensitivity_transformed",
+         "output_subdir": "sensitivity_transformed", "backend": "gaussian",
+         "olre": False, "markers": list(OBJECTIVE_MARKERS), "transform": True},
+    ]
+
+
+def marker_link(marker: str, backend: str) -> str:
+    """Link function used to plot this marker's marginal line.
+
+    The Gaussian and transformed tracks are fitted with an identity link, so
+    their coefficients are already on the plotted scale. The GLMM track is not:
+    binomial coefficients are log-odds and Gamma coefficients are log, and the
+    marginal line has to be mapped back before it can be drawn over the data.
+
+    Parameters
+    ----------
+    marker : str
+        Marker name.
+    backend : str
+        ``"glmm"`` or the Gaussian backend.
+
+    Returns
+    -------
+    str
+        ``"identity"``, ``"logit"`` or ``"log"``.
+    """
+    if backend != "glmm":
+        return "identity"
+    family = GLMM_CONFIG["markers"][marker]["family"]
+    return "logit" if family == "binomial" else "log"
+
+
 def apply_response_transforms(
     df: pd.DataFrame, markers: list[str], glmm_config: dict
 ) -> pd.DataFrame:
@@ -1975,9 +2079,10 @@ def _fit_predictor_set(
     is_std = STANDARDIZE_PREDICTORS
     print(f"\nGenerating plots for {set_name}...")
     for marker, results_df in results.items():
+        link = marker_link(marker, backend)
         plot_scatter_grid(
             df, results_df, marker, set_dir,
-            predictors=predictors, predictor_sds=pred_sds,
+            predictors=predictors, predictor_sds=pred_sds, link=link,
         )
         plot_combined_forest(
             results_df, moderation_df, marker, set_dir,
@@ -1985,7 +2090,7 @@ def _fit_predictor_set(
         )
         plot_combined_panel(
             df, results_df, moderation_df, marker, set_dir,
-            predictors=predictors, predictor_sds=pred_sds,
+            predictors=predictors, predictor_sds=pred_sds, link=link,
         )
 
     return results
@@ -2076,39 +2181,17 @@ def run_pipeline_for_dataset(dataset_name: str, markers_path: str, output_base: 
     # --- Fit + plot unified full_model ----------------------------------------
     track_results: dict[str, dict[str, pd.DataFrame]] = {}
     for set_name, set_cfg in PREDICTOR_SETS.items():
-        # --- PRIMARY: GLMM ---------------------------------------------------
-        glmm_cfg = dict(set_cfg, output_subdir="glmm")
-        track_results["glmm"] = _fit_predictor_set(
-            df, set_name, glmm_cfg, output_dir, backend="glmm",
-        )
-
-        # --- SENSITIVITY: OLRE variant (binomial markers only) ---------------
-        olre_markers = [
-            m for m in OBJECTIVE_MARKERS
-            if GLMM_CONFIG["markers"][m].get("olre", False)
-        ]
-        olre_cfg = dict(set_cfg, output_subdir="sensitivity_olre")
-        track_results["sensitivity_olre"] = _fit_predictor_set(
-            df, set_name, olre_cfg, output_dir, backend="glmm",
-            olre=True, markers=olre_markers,
-        )
-
-        # --- SENSITIVITY: Gaussian (existing model + legacy total_errors) ----
-        gauss_cfg = dict(set_cfg, output_subdir="sensitivity_gaussian")
-        track_results["sensitivity_gaussian"] = _fit_predictor_set(
-            df, set_name, gauss_cfg, output_dir, backend="gaussian",
-            markers=OBJECTIVE_MARKERS + ["total_errors_legacy"],
-        )
-
-        # --- SENSITIVITY: transformed response -------------------------------
-        df_transformed = apply_response_transforms(
-            df, OBJECTIVE_MARKERS, GLMM_CONFIG
-        )
-        trans_cfg = dict(set_cfg, output_subdir="sensitivity_transformed")
-        track_results["sensitivity_transformed"] = _fit_predictor_set(
-            df_transformed, set_name, trans_cfg, output_dir,
-            backend="gaussian",
-        )
+        for track in build_track_specs():
+            track_df = (
+                apply_response_transforms(df, OBJECTIVE_MARKERS, GLMM_CONFIG)
+                if track["transform"] else df
+            )
+            track_cfg = dict(set_cfg, output_subdir=track["output_subdir"])
+            track_results[track["name"]] = _fit_predictor_set(
+                track_df, set_name, track_cfg, output_dir,
+                backend=track["backend"], olre=track["olre"],
+                markers=track["markers"],
+            )
 
     comparison_path = output_dir / "model_comparison.csv"
     build_model_comparison(track_results, PREDICTORS).to_csv(
@@ -2151,7 +2234,15 @@ def plots_only(predictor_set_names: list[str] | None = None) -> None:
 
         # --- Reconstruct data (needed for binscatter and marginal line) -------
         df_markers = pd.read_csv(markers_path)
+        # Must mirror run_pipeline_for_dataset exactly, or the binscatter cloud
+        # would be built from a different marker than the one that was fitted.
+        df_markers["_total_error_count"] = (
+            df_markers["n_omissions"] + df_markers["n_commissions"]
+        )
         df_markers["total_errors"] = (
+            df_markers["_total_error_count"] / df_markers["n_trials_window"]
+        )
+        df_markers["total_errors_legacy"] = (
             df_markers["omission_rate"] + df_markers["commission_rate"]
         )
         df_probe = pd.read_csv(PROBE_DATA_PATH)
@@ -2178,53 +2269,59 @@ def plots_only(predictor_set_names: list[str] | None = None) -> None:
         if APPLY_WITHIN_SUBJECT_Z:
             df = apply_within_subject_z_scoring(df, OBJECTIVE_MARKERS)
 
-        # --- Regenerate plots for each requested predictor set ----------------
+        # --- Regenerate plots for every track of each predictor set -----------
+        df_transformed = apply_response_transforms(
+            df, OBJECTIVE_MARKERS, GLMM_CONFIG
+        )
+
         for set_name in predictor_set_names:
             set_cfg = PREDICTOR_SETS[set_name]
             set_predictors = set_cfg["predictors"]
-            set_dir = output_dir / set_cfg["output_subdir"]
-            print(f"  --- Predictor set: {set_name} → {set_dir} ---")
 
-            results_for_set: dict[str, pd.DataFrame] = {}
-            for marker in OBJECTIVE_MARKERS:
-                csv_path = set_dir / f"{marker}_lmm_results.csv"
-                results_for_set[marker] = pd.read_csv(csv_path)
-                print(f"    Loaded {csv_path}")
+            for track in build_track_specs():
+                set_dir = output_dir / track["output_subdir"]
+                if not set_dir.exists():
+                    print(f"  --- skipping {track['name']}: {set_dir} absent ---")
+                    continue
+                print(f"  --- {set_name} / {track['name']} → {set_dir} ---")
 
-            moderation_df = None
-            if set_cfg["with_moderation"]:
-                moderation_df = pd.read_csv(set_dir / "moderation_summary.csv")
-                print("    Loaded moderation_summary.csv")
+                track_df = df_transformed if track["transform"] else df
 
-            # Load predictor SDs saved during the fitting run (for marginal lines)
-            pred_sds: dict[str, float] = {}
-            sds_path = set_dir / "predictor_standardization.csv"
-            if sds_path.exists():
-                sds_df = pd.read_csv(sds_path)
-                pred_sds = dict(zip(sds_df["predictor"], sds_df["sd"]))
-                print(f"    Loaded predictor_standardization.csv ({len(pred_sds)} predictors)")
+                results_for_set: dict[str, pd.DataFrame] = {}
+                for marker in track["markers"]:
+                    csv_path = set_dir / f"{marker}_lmm_results.csv"
+                    results_for_set[marker] = pd.read_csv(csv_path)
 
-            is_std = bool(pred_sds)
+                moderation_df = None
+                mod_path = set_dir / "moderation_summary.csv"
+                if set_cfg["with_moderation"] and mod_path.exists():
+                    moderation_df = pd.read_csv(mod_path)
 
-            print("    Generating scatter grids...")
-            for marker, results_df in results_for_set.items():
-                plot_scatter_grid(
-                    df, results_df, marker, set_dir,
-                    predictors=set_predictors, predictor_sds=pred_sds,
-                )
+                # Predictor SDs saved during fitting (for marginal-line denorm.)
+                pred_sds: dict[str, float] = {}
+                sds_path = set_dir / "predictor_standardization.csv"
+                if sds_path.exists():
+                    sds_df = pd.read_csv(sds_path)
+                    pred_sds = dict(zip(sds_df["predictor"], sds_df["sd"]))
 
-            print("    Generating forest plots...")
-            for marker, results_df in results_for_set.items():
-                plot_combined_forest(results_df, moderation_df, marker, set_dir,
-                                     standardized=is_std,
-                                     predictors=set_predictors)
+                is_std = bool(pred_sds)
 
-            print("    Generating combined panels...")
-            for marker, results_df in results_for_set.items():
-                plot_combined_panel(
-                    df, results_df, moderation_df, marker, set_dir,
-                    predictors=set_predictors, predictor_sds=pred_sds,
-                )
+                for marker, results_df in results_for_set.items():
+                    link = marker_link(marker, track["backend"])
+                    plot_scatter_grid(
+                        track_df, results_df, marker, set_dir,
+                        predictors=set_predictors, predictor_sds=pred_sds,
+                        link=link,
+                    )
+                    plot_combined_forest(
+                        results_df, moderation_df, marker, set_dir,
+                        standardized=is_std, predictors=set_predictors,
+                    )
+                    plot_combined_panel(
+                        track_df, results_df, moderation_df, marker, set_dir,
+                        predictors=set_predictors, predictor_sds=pred_sds,
+                        link=link,
+                    )
 
         print(f"  Done → {output_dir}")
 
