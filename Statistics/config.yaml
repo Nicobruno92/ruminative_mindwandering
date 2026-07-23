@@ -224,6 +224,16 @@ preprocessing:
     # List of predictors to binarize
     predictors: ["onoff"]
 
+  # Orthogonalized quadratic features
+  # For each base_col, computes (base_col - 50)^2 / 50 then residualizes w.r.t. base_col via OLS,
+  # yielding a U-shaped predictor that is orthogonal to the linear term.
+  # The derived column is added to df_behavioral and can be used in the LMM formula.
+  quadratic_features:
+    enabled: true
+    features:
+      valence: valence_sq
+      time: time_sq
+
 # Linear mixed model parameters
 # ================================
 # FORMULA SYNTAX GUIDE:
@@ -254,16 +264,18 @@ preprocessing:
 #   Example: "onoff * valence" -> test "onoff" or "valence" or "onoff:valence"
 #
 lmm:
-  formula: "power ~ onoff + valence + selfother + time  + confidence +  time_on_task + (1|subject)"
+  formula: "power ~ onoff + valence + valence_sq + selfother + time + time_sq + confidence + time_on_task + (1|subject)"
   # predictor_of_interest can be a single string or a list.
   # - Single string: run directly with python Statistics/run_pipeline.py
   # - List: use submit_predictor_loop.sh to submit one SLURM job-set per predictor
   predictor_of_interest:
     - "onoff"
     - "valence"
+    - "valence_sq"
+    - "time"
+    - "time_sq"
     # - "selfother"
     # - "confidence"
-    # - "time"
     # - "time_on_task"
   method: "powell"  # Powell: gradient-free, more robust for complex models with numerical issues
   maxiter: 500     # High value to ensure convergence in difficult cases
@@ -360,6 +372,14 @@ clustering:
 # Adjust p-values when testing multiple features (markers)
 # Can be configured separately for evoked and state markers
 multiple_comparisons:
+  # Unit of correction — what counts as one hypothesis.
+  # Options:
+  #   - "cluster": every cluster from every marker is a hypothesis
+  #   - "marker":  one max-statistic p-value per marker
+  # Kept at "cluster" here to preserve this pipeline's historical results.
+  # Stats_andrillon/config_andrillon.yaml uses "marker" and documents why.
+  unit: "cluster"
+
   # Correction for evoked markers
   # Options:
   #   - false or "none": No correction
@@ -381,6 +401,11 @@ multiple_comparisons:
 
   # Alpha level for correction (typically same as clustering.alpha)
   alpha: 0.05
+
+  # Resolve family membership from selected_markers/feature_families rather than
+  # from whichever marker directories exist on disk, and abort if a declared
+  # marker produced no results (a smaller family means a weaker correction).
+  require_complete_family: true
 
 # Output options
 output:

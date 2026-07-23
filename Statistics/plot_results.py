@@ -92,6 +92,74 @@ def validate_montage_and_channels(info: mne.Info, values: np.ndarray) -> tuple:
     return info, values
 
 
+def overlay_uncorrected_only_channels(
+    ax: plt.Axes,
+    info: mne.Info,
+    n_channels: int,
+    mask_uncorrected: np.ndarray,
+    mask_corrected: np.ndarray,
+    markersize: float = 6,
+    markeredgewidth: float = 1.5,
+) -> None:
+    """
+    Mark channels significant BEFORE correction but not after, as hollow circles.
+
+    Fix FIND-006: this overlay used to take channel positions from
+    ``mne.channels.find_layout(info).pos``, which lives in *layout* space
+    (roughly 0..0.92), while ``mne.viz.plot_topomap`` draws in *head* space
+    (roughly -0.12..0.12). Plotting layout coordinates onto a topomap axis put
+    the circles far outside the head and, worse, triggered matplotlib's
+    autoscale: the axis limits grew ~4.5x and squashed the topomap into a
+    corner. The bug was dormant because the overlay only runs when corrected
+    p-values exist and differ from uncorrected ones, which never happened while
+    the correction step was a silent no-op.
+
+    Positions now come from the same helper ``plot_topomap`` itself uses, and
+    the axis limits are captured before the overlay and restored after it, so a
+    future coordinate mismatch can no longer deform the figure.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Axis that already holds a rendered topomap.
+    info : mne.Info
+        Measurement info providing channel positions.
+    n_channels : int
+        Number of channels represented in the masks.
+    mask_uncorrected : np.ndarray
+        Boolean mask of channels significant before correction.
+    mask_corrected : np.ndarray
+        Boolean mask of channels significant after correction.
+    markersize : float
+        Marker size for the hollow circles.
+    markeredgewidth : float
+        Edge width for the hollow circles.
+    """
+    uncorrected_only = mask_uncorrected & ~mask_corrected
+    if not np.any(uncorrected_only):
+        return
+
+    # Same coordinate space plot_topomap renders in.
+    from mne.channels.layout import _find_topomap_coords
+
+    pos = _find_topomap_coords(info, picks=np.arange(n_channels), sphere=None)
+
+    # Freeze the view so the overlay can never rescale the topomap.
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    ax.plot(
+        pos[uncorrected_only, 0],
+        pos[uncorrected_only, 1],
+        'o',
+        markerfacecolor='none',
+        markeredgecolor='k',
+        markeredgewidth=markeredgewidth,
+        markersize=markersize,
+        zorder=10,
+    )
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+
+
 def plot_cluster_topomap(
     t_stats: np.ndarray,
     clusters: List[np.ndarray],
@@ -206,21 +274,20 @@ def plot_cluster_topomap(
         res=128  # Higher resolution for smoother interpolation
     )
     
-    # If uncorrected p-values provided, overlay empty circles for uncorrected significant clusters
+    # If uncorrected p-values provided, overlay empty circles for uncorrected
+    # significant clusters.
     if mask_uncorrected is not None:
-        # Get channel positions using MNE's public API
-        from mne.channels import find_layout
-        layout = find_layout(info, ch_type='eeg')
-        pos = layout.pos[:len(t_stats), :2]  # Get x, y positions
-        
-        # Plot empty circles for uncorrected significant clusters
-        # Only plot if not already shown as corrected (to avoid overlap)
-        uncorrected_only = mask_uncorrected & ~mask_corrected
-        if np.any(uncorrected_only):
-            ax.plot(pos[uncorrected_only, 0], pos[uncorrected_only, 1], 
-                   'o', markerfacecolor='none', markeredgecolor='k', 
-                   markeredgewidth=1.5, markersize=6, zorder=10)
-    
+        overlay_uncorrected_only_channels(
+            ax=ax,
+            info=info,
+            n_channels=len(t_stats),
+            mask_uncorrected=mask_uncorrected,
+            mask_corrected=mask_corrected,
+            markersize=6,
+            markeredgewidth=1.5,
+        )
+
+
     # Clip the image to a circular mask (head boundary)
     # Get the image extent and create circular mask
     from matplotlib.patches import Circle

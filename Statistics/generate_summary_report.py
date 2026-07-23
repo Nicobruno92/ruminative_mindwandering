@@ -208,54 +208,108 @@ def load_all_marker_results(model_dir: Path, verbose: bool = True) -> List[Dict]
         results_file = marker_dir / "results.pkl"
         
         if results_file.exists():
-            try:
-                with open(results_file, 'rb') as f:
-                    result = pickle.load(f)
-                    result['marker_dir'] = marker_dir
-                    results.append(result)
-                    
-                    if verbose:
-                        marker_name = result.get('marker_name', 'unknown')
-                        marker_type = result.get('marker_type', 'unknown')
-                        n_sig = result.get('n_sig_clusters', 0)
-                        print(f"  ✓ Loaded: {marker_type}/{marker_name} ({n_sig} sig clusters)")
-                        
-            except Exception as e:
-                if verbose:
-                    print(f"  ✗ Failed to load {marker_dir.name}: {e}")
-    
+            # Fix FIND-001: no try/except. A marker that fails to load must not
+            # vanish from the report while the run still claims success.
+            with open(results_file, 'rb') as f:
+                result = pickle.load(f)
+            result['marker_dir'] = marker_dir
+            results.append(result)
+
+            if verbose:
+                marker_name = result.get('marker_name', 'unknown')
+                marker_type = result.get('marker_type', 'unknown')
+                n_sig = result.get('n_sig_clusters', 0)
+                print(f"  ✓ Loaded: {marker_type}/{marker_name} ({n_sig} sig clusters)")
+
+
     if verbose:
         print(f"\n✓ Loaded {len(results)} marker results")
     
     return results
 
 
+def assert_corrected_pvalues_present(results: List[Dict]) -> None:
+    """
+    Verify every marker carries multiple-comparisons-corrected p-values.
+
+    Fix FIND-003: ``create_summary_table`` used to fall back to the UNCORRECTED
+    cluster count whenever ``cluster_p_values_corrected`` was missing, while
+    still labelling the column "Sig Clusters (corr)". Because a path bug made
+    the correction step a silent no-op, every published report showed raw
+    p-values under a "corrected" heading. Missing correction is now a hard
+    error: the report must never be able to misrepresent what it is showing.
+
+    Parameters
+    ----------
+    results : List[Dict]
+        Marker result dictionaries loaded from disk.
+
+    Raises
+    ------
+    ValueError
+        If any marker lacks corrected p-values.
+    """
+    # Markers explicitly outside the correction family are expected to carry no
+    # corrected p-values; they are reported separately as exploratory.
+    family = [r for r in results if r.get('in_correction_family', True)]
+    missing = [
+        r.get('marker_name', 'unknown')
+        for r in family
+        if 'cluster_p_values_corrected' not in r
+    ]
+    if missing:
+        raise ValueError(
+            f"{len(missing)}/{len(family)} marker(s) in the correction family have "
+            f"no corrected p-values, so a report with use_corrected=True would "
+            f"silently show UNCORRECTED results. Run "
+            f"Statistics/apply_mcc_postprocessing.py on this model directory "
+            f"first.\nMissing e.g.: {missing[:5]}"
+        )
+
+
 def create_summary_table(results: List[Dict], alpha: float = 0.05) -> pd.DataFrame:
     """
     Create comprehensive summary table from all results.
-    
+
     Parameters
     ----------
     results : List[Dict]
         List of result dictionaries
     alpha : float
         Significance threshold
-        
+
     Returns
     -------
     pd.DataFrame
-        Summary table with all markers
+        Summary table with all markers. Uncorrected and corrected significance
+        are always reported side by side, never one in place of the other.
     """
     summary_data = []
-    
+
     for result in results:
-        # Determine which cluster count to use (corrected if available)
-        if 'cluster_p_values_corrected' in result:
+        # A marker outside the declared correction family was never corrected.
+        # Its uncorrected statistics remain informative, but reporting a
+        # "corrected" count for it would be a category error.
+        in_family = result.get('in_correction_family', True)
+
+        # Corrected significance. Prefer the stored rejection flags, which
+        # encode the hierarchical gatekeeping used by unit="marker"; fall back
+        # to thresholding the corrected p-values for unit="cluster".
+        if not in_family:
+            n_sig_corrected = np.nan
+        elif 'cluster_rejected' in result:
+            n_sig_corrected = int(np.sum(result['cluster_rejected']))
+        elif 'cluster_p_values_corrected' in result:
             correction_alpha = result.get('correction_alpha', alpha)
-            n_sig_corrected = np.sum(result['cluster_p_values_corrected'] <= correction_alpha)
+            n_sig_corrected = int(
+                np.sum(result['cluster_p_values_corrected'] <= correction_alpha)
+            )
         else:
-            n_sig_corrected = result.get('n_sig_clusters', 0)
-        
+            # Unreachable when use_corrected=True (see
+            # assert_corrected_pvalues_present); NaN rather than a raw count so
+            # an uncorrected run can never masquerade as a corrected one.
+            n_sig_corrected = np.nan
+
         summary_data.append({
             'Marker Type': result.get('marker_type', 'unknown'),
             'Marker Name': result.get('marker_name', 'unknown'),
@@ -265,7 +319,13 @@ def create_summary_table(results: List[Dict], alpha: float = 0.05) -> pd.DataFra
             'Total Clusters': result.get('n_clusters', 0),
             'Sig Clusters (uncorr)': result.get('n_sig_clusters', 0),
             'Sig Clusters (corr)': n_sig_corrected,
+            'In Correction Family': in_family,
+            'Marker p (uncorr)': result.get('marker_p_value', np.nan),
+            'Marker p (corr)': result.get('marker_p_value_corrected', np.nan),
+            'Marker Rejected': result.get('marker_rejected', pd.NA),
             'Correction Method': result.get('correction_method', 'none'),
+            'Correction Unit': result.get('correction_unit', 'none'),
+            'Correction Family Size': result.get('correction_family_size', pd.NA),
             'T-stat Min': np.nanmin(result.get('t_stats', [0])),
             'T-stat Max': np.nanmax(result.get('t_stats', [0])),
             'T-stat Mean (abs)': np.nanmean(np.abs(result.get('t_stats', [0]))),
@@ -458,17 +518,22 @@ def _plot_single_topomap(
     info = result.get('info')
     marker_name = result.get('marker_name', 'Unknown')
     
-    # Determine which p-values to use as primary
+    # Determine which p-values to use as primary. A marker outside the
+    # correction family is labelled "uncorrected" so the panel cannot be read
+    # as if it had been corrected.
     cluster_p_values_corrected = None
     if use_corrected and 'cluster_p_values_corrected' in result:
         cluster_p_values = result['cluster_p_values_corrected']
         cluster_p_values_corrected = cluster_p_values_uncorrected  # For showing both
         alpha_to_use = result.get('correction_alpha', alpha)
-        correction_label = f" (MCC)"
+        correction_label = " (MCC)"
     else:
         cluster_p_values = cluster_p_values_uncorrected
         alpha_to_use = alpha
-        correction_label = ""
+        correction_label = (
+            " (uncorr, not in family)"
+            if not result.get('in_correction_family', True) else ""
+        )
     
     # Create title with marker name and significance info
     n_sig_clusters = np.sum(cluster_p_values < alpha_to_use)
@@ -537,17 +602,22 @@ def _plot_single_topomap(
             res=128
         )
         
-        # If uncorrected p-values provided, overlay empty circles
+        # If uncorrected p-values provided, overlay empty circles.
+        # Fix FIND-006: shared helper — see plot_results for why the previous
+        # find_layout()-based coordinates deformed the topomap.
         if mask_uncorrected is not None:
-            from mne.channels import find_layout
-            layout = find_layout(info, ch_type='eeg')
-            pos = layout.pos[:len(t_stats), :2]  # Get x, y positions
-            uncorrected_only = mask_uncorrected & ~mask_corrected
-            if np.any(uncorrected_only):
-                ax.plot(pos[uncorrected_only, 0], pos[uncorrected_only, 1], 
-                       'o', markerfacecolor='none', markeredgecolor='k', 
-                       markeredgewidth=1.0, markersize=4, zorder=10)
-        
+            from plot_results import overlay_uncorrected_only_channels
+            overlay_uncorrected_only_channels(
+                ax=ax,
+                info=info,
+                n_channels=len(t_stats),
+                mask_uncorrected=mask_uncorrected,
+                mask_corrected=mask_corrected,
+                markersize=4,
+                markeredgewidth=1.0,
+            )
+
+
         # Add colorbar (adjusted size for grid layout)
         cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, shrink=0.8)
         cbar.set_label('t-stat', rotation=270, labelpad=12, fontsize=8)
@@ -591,12 +661,15 @@ def create_detailed_results_table(
         summary_df = create_summary_table(results, alpha)
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
         
-        # Sheet 2: Significant markers only
+        # Sheet 2: Significant markers only. Restricted to the correction
+        # family — an excluded marker has no corrected count to threshold.
+        in_family_mask = summary_df['In Correction Family'].fillna(True).astype(bool)
         if use_corrected:
-            sig_mask = summary_df['Sig Clusters (corr)'] > 0
+            sig_mask = in_family_mask & (summary_df['Sig Clusters (corr)'] > 0)
         else:
-            sig_mask = summary_df['Sig Clusters (uncorr)'] > 0
-        
+            sig_mask = in_family_mask & (summary_df['Sig Clusters (uncorr)'] > 0)
+
+
         sig_df = summary_df[sig_mask].copy()
         sig_df.to_excel(writer, sheet_name='Significant Only', index=False)
         
@@ -886,7 +959,14 @@ def generate_summary_report(
     if len(results) == 0:
         print("\n⚠ No results found. Cannot generate report.")
         return
-    
+
+    # Fix FIND-003: refuse to label uncorrected results as corrected.
+    if use_corrected:
+        assert_corrected_pvalues_present(results)
+        units = {r.get('correction_unit', 'unknown') for r in results}
+        methods = {r.get('correction_method', 'unknown') for r in results}
+        print(f"Correction provenance: unit={sorted(units)}, method={sorted(methods)}")
+
     # Create output paths
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     summary_csv = model_dir / f"SUMMARY_REPORT_{timestamp}.csv"
@@ -919,15 +999,25 @@ def generate_summary_report(
     print(f"  State markers: {len([r for r in results if r.get('marker_type') == 'state'])}")
     print(f"  Sleep markers: {len([r for r in results if r.get('marker_type') == 'sleep'])}")
     
+    # Totals are reported over the correction family only. Markers outside it
+    # were never corrected, so adding them to a "corrected" total would mix
+    # corrected and uncorrected counts under one heading.
+    in_family_mask = summary_df['In Correction Family'].fillna(True).astype(bool)
+    family_df = summary_df[in_family_mask]
+    n_excluded = int((~in_family_mask).sum())
+
     if use_corrected:
-        n_sig = summary_df['Sig Clusters (corr)'].sum()
-        n_markers_with_sig = (summary_df['Sig Clusters (corr)'] > 0).sum()
+        n_sig = int(family_df['Sig Clusters (corr)'].sum())
+        n_markers_with_sig = int((family_df['Sig Clusters (corr)'] > 0).sum())
     else:
-        n_sig = summary_df['Sig Clusters (uncorr)'].sum()
-        n_markers_with_sig = (summary_df['Sig Clusters (uncorr)'] > 0).sum()
-    
+        n_sig = int(family_df['Sig Clusters (uncorr)'].sum())
+        n_markers_with_sig = int((family_df['Sig Clusters (uncorr)'] > 0).sum())
+
+    print(f"  Correction family size: {len(family_df)}")
+    if n_excluded:
+        print(f"  Markers outside the family (uncorrected, exploratory): {n_excluded}")
     print(f"  Total significant clusters: {n_sig}")
-    print(f"  Markers with ≥1 sig cluster: {n_markers_with_sig}/{len(results)}")
+    print(f"  Markers with ≥1 sig cluster: {n_markers_with_sig}/{len(family_df)}")
     
     # Generate comparison topoplots
     print("\n" + "-"*80)
