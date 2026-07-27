@@ -16,7 +16,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Stats_andrillon"))
 
+import pandas as pd  # noqa: E402
+
 from omnibus_test import (  # noqa: E402
+    apply_cross_dimension_correction,
     extract_null_matrices,
     observed_marker_pvalues,
     permutation_marker_pvalues,
@@ -144,6 +147,61 @@ def test_omnibus_detects_a_planted_family_effect():
     assert stats["count_observed"] == 5
     assert stats["count_p_omnibus"] < 0.05
     assert stats["min_p_fwer"] < 0.05
+
+
+# =============================================================================
+# Cross-dimension correction
+# =============================================================================
+
+def test_cross_dimension_bh_is_monotone_and_per_family():
+    """BH correction runs within each family and never lowers a p-value.
+
+    Uses the real six-dimension sleep p-values, where two dimensions are far
+    from chance and three are marginal (~0.04). BH must keep the strong two
+    significant and push the marginal three just past 0.05 — the whole point of
+    adding the cross-dimension layer.
+    """
+    dims = ["onoff", "valence_sq", "valence", "time", "time_sq", "selfother"]
+    df = pd.DataFrame({
+        "target": dims * 2,
+        "family": ["sleep"] * 6 + ["evoked"] * 6,
+        "count_p_omnibus": [0.0002, 0.0004, 0.038, 0.041, 0.043, 0.085]
+                           + [0.094, 1.0, 1.0, 1.0, 0.033, 0.099],
+        "min_p_fwer": [0.0002, 0.0002, 0.162, 0.143, 0.091, 0.159]
+                      + [0.025, 0.356, 0.283, 0.612, 0.104, 0.121],
+    })
+    out = apply_cross_dimension_correction(df, alpha=0.05)
+
+    # corrected never below uncorrected
+    assert (out["count_p_bh"] >= out["count_p_omnibus"] - 1e-12).all()
+    assert (out["min_p_bh"] >= out["min_p_fwer"] - 1e-12).all()
+
+    sleep = out[out.family == "sleep"].set_index("target")
+    # the two strong dimensions survive
+    assert sleep.loc["onoff", "count_p_bh"] < 0.05
+    assert sleep.loc["valence_sq", "count_p_bh"] < 0.05
+    # the three marginal ones are lifted past threshold
+    for tgt in ["valence", "time", "time_sq"]:
+        assert sleep.loc[tgt, "count_p_bh"] > 0.05
+
+    # correction is per-family: sleep values do not depend on evoked's
+    recomputed_sleep = apply_cross_dimension_correction(
+        df[df.family == "sleep"].copy(), alpha=0.05
+    ).set_index("target")["count_p_bh"]
+    for tgt in dims:
+        assert sleep.loc[tgt, "count_p_bh"] == pytest.approx(recomputed_sleep.loc[tgt])
+
+
+def test_cross_dimension_single_dimension_is_noop():
+    df = pd.DataFrame({
+        "target": ["onoff"],
+        "family": ["sleep"],
+        "count_p_omnibus": [0.01],
+        "min_p_fwer": [0.02],
+    })
+    out = apply_cross_dimension_correction(df, alpha=0.05)
+    assert out["count_p_bh"].iloc[0] == pytest.approx(0.01)
+    assert out["min_p_bh"].iloc[0] == pytest.approx(0.02)
 
 
 # =============================================================================

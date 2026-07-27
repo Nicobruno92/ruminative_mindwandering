@@ -32,14 +32,40 @@ Focuses on neural correlates of mind-wandering independent of patient status.
 
 **Section 2 — CBPT: dimension-specific neural signatures**
 - Andrillon pipeline (LMM + cluster-permutation): which EEG markers show group-level correlates for each dimension?
-- Report by marker family, not marker by marker:
-  - **Attentional** (P3b, P3a): onoff > selfother, absent for valence/time
-  - **Complexity/arousal** (KoC, PE-beta/gamma, SEF90/95): strong for onoff; emerges for valence only via valence×confidence interaction (48-electrode clusters)
-  - **Broadband power** (PSD gamma/beta): mostly specific to onoff
-  - **Sleep-like oscillations** (slow waves, delta/theta, spindles): present across dimensions with dimension-specific polarity — slow waves decrease on-task (onoff) but increase with emotional content (valence)
-- Main figure: topomaps (representative markers × dimensions) + heatmap (marker families × dimensions)
-- Full details: supplementary table
-- Results: `results/andrillon_cluster/`
+- Two model formulas: a linear one, and a quadratic one adding `valence_sq`/`time_sq`
+  (orthogonalised U-shaped terms). Report the **quadratic** specification for all
+  targets — it is better specified, so mixing the two per target is a forking path.
+- **Multiple comparisons are read at two levels** (`Stats_andrillon/`, see the
+  `andrillon-mcc-fdr-per-family` memory for the full method):
+  1. *Marker-wise* — one max-statistic p per marker, Benjamini-Hochberg within each
+     marker family (evoked m=4, sleep m=19). Answers "which specific marker?".
+  2. *Omnibus* (`Stats_andrillon/omnibus_test.py`) — a family-level permutation test.
+     Answers "does this dimension leave ANY neural trace?", which the marker-wise
+     step cannot: signal spread over several moderate markers fails every
+     marker-wise test yet is collectively far from chance. Two statistics: a *count*
+     (markers below α vs the permutation null) and a *min-p* (best marker, FWER-valid
+     under arbitrary dependence — the assumption-free counterpart to BH). Both are
+     then BH-corrected across the six dimensions within each family.
+- **Result is a three-tier hierarchy, not "only onoff"** (after cross-dimension BH,
+  sleep family):
+  - **Concentrated AND localizable** — `onoff` and `valence_sq`: omnibus count and
+    min-p both survive (BH ≈ 0.001), both peaking in complexity/arousal (**PE-beta**).
+    `valence_sq` is a genuine new finding: complexity tracks *extreme* valence
+    (U-shaped), not linear valence.
+  - **Distributed but real** — `time`, `valence` (linear), `time_sq`: omnibus count
+    is near-significant (uncorrected p≈0.04) but lands at BH≈0.052 and no single
+    marker survives FWER. A group-level trace exists; it is not localizable. These
+    are the dimensions the marker-wise step reported as flat 0 clusters — not null,
+    diffuse.
+  - **Weak/null** — `selfother` (omnibus p≈0.085), and the evoked family for every
+    non-onoff dimension.
+- The old "48-electrode valence×confidence" and "slow waves increase with valence"
+  claims do **not** survive the corrected analysis — do not reuse them.
+- Main figure: topomaps (representative markers × dimensions) + heatmap (marker
+  families × dimensions). Report both marker-wise and omnibus levels; flag the
+  distributed tier as suggestive, not confirmatory.
+- Results: `results/andrillon_cluster/` (per-dir `multiple_comparisons_summary.csv`,
+  `mcc_family_composition.csv`; family-level `omnibus_test.csv` at the root).
 
 **Section 3 — Classification: individual-level decodability**
 - Within-subject RF classifier (median split per dimension): tests whether neural signatures support trial-by-trial prediction per individual

@@ -58,6 +58,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import yaml
+from mne.stats import fdr_correction
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Statistics"))
 
@@ -217,6 +218,65 @@ def permutation_marker_pvalues(pos: np.ndarray, neg: np.ndarray) -> np.ndarray:
     return np.minimum(np.minimum(p_pos, p_neg), 1.0)
 
 
+def apply_cross_dimension_correction(
+    df: pd.DataFrame,
+    alpha: float,
+) -> pd.DataFrame:
+    """
+    Correct the omnibus p-values for testing multiple probe dimensions.
+
+    Each row of ``df`` is one (dimension x family) omnibus test. Running the
+    omnibus for six dimensions is itself a multiple-comparisons problem that the
+    per-dimension p-values do not account for: at a nominal 0.05, one of six
+    null dimensions is expected to look significant by chance.
+
+    The correction is Benjamini-Hochberg FDR applied **across dimensions,
+    separately within each marker family** (evoked, sleep) and separately for
+    each statistic (count, min-p). This mirrors the project-wide convention that
+    multiple-comparisons correction is applied within a marker family, not
+    pooled across families whose dependence structure differs. Pooling all
+    twelve tests instead is a defensible alternative and would be slightly more
+    conservative; it is not used so the correction unit stays consistent with
+    the marker-wise step.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        One row per (dimension, family), with ``count_p_omnibus`` and
+        ``min_p_fwer`` columns.
+    alpha : float
+        FDR level.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``df`` with two added columns, ``count_p_bh`` and ``min_p_bh``, holding
+        the dimension-corrected p-values. Rejection at ``alpha`` is left to the
+        reader by thresholding these, exactly as for the uncorrected columns.
+    """
+    df = df.copy()
+    df["count_p_bh"] = np.nan
+    df["min_p_bh"] = np.nan
+
+    for family in df["family"].unique():
+        mask = df["family"] == family
+        # Guard: BH over a single dimension is a no-op but must not error.
+        if mask.sum() < 2:
+            df.loc[mask, "count_p_bh"] = df.loc[mask, "count_p_omnibus"].values
+            df.loc[mask, "min_p_bh"] = df.loc[mask, "min_p_fwer"].values
+            continue
+        _, count_bh = fdr_correction(
+            df.loc[mask, "count_p_omnibus"].values, alpha=alpha, method="indep"
+        )
+        _, minp_bh = fdr_correction(
+            df.loc[mask, "min_p_fwer"].values, alpha=alpha, method="indep"
+        )
+        df.loc[mask, "count_p_bh"] = count_bh
+        df.loc[mask, "min_p_bh"] = minp_bh
+
+    return df
+
+
 def run_omnibus(
     results: List[Dict],
     alpha: float,
@@ -318,9 +378,27 @@ def main() -> int:
             )
 
     df = pd.DataFrame(rows)
+
+    # Correct for testing multiple dimensions, unless a single model dir was
+    # requested (nothing to correct across).
+    if args.model_dir is None and df["target"].nunique() > 1:
+        df = apply_cross_dimension_correction(df, alpha)
+        print("\n" + "=" * 80)
+        print("Cross-dimension BH correction (within each family):")
+        print("=" * 80)
+        for _, r in df.sort_values(["family", "target"]).iterrows():
+            print(
+                f"  {r['target']:11s} [{r['family']:6s}]  "
+                f"count p {r['count_p_omnibus']:.4f} -> BH {r['count_p_bh']:.4f}   "
+                f"min-p FWER {r['min_p_fwer']:.4f} -> BH {r['min_p_bh']:.4f}"
+            )
+    else:
+        df["count_p_bh"] = np.nan
+        df["min_p_bh"] = np.nan
+
     cols = ["model", "target", "family", "n_markers", "n_permutations",
-            "count_observed", "count_null_mean", "count_p_omnibus",
-            "best_marker", "min_p_observed", "min_p_fwer"]
+            "count_observed", "count_null_mean", "count_p_omnibus", "count_p_bh",
+            "best_marker", "min_p_observed", "min_p_fwer", "min_p_bh"]
     df = df[cols]
 
     out_path = output_root / OUTPUT_NAME
