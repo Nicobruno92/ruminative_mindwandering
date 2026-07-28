@@ -38,6 +38,7 @@ from utils.data_utils import (
 from utils.analysis_utils import (
     run_within_subject_distribution_analysis,
     run_within_subject_permutation_analysis,
+    _build_filename_base,
 )
 from utils.logging_utils import AnalysisLogger
 from utils.plotting_utils import (
@@ -375,7 +376,7 @@ def main():
             .reset_index()
         )
         _dim_path = results_path
-        _fname_base = f"{model_type}_loso_{total_n_runs_for_seeds}runs" if total_n_runs_for_seeds > 1 else f"{model_type}_loso"
+        _fname_base = _build_filename_base(model_type, total_n_runs_for_seeds, pipeline_label="ws")
         _label_col = config.get("label_contrasts", {}).get(contrast_name, {}).get("column_name", "onoff")
         plot_auc_vs_onoff_dispersion(
             _ws_subject_auc_df, df_prepared, _dim_path, _fname_base, "WithinSubject",
@@ -464,12 +465,19 @@ def main():
             _miniforge = Path(os.path.expanduser("~")) / "miniforge3"
             _ml_python = _miniforge / "envs" / _conda_env / "bin" / "python"
             _python = str(_ml_python) if _ml_python.exists() else sys.executable
-            subprocess.run(
+            _plot_result = subprocess.run(
                 [_python, str(_plot_script),
                  "--results_dir", results_path,
-                 "--top_n_features", str(config.get("top_n_features_plot", 20))],
+                 "--top_n_features", str(config.get("top_n_features_plot", 20)),
+                 "--min_shap_feature_row_frac", str(config.get("min_shap_feature_row_frac", 0.5))],
                 check=False,
             )
+            if _plot_result.returncode != 0:
+                raise RuntimeError(
+                    f"generate_pipeline_plots.py failed (exit code "
+                    f"{_plot_result.returncode}) for results_dir={results_path}; "
+                    f"see the subprocess output above for the root cause."
+                )
 
     print(f"\n{'='*60}")
     print(f"Done. Results → {results_path}")

@@ -28,7 +28,6 @@ from utils.plotting_utils import (
     plot_confusion_matrix,
     plot_roc_curve,
     plot_feature_importances,
-    plot_shap_beeswarm,
     plot_shap_feature_importance,
     plot_metric_distribution_with_stats,
     empirical_mean_permutation_pvalue,
@@ -92,11 +91,25 @@ def get_permutation_run_dir(dimension_results_path: str, run_idx: int,
     return perm_dir
 
 
-def _build_filename_base(model_type: str, n_runs: int) -> str:
-    """Build base filename for results files."""
+def _build_filename_base(model_type: str, n_runs: int, pipeline_label: str = "loso") -> str:
+    """
+    Build base filename for results files.
+
+    Parameters
+    ----------
+    model_type : str
+        'rf', 'xgb', or 'lr'.
+    n_runs : int
+        Number of true runs in this job.
+    pipeline_label : str
+        'loso' or 'ws' — identifies which pipeline produced this file.
+        Previously hardcoded to 'loso' even for within-subject output, so
+        WS files were misleadingly named e.g. ``rf_loso_03_shap_values.pkl``
+        for a within-subject per-subject run (Fix FIND-007).
+    """
     if n_runs > 1:
-        return f"{model_type}_loso_{n_runs}runs"
-    return f"{model_type}_loso"
+        return f"{model_type}_{pipeline_label}_{n_runs}runs"
+    return f"{model_type}_{pipeline_label}"
 
 
 # =============================================================================
@@ -370,8 +383,9 @@ def _save_shap_values(
 
     Returns
     -------
-    np.ndarray or None
-        SHAP values array for this run, or None if computation failed.
+    tuple of (np.ndarray, np.ndarray, np.ndarray) or None
+        ``(shap_values, x_test, y_true)`` for this run, or None if computation
+        failed.
     """
     if model_type not in ("rf", "xgb", "lr"):
         return None
@@ -405,9 +419,15 @@ def _save_shap_values(
                     X_test.loc[mask, numeric_cols]
                 )
 
-        fold_shap = compute_shap_values_for_pipeline(estimator, X_test, feature_names)
+        # fold_x is the actual (scaler-applied, zero-padded) matrix the
+        # explainer used — NOT necessarily identical to X_test.values, since
+        # the estimator's own `scaler` step (e.g. within-subject pipelines)
+        # may transform it further.  Saving fold_x instead of X_test.values
+        # keeps the beeswarm color axis correctly paired with fold_shap
+        # (Fix FIND-001).
+        fold_shap, fold_x, _ = compute_shap_values_for_pipeline(estimator, X_test, feature_names)
         fold_shap_list.append(fold_shap)
-        fold_x_list.append(X_test.values)
+        fold_x_list.append(fold_x)
         if y is not None:
             fold_y_true_list.append(y.iloc[test_idx].values)
 
@@ -576,23 +596,25 @@ def _generate_plots(
         plot_loso_subject_metrics(loso_subject_df, dimension_results_path, filename_base)
         print("  ✓ LOSO per-subject metrics")
 
-    # SHAP plots
+    # SHAP feature-importance bar chart (mean|SHAP| across all true runs).
+    # The native shap.plots.beeswarm rendering (the correctly row/column-aligned
+    # SHAP-vs-feature-value plot) is produced separately by
+    # scripts/generate_pipeline_plots.py, which reads each run's own paired
+    # (shap_values, x_test) directly from its saved pkl rather than
+    # reconstructing a color axis here (Fix FIND-002: a custom Plotly
+    # beeswarm previously lived in this function and paired combined_shap
+    # with a freshly re-sliced, unpaired copy of the raw feature matrix,
+    # decorrelating color from the SHAP values it was supposed to explain).
     if shap_values_all_runs:
         valid_shap = [s for s in shap_values_all_runs if s is not None]
         if valid_shap:
             combined_shap = np.concatenate(valid_shap, axis=0)
-            combined_X_vals = np.tile(X.values, (len(valid_shap), 1))
-            plot_shap_beeswarm(
-                combined_shap, combined_X_vals, feature_names,
-                dimension, dimension_results_path, filename_base,
-                max_display=top_n_features_plot,
-            )
             plot_shap_feature_importance(
-                combined_shap, combined_X_vals, feature_names,
+                combined_shap, feature_names,
                 dimension_results_path, filename_base,
                 max_display=top_n_features_plot,
             )
-            print("  ✓ SHAP plots")
+            print("  ✓ SHAP feature-importance plot")
 
     print(f"  All plots saved to: {dimension_results_path}")
 
@@ -881,12 +903,6 @@ def run_distribution_analysis(
     if not all_results:
         print("No successful runs.")
         return pd.DataFrame()
-
-    # Save aggregated SHAP across all runs
-    if shap_values_all_runs and save_shap:
-        with open(os.path.join(dimension_results_path,
-                               f"{filename_base}_all_shap_values.pkl"), "wb") as f:
-            pickle.dump(shap_values_all_runs, f)
 
     # Consolidate sample-level predictions across true_runs/
     if save_probabilities and n_runs > 1:
@@ -1811,7 +1827,7 @@ def run_within_subject_distribution_analysis(
     dimension_results_path = results_path
     Path(dimension_results_path).mkdir(parents=True, exist_ok=True)
 
-    filename_base = _build_filename_base(model_type, n_runs)
+    filename_base = _build_filename_base(model_type, n_runs, pipeline_label="ws")
     feature_names = X.columns
     unique_subjects = np.unique(subjects)
 
@@ -1828,7 +1844,7 @@ def run_within_subject_distribution_analysis(
         1, 10000, size=max(_total_runs, run_idx_offset + n_runs)
     )
 
-    filename_base_global = _build_filename_base(model_type, _total_runs)
+    filename_base_global = _build_filename_base(model_type, _total_runs, pipeline_label="ws")
 
     # Store results aggregated across runs
     all_runs_subject_metrics = []

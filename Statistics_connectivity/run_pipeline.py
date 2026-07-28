@@ -30,6 +30,7 @@ from reader import (
     normalize_predictors,
     prepare_connectivity_for_lmm,
     get_roi_pair_labels,
+    add_quadratic_features,
 )
 from lmm_connectivity import (
     run_lmm_per_connection,
@@ -348,6 +349,16 @@ def main(config_path: str = "Statistics_connectivity/config.yaml", single_band: 
             band_df = merge_pca_results(
                 df=band_df,
                 pca_results_path=pca_path,
+                verbose=True,
+            )
+
+        # ── Orthogonalized quadratic features ─────────────────────────────
+        quad_cfg = preproc_cfg.get("quadratic_features", {})
+        if quad_cfg.get("enabled", False):
+            print(f"  Adding orthogonalized quadratic features for band {band}...")
+            band_df = add_quadratic_features(
+                df=band_df,
+                quadratic_features=quad_cfg.get("features", {}),
                 verbose=True,
             )
 

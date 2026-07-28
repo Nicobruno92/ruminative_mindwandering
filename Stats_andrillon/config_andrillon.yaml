@@ -27,6 +27,9 @@ project:
 
   # Filter subjects by predictor variability (optional)
   min_predictor_variability: 30
+  # Quadratic predictors live on a 0-50 scale (half the original 0-100).
+  # Use half the linear threshold so the inclusion criterion is equivalent.
+  min_predictor_variability_sq: 15
 
 # =============================================================================
 # FEATURE FAMILIES (identical to Statistics — same Junifer marker names)
@@ -37,21 +40,21 @@ feature_families:
   erp:
     - "P1"
     - "N1"
-    - "P2"
+    # - "P2"
     - "P3a"
     - "P3b"
 
-  spectral:
-    - "psd_bands_delta"
-    - "psd_bands_theta"
-    - "psd_bands_alpha"
-    - "psd_bands_beta"
-    - "psd_bands_jota"
-    - "psd_bands_gamma"
+  # spectral:
+  #   - "psd_bands_delta"
+  #   - "psd_bands_theta"
+  #   - "psd_bands_alpha"
+  #   - "psd_bands_beta"
+  #   - "psd_bands_jota"
+  #   - "psd_bands_gamma"
 
   spectral_ratio:
-    - "psd_bands_theta_beta_ratio"
-    - "psd_bands_alpha_theta_ratio"
+    # - "psd_bands_theta_beta_ratio"
+    # - "psd_bands_alpha_theta_ratio"
     - "psd_relative_theta_beta_ratio"
     - "psd_relative_alpha_theta_ratio"
 
@@ -60,7 +63,7 @@ feature_families:
     - "psd_relative_theta"
     - "psd_relative_alpha"
     - "psd_relative_beta"
-    - "psd_relative_jota"
+    # - "psd_relative_jota"
     - "psd_relative_gamma"
 
   connectivity:
@@ -94,13 +97,17 @@ feature_families:
 selected_markers:
   evoked:
     - erp
-  state:
-    - spectral
-    - spectral_ratio
+  # "state" epoch type dropped entirely: its spectral/connectivity/information-
+  # theory markers are the same quantities also computed on the pre-probe "sleep"
+  # epochs, so running both duplicated every hypothesis and inflated m.
+  # "spectral" (absolute psd_bands_*) removed for the same reason: those markers
+  # duplicate the information in psd_relative_* and were only ever run
+  # exploratorily, so keeping them penalised the hypotheses actually tested.
+  sleep:
+    # - spectral_ratio
     - spectral_relative
     - connectivity
     - information_theory
-  sleep:
     - sleep
 
 # =============================================================================
@@ -134,11 +141,66 @@ preprocessing:
   normalization_method: "zscore"
   channel_wise: false
 
+  # ── Response transform ──────────────────────────────────────────────────
+  # Applied to the marker matrix BEFORE normalize_by_subject. Order is not
+  # optional: the per-subject z-score is a linear map and cannot remove skew,
+  # so a transform applied afterwards would leave residual shape untouched.
+  #
+  # SELECTION RULE (fixed here, before looking at any cluster p-value).
+  # A marker is transformed iff its mean residual excess kurtosis exceeds
+  # RESIDUAL_EXKURT_FLAG (= 3.0, see Statistics/lmm_model.py), as measured by
+  # Stats_andrillon/lmm_assumption_diagnostics.py on the observed fits. That
+  # criterion is blind to the predictor's significance — it describes the shape
+  # of the residual distribution, not the size of any effect — so applying it
+  # per marker is not a forking path. The specific transform per marker is then
+  # dictated by the measurement scale, not chosen by trial and error:
+  #   psd_relative_*   proportions in (0,1)          -> log (empirically better
+  #                                                     behaved than logit here)
+  #   slowwaves_PTP    strictly positive amplitude   -> log
+  #   slowwaves_Density counts with ~44% zeros       -> log1p
+  #
+  # WHY THESE THREE AND NOT ALL 23. The diagnostics run over every marker
+  # (results/andrillon_cluster/*/assumption_diagnostics/assumption_summary.csv)
+  # shows mean residual excess kurtosis of 20.5, 12.0 and 7.3 for these three
+  # against < 5 for all the rest, and < 3 for 17 of 23. Markers whose raw values
+  # look badly skewed — PE_theta, wsmi_beta — have well-behaved *residuals*
+  # (excess kurtosis 2.7 and 1.4) once the model and the per-subject z-score are
+  # applied, so transforming them would be cosmetic.
+  #
+  # KNOWN CAVEAT, recorded deliberately. Transforming a subset means markers are
+  # no longer all on the same response scale. This is acceptable because the
+  # cluster statistic is a sum of t-values — scale-free by construction — and
+  # because the multiple-comparisons family is defined over markers, not over a
+  # shared scale. It would NOT be acceptable if effect sizes were being compared
+  # across markers in raw units; they are not.
+  #
+  # SENSITIVITY. Correlations between the raw and transformed observed t-maps are
+  # r = 0.90 (psd_relative_gamma), 0.99 (slowwaves_PTP), 0.96 (slowwaves_Density),
+  # so no topography is overturned. Report the untransformed run alongside.
+  #
+  # Options per marker: none | log | log1p | logit | sqrt | rank_inverse_normal
+  response_transform:
+    enabled: false   # flip to true to run the transformed track
+    default: "none"
+    by_marker:
+      sleep/psd_relative_gamma: "log"
+      sleep/slowwaves_PTP: "log"
+      sleep/slowwaves_Density: "log1p"
+
+  # Orthogonalized quadratic features
+  # For each base_col, computes (base_col - 50)^2 / 50 then residualizes w.r.t. base_col via OLS,
+  # yielding a U-shaped predictor orthogonal to the linear term.
+  quadratic_features:
+    enabled: true
+    features:
+      valence: valence_sq
+      time: time_sq
+
 # Linear mixed model parameters
 lmm:
   # Formula for the LMM
   # Same syntax as current pipeline
-  formula: "power ~ onoff + valence + selfother + time + time_on_task + confidence + (1|subject)"
+  formula: "power ~ onoff + valence + valence_sq + selfother + time + time_sq + time_on_task + confidence + (1|subject)"
 
   # Predictor of interest (will be permuted and tested)
   # predictor_of_interest can be a single string or a list.
@@ -147,8 +209,10 @@ lmm:
   predictor_of_interest:
     - "onoff"
     - "valence"
+    - "valence_sq"
     - "selfother"
     - "time"
+    - "time_sq"
     # - "time_on_task"
     # - "confidence"
     # Interaction examples (requires per_predictor_formula override below):
@@ -158,8 +222,8 @@ lmm:
   # Per-predictor formula overrides.
   # Only needed for interaction terms — main-effect predictors use formula above.
   per_predictor_formula:
-    # "onoff:confidence": "power ~ onoff * confidence + valence + selfother + time + time_on_task + (1|subject)"
-    # "valence:confidence": "power ~ valence * confidence + onoff + selfother + time + time_on_task + (1|subject)"
+    # "onoff:confidence": "power ~ onoff * confidence + valence + valence_sq + selfother + time + time_sq + time_on_task + (1|subject)"
+    # "valence:confidence": "power ~ valence * confidence + onoff + valence_sq + selfother + time + time_sq + time_on_task + (1|subject)"
 
   # LMM fitting parameters
   method: "powell"  # Optimization method (ignored by R backend — lme4 uses bobyqa)
@@ -296,20 +360,68 @@ channel_exclusion:
 # Multiple comparisons correction
 # Applied when testing multiple markers (cluster-permutation tests).
 #
-# Rationale for FDR over Bonferroni here: Bonferroni multiplies each cluster
-# p-value by the number of clusters in the family. Combined with the
-# permutation-floor p (~1/(n_permutations+1)), this makes significance
-# unreachable in the larger families (sleep/evoked ~55-90 clusters → minimum
-# corrected p ~0.06-0.09 regardless of effect size). FDR (Benjamini-Hochberg)
-# controls the false discovery rate by rank, has no fixed per-test penalty,
-# and is the standard choice when testing many markers, so it preserves power
-# while still controlling for multiplicity. Correction is applied separately
-# within each marker family (evoked / state / sleep).
+# WHAT IS *NOT* CORRECTED HERE: multiplicity across electrodes. That is already
+# controlled by the cluster-permutation test itself, whose null distribution is
+# built from the maximum cluster statistic across the montage. Applying a second
+# correction over electrodes would double-penalise the same multiplicity.
+#
+# WHAT *IS* CORRECTED HERE: multiplicity across markers. The family is exactly
+# what selected_markers/feature_families declare (currently 4 evoked, 16 state,
+# 5 sleep), NOT whatever happens to sit on disk. Markers kept only for
+# exploration were deliberately removed from feature_families: carrying them
+# inflates m and penalises the hypotheses that are actually being tested.
+#
+# UNIT — one p-value per marker, not per cluster.
+# Each cluster p-value is already calibrated against a max-statistic null, so
+# only the most extreme cluster of a marker is properly calibrated; sub-maximal
+# clusters carry conservative p-values. Pooling every cluster would therefore
+# (a) inflate the family size with non-independent, mis-calibrated tests and
+# (b) let a marker's rank in the family depend on how many clusters it happened
+# to fragment into. Representing each marker by its max-statistic p-value makes
+# the family size equal to the number of hypotheses actually posed ("does this
+# marker track the probe dimension?"). Cluster-level significance is then
+# resolved by hierarchical gatekeeping: a cluster is significant only if its
+# marker survived the correction AND its own permutation p-value is < alpha.
+#
+# METHOD — Benjamini-Hochberg, with a documented caveat.
+# BH is the de facto standard in the EEG/neuroimaging literature and is used
+# here for comparability. It controls FDR under independence or positive
+# regression dependence (PRDS).
+#
+# KNOWN CAVEAT, recorded deliberately rather than glossed over: the PRDS
+# assumption is only clearly satisfied by the evoked family. Correlating the
+# markers' t-maps (pooled over all model directories) gives:
+#     evoked  m=4    mean r = +0.55,  0% of pairs negative   -> PRDS plausible
+#     state   m=16   mean r = +0.01, 52% negative, 19% < -0.3 -> PRDS doubtful
+#     sleep   m=5    mean r = +0.07, 30% negative, 20% < -0.3 -> PRDS doubtful
+# The negative dependence in `state` is structural, not noise: psd_relative_*
+# are compositional (they sum to ~1, so one band rising forces others down,
+# e.g. psd_relative_beta vs psd_relative_delta r = -0.72) and the ratios share
+# a denominator with their own components (psd_relative_beta vs
+# psd_relative_theta_beta_ratio r = -0.81, essentially mechanical).
+# Under such dependence BH's realised FDR can exceed the nominal 0.05. The
+# C(m) penalty that Benjamini-Yekutieli pays to be valid under arbitrary
+# dependence is a worst-case bound, so BY is correspondingly conservative.
+# BECAUSE THE CHOICE IS DEBATABLE, report the BY-vs-BH sensitivity analysis
+# alongside the primary BH results rather than the BH numbers alone.
+# Bonferroni is rejected outright: combined with the permutation-floor p
+# (~1/(n_permutations+1)), it leaves significance unreachable in the larger
+# families regardless of effect size.
+#
+# Correction is applied separately within each marker family (evoked/state/sleep).
 multiple_comparisons:
+  # Unit of correction — what counts as one hypothesis.
+  # Options:
+  #   - "marker":  one max-statistic p-value per marker (see rationale above)
+  #   - "cluster": every cluster is a hypothesis (legacy Statistics/ behaviour)
+  unit: "marker"
+
   # Correction method per marker family.
   # Options:
-  #   - "fdr_bh" or "fdr_indep": Benjamini-Hochberg FDR (recommended)
-  #   - "fdr_by" or "fdr_negcorr": Benjamini-Yekutieli FDR (for dependent tests)
+  #   - "fdr_bh" or "fdr_indep": Benjamini-Hochberg FDR (assumes independence
+  #     or positive regression dependence — used here, see caveat above)
+  #   - "fdr_by" or "fdr_negcorr": Benjamini-Yekutieli FDR (valid under
+  #     arbitrary dependence; the sensitivity analysis to run against BH)
   #   - "bonferroni": Bonferroni FWER (very conservative — see note above)
   #   - "none" or false: No correction
   evoked: "fdr_bh"
@@ -321,6 +433,14 @@ multiple_comparisons:
 
   # Alpha level
   alpha: 0.05
+
+  # Family membership is resolved from selected_markers/feature_families above,
+  # NOT from whichever marker directories happen to exist under output_path.
+  # When true, a declared marker that produced no results aborts the correction
+  # instead of silently shrinking the family (a smaller m means a weaker
+  # correction, so a crashed marker would otherwise *increase* significance).
+  # Set to false only to proceed deliberately with a known-incomplete family.
+  require_complete_family: true
 
 # Output options
 output:

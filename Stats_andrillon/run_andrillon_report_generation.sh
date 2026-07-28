@@ -36,17 +36,17 @@ cd /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
 echo "=========================================="
 echo "RUNNING MCC POST-PROCESSING"
 echo "=========================================="
-python Statistics/apply_mcc_postprocessing.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence__target_time     --config Stats_andrillon/config_andrillon.yaml
+python Statistics/apply_mcc_postprocessing.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_valence_valence_sq_selfother_time_time_sq_time_on_task_confidence__target_valence     --config Stats_andrillon/config_andrillon.yaml
 
 echo ""
 echo "=========================================="
 echo "GENERATING SUMMARY REPORT"
 echo "=========================================="
 echo "Start time: $(date)"
-echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence__target_time"
+echo "Model directory: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_valence_valence_sq_selfother_time_time_sq_time_on_task_confidence__target_valence"
 echo ""
 
-python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence__target_time
+python Statistics/generate_summary_report.py /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering/results/andrillon_cluster/onoff_valence_valence_sq_selfother_time_time_sq_time_on_task_confidence__target_valence
 
 EXIT_CODE=$?
 

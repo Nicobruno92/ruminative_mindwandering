@@ -179,6 +179,189 @@ def get_model_folder_name(formula: str, predictor_of_interest: str) -> str:
     return f"{fixed_effects_part}__target_{pred_clean}"
 
 
+# =============================================================================
+# RESPONSE TRANSFORMS
+# =============================================================================
+# Applied to the marker matrix BEFORE normalize_by_subject. Order matters: the
+# per-subject z-score is a linear map and therefore cannot remove skewness or
+# excess kurtosis, so a transform applied after it would do nothing.
+#
+# Clipping bound for the logit transform. Marker values are proportions that can
+# legitimately touch 0 or 1 after rounding; without a bound the logit would send
+# those to +/-inf and the channel would drop out of cluster formation entirely.
+LOGIT_EPSILON = 1e-4
+
+# Blom constant for the rank-based inverse normal transform. 3/8 is the standard
+# choice for n < 10 and remains the most widely reported convention above it.
+BLOM_CONSTANT = 0.375
+
+SUPPORTED_RESPONSE_TRANSFORMS = (
+    'none', 'log', 'log1p', 'logit', 'sqrt', 'rank_inverse_normal'
+)
+
+
+def apply_response_transform(
+    power_data: np.ndarray,
+    transform: str,
+    df_behavioral: Optional[pd.DataFrame] = None,
+    subject_col: str = 'subject',
+) -> np.ndarray:
+    """
+    Transform the marker response before per-subject normalization.
+
+    Parameters
+    ----------
+    power_data : np.ndarray
+        Marker values, shape (n_observations, n_channels).
+    transform : {'none', 'log', 'log1p', 'logit', 'sqrt', 'rank_inverse_normal'}
+        Transform to apply. ``'none'`` returns a copy unchanged.
+    df_behavioral : pd.DataFrame, optional
+        Required only for ``'rank_inverse_normal'``, which ranks within subject
+        so that between-subject scale differences do not leak into the ranking.
+    subject_col : str
+        Subject identifier column in ``df_behavioral``.
+
+    Returns
+    -------
+    np.ndarray
+        Transformed values, same shape as the input. NaNs are preserved.
+
+    Raises
+    ------
+    ValueError
+        If the transform is unsupported, if its domain is violated (e.g. a
+        non-positive value under ``'log'``), or if ``df_behavioral`` is missing
+        for ``'rank_inverse_normal'``.
+
+    Notes
+    -----
+    Domain violations raise rather than being silently clipped: a negative value
+    entering a log transform means the marker is not on the scale the config
+    claims it is, and quietly producing NaN would shrink the montage asymmetrically
+    between the observed and permuted fits.
+    """
+    if transform not in SUPPORTED_RESPONSE_TRANSFORMS:
+        raise ValueError(
+            f"Unsupported response transform '{transform}'. "
+            f"Supported: {list(SUPPORTED_RESPONSE_TRANSFORMS)}"
+        )
+
+    values = np.asarray(power_data, dtype=float).copy()
+    finite = values[np.isfinite(values)]
+
+    if transform == 'none':
+        return values
+
+    if transform == 'log':
+        if finite.size > 0 and finite.min() <= 0:
+            raise ValueError(
+                f"Transform 'log' requires strictly positive values, but the "
+                f"marker minimum is {finite.min():.6g}. Use 'log1p' for data "
+                "containing zeros."
+            )
+        return np.log(values)
+
+    if transform == 'log1p':
+        if finite.size > 0 and finite.min() < 0:
+            raise ValueError(
+                f"Transform 'log1p' requires non-negative values, but the "
+                f"marker minimum is {finite.min():.6g}."
+            )
+        return np.log1p(values)
+
+    if transform == 'sqrt':
+        if finite.size > 0 and finite.min() < 0:
+            raise ValueError(
+                f"Transform 'sqrt' requires non-negative values, but the "
+                f"marker minimum is {finite.min():.6g}."
+            )
+        return np.sqrt(values)
+
+    if transform == 'logit':
+        if finite.size > 0 and (finite.min() < 0 or finite.max() > 1):
+            raise ValueError(
+                f"Transform 'logit' requires values in [0, 1], but the marker "
+                f"range is [{finite.min():.6g}, {finite.max():.6g}]."
+            )
+        clipped = np.clip(values, LOGIT_EPSILON, 1.0 - LOGIT_EPSILON)
+        return np.log(clipped / (1.0 - clipped))
+
+    # rank_inverse_normal
+    if df_behavioral is None:
+        raise ValueError(
+            "Transform 'rank_inverse_normal' needs df_behavioral to rank "
+            "within subject."
+        )
+    if len(df_behavioral) != values.shape[0]:
+        raise ValueError(
+            f"df_behavioral has {len(df_behavioral)} rows but power_data has "
+            f"{values.shape[0]} observations."
+        )
+
+    from scipy import stats as _stats
+
+    subjects = df_behavioral[subject_col].to_numpy()
+    for subject in pd.unique(subjects):
+        mask = subjects == subject
+        block = values[mask, :]
+        flat = block.ravel()
+        valid = np.isfinite(flat)
+        # Ranks are pooled over channels within the subject, matching the
+        # channel_wise=False convention used by normalize_by_subject: it keeps
+        # the relative amplitude across the montage, which is the signal the
+        # topography is built from.
+        ranked = np.full(flat.shape, np.nan)
+        n_valid = int(valid.sum())
+        if n_valid > 0:
+            ranks = _stats.rankdata(flat[valid], method='average')
+            ranked[valid] = _stats.norm.ppf(
+                (ranks - BLOM_CONSTANT) / (n_valid + 1.0 - 2.0 * BLOM_CONSTANT)
+            )
+        values[mask, :] = ranked.reshape(block.shape)
+
+    return values
+
+
+def resolve_response_transform(config: dict, marker_name: str) -> str:
+    """
+    Resolve which response transform applies to a marker.
+
+    The mapping lives entirely in ``preprocessing.response_transform`` so the
+    choice is fixed in configuration and recorded with the run, rather than
+    being made per marker while looking at cluster p-values.
+
+    Parameters
+    ----------
+    config : dict
+        Pipeline configuration.
+    marker_name : str
+        Marker identifier, ``"<epoch_type>/<marker>"``.
+
+    Returns
+    -------
+    str
+        Transform name; ``'none'`` when the section is absent or disabled.
+
+    Raises
+    ------
+    ValueError
+        If ``by_marker`` names a transform that is not supported.
+    """
+    section = (config.get('preprocessing', {}) or {}).get('response_transform', {}) or {}
+    if not section.get('enabled', False):
+        return 'none'
+
+    by_marker = section.get('by_marker') or {}
+    transform = by_marker.get(marker_name, section.get('default', 'none'))
+
+    if transform not in SUPPORTED_RESPONSE_TRANSFORMS:
+        raise ValueError(
+            f"response_transform for '{marker_name}' is '{transform}', which is "
+            f"not supported. Supported: {list(SUPPORTED_RESPONSE_TRANSFORMS)}"
+        )
+    return transform
+
+
 def _apply_normalization_method(
     channel_data: np.ndarray,
     valid_data: np.ndarray,
@@ -1170,6 +1353,101 @@ def summarize_clusters(
         })
     
     return pd.DataFrame(summary)
+
+def add_quadratic_features(
+    df: pd.DataFrame,
+    quadratic_features: dict,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Add orthogonalized quadratic features as new columns in the DataFrame.
+
+    For each ``base_col → derived_col`` pair:
+
+    1. Compute ``raw_sq = (base_col - 50)^2 / 50`` on unique probe rows.
+    2. Fit OLS: ``raw_sq ~ base_col`` to capture the linear component of the
+       U-shape (which arises because the distribution of ``base_col`` is
+       asymmetric around 50).
+    3. ``derived_col = raw_sq - (intercept + slope * base_col)`` — the
+       residual is orthogonal to the linear predictor by construction.
+
+    The OLS is fit on unique (subject, task, probe_number) rows to avoid
+    inflating coefficients from repeated marker × channel rows that are
+    present in long-format EEG data frames.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long-format DataFrame, typically ``df_all`` from ``load_all_probe_data``.
+        Must contain the base predictor columns (e.g. ``valence``, ``time``).
+    quadratic_features : dict
+        Mapping ``{base_col: derived_col}``,
+        e.g. ``{"valence": "valence_sq", "time": "time_sq"}``.
+    verbose : bool
+        Whether to print OLS fit statistics and residual correlations.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of ``df`` with the derived quadratic columns appended.
+
+    Notes
+    -----
+    The scale factor 50 in ``(base_col - 50)^2 / 50`` matches the convention
+    used in ``Behavior/Objective_Markers/lmm_probe_dimensions.py`` so that
+    beta coefficients are comparable across pipelines.
+    """
+    from scipy import stats as scipy_stats
+
+    df_out = df.copy()
+
+    # Fit OLS on unique probe rows to avoid inflating coefficients
+    key_cols = [c for c in ('subject', 'task', 'probe_number') if c in df_out.columns]
+    df_unique = df_out.drop_duplicates(subset=key_cols) if key_cols else df_out
+
+    ols_fits: dict[str, tuple[float, float]] = {}
+
+    for base_col, sq_col in quadratic_features.items():
+        if base_col not in df_out.columns:
+            raise ValueError(
+                f"Base column '{base_col}' not found in DataFrame. "
+                f"Available columns: {list(df_out.columns)}"
+            )
+
+        base_vals = df_unique[base_col].values.astype(float)
+        valid_mask = ~np.isnan(base_vals)
+
+        raw_sq = (base_vals - 50.0) ** 2 / 50.0
+        slope, intercept, r_val, _, _ = scipy_stats.linregress(
+            base_vals[valid_mask], raw_sq[valid_mask]
+        )
+        ols_fits[base_col] = (slope, intercept)
+
+        if verbose:
+            n_valid = int(valid_mask.sum())
+            print(
+                f"  {sq_col}: OLS slope={slope:.4f}, intercept={intercept:.4f}, "
+                f"r={r_val:.4f} with {base_col} (n={n_valid} unique probes)"
+            )
+
+    # Apply fitted transform to all rows (including duplicated marker × channel rows)
+    for base_col, sq_col in quadratic_features.items():
+        if base_col not in df_out.columns:
+            continue
+        slope, intercept = ols_fits[base_col]
+        base_all = df_out[base_col].values.astype(float)
+        raw_sq_all = (base_all - 50.0) ** 2 / 50.0
+        residual = raw_sq_all - (intercept + slope * base_all)
+        residual[np.isnan(base_all)] = np.nan
+        df_out[sq_col] = residual
+
+        if verbose:
+            valid = ~np.isnan(base_all)
+            r_check = float(np.corrcoef(base_all[valid], residual[valid])[0, 1])
+            print(f"  {sq_col}: residual r with {base_col} = {r_check:.6f} (expected ~0)")
+
+    return df_out
+
 
 def binarize_predictors(
     df: pd.DataFrame,

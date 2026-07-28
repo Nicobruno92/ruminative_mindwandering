@@ -1,0 +1,2 @@
+skew,kurtosis,breusch_pagan_stat,breusch_pagan_p,n,model,family
+0.060124326394967134,2.1869351456715878,12.437726285079885,0.0004207476900048531,2444,sensitivity_transformed_rtcv,gaussian

@@ -521,6 +521,42 @@ def create_label_contrast(
     split_method = contrast_config.get("split_method", None)
     positive_above = contrast_config.get("positive_above", True)
 
+    # Optional label transform applied before split (e.g. midpoint_sq: (x-50)²/50).
+    # Creates a temporary column so the existing split_method logic is unchanged.
+    _transform_col = None
+    label_transform = contrast_config.get("transform", None)
+    if label_transform == "midpoint_sq":
+        _transform_col = f"_t_{label_col}"
+        x = df[label_col].values.astype(float)
+        df[_transform_col] = (x - 50.0) ** 2 / 50.0
+        df.loc[np.isnan(x), _transform_col] = np.nan
+        label_col = _transform_col
+        print(f"  Transform [midpoint_sq]: ({contrast_config.get('label_source', contrast_config.get('column_name'))}-50)²/50")
+    elif label_transform == "midpoint_sq_residual":
+        # (x-50)²/50 with within-subject OLS residualization of the linear component.
+        # Removes correlation with the raw dimension so the label is purely quadratic.
+        _transform_col = f"_t_{label_col}"
+        orig_col = contrast_config.get("label_source", contrast_config.get("column_name"))
+        x_all = df[label_col].values.astype(float)
+        sq_all = (x_all - 50.0) ** 2 / 50.0
+        resid = np.full_like(sq_all, np.nan)
+        for subj in df["subject"].unique():
+            mask = (df["subject"] == subj).values
+            x_s = x_all[mask]
+            sq_s = sq_all[mask]
+            valid = ~np.isnan(x_s) & ~np.isnan(sq_s)
+            if valid.sum() < 3:
+                resid[mask] = sq_s
+                continue
+            A = np.column_stack([x_s[valid], np.ones(valid.sum())])
+            coeffs, _, _, _ = np.linalg.lstsq(A, sq_s[valid], rcond=None)
+            resid[np.where(mask)[0][valid]] = sq_s[valid] - A @ coeffs
+        df[_transform_col] = resid
+        label_col = _transform_col
+        print(f"  Transform [midpoint_sq_residual]: ({orig_col}-50)²/50 residualized by {orig_col} within subject")
+    elif label_transform is not None:
+        raise ValueError(f"Unknown label transform: {label_transform!r}. Supported: 'midpoint_sq', 'midpoint_sq_residual'.")
+
     # Mode 1: Global Median
     if split_method == "global_median" or split_method == "median":
         median_val = df[label_col].median()
@@ -598,6 +634,9 @@ def create_label_contrast(
             f"Specify a valid 'split_method' (global_median, within_subject_median, "
             f"threshold, extreme_groups) or legacy threshold parameters."
         )
+
+    if _transform_col is not None and _transform_col in df.columns:
+        df = df.drop(columns=[_transform_col])
 
     return df
 

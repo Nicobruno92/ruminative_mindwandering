@@ -199,7 +199,7 @@ SBATCH_EXPORT="ALL"
 if [ -n "${PREDICTOR_OVERRIDE}" ]; then
     SBATCH_EXPORT="ALL,PREDICTOR_OF_INTEREST=${PREDICTOR_OVERRIDE}"
 fi
-ARRAY_JOB_OUTPUT=$(sbatch --array=${ARRAY_RANGE} --export=${SBATCH_EXPORT} ${ARRAY_SCRIPT})
+ARRAY_JOB_OUTPUT=$(sbatch --array=${ARRAY_RANGE} --export=${SBATCH_EXPORT} --cpus-per-task=16 --mem=24G --time=8:00:00 ${ARRAY_SCRIPT})
 ARRAY_EXIT_CODE=$?
 
 if [ ${ARRAY_EXIT_CODE} -ne 0 ]; then

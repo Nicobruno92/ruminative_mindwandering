@@ -28,6 +28,27 @@ from statsmodels.formula.api import mixedlm
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
 
+# =============================================================================
+# RESIDUAL-SHAPE DIAGNOSTIC CONSTANTS
+# =============================================================================
+# Shapiro-Wilk was removed from the per-channel diagnostics. With n ~ 1700
+# observations per channel it rejects on deviations far too small to affect a
+# permutation-based cluster test, so it reported "100% of channels violate
+# normality" for essentially every marker and carried no usable information.
+# It is replaced by descriptive shape statistics, which answer the question that
+# actually matters for a cluster test: is the t-statistic being driven by a
+# handful of extreme probes, or is the departure from normality benign?
+# Removing it is also a speedup — these diagnostics are recomputed inside every
+# permutation fit, and skew/kurtosis are O(n) while Shapiro-Wilk is not.
+
+# |residual| beyond this many SDs counts as an outlier.
+RESIDUAL_OUTLIER_SD = 4.0
+# |skewness| above this is flagged as a substantial departure from symmetry.
+RESIDUAL_SKEW_FLAG = 1.0
+# Excess kurtosis above this is flagged as substantially heavy-tailed.
+RESIDUAL_EXKURT_FLAG = 3.0
+
+
 def is_interaction_term(predictor: str) -> bool:
     """
     Check if a predictor_of_interest is an interaction term.
@@ -166,10 +187,15 @@ def run_lmm_per_channel(
         - 'bic': list of BIC values per channel
         - 'log_likelihood': list of log-likelihood values per channel
         - 'conditional_r2': list of conditional R² values per channel
-        - 'shapiro_p_values': list of Shapiro-Wilk p-values (residual normality)
+        - 'residual_skew': list of residual skewness values per channel
+        - 'residual_exkurt': list of residual excess kurtosis values per channel
+        - 'pct_residual_outliers': list of % of |residual| > RESIDUAL_OUTLIER_SD
+          SDs per channel
         - 'breusch_pagan_p': list of Breusch-Pagan p-values (homoscedasticity)
         - 'aic_mean', 'bic_mean', 'conditional_r2_mean': summary statistics
-        - 'shapiro_p_mean', 'pct_normality_violations': normality check summary
+        - 'residual_skew_mean', 'pct_high_skew': symmetry summary
+        - 'residual_exkurt_mean', 'pct_high_kurtosis': tail-weight summary
+        - 'pct_residual_outliers_mean', 'pct_residual_outliers_max': outlier summary
         - 'breusch_pagan_p_mean', 'pct_heteroscedasticity': homoscedasticity summary
         
     Notes
@@ -203,7 +229,9 @@ def run_lmm_per_channel(
         'log_likelihood': [],
         'conditional_r2': [],
         # Assumption checks
-        'shapiro_p_values': [],
+        'residual_skew': [],
+        'residual_exkurt': [],
+        'pct_residual_outliers': [],
         'residual_variance': [],
         'breusch_pagan_p': []
     }
@@ -393,13 +421,30 @@ def run_lmm_per_channel(
                 diagnostics['conditional_r2'].append(float(cond_r2))
                 diagnostics['residual_variance'].append(float(residual_var))
                 
-                # Check residual normality (Shapiro-Wilk test)
-                # Only test if we have enough residuals (3 <= n <= 5000)
-                if 3 <= len(residuals) <= 5000:
-                    _, shapiro_p = stats.shapiro(residuals)
-                    diagnostics['shapiro_p_values'].append(float(shapiro_p))
+                # Describe the shape of the residual distribution.
+                # Descriptive, not a test: see the module-level note on why
+                # Shapiro-Wilk was removed. Skewness and excess kurtosis say
+                # *how* the residuals depart from normality, and the outlier
+                # fraction says whether a handful of probes could be driving
+                # the t-statistic — which is what threatens a cluster test.
+                resid_arr = np.asarray(residuals, dtype=float)
+                resid_sd = float(np.std(resid_arr))
+                diagnostics['residual_skew'].append(float(stats.skew(resid_arr)))
+                diagnostics['residual_exkurt'].append(float(stats.kurtosis(resid_arr)))
+                # A channel with zero residual spread has no outliers by
+                # definition; guarding the division keeps that case at 0.0
+                # instead of producing NaN.
+                if resid_sd > 0:
+                    n_outliers = int(
+                        np.sum(
+                            np.abs(resid_arr - resid_arr.mean())
+                            > RESIDUAL_OUTLIER_SD * resid_sd
+                        )
+                    )
+                    pct_outliers = 100.0 * n_outliers / resid_arr.size
                 else:
-                    diagnostics['shapiro_p_values'].append(np.nan)
+                    pct_outliers = 0.0
+                diagnostics['pct_residual_outliers'].append(float(pct_outliers))
 
                 # Check homoscedasticity (Breusch-Pagan test approximation)
                 # Test if residual variance is related to fitted values
@@ -455,8 +500,15 @@ def run_lmm_per_channel(
         diagnostics['convergence_rate'] = diagnostics['n_converged'] / n_attempted
         diagnostics['warning_rate'] = diagnostics['n_warnings'] / n_attempted
     
-    # Compute summary statistics for model quality and assumptions
-    if diagnostics['n_converged'] > 0:
+    # Compute summary statistics for model quality and assumptions.
+    # Gate on whether any per-channel record was collected, NOT on n_converged:
+    # n_converged counts only *clean* fits, so a marker whose channels all
+    # converge with a ConvergenceWarning has n_converged == 0 while still
+    # having a full set of usable per-channel diagnostics. Gating on
+    # n_converged silently dropped the entire assumption summary for exactly
+    # those markers — the ones most worth inspecting.
+    n_diagnostic_records = len(diagnostics['conditional_r2'])
+    if n_diagnostic_records > 0:
         # Only compute means if we actually collected diagnostic values
         # Suppress RuntimeWarning for empty slices (happens during permutation testing)
         with warnings.catch_warnings():
@@ -471,12 +523,40 @@ def run_lmm_per_channel(
                 diagnostics['conditional_r2_mean'] = float(np.nanmean(diagnostics['conditional_r2']))
                 diagnostics['conditional_r2_median'] = float(np.nanmedian(diagnostics['conditional_r2']))
         
-        # Assumption checks summary
-        shapiro_valid = [p for p in diagnostics['shapiro_p_values'] if not np.isnan(p)]
-        if shapiro_valid:
-            diagnostics['shapiro_p_mean'] = float(np.mean(shapiro_valid))
-            diagnostics['n_normality_violations'] = sum(1 for p in shapiro_valid if p < 0.05)
-            diagnostics['pct_normality_violations'] = 100 * diagnostics['n_normality_violations'] / len(shapiro_valid)
+        # Assumption checks summary — residual shape
+        skew_valid = np.array(
+            [s for s in diagnostics['residual_skew'] if np.isfinite(s)], dtype=float
+        )
+        if skew_valid.size > 0:
+            diagnostics['residual_skew_mean'] = float(np.mean(skew_valid))
+            diagnostics['residual_abs_skew_max'] = float(np.max(np.abs(skew_valid)))
+            diagnostics['n_high_skew'] = int(
+                np.sum(np.abs(skew_valid) > RESIDUAL_SKEW_FLAG)
+            )
+            diagnostics['pct_high_skew'] = float(
+                100 * diagnostics['n_high_skew'] / skew_valid.size
+            )
+
+        kurt_valid = np.array(
+            [k for k in diagnostics['residual_exkurt'] if np.isfinite(k)], dtype=float
+        )
+        if kurt_valid.size > 0:
+            diagnostics['residual_exkurt_mean'] = float(np.mean(kurt_valid))
+            diagnostics['residual_exkurt_max'] = float(np.max(kurt_valid))
+            diagnostics['n_high_kurtosis'] = int(
+                np.sum(kurt_valid > RESIDUAL_EXKURT_FLAG)
+            )
+            diagnostics['pct_high_kurtosis'] = float(
+                100 * diagnostics['n_high_kurtosis'] / kurt_valid.size
+            )
+
+        outlier_valid = np.array(
+            [o for o in diagnostics['pct_residual_outliers'] if np.isfinite(o)],
+            dtype=float,
+        )
+        if outlier_valid.size > 0:
+            diagnostics['pct_residual_outliers_mean'] = float(np.mean(outlier_valid))
+            diagnostics['pct_residual_outliers_max'] = float(np.max(outlier_valid))
         
         bp_valid = [p for p in diagnostics['breusch_pagan_p'] if not np.isnan(p)]
         if bp_valid:
@@ -500,9 +580,11 @@ def run_lmm_per_channel(
         if len(diagnostics['convergence_warnings']) > 0:
             print(f"  Logged warnings/errors: {len(diagnostics['convergence_warnings'])}")
         
-        # Print model quality metrics
-        if diagnostics['n_converged'] > 0:
-            print(f"\nModel Quality Metrics (averaged across {diagnostics['n_converged']} channels):")
+        # Print model quality metrics. Same gate as the summary computation
+        # above: channels that converged with a warning still contribute
+        # diagnostic records and must still be reported.
+        if n_diagnostic_records > 0:
+            print(f"\nModel Quality Metrics (averaged across {n_diagnostic_records} channels):")
             
             # Check if AIC/BIC are available and valid
             aic_mean = diagnostics.get('aic_mean', np.nan)
@@ -530,11 +612,30 @@ def run_lmm_per_channel(
             
             # Print assumption checks
             print("\nModel Assumptions:")
-            if 'shapiro_p_mean' in diagnostics:
-                print("  Residual normality (Shapiro-Wilk):")
-                print(f"    Mean p-value: {diagnostics['shapiro_p_mean']:.3f}")
-                print(f"    Violations (p < 0.05): {diagnostics['n_normality_violations']}/{len(shapiro_valid)} ({diagnostics['pct_normality_violations']:.1f}%)")
-            
+            if 'residual_skew_mean' in diagnostics:
+                print("  Residual shape (descriptive — no normality test, see module note):")
+                print(
+                    f"    Skewness: mean {diagnostics['residual_skew_mean']:+.2f}, "
+                    f"max |skew| {diagnostics['residual_abs_skew_max']:.2f}, "
+                    f"|skew| > {RESIDUAL_SKEW_FLAG:g} on "
+                    f"{diagnostics['n_high_skew']}/{skew_valid.size} channels "
+                    f"({diagnostics['pct_high_skew']:.1f}%)"
+                )
+            if 'residual_exkurt_mean' in diagnostics:
+                print(
+                    f"    Excess kurtosis: mean {diagnostics['residual_exkurt_mean']:+.2f}, "
+                    f"max {diagnostics['residual_exkurt_max']:.2f}, "
+                    f"> {RESIDUAL_EXKURT_FLAG:g} on "
+                    f"{diagnostics['n_high_kurtosis']}/{kurt_valid.size} channels "
+                    f"({diagnostics['pct_high_kurtosis']:.1f}%)"
+                )
+            if 'pct_residual_outliers_mean' in diagnostics:
+                print(
+                    f"    Outliers (|resid| > {RESIDUAL_OUTLIER_SD:g} SD): mean "
+                    f"{diagnostics['pct_residual_outliers_mean']:.2f}% of observations, "
+                    f"worst channel {diagnostics['pct_residual_outliers_max']:.2f}%"
+                )
+
             if 'breusch_pagan_p_mean' in diagnostics:
                 print("  Homoscedasticity (Breusch-Pagan approximation):")
                 print(f"    Mean p-value: {diagnostics['breusch_pagan_p_mean']:.3f}")

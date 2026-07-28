@@ -1,0 +1,60 @@
+r:
+  rscript_path: /network/iss/apps/lang/r/rcran/4.6.0/bin/Rscript
+  script: glmm_fit.R
+  optimizer: bobyqa
+  maxfun: 100000
+markers:
+  omission_rate:
+    family: binomial
+    success_col: n_omissions
+    total_col: n_go
+    olre: true
+  commission_rate:
+    family: binomial
+    success_col: n_commissions
+    total_col: n_nogo
+    olre: true
+  total_errors:
+    family: binomial
+    success_col: _total_error_count
+    total_col: n_trials_window
+    olre: true
+  rtcv:
+    family: Gamma
+    link: log
+    response_col: rtcv
+    olre: false
+transforms:
+  omission_rate:
+    type: empirical_logit
+    success_col: n_omissions
+    total_col: n_go
+  commission_rate:
+    type: empirical_logit
+    success_col: n_commissions
+    total_col: n_nogo
+  total_errors:
+    type: empirical_logit
+    success_col: _total_error_count
+    total_col: n_trials_window
+  rtcv:
+    type: log
+    response_col: rtcv
+empirical_logit_correction: 0.5
+tracks:
+  glmm:
+    output_subdir: glmm
+    primary: true
+  sensitivity_gaussian:
+    output_subdir: sensitivity_gaussian
+    primary: false
+  sensitivity_transformed:
+    output_subdir: sensitivity_transformed
+    primary: false
+  sensitivity_olre:
+    output_subdir: sensitivity_olre
+    primary: false
+diagnostics:
+  output_subdir: diagnostics
+  n_residual_bins: 40
+random_state: 42

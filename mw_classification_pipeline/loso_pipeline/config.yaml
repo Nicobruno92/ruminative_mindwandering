@@ -139,6 +139,49 @@ label_contrasts:
     positive_class_name: "high-confidence"
     negative_class_name: "low-confidence"
 
+  # --- Quadratic (U-shape) contrasts ----------------------------------------
+  # Classify extreme vs. moderate emotional/temporal content.
+  # Derived score: (x - 50)²/50 — U-shape around scale midpoint, range 0-50
+  # (half the 0-100 range of the linear dimensions). gap=2.5 (half of the
+  # linear contrasts' gap=5) keeps the neutral zone the same *proportion* of
+  # the scale — same halving Stats_andrillon already applies for
+  # min_predictor_variability_sq relative to min_predictor_variability.
+  valence_sq:
+    label_source: valence
+    transform: "midpoint_sq"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq:
+    label_source: time
+    transform: "midpoint_sq"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  valence_sq_res:
+    label_source: valence
+    transform: "midpoint_sq_residual"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq_res:
+    label_source: time
+    transform: "midpoint_sq_residual"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
   # confidence_within_median_offtask:
   #   label_source: confidence
   #   split_method: "within_subject_median"
@@ -161,6 +204,8 @@ run_contrasts:
   # - time_within_median_offtask
   - confidence_within_median
   # - confidence_within_median_offtask
+  - valence_sq
+  - time_sq
 
 # =============================================================================
 # DATA FORMAT
@@ -187,16 +232,36 @@ exclude_column_suffixes:
 
 feature_families:
 
+  # Same 23-marker set as Stats_andrillon/config_andrillon.yaml.
   all:
-    epoch_types: [sleep, state, evoked]   # load both sleep and evoked files
-    prefixes: null                  # keep all columns
+    epoch_types: [sleep, evoked]
+    prefixes:
+      - "N1"
+      - "P1"
+      - "P3a"
+      - "P3b"
+      - "PE_theta"
+      - "PE_alpha"
+      - "PE_beta"
+      - "PE_gamma"
+      - "kolmogorov_complexity"
+      - "psd_relative_delta"
+      - "psd_relative_theta"
+      - "psd_relative_alpha"
+      - "psd_relative_beta"
+      - "psd_relative_gamma"
+      - "wsmi_theta"
+      - "wsmi_alpha"
+      - "wsmi_beta"
+      - "wsmi_gamma"
+      - "slowwaves"
 
   erp:
     epoch_types: [evoked]          # only load evoked (go-stimulus locked) files
     prefixes:
       - "P1"
       - "N1"
-      - "P2"
+      # - "P2"
       - "P3a"
       - "P3b"
 
@@ -207,17 +272,17 @@ feature_families:
       - "spindles"
 
   spectral:
-    epoch_types: [state]           # only load pre-probe state bins
+    epoch_types: [sleep]           # only load pre-probe state bins
     prefixes:
-      - "power_delta"
-      - "power_theta"
-      - "power_alpha"
-      - "power_beta"
-      - "power_gamma"
+      # - "power_delta"
+      # - "power_theta"
+      # - "power_alpha"
+      # - "power_beta"
+      # - "power_gamma"
       - "power_normalized"
 
   connectivity:
-    epoch_types: [state]
+    epoch_types: [sleep]
     prefixes:
       - "wsmi_theta"
       - "wsmi_alpha"
@@ -225,7 +290,7 @@ feature_families:
       - "wsmi_gamma"
 
   information_theory:
-    epoch_types: [state]
+    epoch_types: [sleep]
     prefixes:
       - "PE_theta"
       - "PE_alpha"

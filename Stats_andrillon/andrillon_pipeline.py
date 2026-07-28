@@ -42,7 +42,13 @@ from lmm_model import (
     fit_reduced_model_per_channel,
     freedman_lane_permutation,
 )
-from helpers import get_model_folder_name, normalize_by_subject
+from helpers import (
+    get_model_folder_name,
+    normalize_by_subject,
+    add_quadratic_features,
+    apply_response_transform,
+    resolve_response_transform,
+)
 
 # Import from local Stats_andrillon modules
 from plot_results import create_results_report, create_raw_topography_report
@@ -164,6 +170,33 @@ def _get_derived_ratios_lookup(config: Dict) -> Dict[str, Dict]:
     return lookup
 
 
+def _resolve_variability_threshold(config: Dict, predictor: str):
+    """Return the correct min_predictor_variability for *predictor*.
+
+    Quadratic predictors (e.g. ``valence_sq``, ``time_sq``) live on a
+    0-50 scale — half the range of the original 0-100 dimension.  A
+    separate config key ``min_predictor_variability_sq`` (default:
+    ``min_predictor_variability / 2``) is used for them so inclusion
+    criteria stay comparable across linear and quadratic terms.
+    """
+    preprocessing_cfg = config.get('preprocessing', {})
+    project_cfg = config.get('project', {})
+    base_threshold = preprocessing_cfg.get(
+        'min_predictor_variability', project_cfg.get('min_predictor_variability')
+    )
+    quad_cfg = preprocessing_cfg.get('quadratic_features', {})
+    derived_cols = set(quad_cfg.get('features', {}).values()) if quad_cfg.get('enabled', False) else set()
+    if predictor in derived_cols:
+        sq_threshold = preprocessing_cfg.get(
+            'min_predictor_variability_sq',
+            project_cfg.get('min_predictor_variability_sq'),
+        )
+        if sq_threshold is None and base_threshold is not None:
+            sq_threshold = base_threshold / 2
+        return sq_threshold
+    return base_threshold
+
+
 def get_marker_list(config: Dict) -> List[str]:
     """Resolve the marker list from ``selected_markers`` × ``feature_families``.
 
@@ -276,10 +309,7 @@ def _load_ratio_marker_data(
     onoff_max_value = preprocessing_cfg.get(
         'onoff_max_value', project_cfg.get('onoff_max_value')
     )
-    min_predictor_variability = preprocessing_cfg.get(
-        'min_predictor_variability',
-        project_cfg.get('min_predictor_variability'),
-    )
+    min_predictor_variability = _resolve_variability_threshold(config, predictor)
 
     df_all = load_all_probe_data(
         features_root=config['project']['features_root'],
@@ -289,6 +319,15 @@ def _load_ratio_marker_data(
         specific_markers=[num_name, den_name],
         behavioral_data_path=config['project'].get('behavioral_data_path'),
     )
+
+    quad_cfg = config.get('preprocessing', {}).get('quadratic_features', {})
+    if quad_cfg.get('enabled', False):
+        df_all = add_quadratic_features(
+            df=df_all,
+            quadratic_features=quad_cfg.get('features', {}),
+            verbose=True,
+        )
+
     df_all = df_all[df_all['marker_type'] == marker_type]
 
     df_num = df_all[df_all['marker'] == num_name]
@@ -390,6 +429,157 @@ def _load_ratio_marker_data(
     return power_ratio, df_behavioral, list(common_channels)
 
 
+def load_marker_matrix(
+    marker_name: str,
+    config: Dict,
+    predictor: str,
+) -> Tuple[np.ndarray, pd.DataFrame, List[str]]:
+    """
+    Load and preprocess the observation × channel matrix for one marker.
+
+    This is the data-preparation half of :func:`run_marker_analysis`, split out
+    so that analyses which need the exact same matrix but not the permutation
+    machinery (e.g. assumption diagnostics) cannot drift from the matrix the
+    cluster test actually ran on.
+
+    Handles both regular markers and the virtual ``derived_ratios`` markers, and
+    applies the configured per-subject normalization.
+
+    Parameters
+    ----------
+    marker_name : str
+        Marker identifier in the form ``"<epoch_type>/<marker_name>"``.
+    config : dict
+        Pipeline configuration.
+    predictor : str
+        Predictor of interest — needed because ``prepare_data_for_lmm`` filters
+        subjects on that predictor's variability.
+
+    Returns
+    -------
+    power_data : np.ndarray
+        Marker values, shape (n_observations, n_channels).
+    df_behavioral : pd.DataFrame
+        Behavioral metadata aligned row-wise with ``power_data``.
+    channels : list of str
+        Channel names aligned column-wise with ``power_data``.
+    """
+    if '/' in marker_name:
+        marker_type, marker_base_name = marker_name.split('/', 1)
+    else:
+        marker_type = None
+        marker_base_name = marker_name
+
+    preprocessing_cfg = config.get('preprocessing', {})
+    project_cfg = config.get('project', {})
+    onoff_max_value = preprocessing_cfg.get(
+        'onoff_max_value', project_cfg.get('onoff_max_value')
+    )
+    min_predictor_variability = _resolve_variability_threshold(config, predictor)
+    formula = _resolve_formula_for_predictor(config, predictor)
+
+    ratio_lookup = _get_derived_ratios_lookup(config)
+    ratio_spec = ratio_lookup.get(marker_name)
+
+    if ratio_spec is not None:
+        logger.info(
+            f"  Derived ratio detected: {ratio_spec['numerator']} / "
+            f"{ratio_spec['denominator']}"
+        )
+        power_data, df_behavioral, channels = _load_ratio_marker_data(
+            spec=ratio_spec,
+            config=config,
+            formula=formula,
+            predictor=predictor,
+        )
+    else:
+        marker_types_to_load = (
+            [marker_type] if marker_type is not None
+            else list(config.get('selected_markers', {}).keys())
+        )
+        df_all = load_all_probe_data(
+            features_root=config['project']['features_root'],
+            subjects=config['project'].get('subjects'),
+            tasks=config['project'].get('tasks'),
+            marker_types=marker_types_to_load,
+            specific_markers=[marker_base_name],
+            behavioral_data_path=project_cfg.get('behavioral_data_path'),
+        )
+
+        quad_cfg = preprocessing_cfg.get('quadratic_features', {})
+        if quad_cfg.get('enabled', False):
+            df_all = add_quadratic_features(
+                df=df_all,
+                quadratic_features=quad_cfg.get('features', {}),
+                verbose=True,
+            )
+
+        if marker_type:
+            logger.info(f"  Filtering data for marker_type: {marker_type}")
+            df_filtered = df_all[df_all['marker_type'] == marker_type]
+            logger.info(f"  Filtered from {len(df_all)} to {len(df_filtered)} rows")
+        else:
+            df_filtered = df_all
+
+        power_data, df_behavioral, channels = prepare_data_for_lmm(
+            df=df_filtered,
+            marker_name=marker_base_name,
+            formula=formula,
+            include_channels=preprocessing_cfg.get('include_channels'),
+            exclude_channels=preprocessing_cfg.get('exclude_channels'),
+            onoff_max_value=onoff_max_value,
+            min_predictor_variability=min_predictor_variability,
+            predictor_of_interest=predictor,
+        )
+
+    # Ensure subject is string type (critical for statsmodels mixedlm)
+    df_behavioral = df_behavioral.copy()
+    df_behavioral['subject'] = df_behavioral['subject'].astype(str)
+
+    logger.info(
+        f"  Loaded {power_data.shape[0]} observations × {power_data.shape[1]} channels"
+    )
+
+    # Response transform, applied BEFORE the per-subject z-score. The z-score is
+    # a linear map, so it cannot remove skew or excess kurtosis — a transform
+    # applied after it would be a no-op on residual shape. Which transform (if
+    # any) applies to this marker is fixed in config, never chosen per marker at
+    # runtime, so the choice cannot follow the cluster p-values.
+    response_transform = resolve_response_transform(config, marker_name)
+    if response_transform != 'none':
+        logger.info(f"  Applying response transform: {response_transform}")
+        power_data = apply_response_transform(
+            power_data=power_data,
+            transform=response_transform,
+            df_behavioral=df_behavioral,
+            subject_col=preprocessing_cfg.get('subject_column', 'subject'),
+        )
+
+    # Apply per-subject normalization if requested. Without it, between-subject
+    # scale differences propagate into the LMM residual variance and bias the
+    # slope estimate of the predictor toward subjects with the largest amplitude,
+    # producing spatially extended clusters that reflect individual baseline
+    # topographies rather than the predictor effect.
+    if preprocessing_cfg.get('normalize_by_subject', False):
+        norm_method = preprocessing_cfg.get('normalization_method', 'zscore')
+        norm_channel_wise = preprocessing_cfg.get('channel_wise', False)
+        norm_subject_col = preprocessing_cfg.get('subject_column', 'subject')
+        logger.info(
+            f"  Normalizing power per subject: method={norm_method}, "
+            f"channel_wise={norm_channel_wise}"
+        )
+        power_data = normalize_by_subject(
+            power_data=power_data,
+            df_behavioral=df_behavioral,
+            method=norm_method,
+            subject_col=norm_subject_col,
+            channel_wise=norm_channel_wise,
+            verbose=True,
+        )
+
+    return power_data, df_behavioral, list(channels)
+
+
 def run_marker_analysis(
     marker_name: str,
     config: Dict,
@@ -431,94 +621,11 @@ def run_marker_analysis(
     logger.info(f"  Marker type: {marker_type}")
     logger.info(f"  Marker name: {marker_base_name}")
 
-    # Preprocessing & project config used below (shared between regular and
-    # derived ratio code paths).
-    preprocessing_cfg = config.get('preprocessing', {})
-    project_cfg = config.get('project', {})
-    onoff_max_value = preprocessing_cfg.get('onoff_max_value', project_cfg.get('onoff_max_value'))
-    min_predictor_variability = preprocessing_cfg.get('min_predictor_variability', project_cfg.get('min_predictor_variability'))
-
-    # Detect whether this is a derived ratio marker. The ratio lookup is built
-    # from `config.derived_ratios` and keyed by "<marker_type>/<name>".
-    ratio_lookup = _get_derived_ratios_lookup(config)
-    ratio_spec = ratio_lookup.get(marker_name)
-
-    if ratio_spec is not None:
-        logger.info(
-            f"  Derived ratio detected: {ratio_spec['numerator']} / "
-            f"{ratio_spec['denominator']}"
-        )
-        _effective_formula = _resolve_formula_for_predictor(
-            config, config['lmm']['predictor_of_interest']
-        )
-        power_data, df_behavioral, channels = _load_ratio_marker_data(
-            spec=ratio_spec,
-            config=config,
-            formula=_effective_formula,
-            predictor=config['lmm']['predictor_of_interest'],
-        )
-    else:
-        # Standard single-marker loading path.
-        marker_types_to_load = (
-            [marker_type] if marker_type is not None
-            else list(config.get('selected_markers', {}).keys())
-        )
-        df_all = load_all_probe_data(
-            features_root=config['project']['features_root'],
-            subjects=config['project'].get('subjects'),
-            tasks=config['project'].get('tasks'),
-            marker_types=marker_types_to_load,
-            specific_markers=[marker_base_name],
-            behavioral_data_path=project_cfg.get('behavioral_data_path'),
-        )
-
-        # Filter by marker type if specified
-        if marker_type:
-            logger.info(f"  Filtering data for marker_type: {marker_type}")
-            df_filtered = df_all[df_all['marker_type'] == marker_type]
-            logger.info(f"  Filtered from {len(df_all)} to {len(df_filtered)} rows")
-        else:
-            df_filtered = df_all
-
-        power_data, df_behavioral, channels = prepare_data_for_lmm(
-            df=df_filtered,
-            marker_name=marker_base_name,
-            formula=_resolve_formula_for_predictor(
-                config, config['lmm']['predictor_of_interest']
-            ),
-            include_channels=preprocessing_cfg.get('include_channels'),
-            exclude_channels=preprocessing_cfg.get('exclude_channels'),
-            onoff_max_value=onoff_max_value,
-            min_predictor_variability=min_predictor_variability,
-            predictor_of_interest=config['lmm']['predictor_of_interest'],
-        )
-
-    # Ensure subject is string type (critical for statsmodels mixedlm)
-    df_behavioral['subject'] = df_behavioral['subject'].astype(str)
-
-    logger.info(f"  Loaded {power_data.shape[0]} observations × {power_data.shape[1]} channels")
-
-    # Apply per-subject normalization if requested. Without it, between-subject
-    # scale differences propagate into the LMM residual variance and bias the
-    # slope estimate of the predictor toward subjects with the largest amplitude,
-    # producing spatially extended clusters that reflect individual baseline
-    # topographies rather than the predictor effect.
-    if preprocessing_cfg.get('normalize_by_subject', False):
-        norm_method = preprocessing_cfg.get('normalization_method', 'zscore')
-        norm_channel_wise = preprocessing_cfg.get('channel_wise', False)
-        norm_subject_col = preprocessing_cfg.get('subject_column', 'subject')
-        logger.info(
-            f"  Normalizing power per subject: method={norm_method}, "
-            f"channel_wise={norm_channel_wise}"
-        )
-        power_data = normalize_by_subject(
-            power_data=power_data,
-            df_behavioral=df_behavioral,
-            method=norm_method,
-            subject_col=norm_subject_col,
-            channel_wise=norm_channel_wise,
-            verbose=True,
-        )
+    power_data, df_behavioral, channels = load_marker_matrix(
+        marker_name=marker_name,
+        config=config,
+        predictor=config['lmm']['predictor_of_interest'],
+    )
 
     # Create output directory consistent with main Statistics pipeline
     output_root = Path(config['project']['output_path'])
@@ -935,7 +1042,14 @@ def run_marker_analysis(
 
     cluster_alpha = float(config['andrillon_clustering']['cluster_alpha'])
 
-    clusters_raw = find_clusters_from_pvalues(
+    # The per-permutation null cluster statistics are requested and kept. They
+    # are the only input a family-level (omnibus) permutation test needs, and
+    # they cannot be reconstructed afterwards without re-fitting every permuted
+    # LMM — while costing one float per permutation to store. Keeping them lets
+    # the family-level question ("does ANY marker track this dimension?") be
+    # answered without assuming independence between markers, which the
+    # marker-wise FDR correction cannot do.
+    clusters_raw, null_cluster_stats = find_clusters_from_pvalues(
         t_stats=t_stats,
         p_values=p_values,
         perm_t_stats=perm_t_stats,
@@ -948,6 +1062,7 @@ def run_marker_analysis(
         t_power=1.0,
         separate_signs=True,
         exclude=exclude_mask,
+        return_null_distributions=True,
     )
     
     print(f"  Found {len(clusters_raw)} significant clusters", flush=True)
@@ -1012,6 +1127,12 @@ def run_marker_analysis(
         'clusters_raw': clusters_raw,   # Original objects from find_clusters
         'n_clusters': n_clusters,
         'n_sig_clusters': n_sig_clusters,
+
+        # Per-permutation maximum cluster statistics (one float per
+        # permutation, separately for positive and negative clusters). Input
+        # for the family-level omnibus permutation test; see the call to
+        # find_clusters_from_pvalues above.
+        'null_cluster_stats': null_cluster_stats,
 
         # Channel / montage info
         'ch_names': channels,
