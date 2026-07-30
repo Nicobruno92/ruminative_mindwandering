@@ -65,7 +65,15 @@ feature_families:
     - sleep
     prefixes:
     - power_normalized
-feature_selection_method: mrmr
+# Disabled to match loso_pipeline/config.yaml (see the rationale there).
+# WARNING, specific to this file: it runs valence_sq and time_sq, and those are
+# the two cells where the 2026-07-28 ablation did NOT support the change.
+# LOSO time_sq got worse without the filter (AUC 0.542 -> 0.485, i.e. below
+# chance, with only 3/13 subjects improving); LOSO valence_sq was flat (-0.007).
+# Systematically sub-chance AUC across folds is a sign of an overfitting mode
+# the filter was masking, not of a better model. Treat time_sq output from this
+# config as unreliable until it is re-run with permutations.
+feature_selection_method: none
 iforest_contamination: auto
 iforest_n_estimators: 100
 include_connectivity_pairs: false

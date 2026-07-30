@@ -8,14 +8,29 @@ predict MW state trial-by-trial, per probe dimension.
 > Classification asks whether that trace is strong enough to predict MW state in a specific person.
 > The decodability hierarchy mirrors CBPT signal density — validating both methods.
 
-**⚠ Headline numbers below are provisional.** `loso_pipeline/config.yaml` and
-`within_subject_pipeline/config.yaml` currently have **uncommitted local changes**
-(`git status` on this branch), and re-verifying the numbers below against the results
-currently on disk turned up a real, substantial drift from what was previously documented
-here (order-of-magnitude changes for `confidence`/`selfother`, and LOSO now covers all five
-dimensions rather than just `onoff`). See [§12 Current results snapshot](#12-current-results-snapshot)
-for the full, re-derived numbers and an explicit discussion of the drift — **do not cite the numbers
-in this paragraph, or any number from before this rewrite, without re-checking §12 first.**
+**⚠ Superseded again, later on 2026-07-28 — the feature space is now 175, not 177.** The ERP
+ROI definitions in `junifer_markers/2.aggregate_probes/config.yaml` were built on a false
+premise (comments claimed a "BC-32" montage missing PO7/PO8 and CPz; the real montage is
+CACS-64 and only FCz is missing). P1/N1 now use a single bilateral
+`occipitoparietal_lateral = [PO7,PO8,O1,O2]` instead of split left/right surrogates, and P3b
+uses the real CPz — so P1 and N1 contribute 1 column each instead of 2. All probe features were
+re-aggregated and the 7 within-subject caches rebuilt (pool 275 → `all` family filters to
+exactly 175, zero `p1_lateral` columns remaining). **The relaunched runs described in the next
+paragraph were scored on the 177-column space and are stale again; WS and LOSO both need
+relaunching before any number in this file is quoted.** See memory
+`classification-canonical-feature-space-177`.
+
+**⚠ Headline numbers below are provisional — root cause of the drift now confirmed (2026-07-28).**
+The within-subject numbers in this file were computed on a **stale 304-column feature cache**
+(a cache-invalidation bug meant the family filter never ran on the cache-hit path, so WS kept
+reading a June pickle that predated the switch to the canonical 177-feature space — the 23
+Andrillon markers per ROI — that LOSO was already using). Fixed; all 7 within-subject contrasts
+were relaunched on 2026-07-28 (SLURM `3185788`/`3185789`/`3185790`, still **queued** as of this
+writing — `QOSMaxCpuPerUserLimit`, not yet started). **Every number below is from the pre-fix
+304-feature run and must be recomputed once those jobs finish** — see memory
+`classification-canonical-feature-space-177` and `mw-classification-headline-drift-2026-07`, and
+re-run `scripts/recompute_headline_numbers.py` once the queue clears. See
+[§12 Current results snapshot](#12-current-results-snapshot) for the full tables and caveats.
 
 Within-subject decodability (group level, recomputed 2026-07-27 directly from the raw per-run/
 per-permutation CSVs, same statistic as the manuscript figure):
@@ -263,10 +278,15 @@ Implemented in `create_label_contrast()` (`utils/data_utils.py`). The raw 0–10
 dimension is turned into a binary target by one of four methods, selected per contrast in config:
 
 - **`within_subject_median`** (the method used for every reported contrast): each subject's own
-  median for that dimension is computed; a `gap` (raw-scale units; **gap = 5** for every content
-  dimension) defines a neutral zone `[median−gap, median+gap]` that is **dropped** entirely (not
-  relabeled) — this is a genuine exclusion of ambiguous, near-median trials, not a tie-breaking rule.
-  With `gap = 0` the split degenerates to a strict median cut with ties assigned to the positive class.
+  median for that dimension is computed; a `gap` (raw-scale units) defines a neutral zone
+  `[median−gap, median+gap]` that is **dropped** entirely (not relabeled) — this is a genuine
+  exclusion of ambiguous, near-median trials, not a tie-breaking rule. **gap = 5** for the five
+  linear dimensions, but **gap = 2.5** for the two quadratic (`_sq`) contrasts — deliberately halved
+  to keep the neutral zone the same *proportion* of the (already-transformed) scale, mirroring the
+  halving Stats_andrillon already applies to `min_predictor_variability_sq` relative to its linear
+  counterpart (config comment, both `loso_pipeline/config.yaml` and `within_subject_pipeline/config.yaml`,
+  `valence_sq`/`time_sq` blocks). With `gap = 0` the split degenerates to a strict median cut with
+  ties assigned to the positive class.
 - **`global_median`** — same idea but the split point is the pooled median across all subjects
   (defined in config but not part of `run_contrasts`).
 - **`threshold`** — fixed cut (e.g. at 50) regardless of subject-level distribution (defined, inactive).
@@ -291,7 +311,83 @@ fewer than `min_samples` (= 10) total probes; (2) drop subjects whose minority-c
 below `min_minority_ratio` (= 0.2), or who have only one class after the gap exclusion. Every
 excluded subject and reason is recorded in `subject_exclusions.yaml` / `used_config.yaml`'s
 `_data_provenance` block (full transparency, per root `CLAUDE.md`). See §12, Table 1 for realized
-cohort sizes per contrast.
+cohort sizes per contrast, and the full breakdown immediately below.
+
+#### Subject exclusion — mechanism and full per-contrast breakdown
+
+A subject is dropped from a given contrast's cohort at exactly one of three points inside
+`prepare_data_for_contrast()` (`utils/data_utils.py:1091–1131`), checked in this order — and only
+for *that* contrast: a subject excluded from `confidence` may well be included in `onoff`.
+
+1. **`excluded_no_data_or_all_neutral`** — the subject has **zero rows left** for this dimension
+   after label construction. Two causes are bundled into one bucket here and the code does not
+   distinguish them: either Junifer never produced any pre-probe rows for that subject on this
+   dimension (raw missingness), or every one of their trials fell inside the `gap` neutral zone and
+   was dropped, leaving nothing.
+2. **`excluded_min_samples`** — the subject had *some* data but fewer than `min_samples = 10` rows
+   left after the gap exclusion. The number recorded is the subject's **actual row count**, not a
+   deficit (e.g. `{'17': 1}` means subject 17 had exactly 1 usable trial for that contrast).
+3. **`excluded_min_minority_ratio`** — the subject cleared `min_samples` but their minority-class
+   fraction fell below `min_minority_ratio = 0.2`, or only one class remained.
+
+This filtering function and these exact config values are **shared** by both pipelines
+(`utils/data_utils.py` is imported by both entry points), so the cohort numbers below apply
+identically to both pipelines' data-preparation stage — with one important caveat, at the end of
+this block.
+
+**Full breakdown, all 7 currently-active contrasts** (source:
+`results/MW_Classification/LOSO/<contrast>/all/rf/subject_exclusions.yaml` — the only place this
+provenance is currently saved to disk, see the caveat below):
+
+| Contrast | gap | N requested | no-data/all-neutral | < min_samples | < min_minority_ratio | **N final** |
+|---|---:|---:|---:|---:|---:|---:|
+| On/Off-Task | 5 | 42 | 1 | 5 | 7 | **29** |
+| Valence | 5 | 42 | 5 | 4 | 6 | **27** |
+| Self/Other | 5 | 42 | 3 | 1 | 6 | **32** |
+| Time | 5 | 42 | 1 | 10 | 3 | **28** |
+| Confidence | 5 | 42 | 2 | 10 | 6 | **24** |
+| Valence² (extreme vs. moderate) | 2.5 | 42 | 3 | 10 | 15 | **14** |
+| Time² (extreme vs. moderate) | 2.5 | 42 | 2 | 9 | 18 | **13** |
+
+The quadratic contrasts lose roughly **2–3× more subjects to the class-balance filter** than their
+linear counterparts (15/18 vs. 3–7) — expected, since "extreme vs. moderate" (a squared-distance
+split) is a much less balanced way to cut most subjects' trial-by-trial variability than a straight
+median split; this is the main reason `valence_sq`/`time_sq` end up with only 13–14 usable subjects
+and should be reported/interpreted as lower-powered than the five linear dimensions.
+
+**Excluded subject IDs, by contrast and reason** (cohort is `"02"`–`"43"`, 42 requested; a subject
+not listed for a given contrast is in that contrast's final cohort; `min_samples` entries show the
+subject's actual row count in parentheses):
+
+| Contrast | No data / all-neutral | Below `min_samples` | Below `min_minority_ratio` |
+|---|---|---|---|
+| On/Off-Task | 16 | 02(2), 09(8), 13(2), 18(9), 20(4) | 04, 07, 08, 11, 26, 33, 36 |
+| Valence | 09, 13, 16, 20, 33 | 07(6), 17(1), 23(5), 27(9) | 11, 14, 15, 18, 39, 41 |
+| Self/Other | 09, 13, 16 | 02(2) | 11, 15, 17, 33, 36, 39 |
+| Time | 16 | 02(6), 07(5), 13(3), 17(1), 19(7), 20(1), 23(6), 33(1), 35(7), 36(7) | 11, 14, 15 |
+| Confidence | 16, 18 | 02(3), 07(7), 09(1), 13(3), 17(9), 20(9), 21(7), 27(9), 34(5), 36(8) | 04, 11, 26, 33, 39, 43 |
+| Valence² | 09, 17, 33 | 03(5), 10(8), 15(7), 16(1), 19(3), 20(6), 21(9), 23(3), 31(2), 41(9) | 05, 07, 11, 12, 22, 25, 28, 29, 30, 32, 36, 37, 38, 39, 42 |
+| Time² | 17, 33 | 02(2), 03(9), 15(8), 16(3), 19(4), 21(5), 23(4), 35(7), 36(5) | 04, 07, 10, 11, 20, 24, 25, 26, 27, 28, 29, 30, 31, 37, 39, 40, 41, 42 |
+
+**⚠ Important asymmetry between the two pipelines.** `subject_exclusions.yaml` (and the
+`_data_provenance` block inside `used_config.yaml` it is built from) is currently only ever
+**written to disk by the LOSO pipeline** (`run_loso_classification.py:474–483`). The within-subject
+pipeline computes the identical `_data_provenance` dict inside the same `prepare_data_for_contrast()`
+call too — but only on a **cache miss**. Its normal, documented production path
+(`run_within_subject_classification.py:259`, the `precompute_data_cache.py` workflow recommended in
+Quick Start) loads straight from the cached pickle whenever one exists, which **bypasses
+`prepare_data_for_contrast()` entirely**. Confirmed by grepping every within-subject
+`used_config.yaml` currently on disk: none contain `_data_provenance` or any `excluded_*` key.
+Since caching is the recommended way to run this pipeline, **within-subject results currently carry
+no saved exclusion record at all.** The table above is still the correct record for
+within-subject's data-preparation stage (identical function, identical config values, identical
+underlying Junifer CSVs) — but within-subject subjects can additionally drop out **per individual
+run**, for a separate reason not captured here: minority-class count < 5 within that run's
+stratified folds (§7). That further, dynamic dropout is why the within-subject "scoreable" counts in
+§12 Table 1 (23, 31, 27, 23 for valence/selfother/time/confidence) sit slightly below the cohort
+sizes in this table. To get within-subject's own `subject_exclusions.yaml` going forward, either
+delete the relevant cache file before running (`rm results/MW_Classification/data_cache/<contrast>__all.pkl`, forcing the `prepare_data_for_contrast()` path once) or port the LOSO write-out
+(`run_loso_classification.py:474–483`) into `run_within_subject_classification.py` — see §13.
 
 ### 5. Classification model, preprocessing, and feature selection
 
@@ -406,44 +502,169 @@ pipelines.
 
 ### 9. Spatial searchlight (per-electrode decoding)
 
-`{loso,within_subject}_pipeline/spatial_decoding/` reuses the identical CV/permutation engine but
-restricts the feature matrix to one electrode's own columns at a time (`per_channel` data format),
-producing one AUC per channel rather than one AUC over the pooled `all` family. Its own
-`config.yaml` differs from the parent pipeline in ways specific to a 64-channel search
-(`n_runs=20` for LOSO / within-subject, lighter than the parent's 100; `k=10` selected features
-instead of 20).
+`loso_pipeline/spatial_decoding/` and `within_subject_pipeline/spatial_decoding/` each reuse their
+parent's identical CV/permutation engine (`run_distribution_analysis` /
+`run_within_subject_distribution_analysis`, unmodified) but restrict the feature matrix to **one
+electrode's own columns at a time** (`data_format: per_channel`, a separate cache from the parent
+pipeline's `per_roi` one), producing one AUC per channel across the 64-electrode montage rather
+than one pooled AUC over the `all` family. Both variants share the same design (own `config.yaml`,
+lighter than the parent's: `n_runs=20` instead of 100, `k=10` selected features instead of 20,
+`n_permutations=500`) and the same **max-statistic family-wise error rate (FWER)** significance
+scheme, described once here and specialized below:
 
-Significance is a **max-statistic family-wise error rate (FWER)** correction across all channels: for
-each of the 500 within-subject-shuffled permutation draws, the *maximum AUC over all channels* is
-recorded, building a null of "best possible channel by chance"; the 95th percentile of that null is
-the significance threshold, and each channel's own p-value is
-`(1 + #{max-null ≥ channel AUC}) / (1 + 500)`. Two subtleties worth stating precisely if reporting
-this analysis: (a) the true statistic actually tested against the max-null is each channel's
-**single-run** AUC (matching the single-pass nature of each permutation draw), while the AUC
-**displayed on the topomap** is the `n_runs`-averaged value — the two are highly correlated but not
-identical, and a manuscript figure should say which is which; (b) this spatial multiple-comparisons
-correction has no counterpart in the main (`all`-family) pipeline, which reports one pooled AUC per
-contrast with no electrode-wise search.
+- **Null of the max.** For each of the 500 permutation draws, exactly **one** within-subject label
+  shuffle (`permute_labels_within_subject(y, groups, seed=P)`) is applied, and **every channel** is
+  scored under that *same* shuffle with `n_runs=1`. Using one shared shuffle across all 64 channels
+  (rather than 64 independent shuffles) is what makes "the maximum AUC over channels in this draw"
+  a valid family-wise null sample — it answers "how good could the *best* electrode look by chance,
+  under one fixed random relabeling."
+- **Inference.** `threshold = 95th percentile of the 500 max-over-channel values`; a channel is
+  significant iff its own true AUC exceeds that threshold, with a per-channel FWER p-value
+  `(1 + #{max-null ≥ channel AUC}) / (1 + 500)`.
+- **A subtlety that matters for how you report this**: the statistic *tested* against the max-null
+  is not the `n_runs`-averaged AUC used everywhere else in this document — it is a **single-pass**
+  AUC (`auc_single`), matching the single-shuffle nature of each permutation draw. The AUC
+  **displayed on the topomap** is still the `n_runs`-averaged value (more stable visually). The two
+  are highly correlated but not identical; a manuscript figure legend should say explicitly which
+  one is which.
+- Unlike the main pipeline (§13 — both its LOSO and within-subject SLURM-array aggregation have
+  real gaps), **both spatial-decoding variants have a working, existing per-contrast merge script**
+  (`spatial_decoding/merge_spatial_results.py`, one independent copy per pipeline) that combines the
+  true/permutation shards into `per_channel_metrics.csv` and the topomap figures — this path is not
+  affected by the merge issues described in §13.
+
+#### 9.1 LOSO spatial searchlight
+
+`run_loso_spatial_decoding.py` has two modes:
+
+- **TRUE mode** (default, `--channel CH` or all channels): for each channel, runs `n_runs=20` LOSO
+  passes (`run_distribution_analysis`, restricted to that channel's own feature columns) and reports
+  `mean_auc` (the `n_runs`-average, for the topomap), `std_auc`, and `auc_single` — explicitly the
+  **first run's** (`run_idx=0`) AUC, "matched to the single-pass permutation statistic" (in-code
+  comment). Written to `true/true_per_channel_auc.csv` (or `true/channel-{CH}.csv` when sharded).
+- **PERMUTATION mode** (`--perm_idx P`): one within-subject shuffle (seed = `P`) is scored across
+  all 64 channels with `n_runs=1`; the per-channel AUCs go to `perms/perm-{P}.csv`, and the
+  max-over-channels value from that file is one of the 500 null draws.
+
+Run order (from `mw_classification_pipeline/`, per `spatial_decoding/README.md`): precompute the
+per-channel cache once (`scripts/precompute_spatial_cache.py`), submit the TRUE array
+(5 contrasts × 64 channels = 320 tasks, `run_true_slurm.sh`), submit the PERMUTATION array
+(5 contrasts × ⌈500/`PERMS_PER_JOB`⌉ blocks, `run_perm_slurm.sh`), then run
+`merge_spatial_results.py --results_dir results/MW_Classification/SpatialDecoding/LOSO/<contrast>/all/rf`
+per contrast, and finally `scripts/generate_spatial_panel.py` for the combined 5-dimension figure.
+
+**Illustrative current result** (`onoff`, same provisional status as §12 — read that caveat first):
+of the 64 electrodes, **38/64 are FWER-significant** (max-stat threshold = 0.573 on the single-pass
+AUC); the strongest channel in this run is `AF4` (`mean_auc = 0.634`, `auc_single = 0.622`), the
+weakest significant channel sits just above threshold (`AF3`: `mean_auc = 0.580`). A broad but not
+whole-scalp topography, consistent with the pooled `all`-family LOSO AUC (0.589, §12 Table 4) not
+being driven by one isolated electrode.
+
+#### 9.2 Within-subject spatial searchlight
+
+`run_within_spatial_decoding.py` mirrors the LOSO driver but the per-channel statistic is a
+**group-mean AUC across subjects**, computed by `_group_mean_auc`: it calls
+`run_within_subject_distribution_analysis` for that channel, then averages **first across each
+subject's own `n_runs`-averaged AUC, then across subjects** to get `mean_auc` (the topomap value).
+`auc_single` here is *not* simply "the first run" as in LOSO — it is the group mean of each
+subject's **own first-run** AUC (`subj_df.loc[run_idx == run_idx.min()]`, then averaged over
+subjects) — i.e. still a single-pass statistic, but a two-level average (over subjects, of one run
+each) rather than LOSO's single number from one pooled fold structure. The PERMUTATION mode is
+otherwise identical in spirit: one within-subject shuffle scored across all channels with
+`n_runs=1`, and the group-mean of that shuffle's per-channel AUC feeds the same max-over-channels
+null. Run order and outputs are the same as §9.1 (own `spatial_decoding/config.yaml`, own
+`merge_spatial_results.py`, `results/MW_Classification/SpatialDecoding/WithinSubject/`); contrast
+names here are lowercase (`on_vs_off_within_median`), matching the within-subject `label_contrasts`
+keys rather than LOSO's.
+
+**Illustrative current result** (`onoff` — same provisional status as §12, **and note this used the
+`per_channel` cache, which may or may not share the stale-304-feature bug described in the update
+above; treat this number with the same "pending relaunch" caveat until checked**): **64/64 channels
+are FWER-significant** (threshold = 0.588; every channel's `auc_single` clears it comfortably, range
+0.619–0.708, mean 0.665) — a much broader/stronger topography than the LOSO searchlight (§9.1,
+38/64), consistent with within-subject decoding (§12 Table 2: 0.710) being substantially stronger
+than LOSO (§12 Table 4: 0.589) at the pooled-feature level too. A whole-scalp significant result is
+not implausible given how far above threshold every channel sits, but it is unusual enough (100% of
+channels) that it is worth a sanity check once the relaunched within-subject run lands, rather than
+taken at face value for a manuscript figure.
 
 ### 10. Type-I error calibration
 
-`{loso,within_subject}_pipeline/type1_error/` empirically calibrates the pipeline's own p-values
-under a **known-true null**: real feature covariance is preserved (a multivariate Gaussian is fit
-per subject, Ledoit-Wolf shrinkage by default, and synthetic features are drawn from it — this
-keeps each subject's covariance structure and sample size intact) while the real labels are retained
-unchanged, so by construction there is no feature–label association. The full production pipeline
-(CV + permutation testing, unmodified) is then run `n_simulations = 200` times on this synthetic
-data (LOSO: `n_runs=3` true passes / `permutation_runs=200` per simulation; within-subject:
-`n_runs=3` / `n_permutations=50` per simulation — fewer, for compute budget), and the empirical false
-positive rate at `α ∈ {.01, .05, .10}` (with a Wilson 95% CI) is compared to the nominal rate. A
-properly calibrated pipeline should show empirical FPR ≈ nominal α at every level.
+`loso_pipeline/type1_error/` and `within_subject_pipeline/type1_error/` each empirically calibrate
+their parent pipeline's own p-values under a **known-true null**: a synthetic feature matrix is
+drawn from a multivariate Gaussian fit to the real data (Ledoit-Wolf-shrinkage covariance,
+`covariance_scope="per_participant"` by default — i.e. a separate covariance matrix per subject,
+preserving each subject's own covariance structure and sample size; `"global"` and `"diag"`
+alternatives exist for stress-testing), while the **real labels are retained unchanged** — so by
+construction there is no feature–label association, and any "significant" result the pipeline
+reports on this data is a false positive by definition. The full production pipeline (data loading,
+feature selection, SMOTE, CV, and permutation testing — completely unmodified) is then re-run many
+times on independently-drawn synthetic feature matrices, and the empirical false-positive rate (FPR)
+at `α ∈ {.01, .05, .10}` (with a Wilson 95% CI, `statsmodels.stats.proportion.proportion_confint`)
+is compared to the nominal rate: a properly calibrated pipeline shows empirical FPR ≈ nominal α at
+every level; the calibration verdict is `"INFLATED"` if the CI lower bound exceeds α, `"CONSERVATIVE"`
+if the CI upper bound is below α, else `"OK"`.
 
-**Known caveat**: the within-subject Type-I error harness reads `min_minority_ratio` from the wrong
-config sub-block (`cv:` instead of the top-level key), which silently resolves to `0.0` — i.e., the
-per-subject minority-ratio filter that the production pipeline applies (`0.2`) is **not** applied
-during this calibration. This does not invalidate the CV/permutation-machinery calibration itself,
-but means the calibration's subject-inclusion behavior does not perfectly mirror production; worth
-fixing before citing an exact FPR number from this harness in a manuscript.
+#### 10.1 LOSO Type-I error calibration
+
+`config_type1_error.yaml` (loaded alongside the parent `config.yaml`, overriding only `n_runs` /
+`permutation_runs` / the contrast list for the simulation) runs `n_simulations = 200` — chosen so
+the FPR estimate at α = 0.05 has a 95% CI of ±2.2 percentage points. It restricts the simulation to
+a **single representative contrast**, `ON_vs_OFF_within_median`, on the stated rationale that "FPR
+calibration is a property of the pipeline procedure (feature selection, SMOTE, within-subject
+scaling, LOSO) ... a single representative contrast is sufficient and 5× cheaper than sweeping all."
+Per simulation: `n_runs=3` true LOSO passes (fewer than the production 100 — only needed to define
+one `true_mean` for the null comparison) and `permutation_runs=200` (deliberately close to, but
+lighter than, the production 500; chosen so the add-one p-value floor `1/(200+1) ≈ 0.005` sits
+**below** the smallest reported α = 0.01 — with e.g. 50 perms the floor would be ≈0.02, making
+α = 0.01 structurally unmeasurable). Results: `results/MW_Classification/Type1Error/LOSO/ON_vs_OFF_within_median/all/rf/sim_0000/` … `sim_0199/`, each a complete true/permutation CV output in the
+production's own file layout.
+
+**As run on this dataset**: all 200 `sim_*` directories exist with complete `true_runs`/
+`permuted_runs` output, but — consistent with the aggregation gaps noted throughout §13 — no
+aggregate FPR/calibration summary file exists on disk for this harness either (the `--aggregate`
+mode described in the script's own usage docstring does not appear to have been run; get it going
+forward via `python run_type1_error_loso.py --config type1_error/config_type1_error.yaml --contrast ON_vs_OFF_within_median --family all --model_type rf --aggregate` from `loso_pipeline/`). For this
+README, the empirical FPR was recomputed directly from the 200 simulations' raw
+`true_runs/run_*/*_summary.csv` / `permuted_runs/run_*/*_summary.csv` files, using the same add-one
+p-value formula the production LOSO pipeline itself uses (§8, formula 1):
+
+| α (nominal) | Empirical FPR | Wilson 95% CI | Verdict |
+|---:|---:|---|---|
+| .01 | 0/200 = .000 | [.000, .019] | OK |
+| .05 | 5/200 = .025 | [.011, .057] | OK |
+| .10 | 11/200 = .055 | [.031, .096] | CONSERVATIVE |
+
+No inflation at any level — if anything the pipeline is mildly conservative at α = .10 (upper CI
+bound .096 < .10), meaning the LOSO procedure (feature selection, SMOTE, within-subject scaling,
+LOSO folding) does not manufacture false positives under a known-true null on `ON_vs_OFF_within_median`.
+This is a genuinely reassuring, previously-unreported result for this harness — re-verify it
+persists once the config changes (see the 2026-07-28 update above) are finalized, since Type-I
+error calibration should in principle be re-run any time the CV/feature-selection/oversampling
+machinery changes.
+
+#### 10.2 Within-subject Type-I error calibration
+
+`config_type1_error.yaml` mirrors the LOSO harness (`n_simulations=200`, same `α` levels, same
+`covariance_scope="per_participant"`/`covariance_method="ledoit_wolf"`), but with `n_runs=3` /
+`n_permutations=50` per simulation — fewer permutations than LOSO's calibration harness (floor
+`1/51 ≈ 0.020`, still below α = 0.05 but coarser at α = 0.01) — and no contrast restriction inside
+the YAML; the contrast is instead fixed by the `--contrast` CLI argument on each invocation (the
+script's own usage examples always show `on_vs_off_within_median`).
+
+**Known bug**: the within-subject harness reads `min_minority_ratio` from the wrong config
+sub-block (`config["cv"]`, which has no such key, instead of the top-level `min_minority_ratio`),
+so it silently resolves to `0.0` — the per-subject minority-ratio filter that production applies
+(`0.2`) is **not** applied during this calibration. This doesn't invalidate the CV/permutation
+machinery being calibrated, but the subject-inclusion behavior under test doesn't perfectly mirror
+production; fix before citing an exact FPR from this harness in a manuscript.
+
+**As run on this dataset**: unlike LOSO, `results/MW_Classification/Type1Error/WithinSubject/` **does
+not exist at all** — the within-subject Type-I error harness is implemented and code-verified above,
+but has not yet been executed on this dataset. Run it (`run_local.sh`-style sequential invocation of
+`run_type1_error_within.py`, 200 simulations × ~3+50 CV passes each) before citing a within-subject
+calibration result in a manuscript; right now only the LOSO calibration (§10.1) has actual numbers
+behind it.
 
 ### 11. Post-hoc cross-decoding
 
@@ -469,6 +690,18 @@ per-permutation CSVs currently on disk (never the `*_summary_averaged.csv` / top
 configs have uncommitted local changes on this branch, so **these numbers may not reflect the final,
 intended analysis** — re-run this recomputation (script referenced in §14) after the configs are
 finalized and committed, and reconcile against whatever numbers are ultimately reported in the paper.
+
+**Update, 2026-07-28 — root cause of the drift confirmed, fix in flight.** The within-subject
+numbers below (Tables 2–3) were computed on a stale 304-column feature cache: a cache-invalidation
+bug skipped the family filter on the cache-hit path, so within-subject kept reading a June pickle
+from before the switch to the canonical 177-feature space (the 23 Andrillon markers per ROI) that
+LOSO (Tables 1, 4) was already using — i.e. **WS and LOSO were never scored on the same feature
+space**, so the within-vs-LOSO gap below is not a clean comparison either. All 7 within-subject
+contrasts were relaunched 2026-07-28 on the corrected 177-feature space (SLURM `3185788` 700 true
+jobs / `3185789`+`3185790` 3,500 permutation jobs); as of this writing those jobs are still
+**queued** (`QOSMaxCpuPerUserLimit`), not yet started. Tables 2–3 must be regenerated with
+`scripts/recompute_headline_numbers.py` once they finish. Full detail: memory
+`classification-canonical-feature-space-177` and `mw-classification-headline-drift-2026-07`.
 
 **Table 1 — realized cohort per contrast** (after §4 inclusion filters; within-subject "scoreable"
 count reflects the additional per-run minority-count-≥5 dropout described in §7):
@@ -547,6 +780,12 @@ the pipeline is treated as frozen:
 - **Within-subject cluster merge step does not exist** — `run_cluster.sh` references
   `merge_ws_results.py`; no such file exists anywhere in the repository (confirmed by `find`). Only
   `run_local.sh` currently self-aggregates correctly.
+- **Within-subject results save no subject-exclusion provenance at all** — `_data_provenance` is
+  only ever computed inside `prepare_data_for_contrast()`, which the within-subject entry point
+  skips on every cache hit (the documented, recommended run path). See §4's "Subject exclusion"
+  block for the full breakdown (currently derivable only from LOSO's saved
+  `subject_exclusions.yaml`, since the filtering function and config values are identical across
+  pipelines) and the fix (delete the cache once, or port the LOSO write-out).
 - **`rf_ws_permutation_500perms_summary_averaged.csv` is not an average** — for every within-subject
   contrast checked, this file contains a single row (`run_idx=499`, the *last* permutation), not the
   aggregate of 500. Anyone reading this file directly gets a noisy single-draw null instead of the

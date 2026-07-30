@@ -2093,7 +2093,7 @@ if __name__ == "__main__":
     
     test_config = {
         'project': {'derivatives_root': '/path/to/derivatives'},
-        'trial_selection': {'evoked_distance_max': 4},
+        'trial_selection': {'evoked_distance_max': 5},
     }
     
     generate_html_report(

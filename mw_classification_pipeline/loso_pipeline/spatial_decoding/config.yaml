@@ -248,8 +248,24 @@ random_seed: 42
 # PREPROCESSING
 # =============================================================================
 
-k: 10                                    # SPATIAL DECODING: smaller per-channel feature pool
-feature_selection_method: mrmr           # SPATIAL DECODING: mRMR within each channel's markers
+# Feature selection DISABLED, matching loso_pipeline/config.yaml so no stage of
+# the analysis runs a different procedure from any other.
+#
+# The a priori argument carries over and is if anything stronger here: the
+# searchlight fits one classifier per electrode on that electrode's own markers,
+# a pool of only ~35 columns (34-38, see any per_channel_metrics.csv), against
+# ~1170 LOSO training samples. There is no dimensionality problem for a filter
+# to solve, and the forest still selects internally (max_features='sqrt' → ~6 of
+# 35 per split), so mRMR k=10 is a redundant second stage.
+#
+# Be aware this cell was NOT measured: the 2026-07-28 ablation covered only the
+# main 177-feature pipelines. The proportions differ enough that its result does
+# not transfer directly — k=10/35 retains ~29% of the pool, whereas the measured
+# k=20/177 retained ~11%. Treat the change here as procedural consistency, not
+# as an evidence-backed improvement, and re-run the permutation nulls before
+# reading any topomap produced under it.
+k: 10                                    # SPATIAL DECODING: inert while method is 'none'
+feature_selection_method: none           # mrmr, lmm_encoding, lmm_decoding, f_classif, none
 
 # Missing-value handling (handle_missing_features). Defaults are now explicit
 # instead of relying on the function signature.

@@ -429,11 +429,26 @@ feature_selection:
   #   lmm_encoding  → Feature ~ Label + (1|Task) — better convergence, continuous outcome.
   #   lmm_decoding  → Label   ~ Feature + (1|Task) — binary outcome, use linear probability approx.
   # Keep lmm_n_jobs=-1 when n_subject_jobs=1 (fine). Set lmm_n_jobs=1 when n_subject_jobs>1.
-  method: "mrmr"
+  #
+  # DISABLED, matching loso_pipeline/config.yaml so both pipelines train on the
+  # same 177-feature space through the same procedure — the comparison between
+  # them is the point of the analysis, so they must not diverge here.
+  # Rationale: the random forest already selects internally
+  # (max_features='sqrt' → ~13 of 177 per split), so mRMR k=20 is a redundant
+  # second stage that drops correlated-but-complementary markers.
+  #
+  # The within-subject case is the weaker one of the two: each subject trains on
+  # ~32 samples, where a filter could plausibly buy regularisation. The ablation
+  # of 2026-07-28 (results/FS_Ablation/fs_ablation_summary.csv) found it does
+  # not — on/off rose 0.703 → 0.723 (23/29 subjects), and every other dimension
+  # moved <=0.011 with per-subject counts at chance (i.e. group-level drift, not
+  # a real shift). No permutations were run, so none of that carries a p-value.
+  method: "none"
 
   # Number of features to select. (Use "all" to skip selection completely).
   # For within subject, 'k' may need to be strictly restricted
   # (e.g. k=10) due to low n_samples per subject
+  # Inert while method is "none"; kept so the previous setting is recoverable.
   k: 20
 
   # lmm_n_jobs: CPUs per subject for LMM fitting.
@@ -485,16 +500,22 @@ outputs:
 # Number of top features shown in importance / SHAP plots.
 top_n_features_plot: 20
 
-# Within-subject SHAP beeswarm: each subject independently mRMR-selects its
-# own top-k feature subset, so pooling all subjects' SHAP values unfiltered
-# is dominated by structural zero-padding for whichever subjects did not
-# select a given feature. A feature is only displayed in the beeswarm if at
-# least this fraction of pooled rows carry a genuine (nonzero) attribution.
-# Calibrated empirically (run 0, on_vs_off_within_median/all/rf): with
-# k=20 selected out of 304 features, chance-level row coverage for a
-# feature selected by no one in particular is ~20/304=6.6%; observed
-# coverage tops out at 23.8%. 0.15 (~2.3x chance) keeps ~33 candidate
-# features — comfortably above top_n_features_plot=20 — while excluding
-# near-chance selection noise. Exploratory/descriptive threshold — not
-# used by any confirmatory statistic.
+# Within-subject SHAP beeswarm: a feature is only displayed if at least this
+# fraction of pooled rows carry a genuine (nonzero) attribution.
+#
+# INERT under feature_selection.method: "none" (current setting). The threshold
+# exists solely to undo an artefact of per-subject selection: when each subject
+# mRMR-selected its own k=20, every feature the subject did NOT select entered
+# the pool as a structural zero, so pooling across subjects was dominated by
+# zero-padding. With selection off, every subject contributes a real attribution
+# for all 177 features, coverage is ~100% everywhere, and this filter drops
+# nothing — the beeswarm is then governed by top_n_features_plot alone.
+#
+# Original calibration, kept for the case where selection is re-enabled
+# (run 0, on_vs_off_within_median/all/rf): with k=20 of 304 features,
+# chance-level row coverage is ~20/304=6.6% and observed coverage topped out at
+# 23.8%, so 0.15 (~2.3x chance) kept ~33 candidates. Note that calibration was
+# done on the old 304-column space, not the current 177 — it would need
+# redoing, not just reusing, if selection comes back.
+# Exploratory/descriptive threshold — not used by any confirmatory statistic.
 min_shap_feature_row_frac: 0.15

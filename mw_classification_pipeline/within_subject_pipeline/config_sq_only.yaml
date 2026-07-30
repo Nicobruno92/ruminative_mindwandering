@@ -105,10 +105,17 @@ feature_families:
     - power_gamma
     - power_normalized
 feature_selection:
-  k: 20
+  k: 20                 # inert while method is "none"
   lmm_n_jobs: 4
   lmm_prefilter_factor: 3
-  method: mrmr
+  # Disabled to match within_subject_pipeline/config.yaml (rationale there).
+  # This file runs valence_sq / time_sq. In the 2026-07-28 ablation the
+  # within-subject arm of those two was the weakest evidence in the whole
+  # matrix: valence_sq +0.003 (6/14 subjects) and time_sq +0.022 (7/13) — both
+  # per-subject counts sit at chance, so the group means are drift, not a shift.
+  # The change is applied here for procedural consistency with the parent
+  # config, not because these cells supported it.
+  method: "none"
 include_connectivity_pairs: false
 label_contrasts:
   confidence_within_median:

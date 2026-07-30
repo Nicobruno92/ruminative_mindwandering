@@ -359,12 +359,25 @@ feature_selection:
   #   lmm_encoding  → Feature ~ Label + (1|Task) — better convergence, continuous outcome.
   #   lmm_decoding  → Label   ~ Feature + (1|Task) — binary outcome, use linear probability approx.
   # Keep lmm_n_jobs=-1 when n_subject_jobs=1 (fine). Set lmm_n_jobs=1 when n_subject_jobs>1.
-  method: "mrmr"
+  #
+  # DISABLED, matching within_subject_pipeline/config.yaml and the LOSO
+  # searchlight, so no stage of the analysis runs a different procedure.
+  # The forest still selects internally (max_features='sqrt' → ~6 of the ~35
+  # per-channel columns per split), making mRMR k=10 a redundant second stage.
+  #
+  # This is the thinnest-evidence cell in the whole change, and worth watching:
+  # it combines the per-channel pool (~35 columns, never measured in the
+  # 2026-07-28 ablation) with the within-subject sample budget (~32 training
+  # samples per subject), which is the regime where a filter is most likely to
+  # be buying real regularisation. Applied for procedural consistency only.
+  # Re-run the permutation nulls before trusting any topomap from this config.
+  method: "none"
 
   # Number of features to select. (Use "all" to skip selection completely).
   # For within subject, 'k' may need to be strictly restricted
   # (e.g. k=10) due to low n_samples per subject
   # SPATIAL DECODING: k=10 — smaller per-channel feature pool.
+  # Inert while method is "none"; kept so the previous setting is recoverable.
   k: 10
 
   # lmm_n_jobs: CPUs per subject for LMM fitting.

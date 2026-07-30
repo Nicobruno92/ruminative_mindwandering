@@ -267,10 +267,23 @@ def plot_feature_importances(feature_names, mean_importances, std_importances, c
         name='Importance'
     ))
 
+    # A top-N chart cannot show that many features carry importance of exactly
+    # zero — mRMR never selected them in any fold, so they are structurally
+    # absent rather than merely unimportant. State the count, or the reader
+    # takes rank N+1 to be a near miss.
+    n_nonzero = int(np.count_nonzero(mean_importances))
+    n_total = len(mean_importances)
+
     # Update layout to match modern aesthetic
     fig.update_layout(
         template='plotly_white',
-        title=dict(text=f'<b>Top {len(y_labels)} Feature Importances</b>', font=dict(size=16)),
+        title=dict(
+            text=(f'<b>Top {len(y_labels)} Feature Importances</b>'
+                  f'<br><span style="font-size:11px;color:#666">'
+                  f'{n_nonzero} of {n_total} features have non-zero importance'
+                  f'</span>'),
+            font=dict(size=16),
+        ),
         xaxis_title=dict(text='Importance', font=dict(size=14)),
         yaxis_title=dict(text='Feature', font=dict(size=14)),
         height=max(400, len(y_labels) * 30),

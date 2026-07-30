@@ -266,6 +266,30 @@ def main():
         y = _cached["y"]
         groups = _cached["groups"]
         feature_cols = _cached["feature_cols"]
+
+        # `epoch_types` decides which marker files were read at all, so a cache
+        # built under different ones is simply the wrong data — unlike prefixes,
+        # it cannot be corrected after the fact. Fail instead of running on it.
+        _cached_epochs = _cached.get("epoch_types")
+        if _cached_epochs != family_epoch_types:
+            raise ValueError(
+                f"Cache {_cache_path} was built with epoch_types={_cached_epochs}, "
+                f"but family '{family_name}' now declares {family_epoch_types}. "
+                f"Delete the cache and re-run precompute_data_cache.py."
+            )
+
+        # Subject-exclusion provenance is computed inside prepare_data_for_contrast(),
+        # which this path skips, so it has to come from the cache. Older caches
+        # predate it; fail loudly rather than silently writing a used_config.yaml
+        # with no record of who was excluded and why.
+        _provenance = _cached.get("data_provenance")
+        if _provenance is None:
+            raise ValueError(
+                f"Cache {_cache_path} carries no subject-exclusion provenance "
+                f"(built before it was recorded). Delete it and re-run "
+                f"precompute_data_cache.py so exclusions are documented."
+            )
+        config["_data_provenance"] = _provenance
         # Apply suffix exclusions declared in config (e.g. ["_std"]) so that
         # the cache path and the slow path produce identical feature spaces.
         _excl = config.get("exclude_column_suffixes", [])
@@ -280,8 +304,15 @@ def main():
         df_prepared, X, y, groups, feature_cols = prepare_data_for_contrast(
             config, contrast_name, verbose=verbose
         )
-        X = filter_features_by_family(X, family_name, family_prefixes)
-        feature_cols = X.columns.tolist()
+
+    # Family filtering is a pure column subset governed by config, so it must run
+    # on BOTH paths. Applying it only on the slow path let a cached pickle pin the
+    # feature space to whichever config was current when the cache was built: the
+    # caches predate the switch to the 23-marker Andrillon set, so every cached run
+    # silently trained on the old 304-column space while LOSO (which has no cache)
+    # used the 177 the config actually declares.
+    X = filter_features_by_family(X, family_name, family_prefixes)
+    feature_cols = X.columns.tolist()
     # ──────────────────────────────────────────────────────────────────────────
 
     if args.dry_run:

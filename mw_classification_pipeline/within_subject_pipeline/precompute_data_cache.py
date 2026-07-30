@@ -19,25 +19,12 @@ import sys
 import argparse
 import pickle
 import yaml
-import re
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from utils.data_utils import load_config, prepare_data_for_contrast, get_project_root
-
-
-def _filter_features_by_family(X, prefixes):
-    if prefixes is None:
-        return X
-
-    def _matches(col, prefix):
-        p = re.escape(prefix)
-        return bool(re.search(rf"_{p}(_|$)", col)) or bool(re.match(rf"{p}(_|$)", col))
-
-    selected = [c for c in X.columns if any(_matches(c, p) for p in prefixes)]
-    return X[selected]
 
 
 def cache_path_for(cache_dir: str, contrast: str, family: str) -> str:
@@ -75,7 +62,6 @@ def main():
     for family in run_families:
         fam_cfg = families_cfg.get(family, {})
         epoch_types = fam_cfg.get("epoch_types", ["state"]) if isinstance(fam_cfg, dict) else ["state"]
-        prefixes = fam_cfg.get("prefixes") if isinstance(fam_cfg, dict) else None
 
         for contrast in contrasts:
             out = cache_path_for(cache_dir, contrast, family)
@@ -91,9 +77,16 @@ def main():
             df, X, y, groups, feature_cols = prepare_data_for_contrast(
                 config, contrast, verbose=False
             )
-            X = _filter_features_by_family(X, prefixes)
-            feature_cols = X.columns.tolist()
 
+            # The prefix filter is deliberately NOT applied here. It is a pure
+            # column subset driven by `feature_families.{family}.prefixes`, so
+            # baking it into the pickle pins the feature space to whichever
+            # config built the cache — the failure that had every within-subject
+            # run silently training on a stale 304-column space. The consumer
+            # applies it on every path instead, which lets `prefixes` change
+            # without invalidating the cache. `epoch_types` still must match,
+            # because it decides which files are read at all; it is stored below
+            # and validated on load.
             payload = {
                 "df": df,
                 "X": X,
@@ -103,6 +96,10 @@ def main():
                 "contrast": contrast,
                 "family": family,
                 "epoch_types": epoch_types,
+                # Which subjects were dropped and why. Computed inside
+                # prepare_data_for_contrast(), which the fast path never calls,
+                # so it has to travel with the cache or it is lost entirely.
+                "data_provenance": config.get("_data_provenance"),
             }
 
             with open(out, "wb") as f:

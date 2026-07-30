@@ -1190,18 +1190,44 @@ def _new_dimension_grid_fig() -> go.Figure:
 
 def _add_scatter_panel(
     fig: go.Figure, col: int, dim_info: dict,
-    x_vals: np.ndarray, y_vals: np.ndarray, feat_names: list[str],
+    x_common: np.ndarray, y_common: np.ndarray, common_feats: list[str],
+    highlight_idx: list[int],
     x_label: str, y_label: str,
     axis_range: list[float] | None = None,
 ) -> None:
     """
     Add a WS-vs-LOSO scatter panel to ``fig`` at column ``col``.
 
-    Draws the marker+text scatter, a y=x diagonal, a linear regression line,
-    and a correlation annotation, then styles both axes to ``axis_range``.
+    Every common feature is drawn, so the cloud the reader sees is the same
+    population the reported statistics describe.  ``highlight_idx`` entries are
+    drawn opaque and labelled; the rest form a faint background.
+
+    The correlation and the regression line are computed over **all** common
+    features, never over ``highlight_idx`` alone.  Restricting them to a
+    top-N-of-x ∪ top-N-of-y subset is a selection-on-extremes artifact: when the
+    true relationship is near zero, every "top-x only" point sits at high-x/low-y
+    and every "top-y only" point at low-x/high-y, manufacturing a steep negative
+    slope out of noise.  Measured here on ``onoff``: r = 0.04 over all 177 common
+    features vs r = -0.86 over the 20-point union, the latter sitting at the 25th
+    percentile of a permutation null that breaks the WS↔LOSO pairing entirely.
 
     Parameters
     ----------
+    fig : go.Figure
+        Figure to draw into.
+    col : int
+        1-based subplot column.
+    dim_info : dict
+        Dimension metadata; ``color`` and ``label`` are used.
+    x_common, y_common : np.ndarray
+        Importance values for every common feature, index-aligned to
+        ``common_feats``.
+    common_feats : list[str]
+        Feature names for the common set.
+    highlight_idx : list[int]
+        Indices into ``common_feats`` to draw opaque and label.
+    x_label, y_label : str
+        Axis titles.
     axis_range : list[float], optional
         [lo, hi] for both axes.  Defaults to [-0.05, 1.05] (min-max figures).
         Pass [-1.05, 1.05] for signed/directional figures.
@@ -1210,15 +1236,31 @@ def _add_scatter_panel(
         axis_range = [-0.05, 1.05]
     color = dim_info["color"]
 
+    highlight = np.zeros(len(common_feats), dtype=bool)
+    highlight[highlight_idx] = True
+
+    # Background: every common feature not singled out for labelling.
     fig.add_trace(go.Scatter(
-        x=x_vals, y=y_vals,
+        x=x_common[~highlight], y=y_common[~highlight],
+        mode="markers",
+        marker=dict(color=color, size=4, opacity=0.18,
+                    line=dict(color="white", width=0.3)),
+        customdata=[f for f, h in zip(common_feats, highlight) if not h],
+        hovertemplate="%{customdata}<br>WS: %{x:.3f}<br>LOSO: %{y:.3f}<extra></extra>",
+        showlegend=False,
+        name=f"{dim_info['label']} (other)",
+    ), row=1, col=col)
+
+    highlight_feats = [f for f, h in zip(common_feats, highlight) if h]
+    fig.add_trace(go.Scatter(
+        x=x_common[highlight], y=y_common[highlight],
         mode="markers+text",
-        marker=dict(color=color, size=7, opacity=0.75,
+        marker=dict(color=color, size=7, opacity=0.9,
                     line=dict(color="white", width=0.5)),
-        text=[f.split("_")[0] for f in feat_names],
+        text=[f.split("_")[0] for f in highlight_feats],
         textposition="top center",
         textfont=dict(size=7, family="Times New Roman"),
-        customdata=feat_names,
+        customdata=highlight_feats,
         hovertemplate="%{customdata}<br>WS: %{x:.3f}<br>LOSO: %{y:.3f}<extra></extra>",
         showlegend=False,
         name=dim_info["label"],
@@ -1235,8 +1277,8 @@ def _add_scatter_panel(
         line=dict(color="#AAAAAA", dash="dot", width=1.2),
     )
 
-    # Regression line
-    m, b = np.polyfit(x_vals, y_vals, 1)
+    # Regression line — fitted on the full common set.
+    m, b = np.polyfit(x_common, y_common, 1)
     x_reg = np.array([diag_lo, diag_hi])
     fig.add_trace(go.Scatter(
         x=x_reg, y=m * x_reg + b,
@@ -1245,10 +1287,10 @@ def _add_scatter_panel(
         showlegend=False,
     ), row=1, col=col)
 
-    # Correlation
-    r = float(np.corrcoef(x_vals, y_vals)[0, 1])
+    # Correlation — over the full common set.
+    r = float(np.corrcoef(x_common, y_common)[0, 1])
     fig.add_annotation(
-        text=f"r = {r:.2f}, n={len(x_vals)}",
+        text=f"r = {r:.2f}, n={len(x_common)}",
         xref=f"{x_ref} domain" if col > 1 else "x domain",
         yref=f"{y_ref} domain" if col > 1 else "y domain",
         x=0.05, y=0.97,
@@ -1285,17 +1327,20 @@ def _load_mean_gini_importance(
     """
     Return (gini_importance, feature_names) averaged across all true runs.
 
-    WS:   mean over true_runs/run_N/rf_loso_feature_importances.csv
+    WS:   mean over true_runs/run_N/rf_ws_feature_importances.csv
     LOSO: rf_loso_100runs_feature_importances_data.csv (already aggregated)
     """
     if pipeline == "ws":
         base     = RESULTS_ROOT / "WithinSubject" / dim_info["ws_dir"] / "all" / "rf"
         run_dfs  = []
-        for fi_csv in sorted(base.glob("true_runs/run_*/rf_loso_feature_importances.csv")):
+        for fi_csv in sorted(base.glob("true_runs/run_*/rf_ws_feature_importances.csv")):
             df = pd.read_csv(fi_csv).rename(columns={"feature": "feature_name",
                                                       "importance": "mean_importance"})
             run_dfs.append(df.set_index("feature_name")["mean_importance"])
         if not run_dfs:
+            print(f"  ! No rf_ws_feature_importances.csv found under {base}/true_runs/ "
+                  f"— panel will be empty, not just sparse. Check the glob pattern still "
+                  f"matches the on-disk filename convention.")
             return np.array([]), []
         combined = pd.concat(run_dfs, axis=1).fillna(0.0)
         mean_fi  = combined.mean(axis=1)
@@ -1326,12 +1371,12 @@ def _load_shap_summary(
     sample (see compute_shap_values_for_pipeline), so they contribute 0 to both
     reductions without special-casing.
 
-    WS:   true_runs/run_N/rf_loso_shap_values_stacked.pkl
+    WS:   true_runs/run_N/rf_ws_shap_values_stacked.pkl
     LOSO: true_runs/run_N/rf_loso_100runs_shap_values.pkl
     """
     if pipeline == "ws":
         base     = RESULTS_ROOT / "WithinSubject" / dim_info["ws_dir"] / "all" / "rf"
-        pkl_glob = "true_runs/run_*/rf_loso_shap_values_stacked.pkl"
+        pkl_glob = "true_runs/run_*/rf_ws_shap_values_stacked.pkl"
     else:
         base     = RESULTS_ROOT / "LOSO" / dim_info["loso_dir"] / "all" / "rf"
         pkl_glob = "true_runs/run_*/rf_loso_100runs_shap_values.pkl"
@@ -1355,6 +1400,9 @@ def _load_shap_summary(
         signed_per_run.append(shap_cls1 - shap_cls0)
 
     if not abs_per_run:
+        print(f"  ! No SHAP pkl matched '{pkl_glob}' under {base} "
+              f"— panel will be empty, not just sparse. Check the glob pattern still "
+              f"matches the on-disk filename convention.")
         return np.array([]), np.array([]), []
 
     mean_abs_shap    = np.mean(abs_per_run, axis=0)
@@ -1398,13 +1446,10 @@ def _build_gini_scatter_fig() -> go.Figure:
         x_common = np.array([ws_fi_sc[x_idx[f]] for f in common])
         y_common = np.array([lo_fi_sc[y_idx[f]] for f in common])
 
-        top_idx    = _select_top_union(x_common, y_common, SHAP_SCATTER_TOP_N)
-        feat_names = [common[i] for i in top_idx]
-        x_vals     = x_common[top_idx]
-        y_vals     = y_common[top_idx]
+        top_idx = _select_top_union(x_common, y_common, SHAP_SCATTER_TOP_N)
 
         _add_scatter_panel(
-            fig, col, dim_info, x_vals, y_vals, feat_names,
+            fig, col, dim_info, x_common, y_common, common, top_idx,
             x_label="WS Gini importance (min-max)",
             y_label="LOSO Gini importance (min-max)",
         )
@@ -1412,7 +1457,8 @@ def _build_gini_scatter_fig() -> go.Figure:
     fig.update_layout(
         title=dict(
             text=(f"LOSO vs WS — RF Feature Importance "
-                  f"(Gini, top-{SHAP_SCATTER_TOP_N} ∪ top-{SHAP_SCATTER_TOP_N}, min-max scaled)"),
+                  f"(Gini, min-max scaled; r over all common features, "
+                  f"top-{SHAP_SCATTER_TOP_N} of each pipeline labelled)"),
             font=dict(size=14, family="Times New Roman"),
         ),
         template="plotly_white",
@@ -1470,21 +1516,15 @@ def _build_shap_scatter_figs() -> tuple[go.Figure, go.Figure]:
 
         # Feature selection (and pairing between the two figures) is driven by
         # |SHAP|; the directional figure re-uses the same features.
-        top_idx    = _select_top_union(ws_abs_c, lo_abs_c, SHAP_SCATTER_TOP_N)
-        feat_names = [common[i] for i in top_idx]
-
-        ws_abs_scaled    = ws_abs_c[top_idx]
-        lo_abs_scaled    = lo_abs_c[top_idx]
-        ws_signed_scaled = ws_signed_c[top_idx]
-        lo_signed_scaled = lo_signed_c[top_idx]
+        top_idx = _select_top_union(ws_abs_c, lo_abs_c, SHAP_SCATTER_TOP_N)
 
         _add_scatter_panel(
-            fig_abs, col, dim_info, ws_abs_scaled, lo_abs_scaled, feat_names,
+            fig_abs, col, dim_info, ws_abs_c, lo_abs_c, common, top_idx,
             x_label="WS mean |SHAP| (min-max)",
             y_label="LOSO mean |SHAP| (min-max)",
         )
         _add_scatter_panel(
-            fig_dir, col, dim_info, ws_signed_scaled, lo_signed_scaled, feat_names,
+            fig_dir, col, dim_info, ws_signed_c, lo_signed_c, common, top_idx,
             x_label="WS mean SHAP, signed (symmetric)",
             y_label="LOSO mean SHAP, signed (symmetric)",
             axis_range=[-1.05, 1.05],
@@ -1492,7 +1532,8 @@ def _build_shap_scatter_figs() -> tuple[go.Figure, go.Figure]:
 
     for fig, title in (
         (fig_abs, (f"LOSO vs WS — Mean |SHAP| "
-                   f"(top-{SHAP_SCATTER_TOP_N} ∪ top-{SHAP_SCATTER_TOP_N}, min-max scaled)")),
+                   f"(min-max scaled; r over all common features, "
+                   f"top-{SHAP_SCATTER_TOP_N} of each pipeline labelled)")),
         (fig_dir, (f"LOSO vs WS — Mean SHAP, signed "
                    f"(same features as |SHAP|, symmetric scaled ÷ max|SHAP|)")),
     ):
@@ -1704,8 +1745,10 @@ def _load_probe_predictions_ws(dim_info: dict) -> pd.DataFrame:
     Returns DataFrame with columns [subject, task, probe_number, ws_proba, y_true].
     """
     base = RESULTS_ROOT / "WithinSubject" / dim_info["ws_dir"] / "all" / "rf"
-    path = base / "rf_loso_consolidated_sample_predictions.csv"
+    path = base / "rf_ws_consolidated_sample_predictions.csv"
     if not path.exists():
+        print(f"  ! {path} not found — panel will be empty, not just sparse. "
+              f"Check the on-disk filename convention still matches.")
         return pd.DataFrame()
     df = pd.read_csv(path)
     return df[["subject", "task", "probe_number", "proba_mean", "y_true_first"]].rename(

@@ -106,10 +106,14 @@ feature_families:
     - power_gamma
     - power_normalized
 feature_selection:
-  k: 20
+  k: 20                 # inert while method is "none"
   lmm_n_jobs: 4
   lmm_prefilter_factor: 3
-  method: mrmr
+  # Disabled to match within_subject_pipeline/config.yaml (rationale there).
+  # This file runs valence_sq_res / time_sq_res, which were not part of the
+  # 2026-07-28 ablation at all — applied for procedural consistency, with no
+  # empirical support for these specific contrasts either way.
+  method: "none"
 include_connectivity_pairs: false
 label_contrasts:
   confidence_within_median:

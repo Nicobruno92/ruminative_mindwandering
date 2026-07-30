@@ -12,9 +12,18 @@ SCRIPT_DIR="Stats_andrillon"
 # Optional arguments:
 #   --predictor <name>  Override lmm.predictor_of_interest
 #   --config <path>     Use custom config file
+#   --throttle <N>      Cap concurrently running array tasks (sbatch "%N").
+#                       Unthrottled, 23 markers x 16 cpus claims 368 CPUs at
+#                       once, which exceeds the account's GrpTRES cpu limit
+#                       whenever other jobs are already running — the
+#                       controller then rejects the submission outright with
+#                       "Resource temporarily unavailable". Throttling only
+#                       changes how many markers run in parallel; every marker
+#                       is still fit identically, so results are unaffected.
 # ---------------------------------------------------------------------------
 PREDICTOR_OVERRIDE=""
 CONFIG_OVERRIDE=""
+THROTTLE=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --predictor)
@@ -25,9 +34,13 @@ while [[ $# -gt 0 ]]; do
             CONFIG_OVERRIDE="$2"
             shift 2
             ;;
+        --throttle)
+            THROTTLE="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: bash Stats_andrillon/submit_parallel_andrillon_markers.sh [--predictor <name>] [--config <path>]"
+            echo "Usage: bash Stats_andrillon/submit_parallel_andrillon_markers.sh [--predictor <name>] [--config <path>] [--throttle <N>]"
             exit 1
             ;;
     esac
@@ -114,8 +127,12 @@ fi
 echo "Found ${N_MARKERS} markers to process"
 echo "Submitting SLURM array job with ${N_MARKERS} tasks..."
 
-# Array indices: 0 to N_MARKERS-1
+# Array indices: 0 to N_MARKERS-1, optionally throttled to N concurrent tasks.
 ARRAY_RANGE="0-$((N_MARKERS-1))"
+if [ -n "${THROTTLE}" ]; then
+    ARRAY_RANGE="${ARRAY_RANGE}%${THROTTLE}"
+    echo "Throttling to ${THROTTLE} concurrent array tasks"
+fi
 
 # Create Andrillon array job script
 ARRAY_SCRIPT="${SCRIPT_DIR}/run_andrillon_marker_array.sh"

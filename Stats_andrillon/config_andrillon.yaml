@@ -213,8 +213,14 @@ lmm:
     - "selfother"
     - "time"
     - "time_sq"
+    # confidence is the 5th MDES probe dimension (Q3, metacognitive certainty).
+    # It was already a covariate in the formula; testing it as a target asks
+    # whether metacognitive certainty itself has a neural correlate, and keeps
+    # the dimension set complete. Adding it as a *target* leaves the formula —
+    # and therefore the six existing runs — untouched; only the cross-dimension
+    # BH denominator in omnibus_test.py grows from 6 to 7.
+    - "confidence"
     # - "time_on_task"
-    # - "confidence"
     # Interaction examples (requires per_predictor_formula override below):
     # - "onoff:confidence"
     # - "valence:confidence"

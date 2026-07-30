@@ -317,8 +317,28 @@ random_seed: 42
 # PREPROCESSING
 # =============================================================================
 
+# Feature selection is DISABLED. The random forest is already an embedded
+# selector — max_features='sqrt' samples ~13 of the 177 features at every split
+# — so a hard mRMR pre-filter to k=20 is a redundant second selection stage.
+# Worse, mRMR's criterion penalises *redundancy*, which is not the same as
+# penalising uselessness: correlated-but-complementary markers get dropped
+# before the forest ever sees them. With ~1170 training samples per LOSO fold
+# there is no dimensionality problem that would justify the filter.
+#
+# Confirmed empirically by the ablation of 2026-07-28 (see
+# results/FS_Ablation/fs_ablation_summary.csv): removing the filter raised LOSO
+# on/off AUC from 0.590 to 0.629, consistently in 26/29 subjects. Other
+# dimensions moved by <=0.01 with per-subject counts at chance. NOTE the one
+# exception — LOSO time_sq DEGRADED (0.542 -> 0.485, below chance, 3/13
+# subjects), so that cell is unstable without the filter and its results should
+# not be read as reliable either way.
+#
+# 'k' below is inert while the method is 'none'; kept so the previous setting is
+# recoverable. The ablation had no permutations, so it carries no p-values:
+# significance for any dimension must be re-derived by re-running the
+# permutation nulls under this configuration.
 k: 20
-feature_selection_method: mrmr   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
+feature_selection_method: none   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
 
 # Missing-value handling (handle_missing_features). Defaults are now explicit
 # instead of relying on the function signature.
