@@ -146,8 +146,11 @@ PREDICTOR_LABELS: dict[str, str] = {
 # pole_low/pole_high labels in Behavior/Probe_analysis/probe_dimension_cloud_plot.py.
 # The _sq terms plot |base − 50| (distance from the neutral midpoint, 0-50), so
 # their pole is "neutral → extreme" rather than the base dimension's poles.
-# time_on_task is a covariate (probe index), not a bipolar MDES dimension, so
-# it is intentionally omitted here and keeps its plain PREDICTOR_LABELS text.
+# time_on_task is a covariate (probe index, not a 0-100 bipolar MDES rating),
+# so its entry isn't a "pole" in that sense either — "probe n" instead states
+# what the axis actually counts, since repeating the "Time on Task" title
+# verbatim as the x-axis text (the fallback for any predictor missing here)
+# doesn't say what the numbers mean.
 POLE_LABELS: dict[str, str] = {
     "onoff": "off-task → on-task",
     "valence": "negative → positive",
@@ -156,6 +159,7 @@ POLE_LABELS: dict[str, str] = {
     "time": "past → future",
     "time_sq": "neutral → extreme",
     "confidence": "low → high",
+    "time_on_task": "probe n",
 }
 
 # LMM formula template — marker name is substituted at runtime

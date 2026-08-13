@@ -3,8 +3,8 @@
 # Within-Subject spatial decoding — PERMUTATION array (max-statistic null).
 # Axis = (dimension × permutation block). Each task runs PERMS_PER_JOB within-
 # subject shuffles; each shuffle scored across ALL 64 channels (n_runs=1).
-# Array size MUST equal 7 * ceil(N / PERMS_PER_JOB). N=500, PERMS_PER_JOB=20 →
-# 25 blocks/dim × 7 = 175 tasks (array 0-174).
+# Array size MUST equal 16 * ceil(N / PERMS_PER_JOB). N=500, PERMS_PER_JOB=20 →
+# 25 blocks/dim × 16 = 400 tasks (array 0-399).
 #
 # SUBMIT FROM the mw_classification_pipeline/ root:
 #     sbatch within_subject_pipeline/spatial_decoding/run_perm_slurm.sh
@@ -17,7 +17,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --array=0-174
+#SBATCH --array=0-399
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?submit from the mw_classification_pipeline/ root}"
@@ -25,7 +25,7 @@ SD="within_subject_pipeline/spatial_decoding"
 CONFIG="$SD/config.yaml"
 PYTHON="$HOME/miniforge3/envs/ML/bin/python"
 
-CONTRASTS=(on_vs_off_within_median valence_within_median selfother_within_median time_within_median confidence_within_median valence_sq time_sq)
+CONTRASTS=(on_vs_off_within_median valence_within_median selfother_within_median time_within_median confidence_within_median valence_sq time_sq valence_sq_res time_sq_res valence_sq_res_cross time_sq_res_cross onoff_within_median_res valence_within_median_res selfother_within_median_res time_within_median_res confidence_within_median_res)
 N=$("$PYTHON" -c "import yaml;print(yaml.safe_load(open('$CONFIG'))['n_permutations'])")
 PERMS_PER_JOB=20
 BLOCKS_PER_DIM=$(( (N + PERMS_PER_JOB - 1) / PERMS_PER_JOB ))

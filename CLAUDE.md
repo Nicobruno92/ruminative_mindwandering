@@ -444,7 +444,7 @@ annotations, correlation-plot axis names):
 | `valence` | `negative` | `positive` |
 | `selfother` | `self-focused` | `other-focused` |
 | `time` | `past` | `future` |
-| `confidence` | `unconfident` | `confident` |
+| `confidence` | `low` | `high` |
 | `valence_sq` | `neutral` | `extreme` |
 | `time_sq` | `present` | `extreme shift` |
 
@@ -454,12 +454,20 @@ effect-direction annotations only (`POLE_LABELS` in the same file, e.g.
 `"higher when OFF-task\n(mind-wandering)"` / `"higher when ON-task"`) — use it
 only where a bare pole word would be ambiguous about what "higher" means;
 everywhere else (raw-data axis labels, correlation matrices) use the short
-form above. `self` / `other` and `low` / `high` are *not* valid shorthand for
-`self-focused` / `other-focused` and `unconfident` / `confident` — they were
-found as inconsistent shortenings in `probe_dimension_cloud_plot.py` and
-corrected (2026-08-12).
+form above. `self` / `other` is *not* valid shorthand for `self-focused` /
+`other-focused` — it was found as an inconsistent shortening in
+`probe_dimension_cloud_plot.py` and corrected (2026-08-12).
 
-Wired into (as of 2026-08-12):
+`confidence`'s row was corrected a second time (2026-08-13): the 2026-08-12
+pass had flagged `low` / `high` as an inconsistent shortening too and
+"corrected" it to `unconfident` / `confident` — backwards. The SART Task
+Design section above defines Q3's own poles literally as "(low ↔ high)", and
+`unconfident` carries connotations (anxiety, insecurity) the slider never
+measured — it only asked how confident the self-assessment was. `low` / `high`
+reads correctly wherever it's used because the column header or panel title
+right next to it always already says "Confidence".
+
+Wired into (as of 2026-08-13):
 - `Stats_andrillon/plot_paper_figures.py` — `POLE_LABELS`, `SHORT_POLES`,
   `HEATMAP_COLUMN_LABELS`, `SECONDARY_COLUMN_LABELS`
 - `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` — `DIMENSIONS`

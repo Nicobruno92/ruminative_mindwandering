@@ -92,41 +92,45 @@ ALPHA = 0.05
 # data rather than taken from the config: on/off-task means 74.6 vs 34.5 and
 # confidence 86.2 vs 52.7 for y=1 vs y=0.
 #
-# The poles follow the scale convention documented in CLAUDE.md — 0 = off-task /
-# negative / past / self-focused / low confidence. NOTE that this contradicts
-# `loso_pipeline/config.yaml` for self/other, which names the positive class
-# "self" while the positive class is the high score, i.e. *other*-focused. The
-# config's two class-name strings appear to be swapped; they are cosmetic there
-# (nothing computes from them) but they would mislabel any figure that trusted
-# them. Flagged, not silently resolved.
+# The poles follow the CLAUDE.md "Pole / extreme wording" short form (SHORT_POLES
+# there) — bare pole word, no dimension name appended, since the panel title
+# already says which dimension this is: 0 = off-task / negative / past /
+# self-focused / low. NOTE that this contradicts `loso_pipeline/config.yaml` for
+# self/other, which names the positive class "self" while the positive class is
+# the high score, i.e. *other*-focused. The config's two class-name strings
+# appear to be swapped; they are cosmetic there (nothing computes from them) but
+# they would mislabel any figure that trusted them. Flagged, not silently
+# resolved.
 CLASS_POLES = {
     "on_off": ("off-task", "on-task"),
     "valence": ("negative", "positive"),
-    "confidence": ("low confidence", "high confidence"),
-    "selfother": ("other-focused", "self-focused"),   # displayed flipped, see below
+    "confidence": ("low", "high"),
+    "selfother": ("self-focused", "other-focused"),
     "time": ("past", "future"),
     "valence_sq": ("neutral", "emotional"),
     "time_sq": ("present", "not present"),
 }
 
-# Dimensions whose plotted direction is negated *for display only*.
+# Dimensions whose plotted direction is negated *for display only* — empty by
+# design (kept as machinery, not deleted, in case a future dimension needs it).
 #
-# The underlying quantity is unchanged and is the same for every dimension: r is
-# the correlation between a feature's SHAP value and its own value, so a positive
-# r means high feature values push the model toward class 1 = the HIGH raw
-# score. Verified against the data (on/off 74.6 vs 34.5 for y=1 vs y=0).
-#
-# For self/other the high raw score is *other*-focused (CLAUDE.md scale
-# convention: 0 = self-focused, 100 = other-focused), while the pipeline config
-# names its positive class "self". Negating the display puts self-focused on the
-# right, so the axis matches how the contrast is named everywhere else in the
-# project and the reader is not asked to hold a per-dimension exception in mind.
-#
-# Nothing downstream is negated: `marker_level_consistency.csv`,
-# `mean_direction_*` and the sign-concordance statistic all keep the unflipped
-# convention. Only what this figure draws changes, and the axis poles are
-# swapped to match, so the figure stays internally correct either way.
-DISPLAY_FLIP = {"selfother": -1.0}
+# self/other used to carry a -1.0 entry here. r is the correlation between a
+# feature's SHAP value and its own value, so a positive r means high feature
+# values push the model toward class 1 = the HIGH raw score (verified against
+# the data: on/off 74.6 vs 34.5 for y=1 vs y=0), and for self/other the high
+# raw score is *other*-focused (CLAUDE.md scale convention: 0 = self-focused,
+# 100 = other-focused). That alone already lands the natural, un-negated axis
+# on the canonical CLAUDE.md pole order (low = self-focused, high =
+# other-focused) with no flip needed. The removed entry had negated it anyway,
+# reasoning from `loso_pipeline/config.yaml`'s positive-class name ("self")
+# rather than from CLAUDE.md's own SHORT_POLES table — but that config string
+# is the cosmetic, independently-flagged bug noted above (nothing computes
+# from it), not a second source of truth to reconcile with. Confirmed
+# 2026-08-13 that nothing downstream depends on the removed flip:
+# `marker_level_consistency.csv`, `mean_direction_*` and the sign-concordance
+# statistic never read `DISPLAY_FLIP` — it only ever changed what this one
+# figure draws.
+DISPLAY_FLIP: dict[str, float] = {}
 
 
 def display_sign(contrast_key: str) -> float:

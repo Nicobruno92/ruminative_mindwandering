@@ -182,6 +182,83 @@ label_contrasts:
     positive_class_name: "extreme"
     negative_class_name: "moderate"
 
+  valence_sq_res_cross:
+    label_source: valence
+    transform: "midpoint_sq_residual_cross"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq_res_cross:
+    label_source: time
+    transform: "midpoint_sq_residual_cross"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  onoff_within_median_res:
+    label_source: onoff
+    transform: "linear_residual"
+    residualize_against: ["valence", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+  valence_within_median_res:
+    label_source: valence
+    transform: "linear_residual"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  selfother_within_median_res:
+    label_source: selfother
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  time_within_median_res:
+    label_source: time
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  confidence_within_median_res:
+    label_source: confidence
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+
   # confidence_within_median_offtask:
   #   label_source: confidence
   #   split_method: "within_subject_median"
@@ -206,6 +283,15 @@ run_contrasts:
   # - confidence_within_median_offtask
   - valence_sq
   - time_sq
+  - valence_sq_res
+  - time_sq_res
+  - valence_sq_res_cross
+  - time_sq_res_cross
+  - onoff_within_median_res
+  - valence_within_median_res
+  - selfother_within_median_res
+  - time_within_median_res
+  - confidence_within_median_res
 
 # =============================================================================
 # DATA FORMAT
@@ -517,3 +603,12 @@ spatial_decoding:
     - confidence_within_median
     - valence_sq
     - time_sq
+    - valence_sq_res
+    - time_sq_res
+    - valence_sq_res_cross
+    - time_sq_res_cross
+    - onoff_within_median_res
+    - valence_within_median_res
+    - selfother_within_median_res
+    - time_within_median_res
+    - confidence_within_median_res

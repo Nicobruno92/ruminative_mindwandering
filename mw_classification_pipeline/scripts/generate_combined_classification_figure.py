@@ -20,6 +20,12 @@ Outputs (in results/combined_figures/):
                                 from results/MW_Classification/SpatialDecoding/;
                                 skipped with a message for any dimension missing
                                 on either pipeline.
+    group_comparison_spatial_combined.{png,svg}
+                              — WS | LOSO "Global Decoding" (True/Residualized/
+                                Shuffled AUC density) next to "Spatial Decoding"
+                                (topomap) per dimension, one combined panel per
+                                pipeline. Pure Matplotlib (see
+                                plot_group_spatial_combined docstring for why).
 Each dimension has a consistent color used across all four figures.
 Full (true labels) = dimension color; Shuffled = grey.
 
@@ -153,39 +159,34 @@ RESIDUALIZED_DIR = {
     "time_sq":    "time_sq_res_cross",
 }
 
-def _lighten_hex(hex_color: str, amount: float) -> str:
-    """Blend a '#RRGGBB' hex color toward white by `amount` (0-1)."""
-    hex_color = hex_color.lstrip("#")
-    r, g, b = (int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
-    r = round(r + (255 - r) * amount)
-    g = round(g + (255 - g) * amount)
-    b = round(b + (255 - b) * amount)
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
 # valence_sq / time_sq are the quadratic (U-shaped) terms — not part of the
 # canonical 5-dimension DIMENSIONS list used everywhere else in this script,
 # so kept as a separate, explicitly-opt-in list rather than appended to
 # DIMENSIONS (which would silently add 2 rows/panels to every other figure
 # here). Display labels per CLAUDE.md "Quadratic-Dimension Display Labels" —
 # the underlying key stays valence_sq/time_sq, only the shown text changes.
-# Color is a lightened tint of the parent dimension's color (not the same
-# solid hue) so valence_sq is visibly distinct from valence at a glance,
-# while still reading as "the same family" when placed next to it.
+# Color comes from color_palette.yaml's own `quadratic:` tints (the single
+# source of truth also used by _residual_color() below and by
+# Stats_andrillon/plot_paper_figures.py / Behavior/Objective_Markers/
+# lmm_probe_dimensions.py) rather than being recomputed here — a
+# locally-recomputed tint previously drifted from the canonical hex, so
+# valence_sq/time_sq showed a different shade of blue/purple in the
+# "+ residualized" and spatial-comparison figures than in the
+# residual_vs_plain_* figures in this same output folder.
 SQ_DIMENSIONS = [
     {
         "key":      "valence_sq",
         "ws_dir":   "valence_sq",
         "loso_dir": "valence_sq",
         "label":    "Neutral/Emotional",
-        "color":    _lighten_hex(DIM_COLORS["valence"], 0.45),
+        "color":    PALETTE["quadratic"]["valence_sq"],
     },
     {
         "key":      "time_sq",
         "ws_dir":   "time_sq",
         "loso_dir": "time_sq",
         "label":    "Present/NotPresent",
-        "color":    _lighten_hex(DIM_COLORS["time"], 0.45),
+        "color":    PALETTE["quadratic"]["time_sq"],
     },
 ]
 
@@ -360,6 +361,23 @@ def _true_res_annotation_text(
     line1 = f"<b>Full {mean_t:.2f}{sig_stars(p_adj)}</b> p_FDR={_fmt_q(p_adj)}"
     line2 = f"<i>Res. {mean_t_res:.2f}{sig_stars(res_p_adj)}</i> p_FDR={_fmt_q(res_p_adj)}"
     return f"{line1}<br>{line2}"
+
+
+def _true_res_annotation_lines(
+    t: np.ndarray, p_adj: float, t_res: np.ndarray, res_p_adj: float,
+) -> tuple[str, str]:
+    """
+    Plain-text (no HTML) two-line "Full / Residualized" label — same content
+    and wording as :func:`_true_res_annotation_text`, for Matplotlib
+    ``ax.text`` rather than a Plotly annotation (used by
+    :func:`plot_group_spatial_combined`, the one Matplotlib figure among the
+    otherwise-Plotly group-level annotations).
+    """
+    mean_t     = float(np.mean(t))     if len(t)     else float("nan")
+    mean_t_res = float(np.mean(t_res)) if len(t_res) else float("nan")
+    line1 = f"Full {mean_t:.2f}{sig_stars(p_adj)}  p_FDR={_fmt_q(p_adj)}"
+    line2 = f"Res. {mean_t_res:.2f}{sig_stars(res_p_adj)}  p_FDR={_fmt_q(res_p_adj)}"
+    return line1, line2
 
 
 # =============================================================================
@@ -843,8 +861,8 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
             legendgroup="Permuted",
             scalegroup=f"Permuted_{dk}",
             name="Permuted",
-            line_color="lightgray",
-            fillcolor="lightgray",
+            line_color=PERM_COLOR,
+            fillcolor=PERM_COLOR,
             opacity=0.4,
             showlegend=(col_idx == 0),
             points=False,
@@ -909,7 +927,7 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
         fig.add_trace(go.Pie(
             labels=["Signif.", "Not"],
             values=[max(pct_d, 0.001), max(100 - pct_d, 0.001)],
-            marker=dict(colors=[color, "lightgray"]),
+            marker=dict(colors=[color, PERM_COLOR]),
             hole=0.4,
             textinfo="text",
             text=[f"{pct_d:.0f}%", ""],
@@ -1179,8 +1197,8 @@ def plot_individual_with_residualized(
             legendgroup="Permuted",
             scalegroup=f"Permuted_{dk}",
             name="Permuted",
-            line_color="lightgray",
-            fillcolor="lightgray",
+            line_color=PERM_COLOR,
+            fillcolor=PERM_COLOR,
             opacity=0.4,
             showlegend=(col_idx == 0),
             points=False,
@@ -1303,7 +1321,7 @@ def plot_individual_with_residualized(
         fig.add_trace(go.Pie(
             labels=["Signif.", "Not"],
             values=[max(pct_d, 0.001), max(100 - pct_d, 0.001)],
-            marker=dict(colors=[color, "lightgray"]),
+            marker=dict(colors=[color, PERM_COLOR]),
             hole=0.55,
             textinfo="text",
             text=[f"{pct_d:.0f}%", ""],
@@ -1864,6 +1882,198 @@ def plot_spatial_comparison_panel() -> Path | None:
             ws_metrics, loso_metrics, value_col="mean_auc", out_path=str(out_path),
             mask_col="sig", dim_colors=dim_colors,
         )
+    return out_png
+
+
+# =============================================================================
+# Figure C4 — Global Decoding + Spatial Decoding, combined (WS | LOSO)
+# =============================================================================
+
+
+def plot_group_spatial_combined() -> Path | None:
+    """
+    Composite "Global Decoding + Spatial Decoding" figure: for each pipeline
+    (Within-Subject, LOSO/Between-Subject), a column of per-dimension AUC
+    density curves (Shuffled / Full / Residualized — same three layers as
+    :func:`plot_group_level_with_residualized`) sits next to a column of
+    that dimension's spatial-decoding topomap, GROUP_ROW_DIMENSIONS rows.
+
+    Pure Matplotlib, not Plotly: MNE can only draw a topomap onto a
+    Matplotlib Axes, and CLAUDE.md's "Figure Assembly" rule is to compose
+    natively-rendered halves rather than fake one plotting library inside
+    the other — so instead of rasterizing a topomap into a Plotly figure,
+    the *entire* figure (distributions included) is built in Matplotlib.
+    This reuses the ``_kde_fill``/``_clean_kde_ax`` helpers (unused until
+    now — they render a vertical filled density curve, the Matplotlib
+    equivalent of the Plotly half-violins used everywhere else in this
+    script) alongside ``utils.spatial_decoding_utils._draw_cbpt_topomap``
+    for the spatial half, so both halves can share one Figure/GridSpec.
+
+    Saved directly as PNG + SVG (bypasses the kaleido batch queue — no
+    Plotly figure is involved). Returns the PNG path, or None if neither
+    pipeline has spatial data for any dimension.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.spatial_decoding_utils import build_info_from_channels, _draw_cbpt_topomap
+
+    row_dims  = GROUP_ROW_DIMENSIONS
+    n_dims    = len(row_dims)
+    pipelines = [("ws", "Within-Subject Classification"), ("loso", "Between-Subject Classification")]
+
+    # ---- Load distribution (True/Perm/Residualized) + spatial data ----
+    dist_rows, spatial_by_pipeline = {}, {}
+    for pkey, _ in pipelines:
+        raw_pvals, res_raw_pvals, rows = [], [], []
+        spatial = {}
+        for dim_info in row_dims:
+            t, p         = load_group_data(pkey, dim_info)
+            t_res, p_res = load_group_data(pkey, _residualized_dim_info(dim_info))
+            raw_pvals.append(empirical_pvalue(t, p))
+            res_raw_pvals.append(empirical_pvalue(t_res, p_res))
+            rows.append((t, p, t_res, p_res))
+            spatial[dim_info["label"]] = load_spatial_metrics(pkey, dim_info)
+        adj     = fdr_correct(raw_pvals)
+        res_adj = fdr_correct(res_raw_pvals)
+        dist_rows[pkey] = [(*row, a, ra) for row, a, ra in zip(rows, adj, res_adj)]
+        spatial_by_pipeline[pkey] = spatial
+
+    all_frames = [df for sp in spatial_by_pipeline.values() for df in sp.values() if df is not None]
+    if not all_frames:
+        print("  No spatial data on either pipeline; skipping distribution+spatial combined panel.")
+        return None
+    vmin, vmax = 0.5, max(float(df["mean_auc"].max()) for df in all_frames)
+
+    # ---- Figure / GridSpec ----
+    # Columns: row-label | WS-dist | WS-topo | WS-cbar | spacer | LOSO-dist | LOSO-topo | LOSO-cbar
+    #
+    # width_ratios/height_ratios are set in literal inches (figsize is their
+    # sum, not an independent value scaled up from it) so the topo column's
+    # width exactly equals the data-row height, i.e. every topomap axes is
+    # square. mne.viz.plot_topomap enforces equal aspect internally, and the
+    # circular clip path in _draw_cbpt_topomap is drawn in ax.transAxes
+    # (0-1 assuming a square axes) — on a non-square axes the two disagree
+    # and the head comes out visibly stretched/oval. wspace/hspace stay
+    # small and identical in both directions so the shrink they introduce
+    # doesn't reintroduce a width/height mismatch.
+    ROW_H  = 1.65   # data-row height == topo column width (keeps topomaps square)
+    TITLE_FRAC = 0.20   # fraction of ROW_H reserved above the dist axes for its stats text
+    label_w, dist_w, topo_w, cbar_w, spacer_w = 0.42, 2.5, ROW_H, 0.13, 0.22
+    col_w = [label_w, dist_w, topo_w, cbar_w, spacer_w, dist_w, topo_w, cbar_w]
+    block_cols = {"ws": dict(dist=1, topo=2, cbar=3), "loso": dict(dist=5, topo=6, cbar=7)}
+    header_h = 1.5
+
+    fig = plt.figure(figsize=(sum(col_w), header_h + ROW_H * n_dims))
+    gs = fig.add_gridspec(
+        nrows=n_dims + 1, ncols=len(col_w),
+        width_ratios=col_w, height_ratios=[header_h] + [ROW_H] * n_dims,
+        wspace=0.06, hspace=0.06,
+    )
+
+    def _row_y(r: int) -> tuple[float, float]:
+        p = gs[r, 1].get_position(fig)
+        return p.y0, p.y1
+
+    def _col_x(c0: int, c1: int) -> tuple[float, float]:
+        p0 = gs[0, c0].get_position(fig)
+        p1 = gs[0, c1].get_position(fig)
+        return p0.x0, p1.x1
+
+    # ---- Header row: block title banner + "Global/Spatial Decoding" sub-headers ----
+    # Offsets are a fraction of the header row's OWN height (not a fixed
+    # figure-fraction) so banner/sub-header spacing stays correct regardless
+    # of how header_h is tuned — a fixed-fraction offset sized for one
+    # header_h silently collapses the two into each other at a smaller one.
+    header_y0, header_y1 = _row_y(0)
+    header_span = header_y1 - header_y0
+    for pkey, block_title in pipelines:
+        cols = block_cols[pkey]
+        bx0, bx1 = _col_x(cols["dist"], cols["cbar"])
+        fig.text((bx0 + bx1) / 2, header_y1 - 0.10 * header_span, block_title,
+                 ha="center", va="top", fontsize=13, fontweight="bold", color="white",
+                 bbox=dict(boxstyle="round,pad=0.35", facecolor="#333333", edgecolor="none"))
+
+        dx0, dx1 = _col_x(cols["dist"], cols["dist"])
+        fig.text((dx0 + dx1) / 2, header_y0 + 0.10 * header_span, "Global Decoding",
+                 ha="center", va="bottom", fontsize=11, fontweight="bold")
+
+        tx0, tx1 = _col_x(cols["topo"], cols["cbar"])
+        fig.text((tx0 + tx1) / 2, header_y0 + 0.10 * header_span, "Spatial Decoding",
+                 ha="center", va="bottom", fontsize=11, fontweight="bold")
+
+    # ---- Per-dimension rows ----
+    last_im_by_pipeline: dict[str, object] = {}
+    for r, dim_info in enumerate(row_dims):
+        row   = r + 1
+        color = dim_info["color"]
+
+        # Rotated text has no auto-fit: a fixed size overflows into
+        # neighbouring rows for the longer compound labels ("Neutral/
+        # Emotional", "Present/NotPresent" — up to 19 characters vs. 4-11 for
+        # the rest), so size down once a label crosses that length.
+        label_fontsize = 11 if len(dim_info["label"]) <= 12 else 8
+        lp = gs[row, 0].get_position(fig)
+        fig.text((lp.x0 + lp.x1) / 2, (lp.y0 + lp.y1) / 2, dim_info["label"],
+                 ha="center", va="center", rotation=90, fontsize=label_fontsize,
+                 fontweight="bold", color=color)
+
+        for pkey, _ in pipelines:
+            cols = block_cols[pkey]
+            t, p, t_res, p_res, p_adj, res_p_adj = dist_rows[pkey][r]
+
+            # --- Global Decoding: vertical filled density curves ---
+            # The stats text used to sit INSIDE this axes (top-right corner)
+            # and visually collided with the curves it was labelling. It now
+            # lives in a dedicated strip above the axes instead: the dist
+            # axes is built manually at TITLE_FRAC-shrunk height (from the
+            # top only, so the bottom — where the last row's x-axis/"AUC"
+            # label live — doesn't move), and the text is placed in the
+            # freed strip via fig.text. This costs the dist column some
+            # height, not the topo column, so it doesn't shrink the topomaps.
+            cell = gs[row, cols["dist"]].get_position(fig)
+            title_h = TITLE_FRAC * (cell.y1 - cell.y0)
+            ax_d = fig.add_axes([cell.x0, cell.y0, cell.x1 - cell.x0,
+                                 (cell.y1 - cell.y0) - title_h])
+            _kde_fill(ax_d, p,     PERM_COLOR, 0.55, bw=BW_GROUP)
+            _kde_fill(ax_d, t,     color,      0.72, bw=BW_GROUP)
+            _kde_fill(ax_d, t_res, color,      RESIDUALIZED_ALPHA, bw=BW_GROUP)
+            _clean_kde_ax(ax_d, show_xticks=(row == n_dims), show_xlabel=(row == n_dims),
+                         fixed_ylim=False)
+            line1, line2 = _true_res_annotation_lines(t, p_adj, t_res, res_p_adj)
+            xc = (cell.x0 + cell.x1) / 2
+            fig.text(xc, cell.y1 - 0.10 * title_h, line1, ha="center", va="top",
+                      fontsize=7.5, fontweight="bold", color=color)
+            fig.text(xc, cell.y1 - 0.55 * title_h, line2, ha="center", va="top",
+                      fontsize=7.5, fontstyle="italic", color=color)
+
+            # --- Spatial Decoding: topomap ---
+            ax_s = fig.add_subplot(gs[row, cols["topo"]])
+            df = spatial_by_pipeline[pkey].get(dim_info["label"])
+            if df is not None:
+                info = build_info_from_channels(df["channel"].tolist())
+                mask = df["sig"].to_numpy(dtype=bool) if "sig" in df.columns else None
+                last_im_by_pipeline[pkey] = _draw_cbpt_topomap(
+                    ax_s, df["mean_auc"].to_numpy(dtype=float), info, mask,
+                    vmin, vmax, "viridis", markersize=4,
+                )
+            else:
+                ax_s.axis("off")
+                ax_s.text(0.5, 0.5, "n/a", ha="center", va="center", fontsize=9, color="#999999")
+
+    # ---- One shared colorbar per pipeline block, spanning all data rows ----
+    for pkey, _ in pipelines:
+        if pkey not in last_im_by_pipeline:
+            continue
+        cax = fig.add_subplot(gs[1:, block_cols[pkey]["cbar"]])
+        cbar = fig.colorbar(last_im_by_pipeline[pkey], cax=cax)
+        cbar.set_ticks([vmin, vmax])
+        cbar.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"])
+        cbar.set_label("mean_auc", fontsize=9)
+
+    out_png = OUTPUT_DIR / "group_comparison_spatial_combined.png"
+    out_svg = OUTPUT_DIR / "group_comparison_spatial_combined.svg"
+    fig.savefig(out_png, dpi=200, bbox_inches="tight", pad_inches=0.04)
+    fig.savefig(out_svg, bbox_inches="tight", pad_inches=0.04)
+    plt.close(fig)
     return out_png
 
 
@@ -2727,20 +2937,22 @@ def _residual_dimension_order(profiles: pd.DataFrame) -> list[str]:
     """
     Dimension order for the residual figures: the one this script already uses.
 
-    ``DIMENSIONS`` drives every other figure here, so the residual panels follow
-    it rather than the order they happen to appear in
-    ``config_feature_consistency.yaml`` — a reader moving between figures should
-    not have to re-locate a dimension. The quadratic contrasts are not in
-    ``DIMENSIONS`` and are appended in whatever order they appear in
-    ``profiles``.
+    ``GROUP_ROW_DIMENSIONS`` drives the other "quadratic-aware" figures here
+    (the "+ residualized" group-level and spatial-comparison panels), so the
+    residual panels follow it too rather than the order they happen to appear
+    in ``config_feature_consistency.yaml`` — a reader moving between figures
+    should not have to re-locate a dimension. Walking ``DIMENSIONS`` instead
+    would silently push valence_sq/time_sq to the end (they aren't in that
+    5-entry list), which is exactly the "appended, not interleaved" ordering
+    CLAUDE.md's "Dimension Order (Figures)" rule forbids — this function must
+    use the 7-entry list, not the 5-entry one.
 
     ``color_palette.yaml``, ``config_feature_consistency.yaml`` and
-    ``DIMENSIONS`` here all agree on dimension order (see CLAUDE.md
-    "Dimension Order (Figures)"); this function just picks ``DIMENSIONS`` as
-    the concrete list to walk since it already exists here.
+    ``GROUP_ROW_DIMENSIONS`` here all agree on dimension order (see CLAUDE.md
+    "Dimension Order (Figures)").
     """
     present = list(dict.fromkeys(profiles["contrast"]))
-    canonical = [entry["key"] for entry in DIMENSIONS]
+    canonical = [entry["key"] for entry in GROUP_ROW_DIMENSIONS]
     ordered = [key for key in canonical if key in present]
     return ordered + [key for key in present if key not in ordered]
 
@@ -2928,12 +3140,28 @@ def _build_marker_direction_figure() -> go.Figure | None:
     summary = pd.read_csv(CONSISTENCY_DIR / "group_summary.csv")
     per_marker = pd.read_csv(CONSISTENCY_DIR / "marker_level_consistency.csv")
     per_subject_direction = pd.read_csv(CONSISTENCY_DIR / "marker_direction_per_subject.csv")
-    summary = summary.sort_values("legacy_group_rho", ascending=False).reset_index(drop=True)
 
     config = yaml.safe_load(
         (Path(__file__).resolve().parent / "config_feature_consistency.yaml").read_text()
     )
     contrasts = {entry["key"]: entry for entry in config["contrasts"]}
+
+    # Canonical dimension order (CLAUDE.md "Dimension Order (Figures)"), taken
+    # from config_feature_consistency.yaml's own contrasts[] — one of that
+    # rule's documented "wired into" locations, and already listed on/off,
+    # valence, valence_sq, selfother, time, time_sq, confidence. Panel position
+    # here is literally row-major over this row order (build_combined_figure
+    # fills a 2-column grid by summary index), so sorting by legacy_group_rho
+    # instead (as make_fig_marker_direction.py's own standalone load_tables()
+    # does, for its ranked-by-consistency figure) scrambles the grid relative
+    # to every other dimension-ordered figure in this script.
+    canonical_order = {entry["key"]: i for i, entry in enumerate(config["contrasts"])}
+    summary = (
+        summary.assign(_order=summary["contrast"].map(canonical_order))
+        .sort_values("_order")
+        .drop(columns="_order")
+        .reset_index(drop=True)
+    )
     summary["label"] = summary["contrast"].map(
         {key: entry["label"] for key, entry in contrasts.items()}
     )
@@ -3076,7 +3304,7 @@ def plot_dimension_median_summary() -> go.Figure:
 
         # chance line
         fig.add_hline(
-            y=0.5, line_dash="dash", line_color="gray", opacity=0.5, row=1, col=col,
+            y=0.5, line_dash="dash", line_color=PERM_COLOR, opacity=0.5, row=1, col=col,
         )
 
     fig = make_subplots(
@@ -3420,6 +3648,14 @@ def main() -> None:
     if spatial_path is not None:
         print(f"  Saved: {spatial_path}")
         print(f"  Saved: {spatial_path.with_suffix('.svg')}")
+
+    print("=" * 60)
+    print("Global Decoding + Spatial Decoding combined: WS | LOSO")
+    print("=" * 60)
+    combined_path = plot_group_spatial_combined()
+    if combined_path is not None:
+        print(f"  Saved: {combined_path}")
+        print(f"  Saved: {combined_path.with_suffix('.svg')}")
 
     print("=" * 60)
     print("LOSO vs WS scatter")

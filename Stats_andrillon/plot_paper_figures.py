@@ -114,15 +114,18 @@ TOPOMAP_KWARGS = dict(
 )
 
 # Significance mask style, adapted from plot_cluster_topomap: same marker
-# shape and colour, smaller size because these panels are ~1/4 the area of the
-# pipeline's single-topomap figures (same style at a different scale, not a
-# different style).
+# shape and colour. Originally sized smaller than the pipeline's
+# single-topomap figures because these panels used to be ~1/4 their area;
+# since the 2026-08-13 pass makes every topomap fill its column (see
+# solve_square_topomap_row_height_in), that area gap mostly closed, and the
+# old 4.2pt dot read as barely-visible ("los puntos... quedaron muy chicos")
+# against a head circle several times its old size. Scaled up to match.
 MASK_PARAMS = dict(
     marker="o",
     markerfacecolor="k",
     markeredgecolor="k",
     linewidth=0,
-    markersize=4.2,
+    markersize=10.5,
 )
 
 # Style for channels that are part of a raw-significant cluster (p < alpha)
@@ -131,8 +134,8 @@ MASK_PARAMS = dict(
 # reused verbatim) rather than omitted — the marker still carries genuine
 # nominal signal, it just doesn't clear the multiple-comparisons bar on its
 # own (see the "distributed but real" tier in CLAUDE.md).
-HOLLOW_MARKERSIZE = 5.0
-HOLLOW_MARKEREDGEWIDTH = 1.3
+HOLLOW_MARKERSIZE = 11.5
+HOLLOW_MARKEREDGEWIDTH = 2.6
 
 # Panels per family (onoff figure) / per dimension (other-dimensions figure).
 # Kept small and equal-sized on purpose: a main figure shows the strongest
@@ -161,31 +164,46 @@ N_TOP_MARKERS_PER_DIMENSION = 3
 # text bigger" desynced a font size from a budget that was tuned for the old,
 # smaller size, which is exactly what caused new collisions each time. Bump a
 # *_FONTSIZE constant and its budget grows with it automatically.
-SUPTITLE_FONTSIZE = 34
+SUPTITLE_FONTSIZE = 40
 # Bare panel letter (A/B/C) drawn in the combined figure instead of a
 # descriptive suptitle — see the panel_letter parameter on draw_heatmap /
-# draw_onoff_panel / draw_other_dimensions_panel. Smaller than
-# SUPTITLE_FONTSIZE (which is sized for a standalone figure's own title) but
-# still clearly larger than HEADER_FONTSIZE/PANEL_TITLE_FONTSIZE per the
-# project's panel-letter convention. Shares its row with the significance
-# legend rather than getting a reserved row of its own — a lone character
-# doesn't carry the same visual weight as the sentence it replaced, so giving
-# it an equally large dedicated row just left that row looking empty.
-PANEL_LETTER_FONTSIZE = 30
-HEADER_FONTSIZE = 27
-PANEL_TITLE_FONTSIZE = 25
+# draw_onoff_panel / draw_other_dimensions_panel. Still clearly larger than
+# HEADER_FONTSIZE/PANEL_TITLE_FONTSIZE per the project's panel-letter
+# convention. Raised twice on 2026-08-13 per explicit user direction
+# ("agranda muuucho las letras de A B C", then "agrandalas bastante mas AUN
+# bastante" after the first 30->58 pass still wasn't enough) — every other
+# bump in this pass was a moderate "make it readable" step; this one was
+# called out twice on its own as needing to be much larger than that. Shares
+# its row with the significance legend rather than getting a reserved row of
+# its own — a lone character doesn't carry the same visual weight as the
+# sentence it replaced, so giving it an equally large dedicated row just left
+# that row looking empty.
+PANEL_LETTER_FONTSIZE = 92
+HEADER_FONTSIZE = 36
+PANEL_TITLE_FONTSIZE = 32
+# Gap, in points, between the marker-name title (e.g. "P3b") and its axes'
+# top edge (``ax.set_title(..., pad=...)`` in draw_onoff_panel /
+# draw_other_dimensions_panel). MNE's head outline draws almost to the very
+# top of the axes bounding box, so at the small pad (3pt) this used before
+# the topomaps were enlarged to fill their columns, the bigger title text now
+# reads as touching the head outline below it.
+MARKER_TITLE_PAD_PT = 14
 # Bumped to 28 in an earlier round to make legends easier to read at a
 # glance, but that was tuned back when the legend still shared its row with
 # a full descriptive suptitle; once the suptitle shrank to a bare letter the
 # legend read as oversized next to it. 24 keeps it close to HEADER_FONTSIZE
 # (still far from a "secondary/footnote" size) without dominating the row.
-LEGEND_FONTSIZE = 24
+# Raised again to 30 in the 2026-08-13 "almost all text is too small" pass —
+# HEADER_FONTSIZE itself grew a lot in that pass, so a legend still at 24
+# would have re-created the exact "legend reads as oversized/undersized next
+# to its neighbour" problem this comment originally describes, just inverted.
+LEGEND_FONTSIZE = 30
 # The onoff directional bar (add_directional_colorbar) spans the middle
 # columns of a 5-column panel and its pole text overflows OUTWARD into the
 # (otherwise empty, at that row) outer columns — there is nothing there for it
 # to collide with, so this one tolerates a much bigger font than the
 # per-dimension bars below.
-COLORBAR_LABEL_FONTSIZE = 27
+COLORBAR_LABEL_FONTSIZE = 32
 # The per-dimension column colour bars (add_column_colorbar) are only ~1/6 of
 # the figure width, unlike the single wide onoff bar that COLORBAR_LABEL_FONTSIZE
 # is sized for, and neighbouring columns each have their own label to collide
@@ -193,23 +211,40 @@ COLORBAR_LABEL_FONTSIZE = 27
 # ("self-focused" / "other-focused") needs >=3.74in of column width at 17pt,
 # which is why figure_other_dimensions/figure_combined widen those panels
 # below to fit it (Statistics/plot_results.py has no equivalent — this bar is
-# unique to this script).
-COLUMN_COLORBAR_LABEL_FONTSIZE = 21
-COLORBAR_TICK_FONTSIZE = 24
+# unique to this script). Was 21pt — at the combined figure's true print size
+# this read as essentially blank ("el texto del cbar no se ve nada"), so this
+# is the single largest proportional jump in the 2026-08-13 pass; the column
+# width safety margin below (COLUMN_COLORBAR_WIDTH_SAFETY_IN) grew to match.
+COLUMN_COLORBAR_LABEL_FONTSIZE = 34
+COLORBAR_TICK_FONTSIZE = 30
 # Tuned against measured text extents (not guessed): at HEATMAP_TICK_FONTSIZE
 # pt, the widest column header ("quadratic") and the left-margin row/group
 # labels ("wSMI gamma" / "Complexity /") need the panel widths and
 # left_margin fractions set below in figure_heatmap/figure_combined — bump
 # this without also widening those panels and the headers start touching
 # again (that is exactly the bug this round fixed; see git history).
-HEATMAP_TICK_FONTSIZE = 26
-HEATMAP_TITLE_FONTSIZE = 34
+HEATMAP_TICK_FONTSIZE = 34
+HEATMAP_TITLE_FONTSIZE = 40
 # The in-cell significance glyphs (dot/asterisks) are isolated inside a solid
 # colour patch with no neighbouring text to collide with — unlike every other
 # label in this figure, there is no width budget to solve for here, so these
 # were the one place still worth a large, un-tuned bump on their own.
-HEATMAP_GLYPH_FONTSIZE = 30
-HEATMAP_DOT_GLYPH_FONTSIZE = 22
+HEATMAP_GLYPH_FONTSIZE = 44
+HEATMAP_DOT_GLYPH_FONTSIZE = 32
+# Family-group row label ("Evoked (ERP)", "Complexity /\ninformation"), drawn
+# left of the family-boundary line in draw_heatmap. Used to be a fraction of
+# HEATMAP_TICK_FONTSIZE (0.95x, i.e. deliberately *smaller* than the column
+# headers) — at that ratio it was the least legible text on the whole figure
+# ("ni el nombre de las familias [se ve]"). A family name labels 2-5 marker
+# rows at once, more chart furniture than a per-cell tick, so it gets its own
+# constant, sized larger than the ticks rather than as a fraction of them.
+HEATMAP_FAMILY_LABEL_FONTSIZE = 40
+# Marker-name row label ("P3b", "wSMI gamma"). Was tick_fontsize*1.15; bumped
+# to 1.3x here for the same "ylab not visible" complaint — these are short
+# single/double-word strings with slack in the left margin, unlike the
+# 2-line column headers left_margin is actually sized against (see the
+# draw_heatmap docstring).
+HEATMAP_YLABEL_FONTSIZE_RATIO = 1.3
 
 
 def text_block_height_in(fontsize_pt: float, n_lines: int = 1, linespacing: float = 1.25) -> float:
@@ -296,6 +331,61 @@ HEATMAP_TOP_BUDGET_IN = (
 )
 HEATMAP_BOTTOM_BUDGET_IN = 0.04
 
+# GridSpec margins shared by draw_onoff_panel/draw_other_dimensions_panel and
+# the row-height solver below — the solver has to reproduce the exact same
+# left/right/wspace GridSpec uses, or its "what column width will GridSpec
+# actually give each axes" answer would drift from reality.
+TOPOMAP_GRID_LEFT = 0.005
+TOPOMAP_GRID_RIGHT = 0.995
+ONOFF_GRID_WSPACE = 0.004
+# Wider than ONOFF_GRID_WSPACE: pole labels sit flush against their own
+# column's edge (see draw_other_dimensions_panel's GridSpec call for why),
+# so this wspace IS the visible gap between neighbouring pole labels.
+OTHER_DIMS_GRID_WSPACE = 0.03
+TOPOMAP_PANEL_BOTTOM_BUDGET_IN = 0.06
+# Shared by draw_onoff_panel/draw_other_dimensions_panel's panel_letter
+# branch — both compute this identically, so it is a single constant rather
+# than two copies that could silently drift apart (as they briefly did
+# during the 2026-08-13 font-size pass).
+TOPOMAP_PANEL_LETTER_TOP_BUDGET_IN = (
+    PANEL_LETTER_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 3 * GAP_BUDGET_IN
+)
+# Same idea for the "suptitle" branch (standalone figure_onoff/
+# figure_other_dimensions exports) — was duplicated inline in both
+# draw_onoff_panel and draw_other_dimensions_panel; a single constant here
+# is also what lets figure_onoff/figure_other_dimensions solve their own
+# panel_height_in bottom-up (see solve_topomap_panel_height_in) without
+# reproducing the formula a third time.
+TOPOMAP_SUPTITLE_TOP_BUDGET_IN = (
+    SUPTITLE_BUDGET_IN + LEGEND_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
+    + 4 * GAP_BUDGET_IN
+)
+# Column width these topomap panels are tuned against, in inches — shared by
+# the combined figure's panel B/C (as bc_width_in) and by the standalone
+# figure_onoff/figure_other_dimensions exports, so both places produce
+# exactly the same column width and the same "does this header/pole-label
+# text fit" answer instead of two independently-guessed numbers drifting
+# apart (which is what caused the standalone exports' headers to start
+# colliding in the 2026-08-13 font pass while the combined figure, already
+# re-derived, stayed fine).
+TOPOMAP_PANEL_WIDTH_IN = 28.0
+# Applied to the solved row height only (never to the column width itself,
+# which must stay exactly what GridSpec will produce): without a hair of
+# margin, floating-point rounding in GridSpec's own width solve can leave a
+# fraction of a point of blank column edge, re-creating the exact gap this
+# solver exists to remove. Also covers the row-height GridSpec loses to
+# ROW_HSPACE between data rows (solve_topomap_panel_height_in's n_rows*height
+# term does not itself subtract that hspace loss). 1.06 was the smallest
+# value that stayed gap-free at ROW_HSPACE=0.08 when checked against the
+# rendered PNG.
+SQUARE_TOPOMAP_ROW_SAFETY = 1.06
+# GridSpec vertical spacing between topomap data rows, shared by
+# draw_onoff_panel/draw_other_dimensions_panel. Raised from 0.06 to make room
+# for MARKER_TITLE_PAD_PT — that pad sits in exactly this inter-row gap for
+# every row below the first (the first row's title clears the header instead,
+# via PANEL_TITLE_BUDGET_IN).
+ROW_HSPACE = 0.08
+
 
 def fractions_from_budget(
     panel_height_in: float, top_budget_in: float, bottom_budget_in: float
@@ -348,6 +438,86 @@ def solve_colorbar_row_ratio(n_data_rows: int, data_span_in: float, colorbar_bud
     """
     fraction = colorbar_budget_in / data_span_in
     return fraction * n_data_rows / (1.0 - fraction)
+
+
+def solve_square_topomap_row_height_in(
+    panel_width_in: float, n_cols: int, wspace: float
+) -> float:
+    """
+    Solve the data-row height, in inches, that makes each topomap column square.
+
+    ``mne.viz.plot_topomap`` always draws a circular head, so it is bound by
+    the SMALLER of an axes' width and height and centres itself in the other
+    — leaving blank margin on whichever side is bigger. A GridSpec column is
+    wider than it is tall whenever the row height is left to "whatever space
+    is left over" (the previous behaviour here), which is exactly what left
+    visible blank strips beside every topomap in the combined figure. Solving
+    for the row height that reproduces GridSpec's own column width — rather
+    than picking a panel height first and letting columns fall out wider or
+    narrower than that — is what makes the column square and the topomap
+    fill it, without touching the column width (panel width / n_cols) at all.
+
+    Parameters
+    ----------
+    panel_width_in : float
+        Width, in inches, of the figure/subfigure the topomap GridSpec is
+        drawn into. This is the dimension the caller must NOT enlarge — the
+        function only ever solves the complementary row height.
+    n_cols : int
+        Number of topomap columns (families or dimensions).
+    wspace : float
+        GridSpec ``wspace`` used for this panel's grid (``ONOFF_GRID_WSPACE``
+        or ``OTHER_DIMS_GRID_WSPACE``) — must match the value the caller
+        passes to the actual ``GridSpec`` call, or the solved height will not
+        match the column width GridSpec actually produces.
+
+    Returns
+    -------
+    float
+        Row height, in inches, that makes one data row as tall as one
+        column is wide (times ``SQUARE_TOPOMAP_ROW_SAFETY`` for GridSpec
+        rounding slack).
+    """
+    usable_width_in = panel_width_in * (TOPOMAP_GRID_RIGHT - TOPOMAP_GRID_LEFT)
+    col_width_in = usable_width_in / (n_cols + (n_cols - 1) * wspace)
+    return col_width_in * SQUARE_TOPOMAP_ROW_SAFETY
+
+
+def solve_topomap_panel_height_in(
+    top_budget_in: float, n_rows: int, row_height_in: float, colorbar_budget_in: float
+) -> float:
+    """
+    Derive the subfigure height, in inches, that fits square topomap rows.
+
+    Inverts the usual flow in this module (panel height picked first, chrome
+    and data rows fitted into whatever is left): here the row height is fixed
+    by ``solve_square_topomap_row_height_in`` first, and the panel height is
+    whatever it takes to fit ``n_rows`` of that height plus chrome — so the
+    combined figure's overall height is a consequence of "topomaps must be
+    square", not a number chosen independently of it.
+
+    Parameters
+    ----------
+    top_budget_in : float
+        Chrome reserved above the data rows (``TOPOMAP_PANEL_LETTER_TOP_BUDGET_IN``).
+    n_rows : int
+        Number of topomap rows (``n_per_family`` / ``n_per_dimension``).
+    row_height_in : float
+        Per-row height from ``solve_square_topomap_row_height_in``.
+    colorbar_budget_in : float
+        Height of the colour-bar row (``COLORBAR_ROW_BUDGET_IN``).
+
+    Returns
+    -------
+    float
+        Required subfigure height, in inches.
+    """
+    return (
+        top_budget_in
+        + n_rows * row_height_in
+        + colorbar_budget_in
+        + TOPOMAP_PANEL_BOTTOM_BUDGET_IN
+    )
 
 # Display grouping. This is for READING ONLY and is deliberately finer than the
 # correction family: multiplicity is corrected over evoked (m=4) and sleep
@@ -418,11 +588,20 @@ POLE_LABELS: Dict[str, Tuple[str, str]] = {
     "selfother": ("higher when\nself-focused", "higher when\nother-focused"),
     "time": ("higher for\npast-oriented", "higher for\nfuture-oriented"),
     "time_sq": ("higher at\npresent-focused", "higher at\nextreme time-shift"),
-    "confidence": ("higher when\nunconfident", "higher when\nconfident"),
+    "confidence": ("higher when\nlow confidence", "higher when\nhigh confidence"),
 }
 
 # Compact pole names, for annotations where the full sentence in POLE_LABELS
 # would not fit beside a neighbouring panel.
+#
+# confidence's poles are "low"/"high", not "unconfident"/"confident" — fixed
+# 2026-08-13. The SART Task Design section of CLAUDE.md defines Q3's own
+# poles literally as "(low ↔ high)"; a 2026-08-12 pass had flagged "low"/
+# "high" as an inconsistent shortening and "corrected" it to "unconfident"/
+# "confident", which was backwards — "unconfident" carries connotations
+# (anxiety, insecurity) the slider never measured, it only asked how
+# confident the self-assessment was. "low"/"high" reads correctly here
+# because the column header directly above always says "Confidence".
 SHORT_POLES: Dict[str, Tuple[str, str]] = {
     "onoff": ("off-task", "on-task"),
     "valence": ("negative", "positive"),
@@ -430,7 +609,22 @@ SHORT_POLES: Dict[str, Tuple[str, str]] = {
     "selfother": ("self-focused", "other-focused"),
     "time": ("past", "future"),
     "time_sq": ("present", "extreme shift"),
-    "confidence": ("unconfident", "confident"),
+    "confidence": ("low", "high"),
+}
+
+# Two-line break points for SHORT_POLES entries too wide to render as one
+# line at COLUMN_COLORBAR_LABEL_FONTSIZE within a fixed-width panel-C column
+# (see add_column_colorbar) — a display-only line break, not a wording
+# change, so SHORT_POLES itself (the canonical short pole text per CLAUDE.md)
+# stays untouched. Entries absent here (e.g. "past"/"future", "low"/"high")
+# are short enough to render on one line at any size this figure uses. A
+# dict, not a generic char-count heuristic, because the break point has to
+# land on a real syllable/hyphen boundary, which isn't derivable from the
+# string alone.
+COLUMN_COLORBAR_POLE_LINE_BREAKS: Dict[str, str] = {
+    "self-focused": "self-\nfocused",
+    "other-focused": "other-\nfocused",
+    "extreme shift": "extreme\nshift",
 }
 
 # Dimensions shown on the secondary figure, in narrative order: the localizable
@@ -445,13 +639,23 @@ SECONDARY_DIMENSIONS = [
 ]
 
 # Column headers for the heatmap and other-dimensions figure: short enough to
-# fit side by side at six or seven columns.
+# fit side by side at six or seven columns. "Valence"/"Time" are single-line
+# on purpose — per CLAUDE.md's "Dimension Labels & Pole Wording" table their
+# canonical label is the bare word, with no "linear" qualifier (that
+# qualifier isn't a documented line-wrap of the canonical text, it's a
+# different word, which the same section explicitly rules out — "linear" was
+# only needed to disambiguate from the quadratic column in this same table,
+# but valence_sq/time_sq already have their own distinct canonical labels
+# below, "Neutral/Emotional"/"Present/NotPresent", so there's no ambiguity to
+# resolve). xtick labels on a top-anchored axis grow upward from a shared
+# bottom edge, so a shorter single-line label still bottom-aligns with its
+# two-line neighbours — no visual inconsistency from the line-count mismatch.
 HEATMAP_COLUMN_LABELS: Dict[str, str] = {
     "onoff": "On/Off-\nTask",
-    "valence": "Valence\nlinear",
+    "valence": "Valence",
     "valence_sq": "Neutral/\nEmotional",
     "selfother": "Self/\nOther",
-    "time": "Time\nlinear",
+    "time": "Time",
     "time_sq": "Present/\nNotPresent",
     "confidence": "Confi-\ndence",
 }
@@ -1025,6 +1229,8 @@ def add_column_colorbar(
 
     text_y = 1 - bar_fraction - (GAP_BUDGET_IN / COLORBAR_ROW_BUDGET_IN) * 0.5
     low_label, high_label = SHORT_POLES[dimension]
+    low_label = COLUMN_COLORBAR_POLE_LINE_BREAKS.get(low_label, low_label)
+    high_label = COLUMN_COLORBAR_POLE_LINE_BREAKS.get(high_label, high_label)
     cax.text(
         0.0,
         text_y,
@@ -1035,6 +1241,7 @@ def add_column_colorbar(
         fontsize=COLUMN_COLORBAR_LABEL_FONTSIZE,
         fontweight="bold",
         color="black",
+        linespacing=1.1,
     )
     cax.text(
         1.0,
@@ -1046,6 +1253,7 @@ def add_column_colorbar(
         fontsize=COLUMN_COLORBAR_LABEL_FONTSIZE,
         fontweight="bold",
         color="black",
+        linespacing=1.1,
     )
 
 
@@ -1172,18 +1380,12 @@ def draw_onoff_panel(
     n_rows = n_per_family
 
     if panel_letter:
-        top_budget = (
-            PANEL_LETTER_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
-            + 3 * GAP_BUDGET_IN
-        )
+        top_budget = TOPOMAP_PANEL_LETTER_TOP_BUDGET_IN
     elif suptitle:
-        top_budget = (
-            SUPTITLE_BUDGET_IN + LEGEND_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
-            + 4 * GAP_BUDGET_IN
-        )
+        top_budget = TOPOMAP_SUPTITLE_TOP_BUDGET_IN
     else:
         top_budget = HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 2 * GAP_BUDGET_IN
-    bottom_budget = 0.06
+    bottom_budget = TOPOMAP_PANEL_BOTTOM_BUDGET_IN
     top, bottom = fractions_from_budget(panel_height_in, top_budget, bottom_budget)
     data_span_in = panel_height_in - top_budget - bottom_budget
     colorbar_ratio = solve_colorbar_row_ratio(n_rows, data_span_in, COLORBAR_ROW_BUDGET_IN)
@@ -1193,10 +1395,10 @@ def draw_onoff_panel(
         n_cols,
         figure=fig,
         height_ratios=[1.0] * n_rows + [colorbar_ratio],
-        hspace=0.06,
-        wspace=0.004,
-        left=0.005,
-        right=0.995,
+        hspace=ROW_HSPACE,
+        wspace=ONOFF_GRID_WSPACE,
+        left=TOPOMAP_GRID_LEFT,
+        right=TOPOMAP_GRID_RIGHT,
         top=top,
         bottom=bottom,
     )
@@ -1205,7 +1407,7 @@ def draw_onoff_panel(
     for _, row in selected.iterrows():
         col = group_order.index(row["display_group"])
         ax = fig.add_subplot(grid[int(row["rank"]), col])
-        ax.set_title(MARKER_DISPLAY_NAMES[row["marker_name"]], fontsize=PANEL_TITLE_FONTSIZE, pad=3)
+        ax.set_title(MARKER_DISPLAY_NAMES[row["marker_name"]], fontsize=PANEL_TITLE_FONTSIZE, pad=MARKER_TITLE_PAD_PT)
         if row["p_raw"] >= alpha:
             # No cluster below alpha even before correction: nothing to show.
             ax.axis("off")
@@ -1261,9 +1463,17 @@ def figure_onoff(
     pd.DataFrame
         The markers actually plotted, with their family and within-family rank.
     """
-    n_cols = len(DISPLAY_GROUPS)
-    panel_height_in = 4.0 * n_per_family + 2.5
-    fig = plt.figure(figsize=(3.6 * n_cols, panel_height_in))
+    # Same TOPOMAP_PANEL_WIDTH_IN/row-height solve the combined figure's
+    # panel B uses (see figure_combined) — panel_height_in is a consequence
+    # of "topomap rows must be as tall as their column is wide", not a
+    # separately-guessed formula that can drift out of sync with it.
+    row_height_in = solve_square_topomap_row_height_in(
+        TOPOMAP_PANEL_WIDTH_IN, len(DISPLAY_GROUPS), ONOFF_GRID_WSPACE
+    )
+    panel_height_in = solve_topomap_panel_height_in(
+        TOPOMAP_SUPTITLE_TOP_BUDGET_IN, n_per_family, row_height_in, COLORBAR_ROW_BUDGET_IN
+    )
+    fig = plt.figure(figsize=(TOPOMAP_PANEL_WIDTH_IN, panel_height_in))
     selected = draw_onoff_panel(fig, panel_height_in, model_dir, summary, alpha, n_per_family)
     save_figure_multiformat(fig, output_path)
     plt.close(fig)
@@ -1359,18 +1569,12 @@ def draw_other_dimensions_panel(
     vlim = compute_shared_vlim(results.values())
 
     if panel_letter:
-        top_budget = (
-            PANEL_LETTER_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
-            + 3 * GAP_BUDGET_IN
-        )
+        top_budget = TOPOMAP_PANEL_LETTER_TOP_BUDGET_IN
     elif suptitle:
-        top_budget = (
-            SUPTITLE_BUDGET_IN + LEGEND_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
-            + 4 * GAP_BUDGET_IN
-        )
+        top_budget = TOPOMAP_SUPTITLE_TOP_BUDGET_IN
     else:
         top_budget = HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 2 * GAP_BUDGET_IN
-    bottom_budget = 0.06
+    bottom_budget = TOPOMAP_PANEL_BOTTOM_BUDGET_IN
     top, bottom = fractions_from_budget(panel_height_in, top_budget, bottom_budget)
     data_span_in = panel_height_in - top_budget - bottom_budget
     colorbar_ratio = solve_colorbar_row_ratio(n_rows, data_span_in, COLORBAR_ROW_BUDGET_IN)
@@ -1380,7 +1584,7 @@ def draw_other_dimensions_panel(
         n_cols,
         figure=fig,
         height_ratios=[1.0] * n_rows + [colorbar_ratio],
-        hspace=0.06,
+        hspace=ROW_HSPACE,
         # Pole labels are anchored flush against their own column's edge
         # (ha="left" at x=0, ha="right" at x=1) rather than inset, so the
         # visible gap between one column's high-pole label and the next
@@ -1388,10 +1592,10 @@ def draw_other_dimensions_panel(
         # of column width — wspace=0 makes adjacent labels touch exactly
         # (verified: "extremenegative" with zero pixels between). 0.03 is
         # the smallest tested value that keeps a real gap at
-        # COLUMN_COLORBAR_LABEL_FONTSIZE=21 and the current panel width.
-        wspace=0.03,
-        left=0.005,
-        right=0.995,
+        # COLUMN_COLORBAR_LABEL_FONTSIZE=34 and the current panel width.
+        wspace=OTHER_DIMS_GRID_WSPACE,
+        left=TOPOMAP_GRID_LEFT,
+        right=TOPOMAP_GRID_RIGHT,
         top=top,
         bottom=bottom,
     )
@@ -1407,7 +1611,7 @@ def draw_other_dimensions_panel(
     for _, row in selected.iterrows():
         col = SECONDARY_DIMENSIONS.index(row["dimension"])
         ax = fig.add_subplot(grid[int(row["rank"]), col])
-        ax.set_title(MARKER_DISPLAY_NAMES[row["marker_name"]], fontsize=PANEL_TITLE_FONTSIZE, pad=3)
+        ax.set_title(MARKER_DISPLAY_NAMES[row["marker_name"]], fontsize=PANEL_TITLE_FONTSIZE, pad=MARKER_TITLE_PAD_PT)
         if row["p_raw"] >= alpha:
             # No cluster below alpha even before correction: nothing to show.
             ax.axis("off")
@@ -1469,12 +1673,18 @@ def figure_other_dimensions(
     pd.DataFrame
         The markers actually plotted, with dimension and within-dimension rank.
     """
-    n_cols = len(SECONDARY_DIMENSIONS)
-    panel_height_in = 3.9 * n_per_dimension + 2.5
-    # 3.9in/column (not 3.4) so each column's per-dimension colour bar has
-    # room for COLUMN_COLORBAR_LABEL_FONTSIZE's pole-label pairs — measured
-    # against the widest pair ("self-focused"/"other-focused").
-    fig = plt.figure(figsize=(3.9 * n_cols, panel_height_in))
+    # Same TOPOMAP_PANEL_WIDTH_IN/row-height solve the combined figure's
+    # panel C uses (see figure_combined) — this is also what gives each
+    # column's per-dimension colour bar room for COLUMN_COLORBAR_LABEL_FONTSIZE's
+    # pole-label pairs (the widest being "self-focused"/"other-focused",
+    # wrapped to two lines via COLUMN_COLORBAR_POLE_LINE_BREAKS).
+    row_height_in = solve_square_topomap_row_height_in(
+        TOPOMAP_PANEL_WIDTH_IN, len(SECONDARY_DIMENSIONS), OTHER_DIMS_GRID_WSPACE
+    )
+    panel_height_in = solve_topomap_panel_height_in(
+        TOPOMAP_SUPTITLE_TOP_BUDGET_IN, n_per_dimension, row_height_in, COLORBAR_ROW_BUDGET_IN
+    )
+    fig = plt.figure(figsize=(TOPOMAP_PANEL_WIDTH_IN, panel_height_in))
     selected = draw_other_dimensions_panel(
         fig, panel_height_in, output_root, summaries, alpha, omnibus, n_per_dimension
     )
@@ -1492,6 +1702,7 @@ def draw_heatmap(
     title: Optional[str] = "Marker × dimension evidence map",
     left_margin: float = 0.34,
     tick_fontsize: float = HEATMAP_TICK_FONTSIZE,
+    family_fontsize: float = HEATMAP_FAMILY_LABEL_FONTSIZE,
     panel_letter: Optional[str] = None,
 ) -> pd.DataFrame:
     """
@@ -1530,6 +1741,12 @@ def draw_heatmap(
         needs this turned down a step — column labels like "quadratic" wrap
         onto neighbouring columns at the standalone figure's font size once
         the panel is narrow enough.
+    family_fontsize : float
+        Font size for the family-group row label ("Evoked (ERP)"). Kept
+        independent of ``tick_fontsize`` (rather than a fraction of it) so a
+        panel that must stay a fixed width (the combined figure's panel A —
+        see figure_combined) can turn this down a step without also shrinking
+        the column tick labels it isn't competing with for space.
     panel_letter : str, optional
         Bare panel letter drawn bold at the panel's top-left corner — see
         ``draw_onoff_panel`` for the rationale.
@@ -1642,7 +1859,8 @@ def draw_heatmap(
     # actually sized against) — they have slack to run bigger than
     # tick_fontsize without threatening that width budget.
     ax.set_yticklabels(
-        [MARKER_DISPLAY_NAMES[m] for m in ordered_markers], fontsize=tick_fontsize * 1.15
+        [MARKER_DISPLAY_NAMES[m] for m in ordered_markers],
+        fontsize=tick_fontsize * HEATMAP_YLABEL_FONTSIZE_RATIO,
     )
     ax.tick_params(length=0)
     for spine in ax.spines.values():
@@ -1664,7 +1882,7 @@ def draw_heatmap(
             transform=ax.get_yaxis_transform(),
             ha="right",
             va="center",
-            fontsize=tick_fontsize * 0.95,
+            fontsize=family_fontsize,
             fontweight="bold",
             color="black",
             linespacing=1.25,
@@ -1675,17 +1893,21 @@ def draw_heatmap(
     gap_fraction = GAP_BUDGET_IN / panel_height_in
 
     if panel_letter is not None:
-        # Letter and glyph-legend share one row (letter left, legend right)
-        # instead of each getting a stacked row — see HEATMAP_TOP_BUDGET_LETTER_IN.
-        row_y = top + HEATMAP_XTICK_BUDGET_IN / panel_height_in + gap_fraction
+        # Anchored at the literal figure top (y=1.0, va="top"), exactly like
+        # draw_onoff_panel/draw_other_dimensions_panel's panel_letter branch
+        # (add_significance_legend) — this subfigure and the onoff subfigure
+        # both span the full canvas height, so y=1.0 in either one IS the
+        # same physical point, which is what makes "A" and "B" land aligned.
+        # The previous version anchored "A" to the row va="bottom" instead
+        # (a hair below 1.0), which is what the misalignment traced back to.
         fig.text(
-            0.015, row_y, panel_letter, ha="left", va="bottom",
+            0.015, 1.0, panel_letter, ha="left", va="top",
             fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold",
         )
         fig.text(
-            0.97, row_y,
+            0.97, 1.0,
             "•  p < .05, uncorrected     *  p_FDR < .05     **  p_FDR < .01     ***  p_FDR < .001",
-            ha="right", va="bottom", fontsize=LEGEND_FONTSIZE, fontweight="bold",
+            ha="right", va="top", fontsize=LEGEND_FONTSIZE, fontweight="bold",
             color="black",
         )
     else:
@@ -1743,12 +1965,21 @@ def figure_heatmap(
     """
     panel_height_in = 14.8
     # Width and left_margin solved from measured text extents at
-    # HEATMAP_TICK_FONTSIZE so the column headers ("Valence" / "quadratic")
-    # and the row/group labels each get exactly the room they need — the
-    # previous 13.5in/0.34 pairing was sized for a smaller font and left
-    # column headers touching once HEATMAP_TICK_FONTSIZE grew.
-    fig = plt.figure(figsize=(20.0, panel_height_in))
-    tidy = draw_heatmap(fig, panel_height_in, summaries, palette, alpha, left_margin=0.28)
+    # HEATMAP_TICK_FONTSIZE (this export uses the full, un-narrowed default,
+    # unlike the combined figure's embedded copy) so the column headers
+    # ("Valence" / "Neutral/Emotional") and the row/group labels each get
+    # exactly the room they need — the previous fixed 20.0in/0.28 pairing was
+    # sized for a smaller font and started colliding once HEATMAP_TICK_FONTSIZE
+    # and HEATMAP_FAMILY_LABEL_FONTSIZE grew in the 2026-08-13 pass (see the
+    # near-identical solve in figure_combined for panel A).
+    heatmap_reserved_label_width_in = 10.0
+    heatmap_col_width_in = 3.3
+    heatmap_width_in = (
+        heatmap_reserved_label_width_in + heatmap_col_width_in * len(HEATMAP_DIMENSION_ORDER)
+    )
+    heatmap_left_margin = heatmap_reserved_label_width_in / heatmap_width_in
+    fig = plt.figure(figsize=(heatmap_width_in, panel_height_in))
+    tidy = draw_heatmap(fig, panel_height_in, summaries, palette, alpha, left_margin=heatmap_left_margin)
     save_figure_multiformat(fig, output_path)
     plt.close(fig)
     return tidy
@@ -1798,20 +2029,53 @@ def figure_combined(
     n_per_dimension : int
         Number of topographies per non-onoff dimension.
     """
-    # 46 (not 40): both panel A's two-line column headers and panel C's
-    # per-dimension pole-label pairs ("self-focused"/"other-focused") need
-    # more ABSOLUTE width than 40in gave once their font sizes were raised
-    # (heatmap tick_fontsize 20->24, COLUMN_COLORBAR_LABEL_FONTSIZE 17->19).
-    # Reallocating width between the two panels (tried 0.36-0.38 for panel A)
-    # only breaks whichever side loses share — verified by rendering: 0.38
-    # broke panel A's headers, reverting to 0.40 then broke panel C's
-    # self/other pole labels. Growing the whole canvas instead grows both
-    # panels' absolute width together, which is what each one actually
-    # needed; bbox_inches="tight" crops the unused margin either way, so
-    # this costs nothing but a slightly larger source file.
-    fig_width_in, fig_height_in = 50.0, 25.0
-    width_ratios = [0.44, 0.56]
-    height_ratios = [0.52, 0.48]
+    # Both panel widths are fixed on purpose and must NOT grow, per explicit
+    # user direction (2026-08-13): the combined figure's overall footprint —
+    # panel A's width included — stays at its original size; only the
+    # figure's HEIGHT is left free to grow (to let panels B/C's topomaps fill
+    # their columns, see below). An earlier pass widened panel A instead, to
+    # give its 7 column headers more room at a bigger font; the user rejected
+    # that trade — text size in panel A now has to fit the original width
+    # rather than the other way around, so heatmap_left_margin/
+    # heatmap_tick_fontsize/heatmap_family_fontsize below are tuned down from
+    # the standalone figure_heatmap's own (unconstrained) sizes to fit here.
+    heatmap_width_in = 22.0
+    bc_width_in = TOPOMAP_PANEL_WIDTH_IN
+    fig_width_in = heatmap_width_in + bc_width_in
+    width_ratios = [heatmap_width_in / fig_width_in, bc_width_in / fig_width_in]
+    heatmap_left_margin = 0.38
+    heatmap_tick_fontsize = 28.0
+    heatmap_family_fontsize = 31.0
+
+    # fig_height_in is DERIVED, not chosen: solve_square_topomap_row_height_in
+    # asks "how tall must one topomap row be to equal the column width
+    # GridSpec will actually give it" for panels B and C separately (they
+    # have different column counts), then solve_topomap_panel_height_in
+    # turns that row height plus each panel's chrome budget into a required
+    # subfigure height. Their sum becomes the figure height. This is what
+    # makes every topomap fill its column with no blank margin, without
+    # ever touching bc_width_in above — see the module-level docstrings on
+    # both solver functions for the full reasoning.
+    onoff_row_height_in = solve_square_topomap_row_height_in(
+        bc_width_in, len(DISPLAY_GROUPS), ONOFF_GRID_WSPACE
+    )
+    onoff_height_in = solve_topomap_panel_height_in(
+        TOPOMAP_PANEL_LETTER_TOP_BUDGET_IN, n_per_family, onoff_row_height_in, COLORBAR_ROW_BUDGET_IN
+    )
+    other_row_height_in = solve_square_topomap_row_height_in(
+        bc_width_in, len(SECONDARY_DIMENSIONS), OTHER_DIMS_GRID_WSPACE
+    )
+    other_height_in = solve_topomap_panel_height_in(
+        TOPOMAP_PANEL_LETTER_TOP_BUDGET_IN, n_per_dimension, other_row_height_in, COLORBAR_ROW_BUDGET_IN
+    )
+    height_ratios = [onoff_height_in, other_height_in]
+    # subfigures()'s own hspace (below) eats a sliver of vertical space that
+    # is not part of either target height — pad the total so both
+    # subfigures still receive at least their solved height after that gap
+    # is taken out, rather than coming up a hair short and reopening a thin
+    # blank strip beside the topomaps this whole derivation exists to close.
+    subfigure_vspace_padding = 1.02
+    fig_height_in = (onoff_height_in + other_height_in) * subfigure_vspace_padding
 
     fig = plt.figure(figsize=(fig_width_in, fig_height_in))
     heatmap_fig, right_fig = fig.subfigures(1, 2, width_ratios=width_ratios, wspace=0.003)
@@ -1827,19 +2091,20 @@ def figure_combined(
         # convention: the column headers and heatmap axis already say what
         # each part shows, so "Every marker × every dimension" repeated that.
         panel_letter="A",
-        # Tick font raised from 20 to 24pt (still under the 26pt the
-        # vertical HEATMAP_TOP_BUDGET_IN was already sized for, so no
-        # collision there). left_margin widened to compensate both the
-        # bigger font and this panel's narrower share of fig_width_in
-        # (0.40->0.36) so the row/group labels still clear the
-        # family-boundary line.
-        left_margin=0.36,
-        tick_fontsize=24.0,
+        # heatmap_tick_fontsize/heatmap_family_fontsize/heatmap_left_margin
+        # are all set above, below the standalone figure_heatmap's own
+        # (unconstrained) sizes — this copy has to fit heatmap_width_in=22in
+        # exactly, not the other way around (see the comment above this
+        # function's width block).
+        left_margin=heatmap_left_margin,
+        tick_fontsize=heatmap_tick_fontsize,
+        family_fontsize=heatmap_family_fontsize,
     )
 
+    # onoff_height_in/other_height_in were already solved above (in inches);
+    # height_ratios carries those same absolute values through as relative
+    # GridSpec weights (matplotlib normalises them, they need not sum to 1).
     onoff_fig, other_fig = right_fig.subfigures(2, 1, height_ratios=height_ratios, hspace=0.012)
-    onoff_height_in = fig_height_in * height_ratios[0]
-    other_height_in = fig_height_in * height_ratios[1]
 
     draw_onoff_panel(
         onoff_fig,

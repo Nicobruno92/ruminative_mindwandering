@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
-# LOSO spatial decoding — TRUE-RUN array, axis (dimension × channel) = 448 tasks
-# (7 dims × 64 channels).
+# LOSO spatial decoding — TRUE-RUN array, axis (dimension × channel) = 1024 tasks
+# (16 dims × 64 channels).
 #
 # Each task computes the n_runs-averaged true AUC for ONE electrode of one
 # dimension and writes a true/channel-{CH}.csv shard. Per-channel (not per-dim)
@@ -18,7 +18,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --array=0-447
+#SBATCH --array=0-1023
 
 set -euo pipefail
 # SLURM copies the batch script to a spool dir, so $BASH_SOURCE cannot locate the
@@ -28,7 +28,7 @@ SD="loso_pipeline/spatial_decoding"
 CONFIG="$SD/config.yaml"
 PYTHON="$HOME/miniforge3/envs/ML/bin/python"
 
-CONTRASTS=(ON_vs_OFF_within_median valence_within_median selfother_within_median time_within_median confidence_within_median valence_sq time_sq)
+CONTRASTS=(ON_vs_OFF_within_median valence_within_median selfother_within_median time_within_median confidence_within_median valence_sq time_sq valence_sq_res time_sq_res valence_sq_res_cross time_sq_res_cross onoff_within_median_res valence_within_median_res selfother_within_median_res time_within_median_res confidence_within_median_res)
 # The 64 electrodes of this dataset (fixed montage, not a tunable parameter).
 CHANNELS=(AF3 AF4 AF7 AF8 AFz C1 C2 C3 C4 C5 C6 CP1 CP2 CP3 CP4 CP5 CP6 CPz Cz F1 \
           F2 F3 F4 F5 F6 F7 F8 FC1 FC2 FC3 FC4 FC5 FC6 FT10 FT7 FT8 FT9 Fp1 Fp2 Fz \

@@ -81,7 +81,7 @@ DIMENSIONS: list[dict] = [
     {"key": "valence", "label": "Valence", "pole_low": "negative", "pole_high": "positive"},
     {"key": "selfother", "label": "Self/Other", "pole_low": "self-focused", "pole_high": "other-focused"},
     {"key": "time", "label": "Time", "pole_low": "past", "pole_high": "future"},
-    {"key": "confidence", "label": "Confidence", "pole_low": "unconfident", "pole_high": "confident"},
+    {"key": "confidence", "label": "Confidence", "pole_low": "low", "pole_high": "high"},
 ]
 
 SCALE_MIN, SCALE_MAX = 0.0, 100.0
