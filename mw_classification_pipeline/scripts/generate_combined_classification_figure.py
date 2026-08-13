@@ -2,18 +2,35 @@
 """
 Generate combined classification figures showing WS and LOSO results.
 
-Outputs (in results/MW_Classification/combined_figures/):
+Outputs (in results/combined_figures/):
     group_ws.{png,svg}        — WS group-level AUC per dimension
     group_loso.{png,svg}      — LOSO group-level AUC per dimension
     individual_ws.{png,svg}   — WS per-subject AUC per dimension
     individual_loso.{png,svg} — LOSO per-subject AUC per dimension
-
+    marker_direction_all_dimensions.{png,svg}
+                              — WS vs LOSO SHAP direction per marker, all
+                                dimensions. Consumes the tables written by
+                                scripts/feature_consistency_analysis.py and is
+                                skipped with a message if they are absent.
+    spatial_comparison_ws_loso.{png,svg}
+                              — WS (row 1) vs LOSO (row 2) spatial (per-electrode)
+                                decoding topomaps, one column per dimension
+                                (5 canonical + valence_sq/time_sq next to their
+                                parent dimension). Reads per_channel_metrics.csv
+                                from results/MW_Classification/SpatialDecoding/;
+                                skipped with a message for any dimension missing
+                                on either pipeline.
 Each dimension has a consistent color used across all four figures.
-True = dimension color; Shuffled = grey.
+Full (true labels) = dimension color; Shuffled = grey.
 
 Usage (from project root):
-    /path/to/miniforge3/envs/ML/bin/python \
+    /path/to/miniforge3/envs/plots/bin/python \
         mw_classification_pipeline/scripts/generate_combined_classification_figure.py
+
+Must run in the `plots` env, not `ML`: the batched writer below uses the
+`kaleido.Kaleido` context manager, which exists only in kaleido >= 1.0. The ML
+env pins kaleido 0.2.1, whose API is the old `fig.write_image()`, so every
+figure builds there and then the run dies at the final write step.
 """
 
 # =============================================================================
@@ -38,6 +55,7 @@ from statsmodels.stats.multitest import multipletests
 from pathlib import Path
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+import plotly.io as pio
 
 warnings.filterwarnings("ignore")
 
@@ -53,8 +71,15 @@ PALETTE = yaml.safe_load(
 DIM_COLORS = PALETTE["dimensions"]
 
 RESULTS_ROOT    = Path("mw_classification_pipeline/results/MW_Classification")
+CONSISTENCY_DIR = Path("mw_classification_pipeline/results/feature_consistency")
 OUTPUT_DIR      = Path("mw_classification_pipeline/results/combined_figures")
 PROBE_DATA_PATH = Path("results/Behavior/probe_data/probe_level_aggregated_data.csv")
+
+# Spatial (per-electrode searchlight) decoding results, one merged
+# per_channel_metrics.csv per {pipeline}/{dimension}/{family}/{model}.
+SPATIAL_RESULTS_ROOT = RESULTS_ROOT / "SpatialDecoding"
+SPATIAL_FAMILY = "all"
+SPATIAL_MODEL  = "rf"
 
 # WS-vs-LOSO feature scatter figures: show the union of each pipeline's
 # top-N features (by its own ranking metric).
@@ -79,20 +104,20 @@ DIMENSIONS = [
         "label_source": "valence",
     },
     {
-        "key":          "time",
-        "ws_dir":       "time_within_median",
-        "loso_dir":     "time_within_median",
-        "label":        "Time",
-        "color":        DIM_COLORS["time"],   # purple
-        "label_source": "time",
-    },
-    {
         "key":          "selfother",
         "ws_dir":       "selfother_within_median",
         "loso_dir":     "selfother_within_median",
         "label":        "Self/Other",
         "color":        DIM_COLORS["selfother"],   # green
         "label_source": "selfother",
+    },
+    {
+        "key":          "time",
+        "ws_dir":       "time_within_median",
+        "loso_dir":     "time_within_median",
+        "label":        "Time",
+        "color":        DIM_COLORS["time"],   # purple
+        "label_source": "time",
     },
     {
         "key":          "confidence",
@@ -107,6 +132,81 @@ DIMENSIONS = [
 PERM_COLOR   = PALETTE["neutral"]["permutation"]   # gray
 CHANCE       = 0.5
 AUC_RANGE    = (0.35, 1.0)
+
+# Residualized-contrast result directories, one per canonical dimension (same
+# folder name under WithinSubject/ and LOSO/ for every dimension — see
+# docs/superpowers/specs/2026-07-30-cross-dimension-residualized-contrasts-design.md).
+# Only the *_with_residualized figures read these; the canonical figures above
+# never do.
+RESIDUALIZED_DIR = {
+    "on_off":     "onoff_within_median_res",
+    "valence":    "valence_within_median_res",
+    "time":       "time_within_median_res",
+    "selfother":  "selfother_within_median_res",
+    "confidence": "confidence_within_median_res",
+    # Quadratic terms use a differently-named "cross" residualized contrast
+    # (see docs/superpowers/specs/2026-07-30-cross-dimension-residualized-
+    # contrasts-design.md) rather than the "_res" suffix above, but are
+    # looked up through the same RESIDUALIZED_DIR / _residualized_dim_info
+    # machinery — see SQ_DIMENSIONS below.
+    "valence_sq": "valence_sq_res_cross",
+    "time_sq":    "time_sq_res_cross",
+}
+
+def _lighten_hex(hex_color: str, amount: float) -> str:
+    """Blend a '#RRGGBB' hex color toward white by `amount` (0-1)."""
+    hex_color = hex_color.lstrip("#")
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+    r = round(r + (255 - r) * amount)
+    g = round(g + (255 - g) * amount)
+    b = round(b + (255 - b) * amount)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+# valence_sq / time_sq are the quadratic (U-shaped) terms — not part of the
+# canonical 5-dimension DIMENSIONS list used everywhere else in this script,
+# so kept as a separate, explicitly-opt-in list rather than appended to
+# DIMENSIONS (which would silently add 2 rows/panels to every other figure
+# here). Display labels per CLAUDE.md "Quadratic-Dimension Display Labels" —
+# the underlying key stays valence_sq/time_sq, only the shown text changes.
+# Color is a lightened tint of the parent dimension's color (not the same
+# solid hue) so valence_sq is visibly distinct from valence at a glance,
+# while still reading as "the same family" when placed next to it.
+SQ_DIMENSIONS = [
+    {
+        "key":      "valence_sq",
+        "ws_dir":   "valence_sq",
+        "loso_dir": "valence_sq",
+        "label":    "Neutral/Emotional",
+        "color":    _lighten_hex(DIM_COLORS["valence"], 0.45),
+    },
+    {
+        "key":      "time_sq",
+        "ws_dir":   "time_sq",
+        "loso_dir": "time_sq",
+        "label":    "Present/NotPresent",
+        "color":    _lighten_hex(DIM_COLORS["time"], 0.45),
+    },
+]
+
+# Row order for the two "+ residualized" group-level figures (single-pipeline
+# and combined WS/LOSO): each quadratic term sits directly after its parent
+# linear dimension, not appended after all 5 canonical rows.
+GROUP_ROW_DIMENSIONS = [
+    DIMENSIONS[0],     # on_off
+    DIMENSIONS[1],     # valence
+    SQ_DIMENSIONS[0],  # valence_sq
+    DIMENSIONS[2],     # selfother
+    DIMENSIONS[3],     # time
+    SQ_DIMENSIONS[1],  # time_sq
+    DIMENSIONS[4],     # confidence
+]
+
+RESIDUALIZED_ALPHA = 0.30  # well below True's 0.72, so it reads as a translucent layer
+# Thin aggregate marks (inner donut ring, stacked bar segment) need more
+# opacity than a full violin area to stay legible at small size — still
+# visually distinct from the fully-opaque canonical marks they sit beside.
+RESIDUALIZED_RING_ALPHA = 0.55
 BW_GROUP     = 0.4   # Scott multiplier for group-level KDE
 BW_INDIV     = 0.5   # Scott multiplier for individual KDE
 MIN_BW_INDIV = 0.025 # minimum bandwidth in AUC units (prevents spike artefacts)
@@ -188,6 +288,15 @@ def load_subject_data(
     return _collect(true_glob), _collect(perm_glob)
 
 
+def _residualized_dim_info(dim_info: dict) -> dict:
+    """
+    Synthetic dim_info pointing at a dimension's residualized-contrast result
+    directory, so load_group_data / load_subject_data can be reused unchanged.
+    """
+    res_dir = RESIDUALIZED_DIR[dim_info["key"]]
+    return {**dim_info, "ws_dir": res_dir, "loso_dir": res_dir}
+
+
 # =============================================================================
 # Statistics
 # =============================================================================
@@ -224,6 +333,33 @@ def sig_stars(p: float) -> str:
     if p < 0.01:
         return "**"
     return "*"
+
+
+def _fmt_q(q: float) -> str:
+    """Compact FDR-corrected q-value, e.g. '<.001' or '0.028'."""
+    if np.isnan(q):
+        return "n/a"
+    return "<.001" if q < 0.001 else f"{q:.3f}"
+
+
+def _true_res_annotation_text(
+    t: np.ndarray, p_adj: float, t_res: np.ndarray, res_p_adj: float,
+) -> str:
+    """
+    Compact 2-line "Full / Residualized" label — mean AUC, significance
+    stars, FDR-corrected p (p_FDR, matching the project-wide convention in
+    CLAUDE.md rather than the q-value name from genomics/Storey) — meant to
+    sit INSIDE a violin panel rather than a separate margin column, so it
+    stays short by design ("Full"/"Res." rather than the full words). Shared
+    by plot_group_level_with_residualized and
+    plot_group_comparison_with_residualized so the two figures read
+    identically.
+    """
+    mean_t     = float(np.mean(t))     if len(t)     else float("nan")
+    mean_t_res = float(np.mean(t_res)) if len(t_res) else float("nan")
+    line1 = f"<b>Full {mean_t:.2f}{sig_stars(p_adj)}</b> p_FDR={_fmt_q(p_adj)}"
+    line2 = f"<i>Res. {mean_t_res:.2f}{sig_stars(res_p_adj)}</i> p_FDR={_fmt_q(res_p_adj)}"
+    return f"{line1}<br>{line2}"
 
 
 # =============================================================================
@@ -354,7 +490,7 @@ def plot_group_level(pipeline: str, title_prefix: str) -> go.Figure:
             orientation="h", side="positive",
             line_color=color, fillcolor=color,
             opacity=0.72, points=False, width=1.0, bandwidth=0.015,
-            name="True", legendgroup="True",
+            name="Full", legendgroup="Full",
             showlegend=(i == 0),
         ), row=row, col=1)
 
@@ -422,6 +558,156 @@ def plot_group_level(pipeline: str, title_prefix: str) -> go.Figure:
         legend=dict(
             orientation="h", yanchor="bottom", y=1.02,
             xanchor="left", x=0, font=dict(size=11),
+        ),
+    )
+    return fig
+
+
+# =============================================================================
+# Figure A2 — Group-level + residualized overlay (one per pipeline)
+# =============================================================================
+
+
+def plot_group_level_with_residualized(pipeline: str, title_prefix: str) -> go.Figure:
+    """
+    Same layout as :func:`plot_group_level`, with a third half-violin per row:
+    the True-AUC distribution from that dimension's residualized-contrast
+    re-run (RESIDUALIZED_DIR). Drawn in the dimension color at
+    RESIDUALIZED_ALPHA — well below True's opacity — so it reads as a
+    translucent layer rather than a competing solid distribution.
+
+    Rows are GROUP_ROW_DIMENSIONS (5 canonical + valence_sq/time_sq directly
+    after their parent dimension, 7 rows total). No figure title, and the
+    True/Residualized mean-AUC + significance readout (_true_res_annotation_text)
+    sits INSIDE each row's own panel (top-right corner) instead of a separate
+    margin column — compact by design, not just cropped.
+    """
+    row_dims = GROUP_ROW_DIMENSIONS
+    n_dims   = len(row_dims)
+
+    raw_pvals, dim_data = [], []
+    res_raw_pvals, res_dim_data = [], []
+    for dim_info in row_dims:
+        t, p = load_group_data(pipeline, dim_info)
+        raw_pvals.append(empirical_pvalue(t, p))
+        dim_data.append((t, p))
+
+        t_res, p_res = load_group_data(pipeline, _residualized_dim_info(dim_info))
+        res_raw_pvals.append(empirical_pvalue(t_res, p_res))
+        res_dim_data.append((t_res, p_res))
+        print(
+            f"  [{pipeline.upper()}] {dim_info['label']} (residualized): "
+            f"n_true={len(t_res)}, n_perm={len(p_res)}, "
+            f"med_true={np.median(t_res) if len(t_res) else np.nan:.3f}"
+        )
+
+    adj_pvals     = fdr_correct(raw_pvals)
+    res_adj_pvals = fdr_correct(res_raw_pvals)
+
+    fig = make_subplots(
+        rows=n_dims, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.015,
+    )
+
+    for i, dim_info in enumerate(row_dims):
+        row   = i + 1
+        color = dim_info["color"]
+        t, p         = dim_data[i]
+        t_res, p_res = res_dim_data[i]
+        p_adj     = adj_pvals[i]
+        res_p_adj = res_adj_pvals[i]
+
+        # Permuted
+        fig.add_trace(go.Violin(
+            x=p, y=[0] * len(p),
+            orientation="h", side="positive",
+            line_color=PERM_COLOR, fillcolor=PERM_COLOR,
+            opacity=0.55, points=False, width=1.0, bandwidth=0.015,
+            name="Shuffled", legendgroup="Shuffled",
+            showlegend=(i == 0),
+        ), row=row, col=1)
+
+        # True
+        fig.add_trace(go.Violin(
+            x=t, y=[0] * len(t),
+            orientation="h", side="positive",
+            line_color=color, fillcolor=color,
+            opacity=0.72, points=False, width=1.0, bandwidth=0.015,
+            name="Full", legendgroup="Full",
+            showlegend=(i == 0),
+        ), row=row, col=1)
+
+        # Residualized (True) — same color, low alpha, drawn last (on top)
+        fig.add_trace(go.Violin(
+            x=t_res, y=[0] * len(t_res),
+            orientation="h", side="positive",
+            line_color=color, fillcolor=color,
+            opacity=RESIDUALIZED_ALPHA, points=False, width=1.0, bandwidth=0.015,
+            name="Residualized", legendgroup="Residualized",
+            showlegend=(i == 0),
+        ), row=row, col=1)
+
+        # Chance line
+        x_ref = "x" if row == 1 else f"x{row}"
+        y_ref = "y" if row == 1 else f"y{row}"
+        fig.add_shape(
+            type="line", x0=0.5, x1=0.5, y0=0, y1=1,
+            xref=x_ref, yref=f"{y_ref} domain",
+            line=dict(color="black", dash="dash", width=1.5),
+        )
+
+        # Dimension label (left)
+        fig.add_annotation(
+            text=f"<b>{dim_info['label']}</b>",
+            xref="paper", yref=f"{y_ref} domain",
+            x=-0.01, y=0.5,
+            xanchor="right", yanchor="middle",
+            showarrow=False,
+            font=dict(color=color, size=11, family="Times New Roman"),
+        )
+
+        # True/Residualized mean AUC + significance — inside the panel
+        # (top-right corner), not a separate margin column.
+        fig.add_annotation(
+            text=_true_res_annotation_text(t, p_adj, t_res, res_p_adj),
+            xref=f"{x_ref} domain", yref=f"{y_ref} domain",
+            x=0.97, y=0.80,
+            xanchor="right", yanchor="top",
+            showarrow=False,
+            font=dict(color=color, size=8, family="Times New Roman"),
+        )
+
+        # Hide y-tick labels per row
+        y_ax = "yaxis" if row == 1 else f"yaxis{row}"
+        fig.layout[y_ax].showticklabels = False
+        fig.layout[y_ax].showgrid = False
+        fig.layout[y_ax].zeroline = False
+
+    # x-axis: show ticks only on last row
+    for row in range(1, n_dims + 1):
+        x_ax = "xaxis" if row == 1 else f"xaxis{row}"
+        fig.layout[x_ax].range = [0.35, 1.0]
+        fig.layout[x_ax].showticklabels = (row == n_dims)
+        if row == n_dims:
+            fig.layout[x_ax].tickmode = "array"
+            fig.layout[x_ax].tickvals = [0.5, 0.75, 1.0]
+            fig.layout[x_ax].ticktext = ["0.5", ".75", "1.0"]
+            fig.layout[x_ax].title = dict(text="AUC", font=dict(size=12))
+
+    fig.update_layout(
+        violinmode="overlay",
+        violingap=0,
+        template="plotly_white",
+        height=max(430, n_dims * 85 + 55),
+        width=620,
+        margin=dict(l=140, r=20, t=55, b=50),
+        font=dict(family="Times New Roman", size=12),
+        # yanchor="bottom" at y=1.0 (not "top"): grows the legend up into
+        # margin.t, not down into row 1 -- see plot_group_comparison_with_residualized.
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.0,
+            xanchor="left", x=0, font=dict(size=10),
         ),
     )
     return fig
@@ -572,9 +858,9 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
         fig.add_trace(go.Violin(
             x=t_df["auc"].values,
             y=t_df["subj_y"].values,
-            legendgroup="True",
+            legendgroup="Full",
             scalegroup=f"True_{dk}",
-            name="True",
+            name="Full",
             line_color=color,
             fillcolor=color,
             opacity=0.7,
@@ -722,6 +1008,446 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
 
 
 # =============================================================================
+# Figure B2 — Individual-level + residualized overlay (one per pipeline)
+# =============================================================================
+
+
+def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+    """Convert a '#RRGGBB' hex color to an 'rgba(r,g,b,a)' string."""
+    hex_color = hex_color.lstrip("#")
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def _shrink_domain(domain: dict[str, list[float]], factor: float) -> dict[str, list[float]]:
+    """
+    Shrink a Plotly domain dict toward its own center by `factor` (0-1).
+
+    Used to nest a second pie trace inside a subplot cell already occupied by
+    a first one, producing a concentric double-donut instead of two
+    identically-sized pies stacked flat on top of each other.
+    """
+    def _shrink_axis(lo: float, hi: float) -> list[float]:
+        center = (lo + hi) / 2
+        half   = (hi - lo) / 2 * factor
+        return [center - half, center + half]
+
+    return {"x": _shrink_axis(*domain["x"]), "y": _shrink_axis(*domain["y"])}
+
+
+def plot_individual_with_residualized(
+    pipeline: str, title_prefix: str, stem: str
+) -> tuple[go.Figure, int, int] | bool:
+    """
+    Same layout as :func:`plot_individual`, with one extra half-violin per
+    subject/dimension cell: that subject's True-AUC distribution from the
+    dimension's residualized-contrast re-run (RESIDUALIZED_DIR), drawn in the
+    dimension color at RESIDUALIZED_ALPHA so it sits as a translucent layer
+    behind the canonical True violin rather than a fourth distinct series.
+
+    Per-cell canonical significance stars are unchanged from plot_individual
+    (bold black, right edge of each panel). Residualized significance gets
+    its own per-cell marker too — same tiered stars, pale dimension color, a
+    few AUC-units to the left — so the aggregate marks below can actually be
+    counted against something on the plot, not just read as a number with no
+    visible per-subject referent. Both aggregates use their own denominator
+    (residualized data covers a different, usually larger, subject pool than
+    canonical — see subjs_per_dim_res / n_dims_per_subject_res below), and
+    both print the literal number, not just an implied shape:
+      - Donut: an inner, thinner, lower-alpha ring nested inside the
+        canonical outer ring, always drawn as a full ring (colored + gray)
+        so 0% significant reads as empty rather than vanishing, plus the
+        literal % printed in the ring's empty center.
+      - "Total Sig." bar: unchanged bar (length = canonical True rate), with
+        the residualized rate appended as "(res Y%)" text rather than a
+        second overlapping bar — two bars sharing a row are ambiguous to
+        read when one is longer, shorter, or zero while the other isn't.
+    """
+    print(f"\nLoading {pipeline.upper()} individual data (+ residualized)…")
+    all_true, all_perm, all_res, all_res_perm = {}, {}, {}, {}
+    for dim_info in DIMENSIONS:
+        t_df, p_df = load_subject_data(pipeline, dim_info)
+        all_true[dim_info["key"]] = t_df
+        all_perm[dim_info["key"]] = p_df
+        r_df, r_perm_df = load_subject_data(pipeline, _residualized_dim_info(dim_info))
+        all_res[dim_info["key"]] = r_df
+        all_res_perm[dim_info["key"]] = r_perm_df
+        print(f"  {dim_info['label']}: n_true={len(t_df)}, n_perm={len(p_df)}, n_res={len(r_df)}")
+
+    # --- Subject union: keep all subjects present in ANY dim with >= 5 runs ---
+    subjs_per_dim: dict[str, set] = {}
+    for dim_info in DIMENSIONS:
+        dk = dim_info["key"]
+        t_df = all_true.get(dk, pd.DataFrame(columns=["subject", "auc"]))
+        if t_df.empty:
+            subjs_per_dim[dk] = set()
+        else:
+            counts = t_df.groupby("subject").size()
+            subjs_per_dim[dk] = set(counts[counts >= 5].index.astype(str))
+
+    all_subj_sets = [s for s in subjs_per_dim.values() if s]
+    if not all_subj_sets:
+        print(f"  Insufficient data for {pipeline}, skipping.")
+        return False
+
+    union_subjects = set.union(*all_subj_sets)
+    sorted_subjects = sorted(union_subjects, key=lambda x: int(x) if x.isdigit() else x)
+    n_subjs = len(sorted_subjects)
+
+    if n_subjs == 0:
+        print(f"  No subjects found for {pipeline}, skipping.")
+        return False
+
+    print(f"  Subjects (union across dims): {n_subjs} → {sorted_subjects}")
+
+    n_dims_per_subject = {
+        s: sum(1 for dk in subjs_per_dim if s in subjs_per_dim[dk])
+        for s in sorted_subjects
+    }
+
+    # Residualized data covers a different (usually larger) subject pool than
+    # the canonical runs — tracked separately so the residualized % below is
+    # always a literal count over subjects actually tested residualized, not
+    # diluted or inflated by the canonical denominator.
+    subjs_per_dim_res: dict[str, set] = {}
+    for dim_info in DIMENSIONS:
+        dk = dim_info["key"]
+        r_df = all_res.get(dk, pd.DataFrame(columns=["subject", "auc"]))
+        if r_df.empty:
+            subjs_per_dim_res[dk] = set()
+        else:
+            counts = r_df.groupby("subject").size()
+            subjs_per_dim_res[dk] = set(counts[counts >= 5].index.astype(str)) & set(sorted_subjects)
+
+    n_dims_per_subject_res = {
+        s: sum(1 for dk in subjs_per_dim_res if s in subjs_per_dim_res[dk])
+        for s in sorted_subjects
+    }
+
+    subj_y_map = {s: i + 0.2 for i, s in enumerate(sorted_subjects)}
+    n_dims       = len(DIMENSIONS)
+    raw_pvals, adj_pvals         = _compute_subject_pvals(sorted_subjects, all_true, all_perm)
+    raw_pvals_res, adj_pvals_res = _compute_subject_pvals(sorted_subjects, all_res, all_res_perm)
+
+    tick_labels = [str(int(s) if s.isdigit() else s) for s in sorted_subjects]
+
+    specs = [
+        [{"type": "xy"}]     * (n_dims + 1),
+        [{"type": "domain"}] * n_dims + [None],
+    ]
+    subplot_titles = [d["label"] for d in DIMENSIONS] + ["Total<br>Sig."]
+
+    fig = make_subplots(
+        rows=2, cols=n_dims + 1,
+        subplot_titles=subplot_titles,
+        shared_yaxes=True,
+        horizontal_spacing=0.015,
+        vertical_spacing=0.05,
+        row_heights=[0.85, 0.15],
+        specs=specs,
+    )
+
+    for i, dim_info in enumerate(DIMENSIONS):
+        fig.layout.annotations[i].font.color = dim_info["color"]
+        fig.layout.annotations[i].font.size  = 14
+    if len(fig.layout.annotations) > n_dims:
+        fig.layout.annotations[n_dims].text = ""
+
+    sig_count_per_subject     = {s: 0 for s in sorted_subjects}
+    sig_count_per_subject_res = {s: 0 for s in sorted_subjects}
+
+    for col_idx, dim_info in enumerate(DIMENSIONS):
+        col   = col_idx + 1
+        dk    = dim_info["key"]
+        color = dim_info["color"]
+
+        t_df = all_true.get(dk, pd.DataFrame(columns=["subject", "auc"]))
+        p_df = all_perm.get(dk, pd.DataFrame(columns=["subject", "auc"]))
+        r_df = all_res.get(dk, pd.DataFrame(columns=["subject", "auc"]))
+
+        t_df = t_df[t_df["subject"].isin(sorted_subjects)].copy()
+        p_df = p_df[p_df["subject"].isin(sorted_subjects)].copy()
+        r_df = r_df[r_df["subject"].isin(sorted_subjects)].copy()
+        t_df["subj_y"] = t_df["subject"].map(subj_y_map)
+        p_df["subj_y"] = p_df["subject"].map(subj_y_map)
+        r_df["subj_y"] = r_df["subject"].map(subj_y_map)
+
+        # Permuted violin (background, grey)
+        fig.add_trace(go.Violin(
+            x=p_df["auc"].values,
+            y=p_df["subj_y"].values,
+            legendgroup="Permuted",
+            scalegroup=f"Permuted_{dk}",
+            name="Permuted",
+            line_color="lightgray",
+            fillcolor="lightgray",
+            opacity=0.4,
+            showlegend=(col_idx == 0),
+            points=False,
+            width=0.8,
+            bandwidth=0.04,
+            side="positive",
+            orientation="h",
+        ), row=1, col=col)
+
+        # True violin (foreground, dimension color)
+        fig.add_trace(go.Violin(
+            x=t_df["auc"].values,
+            y=t_df["subj_y"].values,
+            legendgroup="Full",
+            scalegroup=f"True_{dk}",
+            name="Full",
+            line_color=color,
+            fillcolor=color,
+            opacity=0.7,
+            showlegend=(col_idx == 0),
+            points=False,
+            width=0.8,
+            bandwidth=0.04,
+            meanline_visible=True,
+            side="positive",
+            orientation="h",
+        ), row=1, col=col)
+
+        # Residualized violin (translucent overlay, same color, drawn last)
+        fig.add_trace(go.Violin(
+            x=r_df["auc"].values,
+            y=r_df["subj_y"].values,
+            legendgroup="Residualized",
+            scalegroup=f"Residualized_{dk}",
+            name="Residualized",
+            line_color=color,
+            fillcolor=color,
+            opacity=RESIDUALIZED_ALPHA,
+            showlegend=(col_idx == 0),
+            points=False,
+            width=0.8,
+            bandwidth=0.04,
+            side="positive",
+            orientation="h",
+        ), row=1, col=col)
+
+        # Dashed chance line spanning all subjects
+        x_axis_name = "x" if col == 1 else f"x{col}"
+        fig.add_shape(
+            type="line", x0=0.5, x1=0.5, y0=0, y1=1,
+            xref=x_axis_name, yref="y domain",
+            line=dict(color="black", dash="dash"),
+        )
+
+        # Significance stars (canonical True vs Permuted only). Column x-range
+        # is widened to [0.25, 1.15] (below) specifically to give both star
+        # columns a blank margin past the real AUC<=1 data, so neither one
+        # sits on top of a violin — x=1.10 here, residualized at x=0.98.
+        for subj in sorted_subjects:
+            p_adj_val = adj_pvals.get(dk, {}).get(subj, np.nan)
+            stars = sig_stars(p_adj_val)
+            if stars:
+                sig_count_per_subject[subj] += 1
+                subj_y = subj_y_map[subj]
+                fig.add_annotation(
+                    x=1.10, y=subj_y,
+                    text=f"<b>{stars}</b>",
+                    showarrow=False,
+                    xanchor="right", yanchor="middle",
+                    row=1, col=col,
+                    font=dict(color="black", size=14),
+                )
+
+        # Residualized significance — drawn as its own marker (pale color,
+        # its own margin column left of the canonical stars) so the
+        # aggregate % in the bar/donut can actually be counted by eye
+        # against something on the plot, instead of being a number with no
+        # visible per-subject referent. Kept out of the data area (unlike an
+        # earlier version at x=0.90, which landed on top of violins peaking
+        # near that AUC and was unreadable there).
+        for subj in sorted_subjects:
+            res_stars = sig_stars(adj_pvals_res.get(dk, {}).get(subj, np.nan))
+            if res_stars:
+                sig_count_per_subject_res[subj] += 1
+                subj_y = subj_y_map[subj]
+                fig.add_annotation(
+                    x=0.98, y=subj_y,
+                    text=f"<b>{res_stars}</b>",
+                    showarrow=False,
+                    xanchor="right", yanchor="middle",
+                    row=1, col=col,
+                    font=dict(color=_hex_to_rgba(color, RESIDUALIZED_RING_ALPHA), size=14),
+                )
+
+        # Donut — outer ring: canonical True-vs-Permuted, denominator =
+        # subjects with data in THIS dim. Inner ring (nested, thinner, lower
+        # alpha): residualized significance rate over subjects who actually
+        # have residualized data for THIS dim (a different, usually larger,
+        # pool than the canonical denominator — using it here keeps the %
+        # a literal count, not diluted/inflated by the canonical n). Always
+        # drawn as a full ring (colored + gray), same as the outer one, so
+        # "0% significant" reads as an empty gray ring rather than vanishing.
+        n_with_data = len([s for s in sorted_subjects if s in subjs_per_dim.get(dk, set())])
+        n_sig_d = sum(
+            1 for s in sorted_subjects
+            if s in subjs_per_dim.get(dk, set())
+            and not np.isnan(adj_pvals.get(dk, {}).get(s, np.nan))
+            and adj_pvals.get(dk, {}).get(s, 1.0) < 0.05
+        )
+        n_with_res_data = len([s for s in sorted_subjects if s in subjs_per_dim_res.get(dk, set())])
+        n_sig_res_d = sum(
+            1 for s in sorted_subjects
+            if s in subjs_per_dim_res.get(dk, set())
+            and not np.isnan(adj_pvals_res.get(dk, {}).get(s, np.nan))
+            and adj_pvals_res.get(dk, {}).get(s, 1.0) < 0.05
+        )
+        pct_d     = n_sig_d / n_with_data * 100 if n_with_data > 0 else 0
+        pct_res_d = n_sig_res_d / n_with_res_data * 100 if n_with_res_data > 0 else 0
+
+        fig.add_trace(go.Pie(
+            labels=["Signif.", "Not"],
+            values=[max(pct_d, 0.001), max(100 - pct_d, 0.001)],
+            marker=dict(colors=[color, "lightgray"]),
+            hole=0.55,
+            textinfo="text",
+            text=[f"{pct_d:.0f}%", ""],
+            textfont=dict(size=14, color="white"),
+            textposition="inside",
+            showlegend=False,
+            sort=False,
+        ), row=2, col=col)
+
+        outer_domain = fig.data[-1].domain
+        inner_domain = _shrink_domain(
+            {"x": list(outer_domain.x), "y": list(outer_domain.y)}, factor=0.55
+        )
+        fig.add_trace(go.Pie(
+            labels=["Res. Signif.", "Not"],
+            values=[max(pct_res_d, 0.001), max(100 - pct_res_d, 0.001)],
+            marker=dict(colors=[_hex_to_rgba(color, RESIDUALIZED_RING_ALPHA), "whitesmoke"]),
+            hole=0.35,
+            textinfo="none",
+            hoverinfo="skip",
+            showlegend=False,
+            sort=False,
+            domain=inner_domain,
+        ))
+
+        # The ring alone only gives magnitude at a glance; print the literal
+        # % in the donut's empty center so it can be read and checked, not
+        # just eyeballed off arc thickness.
+        fig.add_annotation(
+            text=f"{pct_res_d:.0f}%",
+            xref="paper", yref="paper",
+            x=sum(inner_domain["x"]) / 2, y=sum(inner_domain["y"]) / 2,
+            showarrow=False,
+            font=dict(size=9, color=color),
+            xanchor="center", yanchor="middle",
+        )
+
+    # "Total Sig." column header (custom annotation — avoids collision with legend)
+    fig.add_annotation(
+        text="<b>Total<br>Sig.</b>",
+        xref=f"x{n_dims + 1} domain", yref="paper",
+        x=0.5, y=1.01,
+        showarrow=False,
+        font=dict(size=13, color="#333333"),
+        xanchor="center", yanchor="bottom",
+    )
+
+    # Total significance bar — a single bar (bar length = canonical True sig.
+    # rate, unchanged from plot_individual), with the residualized rate
+    # appended as literal text in parentheses rather than drawn as a second
+    # overlapping bar: two bars sharing one row are ambiguous to read when
+    # one is longer than the other (or when True is 0% and only Residualized
+    # has a value) — a number is not. Each rate keeps its own denominator
+    # (dims actually run per subject, canonical vs. residualized).
+    sig_pcts = [
+        sig_count_per_subject[s] / n_dims_per_subject[s] * 100
+        if n_dims_per_subject[s] > 0 else 0
+        for s in sorted_subjects
+    ]
+    sig_pcts_res = [
+        sig_count_per_subject_res[s] / n_dims_per_subject_res[s] * 100
+        if n_dims_per_subject_res[s] > 0 else 0
+        for s in sorted_subjects
+    ]
+    bar_text = [
+        (f"{v:.0f}%" if v > 0 else "") + (f" (res {r:.0f}%)" if r > 0 else "")
+        for v, r in zip(sig_pcts, sig_pcts_res)
+    ]
+    fig.add_trace(go.Bar(
+        x=sig_pcts,
+        y=[i + 0.2 for i in range(n_subjs)],
+        orientation="h",
+        marker_color=PALETTE["neutral"]["accent"],
+        showlegend=False,
+        text=bar_text,
+        textposition="outside",
+        textfont=dict(size=11, color="black"),
+    ), row=1, col=n_dims + 1)
+
+    # --- Layout ---
+    total_height = max(500, n_subjs * 25 + 200)
+    total_width  = 1600
+
+    fig.update_layout(
+        title_text=f"{title_prefix} — Individual-level AUC per Participant (+ Residualized)",
+        violinmode="overlay",
+        violingap=0,
+        template="plotly_white",
+        height=total_height,
+        width=total_width,
+        margin=dict(l=80, r=40, t=140, b=50),
+        font=dict(family="Times New Roman", size=18),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom", y=1.02,
+            xanchor="left",   x=0,
+            font=dict(size=12),
+        ),
+        yaxis=dict(
+            title=dict(text="Subject ID", font=dict(size=18)),
+            automargin=True,
+            tickmode="array",
+            tickvals=[i + 0.2 for i in range(n_subjs)],
+            ticktext=tick_labels,
+            tickfont=dict(size=16),
+            range=[-0.5, n_subjs],
+        ),
+    )
+
+    # Shared y-axis ticks (all violin subplots share y)
+    fig.update_yaxes(
+        tickmode="array",
+        tickvals=[i + 0.2 for i in range(n_subjs)],
+        ticktext=tick_labels,
+        range=[-0.5, n_subjs],
+        row=1,
+    )
+
+    # x-axis range for violin columns — widened past [0.25, 1.0] (real AUC
+    # ceiling) to leave a blank margin for the two star columns (canonical at
+    # x=1.10, residualized at x=0.98) so neither sits on top of a violin.
+    # Ticks stay at the real 0.5/.75/1.0 scale — the extra room is margin only.
+    for j in range(n_dims):
+        ax = "xaxis" if j == 0 else f"xaxis{j + 1}"
+        fig.layout[ax].range = [0.25, 1.15]
+        fig.layout[ax].tickmode = "array"
+        fig.layout[ax].tickvals = [0.5, 0.75, 1.0]
+        fig.layout[ax].ticktext = ["0.5", ".75", "1.0"]
+        fig.layout[ax].showticklabels = True
+        fig.layout[ax].tickfont = dict(size=12)
+
+    # x-axis for sig-bar column — direct layout assignment
+    bar_ax = f"xaxis{n_dims + 1}"
+    fig.layout[bar_ax].title = dict(text="% Signif.", font=dict(size=16))
+    fig.layout[bar_ax].tickfont = dict(size=12)
+    fig.layout[bar_ax].showgrid = True
+    fig.layout[bar_ax].tickmode = "linear"
+    fig.layout[bar_ax].dtick = 25
+    fig.layout[bar_ax].range = [0, 145]
+
+    return fig, total_width, total_height
+
+
+# =============================================================================
 # Figure C — Combined group-level WS vs LOSO side by side
 # =============================================================================
 
@@ -795,7 +1521,7 @@ def plot_group_comparison() -> go.Figure:
                 orientation="h", side="positive",
                 line_color=color, fillcolor=color,
                 opacity=0.72, points=False, width=1.0, bandwidth=0.015,
-                name="True", legendgroup="True",
+                name="Full", legendgroup="Full",
                 showlegend=(i == 0 and col == 1),
             ), row=row, col=col)
 
@@ -859,12 +1585,286 @@ def plot_group_comparison() -> go.Figure:
         width=1000,
         margin=dict(l=130, r=60, t=100, b=60),
         font=dict(family="Times New Roman", size=12),
+        # Centered (not left-anchored): this figure has WS and LOSO side by
+        # side as two columns, so the legend belongs over the midpoint between
+        # them, not over the WS column alone.
         legend=dict(
             orientation="h", yanchor="bottom", y=1.02,
-            xanchor="left", x=0, font=dict(size=11),
+            xanchor="center", x=0.5, font=dict(size=11),
         ),
     )
     return fig
+
+
+# =============================================================================
+# Figure C2 — Combined group-level WS vs LOSO side by side + residualized
+# =============================================================================
+
+
+def plot_group_comparison_with_residualized() -> go.Figure:
+    """
+    Same layout as :func:`plot_group_comparison`, with a third half-violin per
+    panel: that dimension's True-AUC distribution from its residualized-
+    contrast re-run (RESIDUALIZED_DIR), drawn in the dimension color at
+    RESIDUALIZED_ALPHA so it reads as a translucent layer rather than a
+    competing solid distribution — same convention as
+    plot_group_level_with_residualized.
+
+    Rows are GROUP_ROW_DIMENSIONS (5 canonical + valence_sq/time_sq directly
+    after their parent dimension, 7 rows total). No figure title, no
+    column_titles ("Within-Subject"/"LOSO" collided with the legend) —
+    pipeline identity is carried by each column's bottom x-axis title
+    ("WS AUC" / "LOSO AUC") instead. The True/Residualized mean-AUC +
+    significance readout (_true_res_annotation_text, shared with
+    plot_group_level_with_residualized so both figures read identically)
+    sits INSIDE each panel's own top-right corner rather than a separate
+    margin column.
+    """
+    row_dims = GROUP_ROW_DIMENSIONS
+    n_dims   = len(row_dims)
+
+    ws_data, loso_data = [], []
+    ws_pvals_raw, loso_pvals_raw = [], []
+    ws_res_data, loso_res_data = [], []
+    ws_res_pvals_raw, loso_res_pvals_raw = [], []
+    for dim_info in row_dims:
+        t_ws, p_ws = load_group_data("ws",   dim_info)
+        t_lo, p_lo = load_group_data("loso", dim_info)
+        ws_data.append((t_ws, p_ws))
+        loso_data.append((t_lo, p_lo))
+        ws_pvals_raw.append(empirical_pvalue(t_ws, p_ws))
+        loso_pvals_raw.append(empirical_pvalue(t_lo, p_lo))
+
+        res_dim_info = _residualized_dim_info(dim_info)
+        t_ws_res, p_ws_res = load_group_data("ws",   res_dim_info)
+        t_lo_res, p_lo_res = load_group_data("loso", res_dim_info)
+        ws_res_data.append((t_ws_res, p_ws_res))
+        loso_res_data.append((t_lo_res, p_lo_res))
+        ws_res_pvals_raw.append(empirical_pvalue(t_ws_res, p_ws_res))
+        loso_res_pvals_raw.append(empirical_pvalue(t_lo_res, p_lo_res))
+
+    ws_pvals_adj       = fdr_correct(ws_pvals_raw)
+    loso_pvals_adj     = fdr_correct(loso_pvals_raw)
+    ws_res_pvals_adj   = fdr_correct(ws_res_pvals_raw)
+    loso_res_pvals_adj = fdr_correct(loso_res_pvals_raw)
+
+    fig = make_subplots(
+        rows=n_dims, cols=2,
+        shared_xaxes=False,
+        shared_yaxes=False,
+        vertical_spacing=0.02,
+        horizontal_spacing=0.05,
+    )
+
+    # Axis numbering in make_subplots(rows=n, cols=2):
+    # (r, 1) → axis index (r-1)*2 + 1; (r, 2) → (r-1)*2 + 2
+    def _ax_idx(row: int, col: int) -> str:
+        idx = (row - 1) * 2 + col
+        return "" if idx == 1 else str(idx)
+
+    for i, dim_info in enumerate(row_dims):
+        row   = i + 1
+        color = dim_info["color"]
+
+        for col, (pipeline_label, data_list, p_adjs, res_data_list, res_p_adjs) in enumerate(
+            [
+                ("WS",   ws_data,   ws_pvals_adj,   ws_res_data,   ws_res_pvals_adj),
+                ("LOSO", loso_data, loso_pvals_adj, loso_res_data, loso_res_pvals_adj),
+            ],
+            start=1,
+        ):
+            t, p     = data_list[i]
+            p_adj    = p_adjs[i]
+            t_res, p_res = res_data_list[i]
+            res_p_adj    = res_p_adjs[i]
+            sfx     = _ax_idx(row, col)
+            x_ref   = f"x{sfx}"
+            y_ref   = f"y{sfx}"
+
+            # Permuted
+            fig.add_trace(go.Violin(
+                x=p, y=[0] * len(p),
+                orientation="h", side="positive",
+                line_color=PERM_COLOR, fillcolor=PERM_COLOR,
+                opacity=0.55, points=False, width=1.0, bandwidth=0.015,
+                name="Shuffled", legendgroup="Shuffled",
+                showlegend=(i == 0 and col == 1),
+            ), row=row, col=col)
+
+            # True
+            fig.add_trace(go.Violin(
+                x=t, y=[0] * len(t),
+                orientation="h", side="positive",
+                line_color=color, fillcolor=color,
+                opacity=0.72, points=False, width=1.0, bandwidth=0.015,
+                name="Full", legendgroup="Full",
+                showlegend=(i == 0 and col == 1),
+            ), row=row, col=col)
+
+            # Residualized (True) — same color, low alpha, drawn last (on top)
+            fig.add_trace(go.Violin(
+                x=t_res, y=[0] * len(t_res),
+                orientation="h", side="positive",
+                line_color=color, fillcolor=color,
+                opacity=RESIDUALIZED_ALPHA, points=False, width=1.0, bandwidth=0.015,
+                name="Residualized", legendgroup="Residualized",
+                showlegend=(i == 0 and col == 1),
+            ), row=row, col=col)
+
+            # Chance line
+            fig.add_shape(
+                type="line", x0=0.5, x1=0.5, y0=0, y1=1,
+                xref=x_ref, yref=f"{y_ref} domain",
+                line=dict(color="black", dash="dash", width=1.5),
+            )
+
+            # True/Residualized mean AUC + significance — inside the panel
+            # (top-right corner), not a separate margin column.
+            fig.add_annotation(
+                text=_true_res_annotation_text(t, p_adj, t_res, res_p_adj),
+                xref=f"{x_ref} domain", yref=f"{y_ref} domain",
+                x=0.97, y=0.68,
+                xanchor="right", yanchor="top",
+                showarrow=False,
+                font=dict(color=color, size=7.5, family="Times New Roman"),
+            )
+
+            # Hide y-axis labels
+            y_ax = f"yaxis{sfx}"
+            fig.layout[y_ax].showticklabels = False
+            fig.layout[y_ax].showgrid = False
+            fig.layout[y_ax].zeroline = False
+
+            # x-axis ticks (only last row). Title carries pipeline identity
+            # ("WS AUC" / "LOSO AUC") since there's no column_titles anymore.
+            x_ax = f"xaxis{sfx}"
+            # WS AUCs run higher than LOSO's (On/Off-Task's Full violin peaks
+            # at .72, close enough to the annotation at domain x=0.97 that its
+            # right tail touched the text). Extending WS's range past 1.0
+            # (ticks stay at .5/.75/1.0 either way) pushes that same domain
+            # fraction further right in data terms, opening a gap without
+            # moving the annotation itself. LOSO's violins run low enough
+            # not to need it.
+            fig.layout[x_ax].range = [0.35, 1.12] if col == 1 else [0.35, 1.0]
+            fig.layout[x_ax].showticklabels = (row == n_dims)
+            if row == n_dims:
+                fig.layout[x_ax].tickmode = "array"
+                fig.layout[x_ax].tickvals = [0.5, 0.75, 1.0]
+                fig.layout[x_ax].ticktext = ["0.5", ".75", "1.0"]
+                fig.layout[x_ax].title = dict(
+                    text=f"{pipeline_label} AUC", font=dict(size=12)
+                )
+
+        # Dimension label (left of WS panel)
+        sfx_left = _ax_idx(row, 1)
+        y_ref_left = f"y{sfx_left}"
+        fig.add_annotation(
+            text=f"<b>{dim_info['label']}</b>",
+            xref="paper", yref=f"{y_ref_left} domain",
+            x=-0.01, y=0.5,
+            xanchor="right", yanchor="middle",
+            showarrow=False,
+            font=dict(color=color, size=12, family="Times New Roman"),
+        )
+
+    fig.update_layout(
+        violinmode="overlay",
+        violingap=0,
+        template="plotly_white",
+        height=max(400, n_dims * 68 + 55),
+        width=760,
+        margin=dict(l=150, r=20, t=55, b=50),
+        font=dict(family="Times New Roman", size=12),
+        # yanchor="top" at y=1.0 puts the legend's top edge AT the plot area's
+        # own top edge, growing downward INTO row 1 rather than up into the
+        # margin reserved for it -- that's what was cutting into the first
+        # panel. yanchor="bottom" grows it upward into margin.t instead.
+        # Centered (not left-anchored) so it sits over the midpoint between
+        # the WS and LOSO columns, not just over WS.
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.0,
+            xanchor="center", x=0.5, font=dict(size=10),
+        ),
+    )
+    return fig
+
+
+# =============================================================================
+# Figure C3 — Spatial decoding comparison: WS vs LOSO topomaps
+# =============================================================================
+
+
+def load_spatial_metrics(
+    pipeline: str, dim_info: dict,
+    family: str = SPATIAL_FAMILY, model: str = SPATIAL_MODEL,
+) -> pd.DataFrame | None:
+    """
+    Load one dimension/pipeline's merged spatial ``per_channel_metrics.csv``.
+
+    Returns None (not an error) if the file doesn't exist yet — valence_sq
+    and time_sq don't have merged spatial results as of this writing (see
+    ``plot_spatial_comparison_panel``).
+    """
+    sub     = "WithinSubject" if pipeline == "ws" else "LOSO"
+    dir_key = "ws_dir" if pipeline == "ws" else "loso_dir"
+    metrics_csv = (
+        SPATIAL_RESULTS_ROOT / sub / dim_info[dir_key] / family / model
+        / "per_channel_metrics.csv"
+    )
+    if not metrics_csv.exists():
+        return None
+    return _safe_read_csv(metrics_csv)
+
+
+def plot_spatial_comparison_panel() -> Path | None:
+    """
+    Build the WS-vs-LOSO spatial (per-electrode) decoding comparison panel:
+    2 rows (Within-Subject, LOSO) x one column per dimension, shared AUC
+    colour scale, FWER-significant electrodes marked (see
+    ``utils.spatial_decoding_utils.plot_pipeline_comparison_topomap_panel``).
+
+    Columns follow GROUP_ROW_DIMENSIONS (5 canonical dimensions + valence_sq/
+    time_sq directly after their parent dimension — same row order as the
+    "+ residualized" group-level figures), so quadratic terms show up right
+    next to the linear dimension they're derived from rather than appended
+    at the end.
+
+    A Matplotlib figure, not a Plotly one, so it's saved directly (PNG + SVG)
+    rather than queued through the kaleido batch writer used by every other
+    figure in this script. Any dimension missing a merged
+    ``per_channel_metrics.csv`` on either pipeline is skipped with a message.
+
+    Returns the PNG path, or None if fewer than one dimension has data on
+    both pipelines.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.spatial_decoding_utils import plot_pipeline_comparison_topomap_panel
+
+    ws_metrics, loso_metrics = {}, {}
+    for dim_info in GROUP_ROW_DIMENSIONS:
+        ws_df   = load_spatial_metrics("ws", dim_info)
+        loso_df = load_spatial_metrics("loso", dim_info)
+        if ws_df is None or loso_df is None:
+            missing = "WS" if ws_df is None else "LOSO"
+            print(f"  ! {dim_info['label']}: missing spatial per_channel_metrics.csv "
+                  f"for {missing}; skipping from comparison panel.")
+            continue
+        ws_metrics[dim_info["label"]]   = ws_df
+        loso_metrics[dim_info["label"]] = loso_df
+
+    if not ws_metrics:
+        print("  No dimension has spatial data on both pipelines; skipping spatial comparison panel.")
+        return None
+
+    dim_colors = {d["label"]: d["color"] for d in GROUP_ROW_DIMENSIONS}
+    out_png = OUTPUT_DIR / "spatial_comparison_ws_loso.png"
+    out_svg = OUTPUT_DIR / "spatial_comparison_ws_loso.svg"
+    for out_path in (out_png, out_svg):
+        plot_pipeline_comparison_topomap_panel(
+            ws_metrics, loso_metrics, value_col="mean_auc", out_path=str(out_path),
+            mask_col="sig", dim_colors=dim_colors,
+        )
+    return out_png
 
 
 # =============================================================================
@@ -1236,6 +2236,19 @@ def _add_scatter_panel(
         axis_range = [-0.05, 1.05]
     color = dim_info["color"]
 
+    # A constant axis makes the correlation and the regression undefined.
+    # np.polyfit answers with an opaque "SVD did not converge" several frames
+    # down, so the condition is named here instead: a panel drawn from a
+    # degenerate input would otherwise look like a legitimate flat relationship.
+    for values, side in ((x_common, "WS"), (y_common, "LOSO")):
+        if np.ptp(values) == 0:
+            raise ValueError(
+                f"{dim_info['label']}: every {side} value is identical "
+                f"({values[0]:g}), so no correlation is defined over the "
+                f"{len(values)} common features. Fix the upstream export rather "
+                f"than plotting this."
+            )
+
     highlight = np.zeros(len(common_feats), dtype=bool)
     highlight[highlight_idx] = True
 
@@ -1415,14 +2428,26 @@ def _load_shap_summary(
 # =============================================================================
 
 
-def _build_gini_scatter_fig() -> go.Figure:
+def _build_gini_scatter_fig() -> go.Figure | None:
     """
     One panel per dimension: WS vs LOSO RF Gini feature importance.
 
-    Features shown are the union of each pipeline's top-N (``SHAP_SCATTER_TOP_N``)
-    by Gini importance; both axes are min-max scaled to [0, 1] over the common
-    feature set so the two pipelines — whose raw importances live on very
-    different scales — are visually comparable.
+    Every common feature is drawn; the union of each pipeline's top-N
+    (``SHAP_SCATTER_TOP_N``) is labelled. Both axes are min-max scaled to [0, 1]
+    over each pipeline's own feature space so the two — whose raw importances
+    live on very different scales — are visually comparable.
+
+    Returns
+    -------
+    go.Figure or None
+        ``None`` when the importances on disk are degenerate, with the reason
+        printed. Both pipelines run with ``feature_selection.method: "none"``,
+        and until the 2026-07-30 fix to ``_extract_fold_importances`` the
+        exporter only populated importances inside its ``feature_selection``
+        branch — so every ``*_feature_importances.csv`` currently on disk is
+        uniformly zero. That is a stale-data condition a re-run clears, not a
+        code path worth drawing, and returning ``None`` lets the SHAP figures
+        (whose data is intact) still be produced.
     """
     fig = _new_dimension_grid_fig()
 
@@ -1434,6 +2459,17 @@ def _build_gini_scatter_fig() -> go.Figure:
         lo_fi, lo_feats = _load_mean_gini_importance("loso", dim_info)
         if len(ws_fi) == 0 or len(lo_fi) == 0:
             continue
+
+        for values, side in ((ws_fi, "WS"), (lo_fi, "LOSO")):
+            if np.ptp(values) == 0:
+                print(
+                    f"  ! {dim_info['label']}: all {len(values)} {side} Gini "
+                    f"importances equal {values[0]:g}. The RF importances were "
+                    f"exported as zeros while feature selection was disabled "
+                    f"(fixed in utils/ml_utils.py:_extract_fold_importances); "
+                    f"re-run the pipeline to populate them. Skipping this figure."
+                )
+                return None
 
         x_idx, y_idx, common = _common_feature_indices(ws_feats, lo_feats)
         if not common:
@@ -1547,6 +2583,375 @@ def _build_shap_scatter_figs() -> tuple[go.Figure, go.Figure]:
         )
 
     return fig_abs, fig_dir
+
+
+def _pretty_marker_name(name: str) -> str:
+    """Shorten a raw marker name for an axis label, keeping its family tag."""
+    for old, new in (("psd_relative_", "PSD "), ("kolmogorov_complexity", "Kolmogorov"),
+                     ("slowwaves_", "SW "), ("wsmi_", "wSMI "), ("PE_", "PE ")):
+        if name.startswith(old) or name == old.rstrip("_"):
+            return name.replace(old, new)
+    return name
+
+
+# =============================================================================
+# Figure — plain vs residualized: does residualizing change which markers matter?
+# =============================================================================
+
+_RESIDUAL_PROFILES = CONSISTENCY_DIR / "residual_marker_profiles.csv"
+_RESIDUAL_TOP_N = 5
+_RESIDUAL_WIDTH_MM, _RESIDUAL_HEIGHT_MM = 180.0, 250.0
+_RESIDUAL_SINGLE_MM = (150.0, 78.0)
+# Labels name the top markers of each side; the union is at most twice this and
+# collapses to fewer when the two sides agree, which is itself informative.
+_RESIDUAL_LABEL_N = 5
+
+
+def _residual_panel(
+    fig: go.Figure, row: int, col: int, block: pd.DataFrame, color: str
+) -> None:
+    """
+    Draw one plain-vs-residualized scatter and return its two summary statistics.
+
+    Parameters
+    ----------
+    block : pd.DataFrame
+        The 23 marker rows for one (dimension, pipeline) combination.
+
+    Notes
+    -----
+    Axes are the absolute mean(|SHAP|), not a share of the dimension's total. A
+    share is relative — a marker's share falls whenever the others rise — so a
+    share plot cannot separate "this marker lost attribution" from "everything
+    else gained". On absolute axes the identity line is meaningful: a cloud
+    sitting below it means residualizing cost the model attribution outright.
+
+    Labels name the union of each side's top ``_RESIDUAL_LABEL_N`` markers — the
+    leaders of the full model and the leaders of the residualized one. Taking the
+    union rather than one side's ranking is what makes a promotion visible: a
+    marker that only matters after residualizing has no reason to appear in the
+    full model's top five, and labelling by the full model alone would hide
+    exactly the change the figure exists to show. Where the two lists agree the
+    union shrinks below ten, which is itself a reading of the panel.
+
+    Labelling the markers furthest from the diagonal was tried first and reads
+    badly: the biggest movers are often small markers whose displacement is
+    large only relative to their own size, leaving the points that carry the
+    model anonymous.
+
+    This is a labelling choice only. Both statistics cover all 23 markers, so no
+    selected subset feeds a number.
+    """
+    from scipy.stats import spearmanr
+
+    full = block["abs_full"].to_numpy()
+    residual = block["abs_residual"].to_numpy()
+    names = [_pretty_marker_name(m) for m in block["marker"]]
+
+    top_full = block.nlargest(_RESIDUAL_LABEL_N, "abs_full")["marker"]
+    top_residual = block.nlargest(_RESIDUAL_LABEL_N, "abs_residual")["marker"]
+    rho, _ = spearmanr(full, residual)
+
+    # Axes span the data, not [0, max]. Anchoring at zero pushed the cloud into
+    # a corner occupying 41-70% of the panel, where any positive-valued scatter
+    # reads as a tight diagonal band no matter what its correlation is — which is
+    # why the annotated rho looked wrong against the picture. The identity line
+    # still carries "did attribution drop", and now the visible spread matches
+    # the number.
+    low = float(min(full.min(), residual.min()))
+    high = float(max(full.max(), residual.max()))
+    pad = 0.10 * (high - low)
+    axis_lo, axis_hi = low - pad, high + pad
+    fig.add_shape(type="line", x0=axis_lo, y0=axis_lo, x1=axis_hi, y1=axis_hi,
+                  line=dict(color=PALETTE["neutral"]["permutation"],
+                            width=0.9, dash="dot"),
+                  layer="below", row=row, col=col)
+
+    named = set(top_full) | set(top_residual)
+    mask = block["marker"].isin(named).to_numpy()
+
+    fig.add_trace(go.Scatter(
+        x=full[~mask], y=residual[~mask], mode="markers",
+        marker=dict(color=color, size=5, opacity=0.55,
+                    line=dict(color="white", width=0.4)),
+        customdata=[n for n, m in zip(names, mask) if not m],
+        hovertemplate="%{customdata}<br>full %{x:.4f}<br>residualized %{y:.4f}<extra></extra>",
+        showlegend=False,
+    ), row=row, col=col)
+
+    # Labels are pushed away from the cloud's centre — points on the left of the
+    # panel get their name on the left, points on the right get it on the right —
+    # so a label never lies over the points it is not naming. Ties in the same
+    # half alternate vertically as a second separation.
+    # Three vertical offsets per side, not two: the labelled markers are the
+    # largest ones and in the within-subject panels they cluster in the same
+    # corner, so a two-way alternation still stacked names on top of each other.
+    x_mid = float(np.median(full))
+    order = np.argsort(np.argsort(residual[mask]))
+    left_cycle = np.array(["middle left", "top left", "bottom left"])
+    right_cycle = np.array(["middle right", "top right", "bottom right"])
+    positions = np.where(
+        full[mask] < x_mid, left_cycle[order % 3], right_cycle[order % 3]
+    )
+    fig.add_trace(go.Scatter(
+        x=full[mask], y=residual[mask], mode="markers+text",
+        marker=dict(color=color, size=7, line=dict(color="white", width=0.6)),
+        text=[n for n, m in zip(names, mask) if m],
+        textposition=positions, textfont=dict(size=6.5, color="#333333"),
+        cliponaxis=False,
+        hovertemplate="%{text}<br>full %{x:.4f}<br>residualized %{y:.4f}<extra></extra>",
+        showlegend=False,
+    ), row=row, col=col)
+
+    fig.add_annotation(
+        text=f"Spearman ρ = {rho:.2f}",
+        xref="x domain", yref="y domain", x=0.03, y=0.97,
+        xanchor="left", yanchor="top", showarrow=False,
+        font=dict(size=6.5, color=color), align="left", row=row, col=col,
+    )
+    fig.update_xaxes(range=[axis_lo, axis_hi], nticks=4, tickfont=dict(size=6),
+                     row=row, col=col)
+    fig.update_yaxes(range=[axis_lo, axis_hi], nticks=4, tickfont=dict(size=6),
+                     row=row, col=col)
+
+
+def _residual_color(contrast_key: str) -> str:
+    """Palette colour for a dimension, covering the quadratic keys too."""
+    return DIM_COLORS.get(
+        {"on_off": "onoff"}.get(contrast_key, contrast_key),
+        PALETTE["quadratic"].get(contrast_key, PALETTE["neutral"]["accent"]),
+    )
+
+
+def _residual_dimension_order(profiles: pd.DataFrame) -> list[str]:
+    """
+    Dimension order for the residual figures: the one this script already uses.
+
+    ``DIMENSIONS`` drives every other figure here, so the residual panels follow
+    it rather than the order they happen to appear in
+    ``config_feature_consistency.yaml`` — a reader moving between figures should
+    not have to re-locate a dimension. The quadratic contrasts are not in
+    ``DIMENSIONS`` and are appended in whatever order they appear in
+    ``profiles``.
+
+    ``color_palette.yaml``, ``config_feature_consistency.yaml`` and
+    ``DIMENSIONS`` here all agree on dimension order (see CLAUDE.md
+    "Dimension Order (Figures)"); this function just picks ``DIMENSIONS`` as
+    the concrete list to walk since it already exists here.
+    """
+    present = list(dict.fromkeys(profiles["contrast"]))
+    canonical = [entry["key"] for entry in DIMENSIONS]
+    ordered = [key for key in canonical if key in present]
+    return ordered + [key for key in present if key not in ordered]
+
+
+def _load_residual_profiles() -> pd.DataFrame | None:
+    """Read the precomputed profiles, or explain why the figures are skipped."""
+    if not _RESIDUAL_PROFILES.exists():
+        print(f"  ! {_RESIDUAL_PROFILES} not found. "
+              f"Run scripts/compute_residual_profiles.py first; skipping.")
+        return None
+    profiles = pd.read_csv(_RESIDUAL_PROFILES)
+    if "abs_full" not in profiles.columns:
+        print(f"  ! {_RESIDUAL_PROFILES} predates the absolute-scale columns "
+              f"(abs_full / abs_residual). Re-run scripts/compute_residual_profiles.py; "
+              f"skipping rather than falling back to shares, which are relative and "
+              f"answer a different question.")
+        return None
+    return profiles
+
+
+def _build_residual_comparison_figure() -> go.Figure | None:
+    """
+    Marker attribution before vs after residualizing, all dimensions.
+
+    One row per dimension, two columns facing each other: within-subject on the
+    left, LOSO on the right. Facing columns rather than a flat grid so the two
+    pipelines for a dimension sit side by side and the question "does
+    residualizing hit both the same way?" is answered by a glance along a row.
+
+    Each dimension is paired with the contrast that residualizes it against the
+    other probe dimensions (within-subject OLS): if the same markers carry the
+    signal at the same strength before and after, it is specific to that
+    dimension; if the cloud reorders or drops toward the axis, it was shared.
+
+    Returns
+    -------
+    go.Figure or None
+        ``None`` when the precomputed profiles are absent or predate the
+        absolute-scale columns, with the reason printed.
+    """
+    profiles = _load_residual_profiles()
+    if profiles is None:
+        return None
+
+    dimensions = _residual_dimension_order(profiles)
+    pipelines = [("ws", "within-subject"), ("loso", "LOSO")]
+
+    fig = make_subplots(
+        rows=len(dimensions), cols=2,
+        horizontal_spacing=0.10, vertical_spacing=0.045,
+        subplot_titles=[
+            f"{profiles.loc[profiles['contrast'] == key, 'label'].iloc[0]} · {name}"
+            for key in dimensions for _, name in pipelines
+        ],
+    )
+    for index, key in enumerate(dimensions):
+        for offset in (0, 1):
+            fig.layout.annotations[index * 2 + offset].font.size = 7.5
+            fig.layout.annotations[index * 2 + offset].font.color = _residual_color(key)
+
+    for row, key in enumerate(dimensions, start=1):
+        for col, (pipeline, _) in enumerate(pipelines, start=1):
+            block = profiles[(profiles["contrast"] == key)
+                             & (profiles["pipeline"] == pipeline)]
+            _residual_panel(fig, row, col, block, _residual_color(key))
+            if row == len(dimensions):
+                fig.update_xaxes(title_text="full model — mean |SHAP|",
+                                 title_font=dict(size=7), row=row, col=col)
+            if col == 1:
+                fig.update_yaxes(title_text="residualized model",
+                                 title_font=dict(size=7), row=row, col=col)
+
+    fig.update_layout(
+        template="plotly_white",
+        width=int(_RESIDUAL_WIDTH_MM * _MM_TO_PX),
+        height=int(_RESIDUAL_HEIGHT_MM * _MM_TO_PX),
+        margin=dict(l=52, r=18, t=28, b=40),
+        font=dict(size=8),
+    )
+    return fig
+
+
+def _build_residual_single_figures() -> list[tuple[go.Figure, str]]:
+    """
+    One standalone figure per dimension, its two pipelines facing each other.
+
+    The combined grid is 14 panels on a page and each is small; these are the
+    same panels at a size where the marker labels are comfortable to read.
+
+    Returns
+    -------
+    list[tuple[go.Figure, str]]
+        ``(figure, output stem)`` pairs, empty when the profiles are missing.
+    """
+    profiles = _load_residual_profiles()
+    if profiles is None:
+        return []
+
+    pipelines = [("ws", "within-subject"), ("loso", "LOSO")]
+    figures: list[tuple[go.Figure, str]] = []
+
+    for key in _residual_dimension_order(profiles):
+        label = profiles.loc[profiles["contrast"] == key, "label"].iloc[0]
+        color = _residual_color(key)
+        fig = make_subplots(
+            rows=1, cols=2, horizontal_spacing=0.12,
+            subplot_titles=[f"{label} · {name}" for _, name in pipelines],
+        )
+        for annotation in fig.layout.annotations:
+            annotation.font.size = 9
+            annotation.font.color = color
+
+        for col, (pipeline, _) in enumerate(pipelines, start=1):
+            block = profiles[(profiles["contrast"] == key)
+                             & (profiles["pipeline"] == pipeline)]
+            _residual_panel(fig, 1, col, block, color)
+            fig.update_xaxes(title_text="full model — mean |SHAP|",
+                             title_font=dict(size=8), tickfont=dict(size=7),
+                             row=1, col=col)
+            fig.update_yaxes(tickfont=dict(size=7), row=1, col=col)
+        fig.update_yaxes(title_text="residualized model", title_font=dict(size=8),
+                         row=1, col=1)
+
+        fig.update_layout(
+            template="plotly_white",
+            width=int(_RESIDUAL_SINGLE_MM[0] * _MM_TO_PX),
+            height=int(_RESIDUAL_SINGLE_MM[1] * _MM_TO_PX),
+            margin=dict(l=54, r=18, t=30, b=44),
+            font=dict(size=9),
+        )
+        figures.append((fig, f"residual_vs_plain_{key}"))
+    return figures
+
+
+# =============================================================================
+# Figure — WS-vs-LOSO SHAP direction per marker, every dimension in one panel
+# =============================================================================
+
+
+# Millimetres to pixels at the 96 dpi plotly assumes, so the figure keeps the
+# physical size it was designed at when this script queues it by pixel count.
+_MM_TO_PX = 96.0 / 25.4
+_DIRECTION_WIDTH_MM, _DIRECTION_HEIGHT_MM = 180.0, 185.0
+
+
+def _build_marker_direction_figure() -> go.Figure | None:
+    """
+    Build the combined directional forest: do the two pipelines use each marker
+    the same way, for every dimension at once.
+
+    Returns
+    -------
+    go.Figure or None
+        ``None`` when the feature-consistency tables have not been generated
+        yet, with the reason printed. Those tables come from a separate,
+        expensive pass over the per-run SHAP pickles
+        (``scripts/feature_consistency_analysis.py``), so this figure is a
+        consumer of that analysis rather than something this script can compute
+        on its own — and a missing input is a "run the analysis first"
+        condition, not a reason to fail the whole figure batch.
+
+    Notes
+    -----
+    The builder lives in ``make_fig_marker_direction.py`` and is imported rather
+    than duplicated, so the standalone per-dimension figures and this one can
+    never drift apart. That module registers sciplot's ``sci`` template as the
+    plotly default; the default is restored afterwards so the other figures in
+    this script keep the ``plotly_white`` styling they were designed against.
+    """
+    required = ["group_summary.csv", "marker_level_consistency.csv",
+                "marker_direction_per_subject.csv"]
+    missing = [name for name in required if not (CONSISTENCY_DIR / name).exists()]
+    if missing:
+        print(f"  ! {CONSISTENCY_DIR} is missing {', '.join(missing)}. "
+              f"Run scripts/feature_consistency_analysis.py first; skipping this figure.")
+        return None
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from make_fig_marker_direction import (  # noqa: E402
+        build_combined_figure,
+        init_palette,
+        subject_classification_significance,
+    )
+
+    summary = pd.read_csv(CONSISTENCY_DIR / "group_summary.csv")
+    per_marker = pd.read_csv(CONSISTENCY_DIR / "marker_level_consistency.csv")
+    per_subject_direction = pd.read_csv(CONSISTENCY_DIR / "marker_direction_per_subject.csv")
+    summary = summary.sort_values("legacy_group_rho", ascending=False).reset_index(drop=True)
+
+    config = yaml.safe_load(
+        (Path(__file__).resolve().parent / "config_feature_consistency.yaml").read_text()
+    )
+    contrasts = {entry["key"]: entry for entry in config["contrasts"]}
+    summary["label"] = summary["contrast"].map(
+        {key: entry["label"] for key, entry in contrasts.items()}
+    )
+
+    significance_by_contrast = {
+        key: subject_classification_significance(contrasts[key])
+        for key in summary["contrast"]
+    }
+
+    previous_default = pio.templates.default
+    pal = init_palette()
+    fig = build_combined_figure(summary, per_marker, per_subject_direction,
+                                significance_by_contrast, pal)
+    pio.templates.default = previous_default
+
+    fig.update_layout(width=int(_DIRECTION_WIDTH_MM * _MM_TO_PX),
+                      height=int(_DIRECTION_HEIGHT_MM * _MM_TO_PX))
+    return fig
 
 
 # =============================================================================
@@ -1738,6 +3143,20 @@ def plot_dimension_median_summary() -> go.Figure:
 # =============================================================================
 
 
+def _normalise_subject(values: pd.Series) -> pd.Series:
+    """
+    Coerce a subject column to the project's zero-padded string form ("03").
+
+    The two sides of the probe-level merge read different files: the
+    within-subject consolidated CSV stores subjects as strings, while the raw
+    LOSO per-run CSVs store them as integers. Merging those raises a dtype
+    error in pandas — which is the good case. Had one side been "3" and the
+    other "03", both object dtype, the merge would have succeeded and returned
+    zero rows, i.e. an empty panel with no error at all.
+    """
+    return values.astype(str).str.strip().str.zfill(2)
+
+
 def _load_probe_predictions_ws(dim_info: dict) -> pd.DataFrame:
     """
     Load WS consolidated sample predictions for a dimension.
@@ -1751,6 +3170,7 @@ def _load_probe_predictions_ws(dim_info: dict) -> pd.DataFrame:
               f"Check the on-disk filename convention still matches.")
         return pd.DataFrame()
     df = pd.read_csv(path)
+    df["subject"] = _normalise_subject(df["subject"])
     return df[["subject", "task", "probe_number", "proba_mean", "y_true_first"]].rename(
         columns={"proba_mean": "ws_proba", "y_true_first": "y_true"}
     )
@@ -1768,6 +3188,7 @@ def _load_probe_predictions_loso(dim_info: dict) -> pd.DataFrame:
         return pd.DataFrame()
     dfs = [pd.read_csv(p) for p in run_csvs]
     all_runs = pd.concat(dfs, ignore_index=True)
+    all_runs["subject"] = _normalise_subject(all_runs["subject"])
     agg = (
         all_runs.groupby(["subject", "task", "probe_number"])
         .agg(loso_proba=("y_proba", "mean"), y_true=("y_true", "first"))
@@ -1815,6 +3236,10 @@ def plot_proba_ws_vs_loso_scatter() -> go.Figure:
         merged = ws_df.merge(loso_df, on=["subject", "task", "probe_number"], suffixes=("_ws", "_loso"))
         merged = merged.dropna(subset=["ws_proba", "loso_proba"])
         if merged.empty:
+            print(f"  ! {dim_info['label']}: the WS ({len(ws_df)} rows) and LOSO "
+                  f"({len(loso_df)} rows) probe tables share no "
+                  f"(subject, task, probe_number) key — the panel will be empty, "
+                  f"not merely sparse. Check the key dtypes and zero-padding.")
             continue
 
         y_true = merged["y_true_ws"] if "y_true_ws" in merged.columns else merged["y_true"]
@@ -1960,10 +3385,41 @@ def main() -> None:
                 pending.append((fig_i, OUTPUT_DIR / f"{indiv_stem}.{fmt}",
                                 {"format": fmt, "width": int(w_i), "height": int(h_i), "scale": 2}))
 
+        print("=" * 60)
+        print(f"Group-level (+ residualized): {title_prefix}")
+        print("=" * 60)
+        fig_g_res = plot_group_level_with_residualized(pipeline, title_prefix)
+        _queue(fig_g_res, f"{group_stem}_residualized")
+
+        print("=" * 60)
+        print(f"Individual-level (+ residualized): {title_prefix}")
+        print("=" * 60)
+        result_res = plot_individual_with_residualized(
+            pipeline, title_prefix, f"{indiv_stem}_residualized"
+        )
+        if isinstance(result_res, tuple):
+            fig_i_res, w_i_res, h_i_res = result_res
+            for fmt in ("png", "svg"):
+                pending.append((fig_i_res, OUTPUT_DIR / f"{indiv_stem}_residualized.{fmt}",
+                                {"format": fmt, "width": int(w_i_res), "height": int(h_i_res), "scale": 2}))
+
     print("=" * 60)
     print("Group-level comparison: WS vs LOSO")
     print("=" * 60)
     _queue(plot_group_comparison(), "group_comparison")
+
+    print("=" * 60)
+    print("Group-level comparison (+ residualized): WS vs LOSO")
+    print("=" * 60)
+    _queue(plot_group_comparison_with_residualized(), "group_comparison_residualized")
+
+    print("=" * 60)
+    print("Spatial decoding comparison: WS vs LOSO topomaps")
+    print("=" * 60)
+    spatial_path = plot_spatial_comparison_panel()
+    if spatial_path is not None:
+        print(f"  Saved: {spatial_path}")
+        print(f"  Saved: {spatial_path.with_suffix('.svg')}")
 
     print("=" * 60)
     print("LOSO vs WS scatter")
@@ -1978,7 +3434,9 @@ def main() -> None:
     print("=" * 60)
     print("Feature importance scatter — Gini (WS vs LOSO)")
     print("=" * 60)
-    _queue(_build_gini_scatter_fig(), "scatter_feature_importance")
+    fig_gini = _build_gini_scatter_fig()
+    if fig_gini is not None:
+        _queue(fig_gini, "scatter_feature_importance")
 
     print("=" * 60)
     print("SHAP scatter — absolute & directional (WS vs LOSO)")
@@ -1991,6 +3449,22 @@ def main() -> None:
     print("Probe-level probability scatter: WS vs LOSO")
     print("=" * 60)
     _queue(plot_proba_ws_vs_loso_scatter(), "scatter_proba_ws_vs_loso")
+
+    print("=" * 60)
+    print("SHAP direction per marker — WS vs LOSO, all dimensions")
+    print("=" * 60)
+    fig_direction = _build_marker_direction_figure()
+    if fig_direction is not None:
+        _queue(fig_direction, "marker_direction_all_dimensions")
+
+    print("=" * 60)
+    print("Plain vs residualized — top markers per dimension and pipeline")
+    print("=" * 60)
+    fig_residual = _build_residual_comparison_figure()
+    if fig_residual is not None:
+        _queue(fig_residual, "residual_vs_plain_markers")
+    for fig_single, stem in _build_residual_single_figures():
+        _queue(fig_single, stem)
 
     print("=" * 60)
     print("Dimension median summary (SD + mean vs LOSO AUC)")

@@ -34,11 +34,114 @@ being generalized into this one.
   `onoff_within_median_res`, `valence_within_median_res`,
   `selfother_within_median_res`, `time_within_median_res`,
   `confidence_within_median_res`.
-- Each is residualized against the other 4 (e.g. `valence` is residualized
-  against onoff, selfother, time, confidence).
+- `onoff`, `valence`, `selfother`, `time` are each residualized against the
+  other **3 content dimensions only** (excluding `confidence` — see
+  "confidence is not a predictor" below). `confidence` itself is
+  residualized against all 4 content dimensions (onoff, valence, selfother,
+  time), since that direction has no such concern.
 - Applies to both `within_subject_pipeline/config.yaml` and
   `loso_pipeline/config.yaml` (both read `create_label_contrast` from the
   same shared `utils/data_utils.py`).
+
+### Confidence is not a predictor for the other 4 (added 2026-07-30, post-smoke-test)
+
+The original design residualized every dimension against the other 4,
+treating `confidence` as a peer content dimension like valence/selfother/
+time. It is not: `confidence` ("confidence in self-assessment") is a
+metacognitive judgment about the reliability of the probe report itself,
+not an independent axis of experiential content. There is a standing
+hypothesis in this project (already reflected in the commented-out
+`confidence_weight` mechanism in both configs) that confidence is
+*downstream of* onoff — mind-wandering plausibly reduces meta-awareness/
+introspective accuracy, so low confidence may be a consequence or
+common-effect marker of being off-task rather than an independent cause.
+
+If that causal direction holds, using `confidence` as a predictor when
+residualizing `onoff` is adjusting for a mediator/downstream effect of the
+very thing being measured — it removes genuine onoff-related signal, not a
+nuisance confound (classic over-adjustment / conditioning on a mediator).
+This is a real risk specific to `confidence`; it does not apply to valence/
+selfother/time, which are independent content dimensions and legitimate
+peers of onoff.
+
+Consequence: `residualize_against` for onoff/valence/selfother/time now
+lists only the other 3 content dimensions (3 predictors + intercept = 4
+params). `confidence_within_median_res` is unaffected — regressing
+confidence on onoff/valence/selfother/time has no reverse-causality
+problem in that direction (confidence as outcome, the others as candidate
+causes), so it keeps all 4 as predictors.
+
+`min_valid_for_residual` is adjusted to match the smaller parameter count
+for the 3-predictor contrasts: 12 (~3x the 4 model params, keeping the same
+samples-per-parameter ratio used throughout this design), vs. 15 for the
+unchanged 4-predictor `confidence_within_median_res`.
+
+The initial smoke test (2026-07-30, WS, 3 runs, all 5 contrasts with
+confidence included as a 4th predictor for onoff/valence/selfother/time)
+is superseded for those 4 contrasts and was re-run after this change;
+`confidence_within_median_res` numbers from the first pass remain valid
+since its predictor set did not change.
+
+**Smoke-test evidence for the mediator concern** (WS, 3 runs, no perms,
+excluded_subjects=0 throughout both passes — mean AUC across the 3 runs):
+
+| contrast | with confidence as predictor | confidence excluded |
+|---|---|---|
+| onoff_within_median_res | 0.575 | 0.617 |
+| valence_within_median_res | 0.576 | 0.594 |
+| selfother_within_median_res | 0.533 | 0.551 |
+| time_within_median_res | 0.505 | 0.524 |
+| confidence_within_median_res | 0.593 | 0.593 (unchanged, as expected) |
+
+Every contrast's AUC rose once confidence was dropped as a predictor —
+`onoff` by the largest margin. This is consistent with (not proof of) the
+mediator hypothesis: confidence was absorbing genuine onoff-related signal,
+most strongly for onoff itself. `confidence_within_median_res` is
+unaffected, as expected, since its predictor set did not change. These are
+3-run, no-permutation point estimates — directionally informative, not a
+significance claim.
+
+### Production run 1 (2026-07-30): onoff/valence/selfother/time _res
+
+Full production settings (100 runs, 500 permutations) submitted for the 4
+linear residualized contrasts in both WS and LOSO. `confidence_within_median_res`
+deliberately excluded from this run — see rationale below (reversed after
+user follow-up; see "Production run 2"). All 4 job arrays (WS true/perm,
+LOSO true/perm — 4800 jobs total) completed with zero failures.
+
+### Extending to the quadratic terms + confidence's own result (2026-07-30, follow-up)
+
+Two follow-up decisions after production run 1 landed:
+
+1. **`valence_sq`/`time_sq` get a cross-dimension residualized variant
+   too** (`valence_sq_res_cross`, `time_sq_res_cross`), "completing the
+   set" alongside the 4 linear contrasts. New transform
+   `midpoint_sq_residual_cross` (in `utils/data_utils.py`, alongside
+   `residualize_within_subject`): computes `(x-50)²/50` then residualizes
+   it, in ONE joint within-subject OLS, against **both** its own linear
+   dimension (added automatically, mirroring `midpoint_sq_residual`) **and**
+   the other 3 content dimensions listed in `residualize_against`
+   (confidence excluded, same mediator reasoning as above). A single joint
+   regression was chosen over two sequential residualization passes (own
+   linear, then cross-dimension) to avoid an order-dependent result — one
+   regression with all predictors is the standard way to condition on
+   several covariates at once. Same subject-exclusion convention as
+   `linear_residual` (below `min_valid_for_residual` ⇒ excluded, not
+   fallen back to the raw score). `min_valid_for_residual: 15` (4
+   predictors + intercept = 5 params, matching `confidence_within_median_res`).
+   `valence_sq`/`time_sq`'s own existing residualized variant
+   (`valence_sq_res`/`time_sq_res`, own-linear-only) is untouched.
+
+2. **`confidence_within_median_res` is run after all**, reversing the
+   "don't run it" call from earlier in this doc. Rationale from the user:
+   confidence is still excluded as a *predictor* for the other 4 (mediator
+   concern stands), but decoding confidence net of the other 4 is a
+   legitimate question in its own right — the earlier exclusion conflated
+   "don't use as a predictor" with "don't compute as a target," which
+   don't have to be the same decision.
+
+Both changes are additive: `valence_sq`/`time_sq`/`valence_sq_res`/
+`time_sq_res` and the 4 linear `_res` contrasts already run are untouched.
 
 **Out of scope:**
 - The quadratic contrasts (`valence_sq`, `time_sq`, `valence_sq_res`,

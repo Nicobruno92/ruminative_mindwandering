@@ -716,3 +716,92 @@ def plot_combined_topomap_panel(
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_pipeline_comparison_topomap_panel(
+    ws_metrics: dict,
+    loso_metrics: dict,
+    value_col: str,
+    out_path: str,
+    montage: str = DEFAULT_MONTAGE,
+    mask_col: str | None = None,
+    cmap: str = "viridis",
+    vlim: tuple | None = (0.5, None),
+    dim_colors: dict | None = None,
+) -> None:
+    """
+    Render a 2-row topomap panel comparing WS (row 1) vs LOSO (row 2) spatial
+    decoding, one column per dimension (paper figure).
+
+    Only dimension keys present in BOTH ``ws_metrics`` and ``loso_metrics``
+    are drawn, in the order they appear in ``ws_metrics``.
+
+    Parameters
+    ----------
+    ws_metrics, loso_metrics : dict[str, pd.DataFrame]
+        Maps dimension label -> per-channel metrics DataFrame (channel + value_col),
+        one dict per pipeline.
+    value_col : str
+        Metric column to map.
+    out_path : str
+        Output image path (extension controls format, e.g. ``.png``/``.svg``).
+    montage : str
+        MNE standard montage name.
+    mask_col : str or None
+        Boolean column marking significant electrodes.
+    cmap : str
+        Colormap.
+    vlim : tuple or None
+        Shared (vmin, vmax) across every panel (both rows). None = auto.
+    dim_colors : dict[str, str] or None
+        Optional dimension label -> hex color, used to tint the per-column
+        title text (project convention: color encodes the dimension).
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    dims = [d for d in ws_metrics if d in loso_metrics]
+    if not dims:
+        raise ValueError("No dimension present in both ws_metrics and loso_metrics.")
+
+    all_frames = [ws_metrics[d] for d in dims] + [loso_metrics[d] for d in dims]
+    vmin = 0.5 if vlim is None else (vlim[0] if vlim[0] is not None else 0.5)
+    if vlim is not None and vlim[1] is not None:
+        vmax = vlim[1]
+    else:
+        vmax = max(float(m[value_col].max()) for m in all_frames)
+
+    # Tight gutters (wspace/hspace) and a near-square per-panel size: the head
+    # outline itself has generous internal padding, so squeezing the subplot
+    # grid is what actually removes the dead space around it — figsize and
+    # tight_layout alone don't touch the gutters between axes.
+    row_specs = [("Within-Subject", ws_metrics), ("LOSO", loso_metrics)]
+    fig, axes = plt.subplots(
+        2, len(dims), figsize=(2.15 * len(dims), 4.5), squeeze=False,
+        gridspec_kw=dict(wspace=0.04, hspace=0.04),
+    )
+    im = None
+    for col, dim in enumerate(dims):
+        for row, (row_label, metrics_by_dim) in enumerate(row_specs):
+            ax = axes[row][col]
+            m = metrics_by_dim[dim]
+            info = build_info_from_channels(m["channel"].tolist(), montage=montage)
+            mask = m[mask_col].to_numpy(dtype=bool) if mask_col else None
+            im = _draw_cbpt_topomap(ax, m[value_col].to_numpy(dtype=float), info, mask,
+                                    vmin, vmax, cmap, markersize=4)
+            if row == 0:
+                title_color = (dim_colors or {}).get(dim, "black")
+                ax.set_title(dim, fontsize=10, fontweight="bold", color=title_color, pad=3)
+            if col == 0:
+                ax.text(-0.12, 0.5, row_label, transform=ax.transAxes, fontsize=11,
+                        fontweight="bold", rotation=90, ha="center", va="center")
+    fig.subplots_adjust(left=0.03, right=0.93, top=0.92, bottom=0.02,
+                        wspace=0.04, hspace=0.04)
+    if im is not None:
+        cbar = fig.colorbar(im, ax=axes, fraction=0.02, pad=0.015, label=value_col)
+        cbar.set_ticks([vmin, vmax])
+        cbar.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"])
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.05)
+    plt.close(fig)

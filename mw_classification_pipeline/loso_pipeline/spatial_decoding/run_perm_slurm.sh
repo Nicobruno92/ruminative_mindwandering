@@ -7,8 +7,8 @@
 # the per-permutation max-over-channels AUC is a valid family-wise null draw.
 # Writes perms/perm-{P}.csv per shuffle.
 #
-# Array size MUST equal 5 * ceil(N / PERMS_PER_JOB). With N=500, PERMS_PER_JOB=20
-# → 25 blocks/dim × 5 dims = 125 tasks (array 0-124).
+# Array size MUST equal 7 * ceil(N / PERMS_PER_JOB). With N=500, PERMS_PER_JOB=20
+# → 25 blocks/dim × 7 dims = 175 tasks (array 0-174).
 #
 # SUBMIT FROM the mw_classification_pipeline/ root:
 #     sbatch loso_pipeline/spatial_decoding/run_perm_slurm.sh
@@ -21,7 +21,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --array=0-124
+#SBATCH --array=0-174
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?submit from the mw_classification_pipeline/ root}"
@@ -29,7 +29,7 @@ SD="loso_pipeline/spatial_decoding"
 CONFIG="$SD/config.yaml"
 PYTHON="$HOME/miniforge3/envs/ML/bin/python"
 
-CONTRASTS=(ON_vs_OFF_within_median valence_within_median selfother_within_median time_within_median confidence_within_median)
+CONTRASTS=(ON_vs_OFF_within_median valence_within_median selfother_within_median time_within_median confidence_within_median valence_sq time_sq)
 N=$("$PYTHON" -c "import yaml;print(yaml.safe_load(open('$CONFIG'))['permutation_runs'])")
 PERMS_PER_JOB=20
 BLOCKS_PER_DIM=$(( (N + PERMS_PER_JOB - 1) / PERMS_PER_JOB ))

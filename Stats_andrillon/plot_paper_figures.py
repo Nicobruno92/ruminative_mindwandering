@@ -122,7 +122,7 @@ MASK_PARAMS = dict(
     markerfacecolor="k",
     markeredgecolor="k",
     linewidth=0,
-    markersize=3.2,
+    markersize=4.2,
 )
 
 # Style for channels that are part of a raw-significant cluster (p < alpha)
@@ -131,8 +131,8 @@ MASK_PARAMS = dict(
 # reused verbatim) rather than omitted — the marker still carries genuine
 # nominal signal, it just doesn't clear the multiple-comparisons bar on its
 # own (see the "distributed but real" tier in CLAUDE.md).
-HOLLOW_MARKERSIZE = 3.8
-HOLLOW_MARKEREDGEWIDTH = 1.0
+HOLLOW_MARKERSIZE = 5.0
+HOLLOW_MARKEREDGEWIDTH = 1.3
 
 # Panels per family (onoff figure) / per dimension (other-dimensions figure).
 # Kept small and equal-sized on purpose: a main figure shows the strongest
@@ -161,16 +161,55 @@ N_TOP_MARKERS_PER_DIMENSION = 3
 # text bigger" desynced a font size from a budget that was tuned for the old,
 # smaller size, which is exactly what caused new collisions each time. Bump a
 # *_FONTSIZE constant and its budget grows with it automatically.
-SUPTITLE_FONTSIZE = 26
-HEADER_FONTSIZE = 20
-PANEL_TITLE_FONTSIZE = 19
-LEGEND_FONTSIZE = 15
-COLORBAR_LABEL_FONTSIZE = 17
-COLORBAR_TICK_FONTSIZE = 15
-HEATMAP_TICK_FONTSIZE = 17
-HEATMAP_TITLE_FONTSIZE = 26
-HEATMAP_GLYPH_FONTSIZE = 15
-HEATMAP_DOT_GLYPH_FONTSIZE = 12
+SUPTITLE_FONTSIZE = 34
+# Bare panel letter (A/B/C) drawn in the combined figure instead of a
+# descriptive suptitle — see the panel_letter parameter on draw_heatmap /
+# draw_onoff_panel / draw_other_dimensions_panel. Smaller than
+# SUPTITLE_FONTSIZE (which is sized for a standalone figure's own title) but
+# still clearly larger than HEADER_FONTSIZE/PANEL_TITLE_FONTSIZE per the
+# project's panel-letter convention. Shares its row with the significance
+# legend rather than getting a reserved row of its own — a lone character
+# doesn't carry the same visual weight as the sentence it replaced, so giving
+# it an equally large dedicated row just left that row looking empty.
+PANEL_LETTER_FONTSIZE = 30
+HEADER_FONTSIZE = 27
+PANEL_TITLE_FONTSIZE = 25
+# Bumped to 28 in an earlier round to make legends easier to read at a
+# glance, but that was tuned back when the legend still shared its row with
+# a full descriptive suptitle; once the suptitle shrank to a bare letter the
+# legend read as oversized next to it. 24 keeps it close to HEADER_FONTSIZE
+# (still far from a "secondary/footnote" size) without dominating the row.
+LEGEND_FONTSIZE = 24
+# The onoff directional bar (add_directional_colorbar) spans the middle
+# columns of a 5-column panel and its pole text overflows OUTWARD into the
+# (otherwise empty, at that row) outer columns — there is nothing there for it
+# to collide with, so this one tolerates a much bigger font than the
+# per-dimension bars below.
+COLORBAR_LABEL_FONTSIZE = 27
+# The per-dimension column colour bars (add_column_colorbar) are only ~1/6 of
+# the figure width, unlike the single wide onoff bar that COLORBAR_LABEL_FONTSIZE
+# is sized for, and neighbouring columns each have their own label to collide
+# with — measured with matplotlib's own text extents: the longest pole pair
+# ("self-focused" / "other-focused") needs >=3.74in of column width at 17pt,
+# which is why figure_other_dimensions/figure_combined widen those panels
+# below to fit it (Statistics/plot_results.py has no equivalent — this bar is
+# unique to this script).
+COLUMN_COLORBAR_LABEL_FONTSIZE = 21
+COLORBAR_TICK_FONTSIZE = 24
+# Tuned against measured text extents (not guessed): at HEATMAP_TICK_FONTSIZE
+# pt, the widest column header ("quadratic") and the left-margin row/group
+# labels ("wSMI gamma" / "Complexity /") need the panel widths and
+# left_margin fractions set below in figure_heatmap/figure_combined — bump
+# this without also widening those panels and the headers start touching
+# again (that is exactly the bug this round fixed; see git history).
+HEATMAP_TICK_FONTSIZE = 26
+HEATMAP_TITLE_FONTSIZE = 34
+# The in-cell significance glyphs (dot/asterisks) are isolated inside a solid
+# colour patch with no neighbouring text to collide with — unlike every other
+# label in this figure, there is no width budget to solve for here, so these
+# were the one place still worth a large, un-tuned bump on their own.
+HEATMAP_GLYPH_FONTSIZE = 30
+HEATMAP_DOT_GLYPH_FONTSIZE = 22
 
 
 def text_block_height_in(fontsize_pt: float, n_lines: int = 1, linespacing: float = 1.25) -> float:
@@ -179,10 +218,15 @@ def text_block_height_in(fontsize_pt: float, n_lines: int = 1, linespacing: floa
 
     Font metrics (ascender/descender/internal leading) mean a line of text
     occupies noticeably more vertical space than its point size alone would
-    suggest; the 1.4 factor is a safety margin against that, not a precise
+    suggest; the 1.15 factor is a safety margin against that, not a precise
     typographic constant. Used to derive every layout budget below from the
     font size that will actually be rendered, instead of the two drifting
-    apart the next time a font size changes.
+    apart the next time a font size changes. Lowered from 1.4 to 1.15 (still a
+    real margin, just not a padded one) because every chrome block in this
+    figure (suptitle, legend row, column headers, per-panel title) draws from
+    this same function, so the old factor's slack compounded into a visibly
+    "dead" strip above every panel — shrinking it here reclaims that space
+    everywhere at once without touching any font size.
 
     Parameters
     ----------
@@ -198,10 +242,17 @@ def text_block_height_in(fontsize_pt: float, n_lines: int = 1, linespacing: floa
     float
         Height budget in inches.
     """
-    return fontsize_pt * n_lines * linespacing / 72.0 * 1.4
+    return fontsize_pt * n_lines * linespacing / 72.0 * 1.15
 
 
 SUPTITLE_BUDGET_IN = text_block_height_in(SUPTITLE_FONTSIZE)
+# The panel-letter row shares a single line with the significance legend
+# (letter left, legend right) rather than getting a row of its own the way
+# the standalone suptitle does — so its budget only needs to cover the
+# taller of the two, not both stacked.
+PANEL_LETTER_ROW_BUDGET_IN = max(
+    text_block_height_in(PANEL_LETTER_FONTSIZE), text_block_height_in(LEGEND_FONTSIZE)
+)
 # Sized for a two-line header (e.g. "Complexity /\ninformation") — the onoff
 # panel's family names need two lines; giving the (shorter, single-line)
 # other-dimensions header the same budget just leaves it a little unused
@@ -214,7 +265,7 @@ HEADER_BUDGET_IN = text_block_height_in(HEADER_FONTSIZE, n_lines=2)
 # marker-name titles: both were being placed only a hair above the same
 # tops[0] edge.
 PANEL_TITLE_BUDGET_IN = text_block_height_in(PANEL_TITLE_FONTSIZE)
-GAP_BUDGET_IN = 0.09
+GAP_BUDGET_IN = 0.06
 # The visible colour gradient is a deliberately thin strip (COLORBAR_BAR_IN),
 # not the whole reserved row — a colour bar reads as data, and making it as
 # tall as the text next to it makes the panel look bottom-heavy. Most of the
@@ -226,7 +277,17 @@ COLORBAR_ROW_BUDGET_IN = (
 # Stacked, bottom to top: 2-line xtick labels, glyph-key legend, main title.
 HEATMAP_XTICK_BUDGET_IN = text_block_height_in(HEATMAP_TICK_FONTSIZE, n_lines=2)
 HEATMAP_LEGEND_BUDGET_IN = text_block_height_in(LEGEND_FONTSIZE)
+# Same line height, reused by draw_onoff_panel/draw_other_dimensions_panel to
+# give the significance legend its own row under the suptitle instead of
+# sharing one row with it (see add_significance_legend).
+LEGEND_ROW_BUDGET_IN = HEATMAP_LEGEND_BUDGET_IN
 HEATMAP_TITLE_BUDGET_IN = text_block_height_in(HEATMAP_TITLE_FONTSIZE)
+# Panel-letter mode (combined figure): letter and glyph-legend share one row
+# instead of each getting a stacked row of their own — same reasoning as
+# PANEL_LETTER_ROW_BUDGET_IN above.
+HEATMAP_TOP_BUDGET_LETTER_IN = (
+    HEATMAP_XTICK_BUDGET_IN + PANEL_LETTER_ROW_BUDGET_IN + 2 * GAP_BUDGET_IN
+)
 HEATMAP_TOP_BUDGET_IN = (
     HEATMAP_XTICK_BUDGET_IN
     + HEATMAP_LEGEND_BUDGET_IN
@@ -327,11 +388,11 @@ MARKER_DISPLAY_NAMES: Dict[str, str] = {
     "evoked/N1": "N1",
     "evoked/P3a": "P3a",
     "evoked/P3b": "P3b",
-    "sleep/psd_relative_delta": "Delta",
-    "sleep/psd_relative_theta": "Theta",
-    "sleep/psd_relative_alpha": "Alpha",
-    "sleep/psd_relative_beta": "Beta",
-    "sleep/psd_relative_gamma": "Gamma",
+    "sleep/psd_relative_delta": "PSD delta",
+    "sleep/psd_relative_theta": "PSD theta",
+    "sleep/psd_relative_alpha": "PSD alpha",
+    "sleep/psd_relative_beta": "PSD beta",
+    "sleep/psd_relative_gamma": "PSD gamma",
     "sleep/PE_theta": "PE theta",
     "sleep/PE_alpha": "PE alpha",
     "sleep/PE_beta": "PE beta",
@@ -386,12 +447,12 @@ SECONDARY_DIMENSIONS = [
 # Column headers for the heatmap and other-dimensions figure: short enough to
 # fit side by side at six or seven columns.
 HEATMAP_COLUMN_LABELS: Dict[str, str] = {
-    "onoff": "On/off-\ntask",
+    "onoff": "On/Off-\nTask",
     "valence": "Valence\nlinear",
-    "valence_sq": "Valence\nquadratic",
-    "selfother": "Self vs.\nother",
+    "valence_sq": "Neutral/\nEmotional",
+    "selfother": "Self/\nOther",
     "time": "Time\nlinear",
-    "time_sq": "Time\nquadratic",
+    "time_sq": "Present/\nNotPresent",
     "confidence": "Confi-\ndence",
 }
 
@@ -413,11 +474,11 @@ HEATMAP_GROUP_LABELS: Dict[str, str] = {
 # Column headers for the other-dimensions figure: full single-line names, since
 # that figure has fewer, wider columns than the heatmap.
 SECONDARY_COLUMN_LABELS: Dict[str, str] = {
-    "valence_sq": "Valence²",
+    "valence_sq": "Neutral/Emotional",
     "valence": "Valence",
     "time": "Time",
-    "time_sq": "Time²",
-    "selfother": "Self / other",
+    "time_sq": "Present/NotPresent",
+    "selfother": "Self/Other",
     "confidence": "Confidence",
 }
 
@@ -890,32 +951,38 @@ def add_directional_colorbar(
     label_poles : bool
         When False, only the neutral t-statistic label is drawn.
     """
-    colorbar = fig.colorbar(image, cax=cax, orientation="horizontal")
+    # The visible gradient is a thin strip pinned to the top of the reserved
+    # row (COLORBAR_BAR_IN of COLORBAR_ROW_BUDGET_IN); a colour bar as tall as
+    # its own labels reads as a second data panel instead of a legend.
+    bar_fraction = COLORBAR_BAR_IN / COLORBAR_ROW_BUDGET_IN
+    cax.axis("off")
+    bar_ax = cax.inset_axes([0, 1 - bar_fraction, 1, bar_fraction])
+    colorbar = fig.colorbar(image, cax=bar_ax, orientation="horizontal")
     colorbar.outline.set_linewidth(0.6)
-    cax.tick_params(labelsize=13, length=2, width=0.6)
+    bar_ax.tick_params(labelsize=COLORBAR_TICK_FONTSIZE, length=2, width=0.6)
 
     if not label_poles:
         return
 
     low_label, high_label = POLE_LABELS[dimension]
-    cax.text(
+    bar_ax.text(
         -0.03,
         0.5,
         f"← {low_label}",
-        transform=cax.transAxes,
+        transform=bar_ax.transAxes,
         ha="right",
         va="center",
-        fontsize=14,
+        fontsize=COLORBAR_LABEL_FONTSIZE,
         linespacing=1.2,
     )
-    cax.text(
+    bar_ax.text(
         1.03,
         0.5,
         f"{high_label} →",
-        transform=cax.transAxes,
+        transform=bar_ax.transAxes,
         ha="left",
         va="center",
-        fontsize=14,
+        fontsize=COLORBAR_LABEL_FONTSIZE,
         linespacing=1.2,
     )
 
@@ -947,50 +1014,61 @@ def add_column_colorbar(
     dimension : str
         Probe dimension, used to look up the pole labels.
     """
-    colorbar = fig.colorbar(image, cax=cax, orientation="horizontal")
+    # Thin gradient strip at the top of the reserved row, poles named below it
+    # (see add_directional_colorbar for why the bar is deliberately thin).
+    bar_fraction = COLORBAR_BAR_IN / COLORBAR_ROW_BUDGET_IN
+    cax.axis("off")
+    bar_ax = cax.inset_axes([0, 1 - bar_fraction, 1, bar_fraction])
+    colorbar = fig.colorbar(image, cax=bar_ax, orientation="horizontal")
     colorbar.outline.set_linewidth(0.4)
     colorbar.set_ticks([])
 
+    text_y = 1 - bar_fraction - (GAP_BUDGET_IN / COLORBAR_ROW_BUDGET_IN) * 0.5
     low_label, high_label = SHORT_POLES[dimension]
     cax.text(
         0.0,
-        -0.5,
+        text_y,
         low_label,
         transform=cax.transAxes,
         ha="left",
         va="top",
-        fontsize=13,
-        color=NEUTRAL_GRAY,
+        fontsize=COLUMN_COLORBAR_LABEL_FONTSIZE,
+        fontweight="bold",
+        color="black",
     )
     cax.text(
         1.0,
-        -0.5,
+        text_y,
         high_label,
         transform=cax.transAxes,
         ha="right",
         va="top",
-        fontsize=13,
-        color=NEUTRAL_GRAY,
+        fontsize=COLUMN_COLORBAR_LABEL_FONTSIZE,
+        fontweight="bold",
+        color="black",
     )
 
 
-def add_significance_legend(fig: plt.Figure, y: float = 1.0) -> None:
+def add_significance_legend(fig: plt.Figure, y: float) -> None:
     """
-    State the filled/hollow significance dots as text, on the suptitle's row.
+    State the filled/hollow significance dots as text, on its own row.
 
     A graphical proxy-marker legend anchored to a figure corner kept landing
     on top of the colour bar's pole labels, which also live in a figure
     corner — every corner of this layout is already claimed by something.
-    The one row that is reliably free on the right is the suptitle's: it is
-    centred and short enough to leave the right edge open.
+    The right edge stays open, but sharing the suptitle's own row with it
+    only works while both strings are short: at the current (much larger)
+    SUPTITLE_FONTSIZE/LEGEND_FONTSIZE, "B · On/off-task: effect per family"
+    and "survives correction / p < .05, uncorrected" are each wide enough
+    that a shared row makes them collide. Callers instead give this its own
+    row below the suptitle, sized by LEGEND_ROW_BUDGET_IN.
 
     Parameters
     ----------
     fig : plt.Figure
         Figure to attach the legend to.
     y : float
-        Figure-fraction y-coordinate, top-aligned — pass the same ``y`` used
-        for this panel's suptitle so the two sit on one row.
+        Figure-fraction y-coordinate, top-aligned.
     """
     fig.text(
         0.995,
@@ -998,8 +1076,9 @@ def add_significance_legend(fig: plt.Figure, y: float = 1.0) -> None:
         "●  survives correction     ○  p < .05, uncorrected",
         ha="right",
         va="top",
-        fontsize=11,
-        color=NEUTRAL_GRAY,
+        fontsize=LEGEND_FONTSIZE,
+        fontweight="bold",
+        color="black",
     )
 
 
@@ -1015,7 +1094,8 @@ def draw_onoff_panel(
     summary: pd.DataFrame,
     alpha: float,
     n_per_family: int = N_TOP_MARKERS_PER_FAMILY,
-    suptitle: Optional[str] = "Neural correlates of on/off-task state",
+    suptitle: Optional[str] = "On/off-task: effect per family",
+    panel_letter: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Draw the strongest on/off-task effect in each marker family into ``fig``.
@@ -1054,8 +1134,15 @@ def draw_onoff_panel(
     n_per_family : int
         Number of topographies per family.
     suptitle : str, optional
-        Title drawn above the panel. Pass None to omit it (e.g. when this
-        panel is one of several in a combined figure with its own title).
+        Descriptive title drawn centred above the panel. Used only for the
+        standalone export, which has no sibling panels to distinguish itself
+        from; ignored when ``panel_letter`` is given.
+    panel_letter : str, optional
+        Bare panel letter (e.g. ``"B"``) drawn bold at the panel's top-left
+        corner per the project's multi-panel-figure convention — used instead
+        of ``suptitle`` when this panel sits inside a combined figure, where a
+        full descriptive sentence per panel is redundant with the column
+        headers already naming what's shown.
 
     Returns
     -------
@@ -1084,12 +1171,19 @@ def draw_onoff_panel(
     n_cols = len(group_order)
     n_rows = n_per_family
 
-    top_budget = (
-        SUPTITLE_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 3 * GAP_BUDGET_IN
-        if suptitle
-        else HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 2 * GAP_BUDGET_IN
-    )
-    bottom_budget = 0.10
+    if panel_letter:
+        top_budget = (
+            PANEL_LETTER_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
+            + 3 * GAP_BUDGET_IN
+        )
+    elif suptitle:
+        top_budget = (
+            SUPTITLE_BUDGET_IN + LEGEND_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
+            + 4 * GAP_BUDGET_IN
+        )
+    else:
+        top_budget = HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 2 * GAP_BUDGET_IN
+    bottom_budget = 0.06
     top, bottom = fractions_from_budget(panel_height_in, top_budget, bottom_budget)
     data_span_in = panel_height_in - top_budget - bottom_budget
     colorbar_ratio = solve_colorbar_row_ratio(n_rows, data_span_in, COLORBAR_ROW_BUDGET_IN)
@@ -1099,8 +1193,8 @@ def draw_onoff_panel(
         n_cols,
         figure=fig,
         height_ratios=[1.0] * n_rows + [colorbar_ratio],
-        hspace=0.16,
-        wspace=0.04,
+        hspace=0.06,
+        wspace=0.004,
         left=0.005,
         right=0.995,
         top=top,
@@ -1111,7 +1205,7 @@ def draw_onoff_panel(
     for _, row in selected.iterrows():
         col = group_order.index(row["display_group"])
         ax = fig.add_subplot(grid[int(row["rank"]), col])
-        ax.set_title(MARKER_DISPLAY_NAMES[row["marker_name"]], fontsize=15, pad=2)
+        ax.set_title(MARKER_DISPLAY_NAMES[row["marker_name"]], fontsize=PANEL_TITLE_FONTSIZE, pad=3)
         if row["p_raw"] >= alpha:
             # No cluster below alpha even before correction: nothing to show.
             ax.axis("off")
@@ -1128,9 +1222,13 @@ def draw_onoff_panel(
     cax = fig.add_subplot(grid[n_rows, 1: n_cols - 1])
     add_directional_colorbar(fig, image, cax, "onoff")
 
-    if suptitle is not None:
-        fig.suptitle(suptitle, fontsize=20, fontweight="bold", y=1.0, va="top")
+    if panel_letter is not None:
+        fig.text(0.008, 1.0, panel_letter, ha="left", va="top", fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold")
         add_significance_legend(fig, y=1.0)
+    elif suptitle is not None:
+        fig.suptitle(suptitle, fontsize=SUPTITLE_FONTSIZE, fontweight="bold", y=1.0, va="top")
+        legend_y = 1.0 - (SUPTITLE_BUDGET_IN + GAP_BUDGET_IN) / panel_height_in
+        add_significance_legend(fig, y=legend_y)
 
     return selected
 
@@ -1164,8 +1262,8 @@ def figure_onoff(
         The markers actually plotted, with their family and within-family rank.
     """
     n_cols = len(DISPLAY_GROUPS)
-    panel_height_in = 3.1 * n_per_family + 1.9
-    fig = plt.figure(figsize=(2.75 * n_cols, panel_height_in))
+    panel_height_in = 4.0 * n_per_family + 2.5
+    fig = plt.figure(figsize=(3.6 * n_cols, panel_height_in))
     selected = draw_onoff_panel(fig, panel_height_in, model_dir, summary, alpha, n_per_family)
     save_figure_multiformat(fig, output_path)
     plt.close(fig)
@@ -1180,7 +1278,8 @@ def draw_other_dimensions_panel(
     alpha: float,
     omnibus: Optional[pd.DataFrame],
     n_per_dimension: int = N_TOP_MARKERS_PER_DIMENSION,
-    suptitle: Optional[str] = "Other probe dimensions: strongest markers",
+    suptitle: Optional[str] = "Other dimensions: strongest markers",
+    panel_letter: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Draw the strongest available markers for every other dimension into ``fig``.
@@ -1220,8 +1319,11 @@ def draw_other_dimensions_panel(
     n_per_dimension : int
         Number of topographies per dimension.
     suptitle : str, optional
-        Title drawn above the panel. Pass None to omit it (e.g. when this
-        panel is one of several in a combined figure with its own title).
+        Descriptive title drawn centred above the panel. Used only for the
+        standalone export; ignored when ``panel_letter`` is given.
+    panel_letter : str, optional
+        Bare panel letter drawn bold at the panel's top-left corner — see
+        ``draw_onoff_panel`` for the rationale.
 
     Returns
     -------
@@ -1256,12 +1358,19 @@ def draw_other_dimensions_panel(
     n_rows = n_per_dimension
     vlim = compute_shared_vlim(results.values())
 
-    top_budget = (
-        SUPTITLE_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 3 * GAP_BUDGET_IN
-        if suptitle
-        else HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 2 * GAP_BUDGET_IN
-    )
-    bottom_budget = 0.10
+    if panel_letter:
+        top_budget = (
+            PANEL_LETTER_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
+            + 3 * GAP_BUDGET_IN
+        )
+    elif suptitle:
+        top_budget = (
+            SUPTITLE_BUDGET_IN + LEGEND_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN
+            + 4 * GAP_BUDGET_IN
+        )
+    else:
+        top_budget = HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 2 * GAP_BUDGET_IN
+    bottom_budget = 0.06
     top, bottom = fractions_from_budget(panel_height_in, top_budget, bottom_budget)
     data_span_in = panel_height_in - top_budget - bottom_budget
     colorbar_ratio = solve_colorbar_row_ratio(n_rows, data_span_in, COLORBAR_ROW_BUDGET_IN)
@@ -1271,8 +1380,16 @@ def draw_other_dimensions_panel(
         n_cols,
         figure=fig,
         height_ratios=[1.0] * n_rows + [colorbar_ratio],
-        hspace=0.16,
-        wspace=0.05,
+        hspace=0.06,
+        # Pole labels are anchored flush against their own column's edge
+        # (ha="left" at x=0, ha="right" at x=1) rather than inset, so the
+        # visible gap between one column's high-pole label and the next
+        # column's low-pole label IS wspace's physical gap, not a function
+        # of column width — wspace=0 makes adjacent labels touch exactly
+        # (verified: "extremenegative" with zero pixels between). 0.03 is
+        # the smallest tested value that keeps a real gap at
+        # COLUMN_COLORBAR_LABEL_FONTSIZE=21 and the current panel width.
+        wspace=0.03,
         left=0.005,
         right=0.995,
         top=top,
@@ -1290,7 +1407,7 @@ def draw_other_dimensions_panel(
     for _, row in selected.iterrows():
         col = SECONDARY_DIMENSIONS.index(row["dimension"])
         ax = fig.add_subplot(grid[int(row["rank"]), col])
-        ax.set_title(MARKER_DISPLAY_NAMES[row["marker_name"]], fontsize=15, pad=2)
+        ax.set_title(MARKER_DISPLAY_NAMES[row["marker_name"]], fontsize=PANEL_TITLE_FONTSIZE, pad=3)
         if row["p_raw"] >= alpha:
             # No cluster below alpha even before correction: nothing to show.
             ax.axis("off")
@@ -1310,9 +1427,13 @@ def draw_other_dimensions_panel(
         cax = fig.add_subplot(grid[n_rows, col])
         add_column_colorbar(fig, images.get(dimension, reference_image), cax, dimension)
 
-    if suptitle is not None:
-        fig.suptitle(suptitle, fontsize=20, fontweight="bold", y=1.0, va="top")
+    if panel_letter is not None:
+        fig.text(0.008, 1.0, panel_letter, ha="left", va="top", fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold")
         add_significance_legend(fig, y=1.0)
+    elif suptitle is not None:
+        fig.suptitle(suptitle, fontsize=SUPTITLE_FONTSIZE, fontweight="bold", y=1.0, va="top")
+        legend_y = 1.0 - (SUPTITLE_BUDGET_IN + GAP_BUDGET_IN) / panel_height_in
+        add_significance_legend(fig, y=legend_y)
 
     return selected
 
@@ -1349,8 +1470,11 @@ def figure_other_dimensions(
         The markers actually plotted, with dimension and within-dimension rank.
     """
     n_cols = len(SECONDARY_DIMENSIONS)
-    panel_height_in = 3.0 * n_per_dimension + 1.9
-    fig = plt.figure(figsize=(2.6 * n_cols, panel_height_in))
+    panel_height_in = 3.9 * n_per_dimension + 2.5
+    # 3.9in/column (not 3.4) so each column's per-dimension colour bar has
+    # room for COLUMN_COLORBAR_LABEL_FONTSIZE's pole-label pairs — measured
+    # against the widest pair ("self-focused"/"other-focused").
+    fig = plt.figure(figsize=(3.9 * n_cols, panel_height_in))
     selected = draw_other_dimensions_panel(
         fig, panel_height_in, output_root, summaries, alpha, omnibus, n_per_dimension
     )
@@ -1367,7 +1491,8 @@ def draw_heatmap(
     alpha: float,
     title: Optional[str] = "Marker × dimension evidence map",
     left_margin: float = 0.34,
-    tick_fontsize: float = 14.0,
+    tick_fontsize: float = HEATMAP_TICK_FONTSIZE,
+    panel_letter: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Draw the marker-by-dimension evidence heatmap into ``fig``.
@@ -1393,7 +1518,8 @@ def draw_heatmap(
     alpha : float
         Significance threshold.
     title : str, optional
-        Title drawn above the panel. Pass None to omit it.
+        Descriptive title drawn centred above the panel. Used only for the
+        standalone export; ignored when ``panel_letter`` is given.
     left_margin : float
         Fraction of the figure width reserved for the y-axis marker labels and
         family-group labels. A narrower panel (e.g. embedded in a combined
@@ -1404,6 +1530,9 @@ def draw_heatmap(
         needs this turned down a step — column labels like "quadratic" wrap
         onto neighbouring columns at the standalone figure's font size once
         the panel is narrow enough.
+    panel_letter : str, optional
+        Bare panel letter drawn bold at the panel's top-left corner — see
+        ``draw_onoff_panel`` for the rationale.
 
     Returns
     -------
@@ -1460,10 +1589,21 @@ def draw_heatmap(
                     linewidth=1.4,
                 )
             )
-            if record["sig_by"]:
-                glyph, glyph_fontsize = "**", 12
-            elif record["sig_bh"]:
-                glyph, glyph_fontsize = "*", 12
+            if record["sig_bh"]:
+                # Asterisk count encodes how significant the surviving
+                # cluster is (standard p-value tiers on the BH-corrected
+                # p-value), not a second, separate correction method — BY was
+                # dropped from this figure per user direction: it read as an
+                # unexplained second hurdle rather than "how strong is this
+                # result", which is what a reader actually wants from the
+                # glyph count once a marker has already cleared BH.
+                if record["p_bh"] < 0.001:
+                    glyph = "***"
+                elif record["p_bh"] < 0.01:
+                    glyph = "**"
+                else:
+                    glyph = "*"
+                glyph_fontsize = HEATMAP_GLYPH_FONTSIZE
             elif record["p_raw"] < alpha:
                 # Nominally significant (p < alpha) but does not survive the
                 # within-family BH correction on its own — the "distributed
@@ -1471,7 +1611,7 @@ def draw_heatmap(
                 # catch (see CLAUDE.md). A single dot, not an asterisk: this
                 # is evidence at a different, weaker standard, not a smaller
                 # version of the same claim.
-                glyph, glyph_fontsize = "•", 9
+                glyph, glyph_fontsize = "•", HEATMAP_DOT_GLYPH_FONTSIZE
             else:
                 glyph, glyph_fontsize = "", 0
             if glyph:
@@ -1497,8 +1637,12 @@ def draw_heatmap(
     )
     ax.xaxis.set_ticks_position("top")
     ax.set_yticks(np.arange(len(ordered_markers)) + 0.5)
+    # Marker-name row labels are short single words/short phrases (unlike the
+    # column headers, which wrap to 2 lines and are what left_margin is
+    # actually sized against) — they have slack to run bigger than
+    # tick_fontsize without threatening that width budget.
     ax.set_yticklabels(
-        [MARKER_DISPLAY_NAMES[m] for m in ordered_markers], fontsize=tick_fontsize
+        [MARKER_DISPLAY_NAMES[m] for m in ordered_markers], fontsize=tick_fontsize * 1.15
     )
     ax.tick_params(length=0)
     for spine in ax.spines.values():
@@ -1522,33 +1666,52 @@ def draw_heatmap(
             va="center",
             fontsize=tick_fontsize * 0.95,
             fontweight="bold",
-            color=NEUTRAL_GRAY,
+            color="black",
             linespacing=1.25,
         )
 
-    top, bottom = fractions_from_budget(panel_height_in, HEATMAP_TOP_BUDGET_IN, HEATMAP_BOTTOM_BUDGET_IN)
+    top_budget_in = HEATMAP_TOP_BUDGET_LETTER_IN if panel_letter is not None else HEATMAP_TOP_BUDGET_IN
+    top, bottom = fractions_from_budget(panel_height_in, top_budget_in, HEATMAP_BOTTOM_BUDGET_IN)
     gap_fraction = GAP_BUDGET_IN / panel_height_in
 
-    # Stacked bottom-to-top from the axis top edge: xtick labels (already
-    # rendered by MNE-style set_xticklabels above the axis), then the glyph
-    # legend, then the title — each with its own gap, all computed from the
-    # same panel_height_in so nothing collides regardless of standalone vs.
-    # embedded size (see draw_onoff_panel for why fractions are derived this
-    # way instead of hardcoded).
-    legend_y = top + HEATMAP_XTICK_BUDGET_IN / panel_height_in + gap_fraction
-    title_y = legend_y + HEATMAP_LEGEND_BUDGET_IN / panel_height_in + gap_fraction
-
-    if title is not None:
-        fig.text(0.5, title_y, title, ha="center", va="bottom", fontsize=20, fontweight="bold")
-    fig.text(
-        0.97,
-        legend_y,
-        "•  p < .05, uncorrected     *  survives BH     **  also survives BY",
-        ha="right",
-        va="bottom",
-        fontsize=tick_fontsize * 0.8,
-        color=NEUTRAL_GRAY,
-    )
+    if panel_letter is not None:
+        # Letter and glyph-legend share one row (letter left, legend right)
+        # instead of each getting a stacked row — see HEATMAP_TOP_BUDGET_LETTER_IN.
+        row_y = top + HEATMAP_XTICK_BUDGET_IN / panel_height_in + gap_fraction
+        fig.text(
+            0.015, row_y, panel_letter, ha="left", va="bottom",
+            fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold",
+        )
+        fig.text(
+            0.97, row_y,
+            "•  p < .05, uncorrected     *  p_FDR < .05     **  p_FDR < .01     ***  p_FDR < .001",
+            ha="right", va="bottom", fontsize=LEGEND_FONTSIZE, fontweight="bold",
+            color="black",
+        )
+    else:
+        # Stacked bottom-to-top from the axis top edge: xtick labels (already
+        # rendered by MNE-style set_xticklabels above the axis), then the
+        # glyph legend, then the title — each with its own gap, all computed
+        # from the same panel_height_in so nothing collides regardless of
+        # standalone vs. embedded size (see draw_onoff_panel for why
+        # fractions are derived this way instead of hardcoded).
+        legend_y = top + HEATMAP_XTICK_BUDGET_IN / panel_height_in + gap_fraction
+        title_y = legend_y + HEATMAP_LEGEND_BUDGET_IN / panel_height_in + gap_fraction
+        if title is not None:
+            fig.text(
+                0.5, title_y, title, ha="center", va="bottom",
+                fontsize=HEATMAP_TITLE_FONTSIZE, fontweight="bold",
+            )
+        fig.text(
+            0.97,
+            legend_y,
+            "•  p < .05, uncorrected     *  p_FDR < .05     **  p_FDR < .01     ***  p_FDR < .001",
+            ha="right",
+            va="bottom",
+            fontsize=LEGEND_FONTSIZE,
+            fontweight="bold",
+            color="black",
+        )
     fig.subplots_adjust(left=left_margin, right=0.97, top=top, bottom=bottom)
     return tidy
 
@@ -1578,9 +1741,14 @@ def figure_heatmap(
     pd.DataFrame
         Tidy table backing the heatmap.
     """
-    panel_height_in = 11.2
-    fig = plt.figure(figsize=(10.2, panel_height_in))
-    tidy = draw_heatmap(fig, panel_height_in, summaries, palette, alpha)
+    panel_height_in = 14.8
+    # Width and left_margin solved from measured text extents at
+    # HEATMAP_TICK_FONTSIZE so the column headers ("Valence" / "quadratic")
+    # and the row/group labels each get exactly the room they need — the
+    # previous 13.5in/0.34 pairing was sized for a smaller font and left
+    # column headers touching once HEATMAP_TICK_FONTSIZE grew.
+    fig = plt.figure(figsize=(20.0, panel_height_in))
+    tidy = draw_heatmap(fig, panel_height_in, summaries, palette, alpha, left_margin=0.28)
     save_figure_multiformat(fig, output_path)
     plt.close(fig)
     return tidy
@@ -1630,12 +1798,23 @@ def figure_combined(
     n_per_dimension : int
         Number of topographies per non-onoff dimension.
     """
-    fig_width_in, fig_height_in = 27.0, 19.0
-    width_ratios = [0.40, 0.60]
+    # 46 (not 40): both panel A's two-line column headers and panel C's
+    # per-dimension pole-label pairs ("self-focused"/"other-focused") need
+    # more ABSOLUTE width than 40in gave once their font sizes were raised
+    # (heatmap tick_fontsize 20->24, COLUMN_COLORBAR_LABEL_FONTSIZE 17->19).
+    # Reallocating width between the two panels (tried 0.36-0.38 for panel A)
+    # only breaks whichever side loses share — verified by rendering: 0.38
+    # broke panel A's headers, reverting to 0.40 then broke panel C's
+    # self/other pole labels. Growing the whole canvas instead grows both
+    # panels' absolute width together, which is what each one actually
+    # needed; bbox_inches="tight" crops the unused margin either way, so
+    # this costs nothing but a slightly larger source file.
+    fig_width_in, fig_height_in = 50.0, 25.0
+    width_ratios = [0.44, 0.56]
     height_ratios = [0.52, 0.48]
 
     fig = plt.figure(figsize=(fig_width_in, fig_height_in))
-    heatmap_fig, right_fig = fig.subfigures(1, 2, width_ratios=width_ratios, wspace=0.008)
+    heatmap_fig, right_fig = fig.subfigures(1, 2, width_ratios=width_ratios, wspace=0.003)
 
     heatmap_height_in = fig_height_in
     draw_heatmap(
@@ -1644,12 +1823,21 @@ def figure_combined(
         summaries,
         palette,
         alpha,
-        title="A · Every marker × every dimension",
-        left_margin=0.42,
-        tick_fontsize=13.0,
+        # Bare letter (not a descriptive sentence) per the multi-panel-figure
+        # convention: the column headers and heatmap axis already say what
+        # each part shows, so "Every marker × every dimension" repeated that.
+        panel_letter="A",
+        # Tick font raised from 20 to 24pt (still under the 26pt the
+        # vertical HEATMAP_TOP_BUDGET_IN was already sized for, so no
+        # collision there). left_margin widened to compensate both the
+        # bigger font and this panel's narrower share of fig_width_in
+        # (0.40->0.36) so the row/group labels still clear the
+        # family-boundary line.
+        left_margin=0.36,
+        tick_fontsize=24.0,
     )
 
-    onoff_fig, other_fig = right_fig.subfigures(2, 1, height_ratios=height_ratios, hspace=0.025)
+    onoff_fig, other_fig = right_fig.subfigures(2, 1, height_ratios=height_ratios, hspace=0.012)
     onoff_height_in = fig_height_in * height_ratios[0]
     other_height_in = fig_height_in * height_ratios[1]
 
@@ -1660,7 +1848,7 @@ def figure_combined(
         summaries["onoff"],
         alpha,
         n_per_family,
-        suptitle="B · On/off-task: strongest effect per family",
+        panel_letter="B",
     )
     draw_other_dimensions_panel(
         other_fig,
@@ -1670,7 +1858,7 @@ def figure_combined(
         alpha,
         omnibus,
         n_per_dimension,
-        suptitle="C · Other dimensions: strongest markers",
+        panel_letter="C",
     )
 
     save_figure_multiformat(fig, output_path)

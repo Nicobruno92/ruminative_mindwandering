@@ -182,6 +182,36 @@ label_contrasts:
     positive_class_name: "extreme"
     negative_class_name: "moderate"
 
+  # valence_sq/time_sq residualized against BOTH their own linear dimension
+  # (automatic) AND the other 3 content dimensions (onoff/selfother/the
+  # other linear) in one joint regression — extends the cross-dimension
+  # residualization below to the quadratic terms, "completing the set" per
+  # 2026-07-30 follow-up. confidence excluded as predictor for the same
+  # mediator reason as the linear contrasts below. min_valid_for_residual=15
+  # matches confidence_within_median_res (4 predictors, 5 params w/
+  # intercept, ~3x params).
+  valence_sq_res_cross:
+    label_source: valence
+    transform: "midpoint_sq_residual_cross"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq_res_cross:
+    label_source: time
+    transform: "midpoint_sq_residual_cross"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
   # confidence_within_median_offtask:
   #   label_source: confidence
   #   split_method: "within_subject_median"
@@ -190,6 +220,87 @@ label_contrasts:
   #   positive_class_name: "high-confidence"
   #   negative_class_name: "low-confidence"
   #   restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
+  # --- Cross-dimension residualized contrasts -------------------------------
+  # Each dimension residualized (within-subject OLS) against the other 4
+  # before the usual median split. Tests whether decoding of a dimension
+  # survives once its correlation with the rest is removed — a different,
+  # more conservative question than the raw contrast above (expect lower
+  # AUC). See docs/superpowers/specs/2026-07-30-cross-dimension-residualized-
+  # contrasts-design.md. Additive only: does not replace the raw contrasts.
+  #
+  # confidence is deliberately NOT a predictor for onoff/valence/selfother/
+  # time: unlike those 3 (independent content dimensions), confidence is a
+  # metacognitive judgment plausibly downstream of onoff (mind-wandering
+  # reduces introspective accuracy — see the commented-out confidence_weight
+  # mechanism above). Using it as a predictor there would risk removing
+  # genuine signal (adjusting for a mediator), not a confound. Residualizing
+  # confidence itself against the other 4 has no such issue (right causal
+  # direction). See design doc addendum "confidence is not a predictor"
+  # (2026-07-30).
+  #
+  # min_valid_for_residual: minimum non-NaN probes (target + all predictors)
+  # a subject needs for the within-subject OLS to be stable. 12 for the
+  # 3-predictor contrasts (4 params incl. intercept, ~3x params -> ~8
+  # residual df); 15 for confidence_within_median_res (4 predictors, 5
+  # params, ~10 residual df) — same samples-per-param ratio throughout,
+  # matching the existing midpoint_sq_residual guard (2 params, threshold 3).
+  # Subjects below this are excluded from the contrast, not left
+  # unresidualized (see design doc).
+  onoff_within_median_res:
+    label_source: onoff
+    transform: "linear_residual"
+    residualize_against: ["valence", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+  valence_within_median_res:
+    label_source: valence
+    transform: "linear_residual"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  selfother_within_median_res:
+    label_source: selfother
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  time_within_median_res:
+    label_source: time
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  confidence_within_median_res:
+    label_source: confidence
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
 
 # Which contrasts to submit as jobs via run_local.sh / run_cluster.sh.
 # Must be keys defined in label_contrasts above.
@@ -206,6 +317,20 @@ run_contrasts:
   # - confidence_within_median_offtask
   - valence_sq
   - time_sq
+  - valence_sq_res
+  - time_sq_res
+  - valence_sq_res_cross
+  - time_sq_res_cross
+  # --- Cross-dimension residualized contrasts (exploratory) -----------------
+  # confidence_within_median_res: not used as a predictor for the other 4
+  # (mediator concern, see design doc), but still run as its own target —
+  # decoding confidence net of the other 4 is a valid question on its own,
+  # just not symmetric with how confidence itself gets residualized.
+  - onoff_within_median_res
+  - valence_within_median_res
+  - selfother_within_median_res
+  - time_within_median_res
+  - confidence_within_median_res
 
 # =============================================================================
 # DATA FORMAT
@@ -344,7 +469,7 @@ feature_selection_method: none   # mrmr, lmm_encoding, lmm_decoding, f_classif, 
 # instead of relying on the function signature.
 preprocessing:
   max_feature_nan_frac: 0.25       # drop a feature column if > this fraction is NaN
-  imputation: mean                 # fill residual NaN with per-subject mean (global mean fallback)
+  imputation: median               # fill residual NaN with per-subject median (synced with within_subject_pipeline/config.yaml)
   zero_fill_patterns: ["density"]  # event-rate markers: NaN = no event = true 0 (filled BEFORE the NaN-frac drop)
 
 scaler: standard

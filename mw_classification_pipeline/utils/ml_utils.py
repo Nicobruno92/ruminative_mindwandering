@@ -941,6 +941,68 @@ def build_model_pipeline(
 
 from joblib import Parallel, delayed
 
+
+def _extract_fold_importances(fold_pipeline, n_features: int) -> np.ndarray:
+    """
+    Recover per-feature impurity importances from a fitted fold pipeline.
+
+    Parameters
+    ----------
+    fold_pipeline : Pipeline
+        A fitted pipeline whose classifier step is named ``clf``.
+    n_features : int
+        Width of the original feature matrix, i.e. the length of the returned
+        vector.
+
+    Returns
+    -------
+    np.ndarray, shape (n_features,)
+        Importances positioned in the original feature space. Features the
+        classifier never saw are 0.
+
+    Notes
+    -----
+    There are two valid pipeline shapes and the caller cannot assume either:
+
+    - **With a ``feature_selection`` step**, the classifier's importance vector
+      is indexed in the *selected* subspace and has to be scattered back to the
+      original columns via ``get_support``.
+    - **Without one** (``feature_selection.method: "none"``, the current setting
+      in both pipelines), the classifier is fitted on every column and its
+      importance vector already lines up one-to-one.
+
+    Handling only the first case silently returned an all-zero vector for every
+    run once selection was disabled, which is what made the Gini feature
+    importances on disk uniformly zero — and made any figure built on them a
+    correlation between two zero vectors rather than an empty panel that would
+    have announced itself.
+
+    A ``pca`` step is a third shape: importances then live in component space
+    and no honest mapping back to features exists, so this returns zeros rather
+    than inventing one.
+    """
+    importances = np.zeros(n_features)
+    clf_step = fold_pipeline.named_steps.get('clf', None)
+    if clf_step is None or not hasattr(clf_step, 'feature_importances_'):
+        return importances
+
+    if fold_pipeline.named_steps.get('pca', None) is not None:
+        return importances
+
+    raw = np.asarray(clf_step.feature_importances_)
+    fs_step = fold_pipeline.named_steps.get('feature_selection', None)
+    if fs_step is not None:
+        importances[fs_step.get_support(indices=True)] = raw
+        return importances
+
+    if len(raw) != n_features:
+        raise ValueError(
+            f"Classifier reports {len(raw)} importances but the feature matrix "
+            f"has {n_features} columns, and the pipeline has no feature_selection "
+            f"step to explain the gap. Steps: {[n for n, _ in fold_pipeline.steps]}."
+        )
+    return raw
+
 def _process_cv_fold_loso(
     fold_idx, train_idx, test_idx, X, y, groups, pipeline, scale_by_participant, scaler,
     use_smote, oversampling_scope, oversampling_method, random_state, smote_k_neighbors: int = 5,
@@ -1057,13 +1119,7 @@ def _process_cv_fold_loso(
         'label_percentages': label_counts,
     }
 
-    importances = np.zeros(X.shape[1])
-    fs_step = fold_pipeline.named_steps.get('feature_selection', None)
-    clf_step = fold_pipeline.named_steps.get('clf', None)
-    if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
-        selected_indices = fs_step.get_support(indices=True)
-        importances_val = clf_step.feature_importances_
-        importances[selected_indices] = importances_val
+    importances = _extract_fold_importances(fold_pipeline, X.shape[1])
 
     return {
         'fold_idx': fold_idx,
@@ -1592,13 +1648,7 @@ def _process_cv_fold_within(
         'label_percentages': label_counts,
     }
 
-    importances = np.zeros(X.shape[1])
-    fs_step = fold_pipeline.named_steps.get('feature_selection', None)
-    clf_step = fold_pipeline.named_steps.get('clf', None)
-    if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
-        selected_indices = fs_step.get_support(indices=True)
-        importances_val = clf_step.feature_importances_
-        importances[selected_indices] = importances_val
+    importances = _extract_fold_importances(fold_pipeline, X.shape[1])
 
     return {
         'fold_idx': fold_idx,

@@ -91,6 +91,7 @@ from utils.simulation_utils import (
 
 # Reuse helpers from the parent within-subject script
 from run_within_subject_classification import (
+    resolve_family,
     filter_features_by_family,
     extract_model_params,
 )
@@ -526,11 +527,16 @@ def main() -> None:
     if args.n_simulations is not None:
         sim_block["n_simulations"] = args.n_simulations
 
-    # Resolve contrast: within-subject config uses list under run_contrasts
+    # Contrast resolution (when --contrast is not given): prefer the simulation
+    # config's 'contrasts' override, else fall back to the parent run_contrasts.
+    # The SLURM submit script always passes --contrast explicitly, so this
+    # default only matters for local runs.
+    _contrast_cfg = (
+        sim_block.get("contrasts")
+        or config.get("run_contrasts", "on_vs_off_within_median")
+    )
     contrast_name: str = args.contrast or (
-        config.get("run_contrasts", ["on_vs_off_within_median"])[0]
-        if isinstance(config.get("run_contrasts"), list)
-        else config.get("contrast", "on_vs_off_within_median")
+        _contrast_cfg[0] if isinstance(_contrast_cfg, list) else _contrast_cfg
     )
     family_name: str = args.family or (
         config.get("run_families", ["all"])[0]
@@ -574,6 +580,9 @@ def main() -> None:
     config["current_model"] = contrast_name
     config["results_folder_pattern"] = ""
 
+    family_epoch_types, family_prefixes = resolve_family(family_name, config["feature_families"])
+    config["epoch_types"] = family_epoch_types
+
     df_prepared, X_real, y_real, groups, feature_cols = prepare_data_for_contrast(
         config, contrast_name, verbose=verbose
     )
@@ -582,9 +591,7 @@ def main() -> None:
         print(f"ERROR: Insufficient data ({len(X_real)} samples). Need at least 50.")
         sys.exit(1)
 
-    X_template = filter_features_by_family(
-        X_real, family_name, config.get("feature_families", {"all": None})
-    )
+    X_template = filter_features_by_family(X_real, family_name, family_prefixes)
 
     tasks = df_prepared["task"] if "task" in df_prepared.columns else groups
     model_params = extract_model_params(config)

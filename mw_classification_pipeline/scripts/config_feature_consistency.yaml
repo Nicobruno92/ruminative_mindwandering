@@ -1,0 +1,143 @@
+# =============================================================================
+# WS <-> LOSO feature-consistency analysis — configuration
+# =============================================================================
+# Answers: does the model a subject's own data trains rely on the same EEG
+# features as the group model trained WITHOUT that subject?
+#
+# Design rationale lives in
+#   docs/superpowers/specs/2026-07-28-ws-loso-feature-consistency-design.md
+# =============================================================================
+
+paths:
+  # Relative to the repository root.
+  results_root: "mw_classification_pipeline/results/MW_Classification"
+  output_dir:   "mw_classification_pipeline/results/feature_consistency"
+  palette:      "color_palette.yaml"
+
+# Every contrast that has completed runs in BOTH pipelines. `ws_dir` / `loso_dir`
+# differ in case for on/off only, a historical naming inconsistency.
+contrasts:
+  - key:         "on_off"
+    label:       "On/Off-Task"
+    ws_dir:      "on_vs_off_within_median"
+    loso_dir:    "ON_vs_OFF_within_median"
+    palette_key: "onoff"
+  - key:         "valence"
+    label:       "Valence"
+    ws_dir:      "valence_within_median"
+    loso_dir:    "valence_within_median"
+    palette_key: "valence"
+  - key:         "valence_sq"
+    label:       "Neutral/Emotional"
+    ws_dir:      "valence_sq"
+    loso_dir:    "valence_sq"
+    palette_key: "valence_sq"
+  - key:         "selfother"
+    label:       "Self/Other"
+    ws_dir:      "selfother_within_median"
+    loso_dir:    "selfother_within_median"
+    palette_key: "selfother"
+  - key:         "time"
+    label:       "Time"
+    ws_dir:      "time_within_median"
+    loso_dir:    "time_within_median"
+    palette_key: "time"
+  - key:         "time_sq"
+    label:       "Present/NotPresent"
+    ws_dir:      "time_sq"
+    loso_dir:    "time_sq"
+    palette_key: "time_sq"
+  - key:         "confidence"
+    label:       "Confidence"
+    ws_dir:      "confidence_within_median"
+    loso_dir:    "confidence_within_median"
+    palette_key: "confidence"
+
+model: "rf"
+family: "all"
+
+# -----------------------------------------------------------------------------
+# Feature-name grammar
+# -----------------------------------------------------------------------------
+# The 175 columns are <marker>_mean_<roi>_trimmean. Stripping the ROI segment
+# collapses them onto the 23 markers of the Andrillon CBPT analysis:
+#   4 evoked markers x 1 ROI + 19 sleep markers x 9 ROIs = 175.
+# The regex is asserted against the data at load time; it is not assumed.
+marker_regex: "_mean_[a-z]+_(left|mid|right|lateral|midline)_trimmean$"
+expected_n_features: 175
+expected_n_markers: 23
+
+# How a marker's ROI columns are combined into one value.
+#   "mean" — attribution per ROI. Required whenever markers are ranked against
+#            each other, which every figure here does: the 4 evoked markers own
+#            1 column each and the 19 sleep markers own 9, so summing hands the
+#            sleep markers up to 9x the mass before any data is seen and buries
+#            an evoked marker (P3b is the clear case) that is individually
+#            strong. That imbalance is a property of the feature-space layout,
+#            not of the brain.
+#   "sum"  — total attribution absorbed by the marker. Honest if that is the
+#            question being asked; wrong for ranking.
+marker_aggregation: "mean"
+
+# Marker -> family, mirroring the two families used by the cluster-permutation
+# multiple-comparison correction (Stats_andrillon).
+marker_families:
+  evoked: ["P1", "N1", "P3a", "P3b"]
+  sleep:
+    - "PE_theta"
+    - "PE_alpha"
+    - "PE_beta"
+    - "PE_gamma"
+    - "kolmogorov_complexity"
+    - "psd_relative_delta"
+    - "psd_relative_theta"
+    - "psd_relative_alpha"
+    - "psd_relative_beta"
+    - "psd_relative_gamma"
+    - "wsmi_theta"
+    - "wsmi_alpha"
+    - "wsmi_beta"
+    - "wsmi_gamma"
+    - "slowwaves_Density"
+    - "slowwaves_Duration"
+    - "slowwaves_Frequency"
+    - "slowwaves_PTP"
+    - "slowwaves_Slope"
+
+# -----------------------------------------------------------------------------
+# Statistics
+# -----------------------------------------------------------------------------
+statistics:
+  # Permutation null for the Spearman statistics: shuffles the WS<->LOSO feature
+  # pairing, preserving each side's marginal distribution and its tie structure
+  # (both sides carry many exact zeros, which asymptotic Spearman handles badly).
+  n_permutations: 10000
+  random_state: 42
+
+  # Correlations are restricted to features non-zero in at least one pipeline.
+  # Features neither model ever used carry no information, and a block of tied
+  # zeros present on both sides would inflate the correlation mechanically.
+  # Both pipelines currently run with feature_selection.method: "none", so this
+  # keeps nearly all 175 columns; it still bites on the within-subject side,
+  # whose per-subject forests see ~32 samples and may never split on some.
+  restrict_to_nonzero_union: true
+
+  # Split-half noise ceiling: runs are split odd/even, one profile is built from
+  # each half, and the halves are correlated. Spearman-Brown extrapolates that
+  # half-length reliability back to the full 100 runs.
+  noise_ceiling:
+    enabled: true
+    method: "odd_even"
+
+  alpha: 0.05
+  # Across the subjects within one contrast, for the "k of n subjects" count.
+  multiple_comparisons: "fdr_bh"
+
+# -----------------------------------------------------------------------------
+# Figures
+# -----------------------------------------------------------------------------
+figures:
+  width_mm: 180.0
+  height_mm: 95.0
+  heatmap_width_mm: 150.0
+  heatmap_height_mm: 130.0

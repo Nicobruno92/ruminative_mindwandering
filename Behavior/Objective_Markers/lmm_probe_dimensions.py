@@ -72,6 +72,7 @@ from pathlib import Path
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
@@ -129,14 +130,32 @@ PREDICTORS: list[str] = [
 ]
 
 PREDICTOR_LABELS: dict[str, str] = {
-    "onoff": "On/Off Task",
+    "onoff": "On/Off-Task",
     "valence": "Valence",
-    "valence_sq": "Valence² (curvature)",
+    "valence_sq": "Neutral/Emotional",
     "selfother": "Self/Other",
-    "time": "Time (probe dim.)",
-    "time_sq": "Time² (curvature)",
+    "time": "Time",
+    "time_sq": "Present/NotPresent",
     "confidence": "Confidence",
     "time_on_task": "Time on Task",
+}
+
+# Pole meaning of each 0-100 MDES probe dimension (scale convention: see "SART
+# Task Design" / CLAUDE.md). Shown on the scatter-panel x-axis in place of the
+# dimension name (already carried by the panel title above it), mirroring the
+# pole_low/pole_high labels in Behavior/Probe_analysis/probe_dimension_cloud_plot.py.
+# The _sq terms plot |base − 50| (distance from the neutral midpoint, 0-50), so
+# their pole is "neutral → extreme" rather than the base dimension's poles.
+# time_on_task is a covariate (probe index), not a bipolar MDES dimension, so
+# it is intentionally omitted here and keeps its plain PREDICTOR_LABELS text.
+POLE_LABELS: dict[str, str] = {
+    "onoff": "off-task → on-task",
+    "valence": "negative → positive",
+    "valence_sq": "neutral → extreme",
+    "selfother": "self → other",
+    "time": "past → future",
+    "time_sq": "neutral → extreme",
+    "confidence": "low → high",
 }
 
 # LMM formula template — marker name is substituted at runtime
@@ -197,7 +216,7 @@ PREDICTOR_COLORS: dict[str, str] = {
     "valence":      PALETTE["dimensions"]["valence"],     # blue         — Valence
     "valence_sq":   PALETTE["quadratic"]["valence_sq"],   # light blue   — Valence² tint
     "selfother":    PALETTE["dimensions"]["selfother"],   # green        — Self/Other
-    "time":         PALETTE["dimensions"]["time"],        # purple       — Time (probe dim.)
+    "time":         PALETTE["dimensions"]["time"],        # purple       — Time
     "time_sq":      PALETTE["quadratic"]["time_sq"],      # light purple — Time² tint
     "confidence":   PALETTE["dimensions"]["confidence"],  # orange       — Confidence
     "time_on_task": PALETTE["neutral"]["covariate"],      # grey         — covariate
@@ -230,6 +249,19 @@ PREDICTOR_SETS: dict[str, dict] = {
 # bimodal (e.g. onoff). This preserves the within-subject relationship that the
 # mixed model estimates.
 SCATTER_BIN_WIDTH: float = 10.0
+
+# Minimum subjects contributing to a bin for that bin's mean±SE to count
+# toward the shared y-axis range in plot_combined_panel (data itself is never
+# dropped — every bin is still plotted). A handful of bins across the 8
+# predictors are estimated from very few subjects (e.g. the sparsest end-bins
+# of `confidence`/`valence`) and carry a correspondingly huge SE; letting
+# those set the axis stretches every panel's y-range to fit noise rather than
+# signal. 12 was picked empirically on the n10/glmm track: it is at or below
+# every bin size feeding `onoff`'s own range (its sparsest bin has 13
+# subjects) so the primary, best-powered effect is never clipped, while it
+# excludes the specific noisy bins (n=4-11) that were otherwise inflating the
+# axis by 2-3x.
+AXIS_RANGE_MIN_BIN_N: int = 12
 
 # =============================================================================
 # HELPERS
@@ -627,13 +659,19 @@ def _draw_forest_panel(
     ci_upper_col: str,
     xlabel: str,
     title: str,
-    yticks_right: bool = False,
 ) -> None:
     """Draw one forest panel onto *ax*.
 
     Shared by ``plot_combined_forest`` (standalone) and
     ``plot_combined_panel`` (embedded). Significance encoded by fill
     (filled = significant, hollow = not) and line style (solid / dashed).
+    Row labels sit on the left of the axis (standard forest-plot layout).
+    The z/p stat annotation is drawn *inside* the same axes, in a column
+    reserved to the right of the CI data (the x-axis is widened to make
+    room, then clipped back to the real data range for ticks/gridlines) —
+    every row's text lines up at one fixed x, rather than floating at each
+    row's own CI-upper-bound (which zig-zags row to row) or living outside
+    the axes in the figure margin.
 
     Parameters
     ----------
@@ -643,9 +681,6 @@ def _draw_forest_panel(
         'significant_fdr', and the CI columns named by ``ci_lower_col`` /
         ``ci_upper_col``.
     labels, colors, sig_flags : pre-computed lists aligned to ``plot_df``.
-    yticks_right : bool
-        If True, place y-tick labels on the right side of the axis (used when
-        the panel is in the rightmost column of the combined figure).
     """
     dash_style = (0, (4, 2))
     for i, (_, row) in enumerate(plot_df.iterrows()):
@@ -657,34 +692,52 @@ def _draw_forest_panel(
         for x_cap in (lo, hi):
             ax.plot([x_cap, x_cap], [i - 0.12, i + 0.12],
                     color=c, linewidth=2.0, alpha=0.9, zorder=2)
-        ax.plot(est, i, marker="o", markersize=10,
+        ax.plot(est, i, marker="o", markersize=11,
                 markerfacecolor=c if sig else "white",
                 markeredgecolor=c, markeredgewidth=2.2, zorder=3)
-        p_fdr = row.get("p_fdr", np.nan)
-        p_label = f"p={p_fdr:.3f}" if pd.notna(p_fdr) else ""
-        star = "✱ " if sig else ""
-        # Wald z for both backends: statsmodels MixedLM and lme4 glmer both
-        # report a normal-approximation statistic, not a t.
-        ax.text(
-            hi, i + 0.22,
-            f"{star}z={row['t_value']:.2f}  {p_label}",
-            va="bottom", fontsize=8.5, color=c,
-            fontweight="bold" if sig else "normal",
-        )
+
     ax.axvline(0, color="black", linewidth=1.2, linestyle="--", alpha=0.7)
     ax.set_yticks(range(len(labels)))
     ax.set_yticklabels(labels, fontsize=11)
     for tick, c in zip(ax.get_yticklabels(), colors):
         tick.set_color(c)
         tick.set_fontweight("bold")
-    if yticks_right:
-        ax.yaxis.tick_right()
-        ax.yaxis.set_label_position("right")
-    ax.set_xlabel(xlabel, fontsize=11, fontweight="bold")
-    ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
-    ax.grid(True, axis="x", alpha=0.3)
+    ax.set_xlabel(xlabel, fontsize=13, fontweight="bold")
+    ax.set_title(title, fontsize=15, fontweight="bold", pad=12)
+    ax.tick_params(axis="x", labelsize=10)
     ax.set_ylim(-0.6, len(labels) - 0.4)
     ax.spines["top"].set_visible(False)
+
+    # Fix ticks/gridlines to the real CI data range before widening xlim —
+    # otherwise matplotlib's tick locator would place a stray tick (and
+    # gridline) inside the reserved text column. nbins=4 (not the default 5)
+    # because the forest column is narrow relative to a scatter panel, and 5
+    # tick labels there crowd into each other.
+    ax.relim()
+    ax.autoscale_view()
+    data_lo, data_hi = ax.get_xlim()
+    ticks = [t for t in MaxNLocator(nbins=4).tick_values(data_lo, data_hi)
+             if data_lo - 1e-9 <= t <= data_hi + 1e-9]
+    ax.set_xticks(ticks)
+    ax.grid(True, axis="x", alpha=0.3)
+
+    text_col_x = data_hi + 0.06 * (data_hi - data_lo)
+    ax.set_xlim(data_lo, data_hi + 0.62 * (data_hi - data_lo))
+    ax.spines["right"].set_visible(False)
+
+    for i, (_, row) in enumerate(plot_df.iterrows()):
+        c = colors[i]
+        sig = sig_flags[i]
+        p_fdr = row.get("p_fdr", np.nan)
+        p_label = f"p={p_fdr:.3f}" if pd.notna(p_fdr) else ""
+        star = "✱ " if sig else ""
+        # Wald z for both backends: statsmodels MixedLM and lme4 glmer both
+        # report a normal-approximation statistic, not a t.
+        ax.text(
+            text_col_x, i, f"{star}z={row['t_value']:.2f}  {p_label}",
+            va="center", ha="left", fontsize=11, color=c,
+            fontweight="bold" if sig else "normal",
+        )
 
 
 def plot_combined_forest(
@@ -1283,9 +1336,13 @@ def plot_combined_panel(
     Layout: N_scatter_rows × 5 columns. Columns 1-4 hold one binscatter panel
     per predictor (row-major order); column 5 holds the additive-effects forest
     (row 1) and, if ``moderation_df`` is given, the onoff-moderation forest
-    (row 2). Scatter x-labels add a "(linear)" suffix when the predictor has a
-    quadratic counterpart in the model, and use a short "Dim²" label for the
-    quadratic panels (which plot |base − 50| on the x-axis).
+    (row 2). Each scatter panel's title is just the dimension's plain
+    PREDICTOR_LABELS name (the quadratic counterpart of a predictor already
+    has its own distinct name, e.g. "Neutral/Emotional" next to "Valence", so
+    no "(linear)"-style qualifier is needed to tell them apart); its x-axis
+    instead states what the 0-100 scale *means* (its poles, e.g.
+    "off-task → on-task"), via ``POLE_LABELS``, so the panel doesn't repeat
+    the same text twice.
 
     Parameters
     ----------
@@ -1316,31 +1373,39 @@ def plot_combined_panel(
     n_total_rows = max(n_scatter_rows, n_forest_rows)
 
     # ── Figure & GridSpec ──────────────────────────────────────────────────────
-    fig_w = 4.0 * n_scatter_cols + 4.8
-    fig_h = 4.5 * n_total_rows + 1.0
-    fig = plt.figure(figsize=(fig_w, fig_h))
+    # `layout="constrained"` (rather than manual left/right/top/bottom margins)
+    # is what actually lets the panel gutters shrink close to zero without
+    # titles/xlabels colliding into their neighbours: it measures each axes'
+    # decorations (title, tick labels, suptitle) and expands hspace/wspace
+    # past the requested minimum only where a collision would otherwise occur,
+    # instead of the fixed-fraction spacing plain GridSpec uses (which overlaps
+    # once panel fonts/text are large relative to the figure).
+    # The forest column keeps a generous width_ratio (not compressed further)
+    # so its CI whiskers stay visually spread out — squeezing that column is
+    # what stops it from reading as a forest plot at all, not just "smaller".
+    # The scatter columns and the gutters between everything are what actually
+    # shrink here.
+    fig_w = 2.2 * n_scatter_cols + 4.2
+    fig_h = 2.5 * n_total_rows + 0.6
+    fig = plt.figure(figsize=(fig_w, fig_h), layout="constrained")
 
-    gs = GridSpec(
+    gs = fig.add_gridspec(
         n_total_rows, n_scatter_cols + 1,
-        figure=fig,
-        width_ratios=[1] * n_scatter_cols + [1.3],
-        hspace=0.60, wspace=0.38,
-        left=0.06, right=0.98, top=0.92, bottom=0.08,
+        width_ratios=[1] * n_scatter_cols + [1.9],
+        hspace=0.05, wspace=0.05,
     )
 
     # ── x-label helper ────────────────────────────────────────────────────────
     def _scatter_xlabel(pred: str) -> str:
-        """Short, unambiguous x-axis label for scatter panels.
+        """Panel title for a scatter panel: always its PREDICTOR_LABELS entry.
 
-        Linear predictors that have a _sq counterpart → "Dim (linear)".
-        Quadratic predictors → "Dim²"  (axis is |base − 50|, 0-50 range).
-        Others → standard PREDICTOR_LABELS entry.
+        No "(linear)" suffix on the linear term of a linear/quadratic pair —
+        the quadratic panel already has its own distinct name (e.g.
+        "Neutral/Emotional" next to "Valence"), so the two are never
+        ambiguous without it. For a `_sq` predictor the axis is |base − 50|
+        (0-50 range), not the raw predictor, but the title itself is still
+        just the plain display label.
         """
-        if pred.endswith("_sq"):
-            base = pred[:-3]
-            return PREDICTOR_LABELS.get(base, base) + "²"
-        if pred + "_sq" in predictors:
-            return PREDICTOR_LABELS.get(pred, pred) + " (linear)"
         return PREDICTOR_LABELS.get(pred, pred)
 
     # ── Pre-compute |base − 50| distance columns for _sq predictors ───────────
@@ -1354,6 +1419,8 @@ def plot_combined_panel(
     marker_label = f"{MARKER_LABELS[marker]}{z_suffix}"
 
     # ── Scatter panels ─────────────────────────────────────────────────────────
+    scatter_axes: list["plt.Axes"] = []
+    agg_bounds: list[float] = []
     for ax_idx, predictor in enumerate(predictors):
         s_row = ax_idx // n_scatter_cols
         s_col = ax_idx % n_scatter_cols
@@ -1379,6 +1446,11 @@ def plot_combined_panel(
             ax.set_visible(False)
             continue
 
+        scatter_axes.append(ax)
+        reliable = agg[agg["n"] >= AXIS_RANGE_MIN_BIN_N]
+        agg_bounds.extend((reliable["y_mean"] - reliable["y_se"]).tolist())
+        agg_bounds.extend((reliable["y_mean"] + reliable["y_se"]).tolist())
+
         # Background cloud (per-subject bin means)
         ax.scatter(
             per_sub["x_real"], per_sub["y"],
@@ -1401,11 +1473,19 @@ def plot_combined_panel(
             linestyle="-" if significant else "--", zorder=3,
         )
 
-        ax.set_title(x_label, fontsize=11, color=color, fontweight="bold", pad=5)
-        ax.set_xlabel(x_label, fontsize=10, color=color, fontweight="bold")
+        # Title carries the dimension name; the x-axis carries what the 0-100
+        # scale *means* (its poles) instead of repeating that name — mirrors
+        # probe_dimension_cloud_plot.py's pole_low/pole_high axis titles.
+        pole_text = POLE_LABELS.get(predictor)
+        ax.set_title(x_label, fontsize=12.5, color=color, fontweight="bold", pad=6)
+        ax.set_xlabel(
+            pole_text if pole_text else x_label,
+            fontsize=12, color=color,
+            fontweight="normal" if pole_text else "bold",
+        )
         if s_col == 0:
-            ax.set_ylabel(marker_label, fontsize=10)
-        ax.tick_params(labelsize=9)
+            ax.set_ylabel(marker_label, fontsize=12)
+        ax.tick_params(labelsize=11)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1414,6 +1494,25 @@ def plot_combined_panel(
         s_row = ax_idx // n_scatter_cols
         s_col = ax_idx % n_scatter_cols
         fig.add_subplot(gs[s_row, s_col]).set_visible(False)
+
+    # Shared y-range from the across-subject mean±SE points (not the raw
+    # per-subject cloud) applied to every scatter panel: for a bounded rate
+    # marker with a short pre-probe window (e.g. commission_rate, few no-go
+    # trials per bin), individual per-subject bins routinely land exactly at
+    # 0 or 1 — a real value, not an outlier — so even a 2nd-98th percentile
+    # of the raw cloud stays pinned at 1.0 and defeats any trimming. The
+    # aggregate (bold) points are what carries the signal; the faint cloud is
+    # background context that is fine to clip at the edges. Bins are further
+    # restricted to AXIS_RANGE_MIN_BIN_N+ subjects (see its definition) so a
+    # sparse, high-SE bin from a secondary predictor doesn't stretch the
+    # shared axis for every panel — onoff's own range is never affected, its
+    # sparsest bin already clears that threshold.
+    if agg_bounds:
+        y_lo = min(agg_bounds)
+        y_hi = max(agg_bounds)
+        pad = 0.15 * (y_hi - y_lo) if y_hi > y_lo else 0.05
+        for ax in scatter_axes:
+            ax.set_ylim(y_lo - pad, y_hi + pad)
 
     # ── Forest panels ──────────────────────────────────────────────────────────
     add_plot = (
@@ -1432,7 +1531,6 @@ def plot_combined_panel(
         ax_add, add_plot, add_labels, add_colors, add_sig,
         ci_lower_col="conf_lower", ci_upper_col="conf_upper",
         xlabel=coef_label, title="Additive Effects",
-        yticks_right=True,
     )
 
     if moderation_df is not None:
@@ -1460,12 +1558,9 @@ def plot_combined_panel(
                 else "onoff × moderator (95% CI)"
             ),
             title="onoff Moderation",
-            yticks_right=True,
         )
 
-    fig.suptitle(
-        MARKER_LABELS[marker], fontsize=15, fontweight="bold", y=0.97,
-    )
+    fig.suptitle(MARKER_LABELS[marker], fontsize=19, fontweight="bold")
 
     out_base = output_dir / f"{marker}_combined_panel"
     fig.savefig(f"{out_base}.png", dpi=FIG_DPI, bbox_inches="tight")

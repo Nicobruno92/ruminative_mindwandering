@@ -68,15 +68,64 @@ Focuses on neural correlates of mind-wandering independent of patient status.
   `mcc_family_composition.csv`; family-level `omnibus_test.csv` at the root).
 
 **Section 3 — Classification: individual-level decodability**
-- Within-subject RF classifier (median split per dimension): tests whether neural signatures support trial-by-trial prediction per individual
-- Decodability hierarchy mirrors CBPT density: onoff (AUC=0.703, 16/29 subjects sig.) > valence (0.658, 7/23) > confidence (0.630) > selfother (0.632) > time (0.593 ≈ weak)
-- LOSO (onoff only): AUC=0.628 vs within=0.703 — gap reveals idiosyncratic component of MW neural signatures
-- ~45% of subjects not individually decodable even for onoff — result, not failure
-- Main figure: AUC bar chart per dimension + permutation baseline + individual points; LOSO point for onoff
+- Within-subject (WS) and leave-one-subject-out (LOSO) RF classifiers, median split
+  per dimension, on a **175-feature** space (the 23 Andrillon CBPT markers per ROI).
+- **All numbers below are the 2026-07-30 re-run.** Anything quoting the old
+  AUCs (onoff 0.703, valence 0.658, LOSO 0.628, "16/29") predates the
+  feature-space cache fix and must not be reused — see
+  `memory/classification-canonical-feature-space-177.md`. Never quote the
+  convenience `*_summary*.csv` files; recompute with
+  `scripts/recompute_headline_numbers.py`.
+- **Within subject**, every dimension is decodable (all p_FDR < .05):
+  onoff 0.721 (15/29 subjects sig.) > valence 0.647 (5/23) > confidence 0.640
+  (7/23) > selfother 0.587 (5/31) > time 0.554 (3/27).
+- **LOSO**: only **onoff 0.627** and **confidence 0.620** survive FDR. Valence
+  0.536, time 0.538, selfother 0.517 do not.
+- The headline is a **dissociation**: valence is second-best within subject yet
+  at chance across subjects (gap 0.111), while confidence loses almost nothing
+  (gap 0.020). Affective valence during MW has a largely idiosyncratic neural
+  signature; metacognitive confidence has a shared one.
+- ~48% of subjects are not individually decodable even for onoff — result, not failure.
+- Main figure: `scripts/make_fig_section3_decoding.py` →
+  `results/figures/section3_decoding/` (per-dimension WS/LOSO dot plot, per-subject
+  points, permutation band; fill encodes significance).
 - Results: `mw_classification_pipeline/results/MW_Classification/`
 
+**Feature consistency (WS vs LOSO)** — `scripts/feature_consistency_analysis.py`,
+figures via `scripts/make_fig_feature_consistency.py`, outputs in
+`results/feature_consistency/`:
+- Per subject, mean(|SHAP|) from their own model vs from the model trained
+  without them, over the same trials.
+- **Group level**: Spearman ρ = 0.41 (onoff), 0.39 (valence²), 0.39 (time²),
+  0.35 (valence), 0.31 (confidence), 0.22 (selfother), 0.003 (time, n.s.) over
+  175 features. Collapsing collinear ROI columns to the 23 markers raises this
+  to **0.58 / 0.54 / 0.65 / 0.56 / 0.58**, with selfother 0.31 (p = .07) and
+  time ≈ 0 both non-significant. Part of the feature-level disagreement is
+  arbitrary choice among collinear ROI columns, not disagreement about markers.
+- **Marker aggregation must be `mean` (per ROI), never `sum`** — set in
+  `scripts/config_feature_consistency.yaml`. The 4 evoked markers own 1 column
+  each and the 19 sleep markers own 9, so summing hands sleep markers 9× the
+  mass before any data is seen: it buries P3b (which rises to 4th of 23 under
+  `mean`) and inflates every marker-level ρ, because the ROI-count pattern is
+  identical in both pipelines and correlates with itself. The superseded
+  sum-based figures reported ρ = 0.43–0.87; do not reuse those.
+- **Individual level**: mean per-subject ρ ≤ 0.08; only 6/29 (onoff), 4/23
+  (valence), 2/23 (confidence) subjects individually significant. Split-half
+  noise ceiling ≥ 0.97, so this is not seed/CV noise (it does *not* bound
+  single-subject sampling noise — state that limitation when citing it).
+- The old "WS and LOSO pick opposite features, r ≈ −1" claim is a
+  **selection-on-extremes artifact** of correlating over a top-10 ∪ top-10
+  subset. Do not reuse it, and never annotate a correlation computed on a
+  top-N subsample.
+
 **Narrative bridge between sections 2 and 3:**
-> CBPT establishes which dimensions leave a detectable group-level neural trace. Classification asks whether that trace is strong enough to predict MW state in a specific person. The decodability hierarchy directly mirrors the CBPT signal density — validating both methods and establishing a hierarchy of neural encodability across MW dimensions.
+> CBPT establishes which dimensions leave a detectable group-level neural trace. Classification asks whether that trace is strong enough to predict MW state in a specific person.
+
+**Caveat on that bridge**: the decodability hierarchy no longer cleanly mirrors
+CBPT signal density. CBPT's localizable tier is `onoff` + `valence_sq`, whereas
+LOSO generalisation picks out `onoff` + `confidence` and drops valence to chance.
+Do not assert that the two orderings validate each other without re-checking them
+against the current numbers.
 
 ---
 
@@ -308,6 +357,218 @@ Neutral: gray `#9498A0` = permutation/chance baseline and non-dimension covariat
 **Significance encoding (project-wide convention):** color encodes the *dimension*, never significance. Significance is encoded by **fill**: significant (after correction) = **filled/solid** marker; non-significant = **hollow/empty** (white face, colored edge) or **dashed**. Keep this consistent across forest plots, topomaps, heatmaps, and any new figure — so a reader can read dimension from hue and significance from fill independently.
 
 Currently wired into the Paper 2 plots: `mw_classification_pipeline/` and `results/Behavior/objective_markers/lmm_probe_dimensions/` (generators in `Behavior/Objective_Markers/lmm_probe_dimensions.py`). Apply the same palette to any new plot.
+
+---
+
+## Dimension Order (Figures)
+
+Canonical left-to-right / top-to-bottom order for any multi-dimension figure —
+panel order, heatmap/table columns, forest-plot rows, legend order:
+
+```
+onoff → valence → selfother → time → confidence
+```
+
+Quadratic terms are interleaved directly after their linear parent, never
+appended at the end:
+
+```
+onoff → valence → valence_sq → selfother → time → time_sq → confidence
+```
+
+**Why this order and not another**: it matches `color_palette.yaml`'s
+`dimensions:` key order, which was already the majority convention across the
+codebase before this was written down. It is **not** derived from the SART
+probe's on-screen question order (Q1 onoff, Q2a selfother, Q2b valence, Q2c
+time, Q3 confidence — see "SART Task Design" above puts selfother before
+valence) and **not** from decodability or effect-size ranking (Section 3's
+AUC ranking is onoff > valence > confidence > selfother > time; CBPT's tiers
+in Section 2 are a different ordering again). Keeping the panel layout itself
+independent of any one result keeps the figure from priming the reader toward
+a conclusion before they read the fill/significance encoding — rankings are
+reported as findings inside prose and tables, not baked into panel position.
+
+Wired into (as of 2026-08-12):
+- `color_palette.yaml` — `dimensions:` key order
+- `Stats_andrillon/plot_paper_figures.py` — `HEATMAP_DIMENSION_ORDER`
+- `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` — `DIMENSIONS`, `CORR_VARS`
+- `mw_classification_pipeline/scripts/generate_combined_classification_figure.py`
+  — `DIMENSIONS`, `GROUP_ROW_DIMENSIONS`
+- `mw_classification_pipeline/scripts/config_feature_consistency.yaml` —
+  `contrasts[]`
+
+**Documented exception**: `Stats_andrillon/plot_paper_figures.py`'s
+`SECONDARY_DIMENSIONS` (the non-onoff "other dimensions" figure) is
+deliberately ordered by CBPT tier — concentrated → distributed → null — not
+canonical order, because that ordering *is* the finding the figure displays.
+Any similarly narrative-ordered figure must document the deviation next to
+its order list the same way, rather than silently drifting from canonical
+order.
+
+---
+
+## Dimension Labels & Pole Wording (Figures)
+
+Two different pieces of text appear per dimension across Paper 2 figures, and
+each has exactly one canonical wording — don't introduce a synonym for either,
+even under space pressure (shorten by line-wrapping or omitting a word, not by
+substituting a different word).
+
+**1. Display label** (panel title, legend entry, table row, heatmap column
+header before any width-driven wrapping):
+
+| Dimension | Canonical label | | Dimension | Canonical label |
+|-----------|------------------|--|-----------|------------------|
+| `onoff` | `On/Off-Task` | | `time` | `Time` |
+| `valence` | `Valence` | | `confidence` | `Confidence` |
+| `selfother` | `Self/Other` | | | |
+
+Quadratic terms use their display labels from "Quadratic-Dimension Display
+Labels" below (`Neutral/Emotional`, `Present/NotPresent`), not a variant.
+
+Line-wrapping to fit a narrow column is fine (`"On/Off-\nTask"`,
+`"Self/\nOther"`) as long as the unwrapped text is still the canonical label —
+`Self vs. other` / `Self / other` / `Self/other` were three such variants
+that existed in the repo and have been consolidated to `Self/Other`;
+`On/off task` / `On/Off Task` / `On/off-task` were consolidated to
+`On/Off-Task` (sentence-case prose mentioning the dimension inline, e.g. "the
+on/off-task effect", is not a label and is exempt).
+
+**2. Pole / extreme wording** (what the low and high end of the 0–100 scale
+are called — axis endpoint labels, "higher when X" effect-direction
+annotations, correlation-plot axis names):
+
+| Dimension | Low pole (0) | High pole (100) |
+|-----------|--------------|------------------|
+| `onoff` | `off-task` | `on-task` |
+| `valence` | `negative` | `positive` |
+| `selfother` | `self-focused` | `other-focused` |
+| `time` | `past` | `future` |
+| `confidence` | `unconfident` | `confident` |
+| `valence_sq` | `neutral` | `extreme` |
+| `time_sq` | `present` | `extreme shift` |
+
+This is the short form (`SHORT_POLES` in `Stats_andrillon/plot_paper_figures.py`
+— the first place it was defined). A full-sentence variant exists for CBPT
+effect-direction annotations only (`POLE_LABELS` in the same file, e.g.
+`"higher when OFF-task\n(mind-wandering)"` / `"higher when ON-task"`) — use it
+only where a bare pole word would be ambiguous about what "higher" means;
+everywhere else (raw-data axis labels, correlation matrices) use the short
+form above. `self` / `other` and `low` / `high` are *not* valid shorthand for
+`self-focused` / `other-focused` and `unconfident` / `confident` — they were
+found as inconsistent shortenings in `probe_dimension_cloud_plot.py` and
+corrected (2026-08-12).
+
+Wired into (as of 2026-08-12):
+- `Stats_andrillon/plot_paper_figures.py` — `POLE_LABELS`, `SHORT_POLES`,
+  `HEATMAP_COLUMN_LABELS`, `SECONDARY_COLUMN_LABELS`
+- `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` — `DIMENSIONS`
+  (`label`, `pole_low`, `pole_high`), `CORR_VARS`
+- `Behavior/Objective_Markers/lmm_probe_dimensions.py` — `PREDICTOR_LABELS`
+- `mw_classification_pipeline/scripts/generate_combined_classification_figure.py`
+  — `DIMENSIONS[].label`
+- `mw_classification_pipeline/scripts/config_feature_consistency.yaml` —
+  `contrasts[].label`
+
+---
+
+## Quadratic-Dimension Display Labels
+
+The underlying column/key names `valence_sq` and `time_sq` (orthogonalised U-shaped
+terms) stay as-is everywhere in code, config, and data — **never rename the
+key**. Only the human-readable text shown in a plot (title, legend, axis, heatmap
+or forest-plot column header) must read:
+
+| Column key | Display label |
+|------------|---------------|
+| `valence_sq` | `Neutral/Emotional` |
+| `time_sq` | `Present/NotPresent` |
+
+Apply this to any new figure. Wired into (as of 2026-07-31):
+- `Behavior/Objective_Markers/lmm_probe_dimensions.py` — `PREDICTOR_LABELS`
+- `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` — `CORR_VARS`
+- `Stats_andrillon/plot_paper_figures.py` — `HEATMAP_COLUMN_LABELS`,
+  `SECONDARY_COLUMN_LABELS` (not `POLE_LABELS`/`SHORT_POLES` — those describe
+  effect *direction*, e.g. "higher at extreme valence", a different concept
+  from the dimension's name)
+- `mw_classification_pipeline/scripts/config_feature_consistency.yaml` —
+  `contrasts[].label`
+
+---
+
+## Marker Naming (Figures)
+
+Canonical stem per marker family — matches the family name shown in
+`DISPLAY_GROUPS`/`HEATMAP_GROUP_LABELS` — with a full-word and a compact
+rendering:
+
+| Family | Stem | Full-word example | Compact example |
+|--------|------|--------------------|------------------|
+| Evoked (ERP) | *(none — component name is already unambiguous)* | `P1`, `N1`, `P3a`, `P3b` | same |
+| Spectral (relative power) | `PSD` | `PSD alpha` | `PSD α` |
+| Complexity / information | `PE` *(Kolmogorov has no stem — the one non-band marker in its family, already unambiguous)* | `PE alpha`, `Kolmogorov` | `PE α`, `KoC` |
+| Connectivity (wSMI) | `wSMI` | `wSMI alpha` | `wSMI α` |
+| Slow waves | `SW` | `SW density` | `SW density` |
+
+**Exactly two verbosity tiers exist, not more or a mix**: full spelled-out
+band names, for the wide topomap/heatmap panels in
+`Stats_andrillon/plot_paper_figures.py`'s `MARKER_DISPLAY_NAMES`; and a
+Greek-symbol compact tier for
+`mw_classification_pipeline/scripts/make_fig_ws_loso_sign_forest.py`'s
+`MARKER_LABELS`, which lists dozens of marker×ROI combinations as forest-plot
+y-tick labels and needs every character. Both tiers use the *same* stem word
+per family — only the band spelling (`alpha` vs `α`) and stem punctuation
+(`PSD` vs no equivalent shorthand needed) change between them. Never
+introduce a third stem word for a family that already has one — `rel.` was
+briefly a synonym for `PSD` in the spectral family (in the compact tier only)
+and has been corrected to `PSD` (2026-08-12) so a reader moving between the
+CBPT figure and the forest plot sees the same word for the same marker.
+
+**Do not fix**: `Stats_andrillon/plot_cbpt_summary_figure.py` still carries
+the old `rel.` wording, but it is an orphaned precursor to
+`plot_paper_figures.py` — nothing imports or invokes it (verified by
+repo-wide reference search, 2026-08-12). Delete it rather than patch it if it
+resurfaces in a future figure pass.
+
+Wired into (as of 2026-08-12):
+- `Stats_andrillon/plot_paper_figures.py` — `MARKER_DISPLAY_NAMES`
+- `mw_classification_pipeline/scripts/make_fig_ws_loso_sign_forest.py` —
+  `MARKER_LABELS`
+
+---
+
+## Figure Assembly (Paper 2)
+
+**Default: Plotly via the `scientific-plots` skill's `sciplot` helper**, not
+raw Plotly calls or matplotlib. Invoke the `scientific-plots` skill before
+building or restyling any figure — it defines the actual API (`sp.save`,
+`sp.make_template`, `sp.mm2px`/`sp.pt2px`, `sp.grid`, `sp.panel_labels`,
+`sp.TYPE_PT`); don't re-derive it here. Repo-specific conventions on top of
+that skill:
+- Figure size is set in **millimetres** (`WIDTH_MM` / `HEIGHT_MM` constants
+  at the top of the script, e.g. `Behavior/Probe_analysis/probe_dimension_cloud_plot.py`),
+  passed to `sp.save(fig, out_dir, name, width_mm=..., height_mm=...)`, which
+  writes both `.svg` and `.png`.
+- Colors always resolve through `color_palette.yaml` (see "Color Palette"
+  above) via `sp.make_template(pal)`, never a hardcoded hex.
+- Multi-panel figures use letter labels (`sp.panel_labels`) rather than
+  relying on subplot titles alone to identify panels in prose.
+- Output goes to `results/{pipeline}/...` or `results/figures/{section}/...`
+  per the "Paper Structure" section above — never inside a source directory.
+
+**Exception — matplotlib, not sciplot**: `Stats_andrillon/plot_paper_figures.py`
+(CBPT topomaps/heatmap) uses matplotlib directly, sized in **inches**
+(`figsize=`) and saved through `Statistics/plot_results.save_figure_multiformat`
+(also PNG+SVG, `dpi=300`), because MNE's topomap plotting (`mne.viz`) only
+draws onto matplotlib axes — there is no Plotly equivalent. Keep this the one
+documented exception rather than porting it to sciplot or adding a second
+undocumented one elsewhere.
+
+**When a figure mixes both** (e.g. a combined panel that embeds a matplotlib
+topomap next to Plotly panels), render each half through its native library
+and compose the raster/vector outputs at the results-folder level — do not
+attempt to fake MNE topomaps in Plotly or reimplement `sciplot`'s layout
+logic in matplotlib.
 
 ---
 

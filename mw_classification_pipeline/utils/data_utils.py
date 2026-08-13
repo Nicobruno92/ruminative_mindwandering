@@ -455,6 +455,58 @@ def pivot_to_wide(
 # LABEL CONTRAST CREATION
 # =============================================================================
 
+def residualize_within_subject(
+    df: pd.DataFrame,
+    target_col: str,
+    predictor_cols: List[str],
+    min_valid: int,
+) -> Tuple[np.ndarray, List]:
+    """
+    OLS-residualize target_col against predictor_cols, fit separately per subject.
+
+    For each subject, fits target ~ predictors + intercept using rows where
+    target and all predictors are non-NaN, then replaces those rows with
+    their residuals. Subjects with fewer than `min_valid` such rows are
+    excluded entirely (residual = NaN for all their rows) rather than left
+    unresidualized, so residualized and raw scores are never mixed within
+    one output. Individual rows with a missing predictor are NaN in the
+    output even for an otherwise-included subject.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain 'subject', target_col, and all predictor_cols.
+    target_col : str
+        Column to residualize.
+    predictor_cols : List[str]
+        Columns to regress out of target_col.
+    min_valid : int
+        Minimum non-NaN (target + all predictors) rows required per subject
+        to fit the regression.
+
+    Returns
+    -------
+    Tuple[np.ndarray, List]
+        (residuals aligned to df's row order, list of excluded subject IDs).
+    """
+    x_all = df[target_col].values.astype(float)
+    preds_all = df[predictor_cols].values.astype(float)
+    resid = np.full_like(x_all, np.nan)
+    excluded_subjects = []
+    for subj in df["subject"].unique():
+        mask = (df["subject"] == subj).values
+        x_s = x_all[mask]
+        preds_s = preds_all[mask]
+        valid = ~np.isnan(x_s) & ~np.isnan(preds_s).any(axis=1)
+        if valid.sum() < min_valid:
+            excluded_subjects.append(subj)
+            continue
+        A = np.column_stack([preds_s[valid], np.ones(valid.sum())])
+        coeffs, _, _, _ = np.linalg.lstsq(A, x_s[valid], rcond=None)
+        resid[np.where(mask)[0][valid]] = x_s[valid] - A @ coeffs
+    return resid, excluded_subjects
+
+
 def create_label_contrast(
     df: pd.DataFrame,
     contrast_config: Dict,
@@ -476,6 +528,19 @@ def create_label_contrast(
     dimensions (valence, selfother, time, confidence) only within off-task
     probes, e.g. restrict_to: {column_name: onoff,
     split_method: within_subject_median, keep: negative}.
+
+    An optional 'transform' key applies a within-subject transform to the
+    label column before splitting: 'midpoint_sq' ((x-50)²/50, U-shaped),
+    'midpoint_sq_residual' (midpoint_sq residualized against its own linear
+    dimension, isolating curvature), 'linear_residual' (label_col
+    residualized via OLS against the columns in 'residualize_against',
+    isolating variance not shared with the other listed dimensions;
+    subjects with fewer than 'min_valid_for_residual' valid probes are
+    excluded from the contrast rather than left unresidualized), or
+    'midpoint_sq_residual_cross' (midpoint_sq residualized jointly against
+    its own linear dimension AND the columns in 'residualize_against' in
+    one regression — isolates curvature AND cross-dimension variance at
+    once; same exclusion convention as linear_residual).
 
     Parameters
     ----------
@@ -554,8 +619,81 @@ def create_label_contrast(
         df[_transform_col] = resid
         label_col = _transform_col
         print(f"  Transform [midpoint_sq_residual]: ({orig_col}-50)²/50 residualized by {orig_col} within subject")
+    elif label_transform == "linear_residual":
+        # Within-subject OLS residualization of label_col against the other
+        # dimension columns listed in 'residualize_against'. Isolates the
+        # variance in this dimension not explained by the others, to test
+        # whether decoding of a dimension survives once its correlation with
+        # the rest is removed. Subjects without enough valid probes to fit a
+        # stable regression are excluded from this contrast entirely (not
+        # fallen back to raw values) so residualized and raw scores are never
+        # silently mixed within one contrast.
+        predictors = contrast_config.get("residualize_against", None)
+        if not predictors:
+            raise ValueError(
+                "transform 'linear_residual' requires a non-empty "
+                "'residualize_against' list of column names."
+            )
+        missing = [c for c in predictors if c not in df.columns]
+        if missing:
+            raise ValueError(f"residualize_against columns not found: {missing}")
+        min_valid = contrast_config.get("min_valid_for_residual", 15)
+
+        _transform_col = f"_t_{label_col}"
+        resid, excluded_subjects = residualize_within_subject(
+            df, target_col=label_col, predictor_cols=predictors, min_valid=min_valid
+        )
+        df[_transform_col] = resid
+        label_col = _transform_col
+        print(f"  Transform [linear_residual]: residualized against {predictors} within subject "
+              f"(min_valid_for_residual={min_valid}); excluded {len(excluded_subjects)} subject(s): "
+              f"{excluded_subjects}")
+    elif label_transform == "midpoint_sq_residual_cross":
+        # (x-50)²/50 residualized (within-subject OLS) against BOTH its own
+        # linear dimension AND the other content dimensions listed in
+        # 'residualize_against'. Combines midpoint_sq_residual's curvature
+        # isolation with linear_residual's cross-dimension isolation in one
+        # joint regression, rather than two separate residualization passes
+        # (which would be order-dependent). Unlike midpoint_sq_residual,
+        # subjects without enough valid probes are excluded from the
+        # contrast (not fallen back to the raw quadratic score), matching
+        # linear_residual's convention — see design doc.
+        predictors = contrast_config.get("residualize_against", None)
+        if not predictors:
+            raise ValueError(
+                "transform 'midpoint_sq_residual_cross' requires a non-empty "
+                "'residualize_against' list of column names (the OTHER "
+                "content dimensions; the own linear dimension is added "
+                "automatically)."
+            )
+        missing = [c for c in predictors if c not in df.columns]
+        if missing:
+            raise ValueError(f"residualize_against columns not found: {missing}")
+        min_valid = contrast_config.get("min_valid_for_residual", 15)
+        orig_col = contrast_config.get("label_source", contrast_config.get("column_name"))
+
+        _transform_col = f"_t_{label_col}"
+        _sq_col = f"_sq_{label_col}"
+        x = df[label_col].values.astype(float)
+        df[_sq_col] = (x - 50.0) ** 2 / 50.0
+        df.loc[np.isnan(x), _sq_col] = np.nan
+
+        all_predictors = [orig_col] + list(predictors)
+        resid, excluded_subjects = residualize_within_subject(
+            df, target_col=_sq_col, predictor_cols=all_predictors, min_valid=min_valid
+        )
+        df[_transform_col] = resid
+        df = df.drop(columns=[_sq_col])
+        label_col = _transform_col
+        print(f"  Transform [midpoint_sq_residual_cross]: ({orig_col}-50)²/50 residualized "
+              f"against {all_predictors} within subject (min_valid_for_residual={min_valid}); "
+              f"excluded {len(excluded_subjects)} subject(s): {excluded_subjects}")
     elif label_transform is not None:
-        raise ValueError(f"Unknown label transform: {label_transform!r}. Supported: 'midpoint_sq', 'midpoint_sq_residual'.")
+        raise ValueError(
+            f"Unknown label transform: {label_transform!r}. "
+            f"Supported: 'midpoint_sq', 'midpoint_sq_residual', 'linear_residual', "
+            f"'midpoint_sq_residual_cross'."
+        )
 
     # Mode 1: Global Median
     if split_method == "global_median" or split_method == "median":

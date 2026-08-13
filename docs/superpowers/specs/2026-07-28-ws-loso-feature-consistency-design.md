@@ -171,6 +171,46 @@ results, it is not a forking path.
   - marker-level heatmap (23 markers × dimensions)
 - Replace the three broken scatters. **No figure may compute a correlation on a top-N subsample.**
 
+## 4b. Implemented 2026-07-30 — deviations from the design above
+
+Recorded here rather than by editing §1–4, so the reasoning that was approved stays legible
+next to what the data forced.
+
+| design said | implemented | why |
+|---|---|---|
+| 177 features | **175** | the 2026-07-28 ERP ROI fix (montage is CACS-64, not BC-32) moved P1/N1 from 2 ROIs to 1. 4 evoked×1 + 19 sleep×9 = 175, verified against the feature names at load time. |
+| WS side from `rf_loso_{S}_shap_values.pkl` | `*_shap_values_stacked.pkl` + `*_sample_predictions.csv`, segmented by subject | the per-subject file is named `rf_ws_{S}_…`, not `rf_loso_{S}_…`. The stacked route was verified to reproduce the per-subject pickles exactly and reads ~29× fewer files. Trial sets, counts and labels were confirmed identical between pipelines, keyed on (subject, task, probe_number). |
+| Jaccard of non-zero sets + hypergeometric null (§3.2) | **dropped** | both configs now set `feature_selection.method: "none"`, so the forest is fitted on all 175 columns: LOSO gives every feature non-zero SHAP for every trial, the Jaccard is identically 1 and the LOSO selection-frequency vector is constant (rank correlation undefined). Reporting J = 1 would be reporting the config back as a result. Only the per-side count of used features survives, descriptively. §1.2's zero-inflation asymmetry is likewise gone — disabling selection is what removed it. |
+| marker-level null = permute the feature→marker assignment | permute the WS↔LOSO **pairing** at marker level | the direct analogue of the feature-level test, so the two levels answer the same question at different resolutions. |
+| marker-level heatmap (23 × dimensions) | scatter grid of marker shares, WS vs LOSO | the designed heatmap cell (across-subject ρ per marker) is **non-significant for every marker in every dimension** after FDR — a 23×7 grid of blanks. The scatter shows the group-level marker agreement, which is where the result actually is. |
+
+### Result
+
+Group-level agreement is strong and rises sharply with marker aggregation:
+
+| dimension | n | mean per-subject ρ | sig subjects | group ρ (175) | group ρ (23) | ceiling |
+|---|---|---|---|---|---|---|
+| On/Off-Task | 29 | 0.083 | 6/29 | 0.413 | 0.762 | 0.995 |
+| Valence² | 14 | 0.062 | 2/14 | 0.391 | 0.873 | 0.993 |
+| Time² | 13 | 0.067 | 2/13 | 0.390 | 0.651 | 0.992 |
+| Valence | 23 | 0.076 | 4/23 | 0.348 | 0.753 | 0.988 |
+| Confidence | 23 | 0.012 | 2/23 | 0.307 | 0.780 | 0.972 |
+| Self/Other | 31 | 0.019 | 1/31 | 0.220 | 0.659 | 0.992 |
+| Time | 27 | −0.015 | 0/27 | 0.003 (n.s.) | 0.427 | 0.991 |
+
+So §1.4 was the dominant problem: most of the feature-level disagreement is arbitrary choice
+among collinear ROI columns of the same marker. The per-subject correlations stay near zero
+regardless, which is the genuine idiosyncrasy result.
+
+### Found while implementing
+
+`utils/ml_utils.py` only populated RF Gini importances inside its `feature_selection` branch.
+With selection disabled that branch never fires, so **every `*_feature_importances.csv` on
+disk is uniformly zero**, and `scatter_feature_importance.png` was correlating two zero
+vectors (surfacing only as an opaque `SVD did not converge` from `np.polyfit`). Fixed via
+`_extract_fold_importances`, covered by `loso_pipeline/tests/test_fold_importances.py`;
+the on-disk CSVs need a pipeline re-run to become meaningful.
+
 ## 5. Out of scope
 
 - Cross-referencing consistency against the CBPT cluster results marker-by-marker. Dropped: the
