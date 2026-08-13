@@ -48,10 +48,10 @@ orientation rather than assuming it:
     this: sleep-like slow waves increase during attentional lapses.
 Both anchors agree, so low onoff = off-task (mind-wandering).
 
-For the orthogonalised quadratic predictors the semantics differ and the pole
-labels reflect it: ``valence_sq``/``time_sq`` are U-shaped, so a positive
-t-statistic means the marker is higher at *extreme* values of the underlying
-dimension, not at one end of it.
+The orthogonalised quadratic predictors ``valence_sq``/``time_sq`` were removed
+from the analysis on 2026-08-13, so every column of every figure here is now a
+plain linear dimension and the sign convention above applies uniformly. See
+``Stats_andrillon/config_andrillon.yaml`` for why they were retired.
 """
 
 # =============================================================================
@@ -584,10 +584,8 @@ MARKER_DISPLAY_NAMES: Dict[str, str] = {
 POLE_LABELS: Dict[str, Tuple[str, str]] = {
     "onoff": ("higher when OFF-task\n(mind-wandering)", "higher when ON-task"),
     "valence": ("higher for\nnegative affect", "higher for\npositive affect"),
-    "valence_sq": ("higher at\nneutral valence", "higher at\nextreme valence"),
     "selfother": ("higher when\nself-focused", "higher when\nother-focused"),
     "time": ("higher for\npast-oriented", "higher for\nfuture-oriented"),
-    "time_sq": ("higher at\npresent-focused", "higher at\nextreme time-shift"),
     "confidence": ("higher when\nlow confidence", "higher when\nhigh confidence"),
 }
 
@@ -605,10 +603,8 @@ POLE_LABELS: Dict[str, Tuple[str, str]] = {
 SHORT_POLES: Dict[str, Tuple[str, str]] = {
     "onoff": ("off-task", "on-task"),
     "valence": ("negative", "positive"),
-    "valence_sq": ("neutral", "extreme"),
     "selfother": ("self-focused", "other-focused"),
     "time": ("past", "future"),
-    "time_sq": ("present", "extreme shift"),
     "confidence": ("low", "high"),
 }
 
@@ -624,39 +620,44 @@ SHORT_POLES: Dict[str, Tuple[str, str]] = {
 COLUMN_COLORBAR_POLE_LINE_BREAKS: Dict[str, str] = {
     "self-focused": "self-\nfocused",
     "other-focused": "other-\nfocused",
-    "extreme shift": "extreme\nshift",
 }
 
-# Dimensions shown on the secondary figure, in narrative order: the localizable
-# one first, then the diffuse ones, then the null one.
+# Dimensions shown on the secondary figure, in CANONICAL order (CLAUDE.md
+# "Dimension Order") minus onoff, which has its own figure.
+#
+# This list used to be ordered by CBPT tier — concentrated, then diffuse, then
+# null — and CLAUDE.md documented that as the one licensed deviation from
+# canonical order, on the grounds that the ordering *was* the finding. It was
+# reverted to canonical order on 2026-08-13 because those tiers were read off
+# the quadratic-specification results, which have been retired: two of the six
+# columns (valence_sq, time_sq) no longer exist, and the linear valence/time
+# estimates are being recomputed without the quadratic covariates that were
+# distorting them. Baking a superseded ranking into panel position would prime
+# the reader toward a conclusion the current data has not re-established.
+# Do not restore a tier ordering until the linear-only re-run is in and the
+# tiers have actually been recomputed.
 SECONDARY_DIMENSIONS = [
-    "valence_sq",
     "valence",
-    "time",
-    "time_sq",
     "selfother",
+    "time",
     "confidence",
 ]
 
 # Column headers for the heatmap and other-dimensions figure: short enough to
-# fit side by side at six or seven columns. "Valence"/"Time" are single-line
-# on purpose — per CLAUDE.md's "Dimension Labels & Pole Wording" table their
-# canonical label is the bare word, with no "linear" qualifier (that
-# qualifier isn't a documented line-wrap of the canonical text, it's a
-# different word, which the same section explicitly rules out — "linear" was
-# only needed to disambiguate from the quadratic column in this same table,
-# but valence_sq/time_sq already have their own distinct canonical labels
-# below, "Neutral/Emotional"/"Present/NotPresent", so there's no ambiguity to
-# resolve). xtick labels on a top-anchored axis grow upward from a shared
-# bottom edge, so a shorter single-line label still bottom-aligns with its
-# two-line neighbours — no visual inconsistency from the line-count mismatch.
+# fit side by side at five columns. "Valence"/"Time" are single-line on
+# purpose — per CLAUDE.md's "Dimension Labels & Pole Wording" table their
+# canonical label is the bare word, with no "linear" qualifier. That qualifier
+# was only ever needed to disambiguate from a quadratic column; with the
+# quadratic terms gone (2026-08-13) there is nothing left to disambiguate
+# against, so the bare word is now both canonical and unambiguous. xtick
+# labels on a top-anchored axis grow upward from a shared bottom edge, so a
+# shorter single-line label still bottom-aligns with its two-line neighbours —
+# no visual inconsistency from the line-count mismatch.
 HEATMAP_COLUMN_LABELS: Dict[str, str] = {
     "onoff": "On/Off-\nTask",
     "valence": "Valence",
-    "valence_sq": "Neutral/\nEmotional",
     "selfother": "Self/\nOther",
     "time": "Time",
-    "time_sq": "Present/\nNotPresent",
     "confidence": "Confi-\ndence",
 }
 
@@ -678,10 +679,8 @@ HEATMAP_GROUP_LABELS: Dict[str, str] = {
 # Column headers for the other-dimensions figure: full single-line names, since
 # that figure has fewer, wider columns than the heatmap.
 SECONDARY_COLUMN_LABELS: Dict[str, str] = {
-    "valence_sq": "Neutral/Emotional",
     "valence": "Valence",
     "time": "Time",
-    "time_sq": "Present/NotPresent",
     "selfother": "Self/Other",
     "confidence": "Confidence",
 }
@@ -689,10 +688,8 @@ SECONDARY_COLUMN_LABELS: Dict[str, str] = {
 HEATMAP_DIMENSION_ORDER = [
     "onoff",
     "valence",
-    "valence_sq",
     "selfother",
     "time",
-    "time_sq",
     "confidence",
 ]
 

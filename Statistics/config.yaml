@@ -229,10 +229,8 @@ preprocessing:
   # yielding a U-shaped predictor that is orthogonal to the linear term.
   # The derived column is added to df_behavioral and can be used in the LMM formula.
   quadratic_features:
-    enabled: true
-    features:
-      valence: valence_sq
-      time: time_sq
+    enabled: false
+    features: {}
 
 # Linear mixed model parameters
 # ================================
@@ -264,16 +262,19 @@ preprocessing:
 #   Example: "onoff * valence" -> test "onoff" or "valence" or "onoff:valence"
 #
 lmm:
-  formula: "power ~ onoff + valence + valence_sq + selfother + time + time_sq + confidence + time_on_task + (1|subject)"
+  # Quadratic terms removed 2026-08-13: the orthogonalized (x-50)^2/50
+  # regressor is dominated by a tiny high-leverage tail (top 5% of probes
+  # carry ~60% of its variance). Drop-tests killed or sign-flipped every
+  # effect built on it. See Stats_andrillon/config_andrillon.yaml for the
+  # full evidence; do not re-enable without changing the construction.
+  formula: "power ~ onoff + valence + selfother + time + confidence + time_on_task + (1|subject)"
   # predictor_of_interest can be a single string or a list.
   # - Single string: run directly with python Statistics/run_pipeline.py
   # - List: use submit_predictor_loop.sh to submit one SLURM job-set per predictor
   predictor_of_interest:
     - "onoff"
     - "valence"
-    - "valence_sq"
     - "time"
-    - "time_sq"
     # - "selfother"
     # - "confidence"
     # - "time_on_task"

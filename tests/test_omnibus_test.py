@@ -156,12 +156,18 @@ def test_omnibus_detects_a_planted_family_effect():
 def test_cross_dimension_bh_is_monotone_and_per_family():
     """BH correction runs within each family and never lowers a p-value.
 
-    Uses the real six-dimension sleep p-values, where two dimensions are far
-    from chance and three are marginal (~0.04). BH must keep the strong two
-    significant and push the marginal three just past 0.05 — the whole point of
-    adding the cross-dimension layer.
+    The p-values are a fixed six-dimension fixture chosen to exercise the
+    behaviour that matters: two dimensions far from chance and three marginal
+    (~0.04), so BH must keep the strong two significant and push the marginal
+    three just past 0.05 — the whole point of adding the cross-dimension layer.
+
+    Dimension names are deliberately generic (``dim_a``..``dim_f``) rather than
+    the project's real ones. They were real dimension names until 2026-08-13,
+    which coupled a unit test of generic BH machinery to the project's
+    dimension list and broke it when the quadratic terms were removed. The
+    function under test does not care what the labels say.
     """
-    dims = ["onoff", "valence_sq", "valence", "time", "time_sq", "selfother"]
+    dims = ["dim_a", "dim_b", "dim_c", "dim_d", "dim_e", "dim_f"]
     df = pd.DataFrame({
         "target": dims * 2,
         "family": ["sleep"] * 6 + ["evoked"] * 6,
@@ -178,10 +184,10 @@ def test_cross_dimension_bh_is_monotone_and_per_family():
 
     sleep = out[out.family == "sleep"].set_index("target")
     # the two strong dimensions survive
-    assert sleep.loc["onoff", "count_p_bh"] < 0.05
-    assert sleep.loc["valence_sq", "count_p_bh"] < 0.05
+    assert sleep.loc["dim_a", "count_p_bh"] < 0.05
+    assert sleep.loc["dim_b", "count_p_bh"] < 0.05
     # the three marginal ones are lifted past threshold
-    for tgt in ["valence", "time", "time_sq"]:
+    for tgt in ["dim_c", "dim_d", "dim_e"]:
         assert sleep.loc[tgt, "count_p_bh"] > 0.05
 
     # correction is per-family: sleep values do not depend on evoked's

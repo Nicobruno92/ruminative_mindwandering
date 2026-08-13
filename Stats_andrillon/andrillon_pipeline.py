@@ -173,11 +173,22 @@ def _get_derived_ratios_lookup(config: Dict) -> Dict[str, Dict]:
 def _resolve_variability_threshold(config: Dict, predictor: str):
     """Return the correct min_predictor_variability for *predictor*.
 
-    Quadratic predictors (e.g. ``valence_sq``, ``time_sq``) live on a
-    0-50 scale — half the range of the original 0-100 dimension.  A
-    separate config key ``min_predictor_variability_sq`` (default:
-    ``min_predictor_variability / 2``) is used for them so inclusion
-    criteria stay comparable across linear and quadratic terms.
+    Inert as configured: ``preprocessing.quadratic_features.enabled`` is
+    ``false`` (2026-08-13), so ``derived_cols`` is empty and every predictor
+    gets ``base_threshold``.
+
+    The ``min_predictor_variability_sq`` branch below is kept only because the
+    quadratic machinery is config-gated rather than deleted. Its original
+    rationale was wrong and must not be reused as written: it claimed quadratic
+    predictors "live on a 0-50 scale — half the range of the original 0-100
+    dimension", so half the linear threshold would be equivalent. That is true
+    of the *raw* ``(x-50)^2/50`` term but not of the orthogonalized residual the
+    pipeline actually fits, which spans roughly -10..+79 with median -5 and
+    SD 11.7. Because variability is measured as within-subject range, the
+    resulting criterion selected subjects for *having extreme probes*
+    (correlation 0.53 with max|time-50|), which is precisely the high-leverage
+    subset that drove the quadratic effects. Any future derived predictor needs
+    its threshold derived from that column's real distribution.
     """
     preprocessing_cfg = config.get('preprocessing', {})
     project_cfg = config.get('project', {})

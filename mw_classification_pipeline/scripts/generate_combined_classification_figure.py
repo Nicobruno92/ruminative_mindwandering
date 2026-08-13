@@ -15,8 +15,7 @@ Outputs (in results/combined_figures/):
     spatial_comparison_ws_loso.{png,svg}
                               — WS (row 1) vs LOSO (row 2) spatial (per-electrode)
                                 decoding topomaps, one column per dimension
-                                (5 canonical + valence_sq/time_sq next to their
-                                parent dimension). Reads per_channel_metrics.csv
+                                (the 5 canonical dimensions). Reads per_channel_metrics.csv
                                 from results/MW_Classification/SpatialDecoding/;
                                 skipped with a message for any dimension missing
                                 on either pipeline.
@@ -150,58 +149,13 @@ RESIDUALIZED_DIR = {
     "time":       "time_within_median_res",
     "selfother":  "selfother_within_median_res",
     "confidence": "confidence_within_median_res",
-    # Quadratic terms use a differently-named "cross" residualized contrast
-    # (see docs/superpowers/specs/2026-07-30-cross-dimension-residualized-
-    # contrasts-design.md) rather than the "_res" suffix above, but are
-    # looked up through the same RESIDUALIZED_DIR / _residualized_dim_info
-    # machinery — see SQ_DIMENSIONS below.
-    "valence_sq": "valence_sq_res_cross",
-    "time_sq":    "time_sq_res_cross",
 }
 
-# valence_sq / time_sq are the quadratic (U-shaped) terms — not part of the
-# canonical 5-dimension DIMENSIONS list used everywhere else in this script,
-# so kept as a separate, explicitly-opt-in list rather than appended to
-# DIMENSIONS (which would silently add 2 rows/panels to every other figure
-# here). Display labels per CLAUDE.md "Quadratic-Dimension Display Labels" —
-# the underlying key stays valence_sq/time_sq, only the shown text changes.
-# Color comes from color_palette.yaml's own `quadratic:` tints (the single
-# source of truth also used by _residual_color() below and by
-# Stats_andrillon/plot_paper_figures.py / Behavior/Objective_Markers/
-# lmm_probe_dimensions.py) rather than being recomputed here — a
-# locally-recomputed tint previously drifted from the canonical hex, so
-# valence_sq/time_sq showed a different shade of blue/purple in the
-# "+ residualized" and spatial-comparison figures than in the
-# residual_vs_plain_* figures in this same output folder.
-SQ_DIMENSIONS = [
-    {
-        "key":      "valence_sq",
-        "ws_dir":   "valence_sq",
-        "loso_dir": "valence_sq",
-        "label":    "Neutral/Emotional",
-        "color":    PALETTE["quadratic"]["valence_sq"],
-    },
-    {
-        "key":      "time_sq",
-        "ws_dir":   "time_sq",
-        "loso_dir": "time_sq",
-        "label":    "Present/NotPresent",
-        "color":    PALETTE["quadratic"]["time_sq"],
-    },
-]
-
-# Row order for the two "+ residualized" group-level figures (single-pipeline
-# and combined WS/LOSO): each quadratic term sits directly after its parent
-# linear dimension, not appended after all 5 canonical rows.
-GROUP_ROW_DIMENSIONS = [
-    DIMENSIONS[0],     # on_off
-    DIMENSIONS[1],     # valence
-    SQ_DIMENSIONS[0],  # valence_sq
-    DIMENSIONS[2],     # selfother
-    DIMENSIONS[3],     # time
-    SQ_DIMENSIONS[1],  # time_sq
-    DIMENSIONS[4],     # confidence
-]
+# SQ_DIMENSIONS (valence_sq / time_sq) removed 2026-08-13 together with the
+# quadratic construct itself — see Stats_andrillon/config_andrillon.yaml. The
+# group-level row order is therefore just the canonical 5 dimensions; there are
+# no longer quadratic rows interleaved after their linear parents.
+GROUP_ROW_DIMENSIONS = list(DIMENSIONS)
 
 RESIDUALIZED_ALPHA = 0.30  # well below True's 0.72, so it reads as a translucent layer
 # Thin aggregate marks (inner donut ring, stacked bar segment) need more
@@ -594,8 +548,7 @@ def plot_group_level_with_residualized(pipeline: str, title_prefix: str) -> go.F
     RESIDUALIZED_ALPHA — well below True's opacity — so it reads as a
     translucent layer rather than a competing solid distribution.
 
-    Rows are GROUP_ROW_DIMENSIONS (5 canonical + valence_sq/time_sq directly
-    after their parent dimension, 7 rows total). No figure title, and the
+    Rows are GROUP_ROW_DIMENSIONS (the 5 canonical dimensions). No figure title, and the
     True/Residualized mean-AUC + significance readout (_true_res_annotation_text)
     sits INSIDE each row's own panel (top-right corner) instead of a separate
     margin column — compact by design, not just cropped.
@@ -1628,8 +1581,7 @@ def plot_group_comparison_with_residualized() -> go.Figure:
     competing solid distribution — same convention as
     plot_group_level_with_residualized.
 
-    Rows are GROUP_ROW_DIMENSIONS (5 canonical + valence_sq/time_sq directly
-    after their parent dimension, 7 rows total). No figure title, no
+    Rows are GROUP_ROW_DIMENSIONS (the 5 canonical dimensions). No figure title, no
     column_titles ("Within-Subject"/"LOSO" collided with the legend) —
     pipeline identity is carried by each column's bottom x-axis title
     ("WS AUC" / "LOSO AUC") instead. The True/Residualized mean-AUC +
@@ -1819,8 +1771,7 @@ def load_spatial_metrics(
     """
     Load one dimension/pipeline's merged spatial ``per_channel_metrics.csv``.
 
-    Returns None (not an error) if the file doesn't exist yet — valence_sq
-    and time_sq don't have merged spatial results as of this writing (see
+    Returns None (not an error) if the file doesn't exist yet (see
     ``plot_spatial_comparison_panel``).
     """
     sub     = "WithinSubject" if pipeline == "ws" else "LOSO"
@@ -1841,11 +1792,9 @@ def plot_spatial_comparison_panel() -> Path | None:
     colour scale, FWER-significant electrodes marked (see
     ``utils.spatial_decoding_utils.plot_pipeline_comparison_topomap_panel``).
 
-    Columns follow GROUP_ROW_DIMENSIONS (5 canonical dimensions + valence_sq/
-    time_sq directly after their parent dimension — same row order as the
-    "+ residualized" group-level figures), so quadratic terms show up right
-    next to the linear dimension they're derived from rather than appended
-    at the end.
+    Columns follow GROUP_ROW_DIMENSIONS (the 5 canonical dimensions — same
+    order as the "+ residualized" group-level figures), so a reader moving
+    between figures does not have to re-locate a dimension.
 
     A Matplotlib figure, not a Plotly one, so it's saved directly (PNG + SVG)
     rather than queued through the kaleido batch writer used by every other
@@ -2937,12 +2886,12 @@ def _residual_dimension_order(profiles: pd.DataFrame) -> list[str]:
     """
     Dimension order for the residual figures: the one this script already uses.
 
-    ``GROUP_ROW_DIMENSIONS`` drives the other "quadratic-aware" figures here
+    ``GROUP_ROW_DIMENSIONS`` drives the other group-level figures here
     (the "+ residualized" group-level and spatial-comparison panels), so the
     residual panels follow it too rather than the order they happen to appear
     in ``config_feature_consistency.yaml`` — a reader moving between figures
-    should not have to re-locate a dimension. Walking ``DIMENSIONS`` instead
-    would silently push valence_sq/time_sq to the end (they aren't in that
+    should not have to re-locate a dimension. Since the quadratic terms were
+    removed (2026-08-13) it is simply the canonical 5 (they aren't in that
     5-entry list), which is exactly the "appended, not interleaved" ordering
     CLAUDE.md's "Dimension Order (Figures)" rule forbids — this function must
     use the 7-entry list, not the 5-entry one.
@@ -3149,7 +3098,7 @@ def _build_marker_direction_figure() -> go.Figure | None:
     # Canonical dimension order (CLAUDE.md "Dimension Order (Figures)"), taken
     # from config_feature_consistency.yaml's own contrasts[] — one of that
     # rule's documented "wired into" locations, and already listed on/off,
-    # valence, valence_sq, selfother, time, time_sq, confidence. Panel position
+    # valence, selfother, time, confidence. Panel position
     # here is literally row-major over this row order (build_combined_figure
     # fills a 2-column grid by summary index), so sorting by legacy_group_rho
     # instead (as make_fig_marker_direction.py's own standalone load_tables()

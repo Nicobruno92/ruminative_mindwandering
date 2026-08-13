@@ -32,9 +32,16 @@ Focuses on neural correlates of mind-wandering independent of patient status.
 
 **Section 2 — CBPT: dimension-specific neural signatures**
 - Andrillon pipeline (LMM + cluster-permutation): which EEG markers show group-level correlates for each dimension?
-- Two model formulas: a linear one, and a quadratic one adding `valence_sq`/`time_sq`
-  (orthogonalised U-shaped terms). Report the **quadratic** specification for all
-  targets — it is better specified, so mixing the two per target is a forking path.
+- **Linear specification only** (as of 2026-08-13). A quadratic variant adding
+  orthogonalised `valence_sq`/`time_sq` was previously the reported one; those
+  terms have been **removed from every analysis in the project** — see
+  "Quadratic Terms: Removed" below. Five targets: onoff, valence, selfother,
+  time, confidence.
+- **All Section 2 numbers below predate that removal and are being recomputed.**
+  They came from the quadratic specification, in which the quadratic covariates
+  measurably distorted the linear `valence`/`time` estimates (sign flips at
+  several electrodes). Do not quote any tier, p-value, or marker from this
+  section until the linear-only re-run lands.
 - **Multiple comparisons are read at two levels** (`Stats_andrillon/`, see the
   `andrillon-mcc-fdr-per-family` memory for the full method):
   1. *Marker-wise* — one max-statistic p per marker, Benjamini-Hochberg within each
@@ -45,20 +52,19 @@ Focuses on neural correlates of mind-wandering independent of patient status.
      marker-wise test yet is collectively far from chance. Two statistics: a *count*
      (markers below α vs the permutation null) and a *min-p* (best marker, FWER-valid
      under arbitrary dependence — the assumption-free counterpart to BH). Both are
-     then BH-corrected across the six dimensions within each family.
-- **Result is a three-tier hierarchy, not "only onoff"** (after cross-dimension BH,
-  sleep family):
-  - **Concentrated AND localizable** — `onoff` and `valence_sq`: omnibus count and
-    min-p both survive (BH ≈ 0.001), both peaking in complexity/arousal (**PE-beta**).
-    `valence_sq` is a genuine new finding: complexity tracks *extreme* valence
-    (U-shaped), not linear valence.
-  - **Distributed but real** — `time`, `valence` (linear), `time_sq`: omnibus count
-    is near-significant (uncorrected p≈0.04) but lands at BH≈0.052 and no single
-    marker survives FWER. A group-level trace exists; it is not localizable. These
-    are the dimensions the marker-wise step reported as flat 0 clusters — not null,
-    diffuse.
-  - **Weak/null** — `selfother` (omnibus p≈0.085), and the evoked family for every
-    non-onoff dimension.
+     then BH-corrected across the **five** dimensions within each family (was six
+     when the quadratic targets existed).
+- **SUPERSEDED — the three-tier hierarchy below came from the quadratic
+  specification and is retained only so nobody re-derives it from stale output.**
+  Two of its tiers rested on terms that no longer exist, and `valence`/`time`
+  were estimated with the quadratic covariates in the model. Recompute all of it
+  from the linear-only run before citing anything:
+  - ~~**Concentrated AND localizable** — `onoff` and `valence_sq`, both peaking in
+    PE-beta.~~ `onoff`/PE-beta is the one part independently verified to survive
+    (robust to dropping the quadratics *and* to a leverage drop-test);
+    `valence_sq` is gone.
+  - ~~**Distributed but real** — `time`, `valence` (linear), `time_sq` at BH≈0.052.~~
+  - ~~**Weak/null** — `selfother` (omnibus p≈0.085).~~
 - The old "48-electrode valence×confidence" and "slow waves increase with valence"
   claims do **not** survive the corrected analysis — do not reuse them.
 - Main figure: topomaps (representative markers × dimensions) + heatmap (marker
@@ -96,11 +102,12 @@ figures via `scripts/make_fig_feature_consistency.py`, outputs in
 `results/feature_consistency/`:
 - Per subject, mean(|SHAP|) from their own model vs from the model trained
   without them, over the same trials.
-- **Group level**: Spearman ρ = 0.41 (onoff), 0.39 (valence²), 0.39 (time²),
-  0.35 (valence), 0.31 (confidence), 0.22 (selfother), 0.003 (time, n.s.) over
-  175 features. Collapsing collinear ROI columns to the 23 markers raises this
-  to **0.58 / 0.54 / 0.65 / 0.56 / 0.58**, with selfother 0.31 (p = .07) and
-  time ≈ 0 both non-significant. Part of the feature-level disagreement is
+- **Group level**: Spearman ρ = 0.41 (onoff), 0.35 (valence), 0.31 (confidence),
+  0.22 (selfother), 0.003 (time, n.s.) over 175 features. Collapsing collinear
+  ROI columns to the 23 markers raises this to **0.58 (onoff) / 0.56 (valence) /
+  0.58 (confidence)**, with selfother 0.31 (p = .07) and time ≈ 0 both
+  non-significant. (The valence² 0.39 / time² 0.39 entries were dropped with the
+  quadratic contrasts — see "Quadratic Terms: Removed".) Part of the feature-level disagreement is
   arbitrary choice among collinear ROI columns, not disagreement about markers.
 - **Marker aggregation must be `mean` (per ROI), never `sum`** — set in
   `scripts/config_feature_consistency.yaml`. The 4 evoked markers own 1 column
@@ -121,11 +128,12 @@ figures via `scripts/make_fig_feature_consistency.py`, outputs in
 **Narrative bridge between sections 2 and 3:**
 > CBPT establishes which dimensions leave a detectable group-level neural trace. Classification asks whether that trace is strong enough to predict MW state in a specific person.
 
-**Caveat on that bridge**: the decodability hierarchy no longer cleanly mirrors
-CBPT signal density. CBPT's localizable tier is `onoff` + `valence_sq`, whereas
-LOSO generalisation picks out `onoff` + `confidence` and drops valence to chance.
-Do not assert that the two orderings validate each other without re-checking them
-against the current numbers.
+**Caveat on that bridge**: do not assert that the two orderings validate each
+other. The CBPT side is being recomputed under the linear-only specification
+(see Section 2), so there is currently no CBPT tier ranking to compare against.
+The previous claim — that CBPT's localizable tier was `onoff` + `valence_sq`
+while LOSO picks `onoff` + `confidence` — is void on the `valence_sq` half.
+Re-check both orderings against the new numbers before writing this bridge.
 
 ---
 
@@ -369,12 +377,9 @@ panel order, heatmap/table columns, forest-plot rows, legend order:
 onoff → valence → selfother → time → confidence
 ```
 
-Quadratic terms are interleaved directly after their linear parent, never
-appended at the end:
-
-```
-onoff → valence → valence_sq → selfother → time → time_sq → confidence
-```
+That is the complete order — the quadratic terms that used to be interleaved
+after their linear parents were removed from the project (see "Quadratic Terms:
+Removed"), so no interleaving rule is needed any more.
 
 **Why this order and not another**: it matches `color_palette.yaml`'s
 `dimensions:` key order, which was already the majority convention across the
@@ -397,13 +402,16 @@ Wired into (as of 2026-08-12):
 - `mw_classification_pipeline/scripts/config_feature_consistency.yaml` —
   `contrasts[]`
 
-**Documented exception**: `Stats_andrillon/plot_paper_figures.py`'s
-`SECONDARY_DIMENSIONS` (the non-onoff "other dimensions" figure) is
-deliberately ordered by CBPT tier — concentrated → distributed → null — not
-canonical order, because that ordering *is* the finding the figure displays.
-Any similarly narrative-ordered figure must document the deviation next to
-its order list the same way, rather than silently drifting from canonical
-order.
+**Former exception, now retired**: `Stats_andrillon/plot_paper_figures.py`'s
+`SECONDARY_DIMENSIONS` used to be ordered by CBPT tier (concentrated →
+distributed → null) on the grounds that the ordering *was* the finding. It was
+reverted to canonical order on 2026-08-13 because those tiers came from the
+quadratic specification, which has been retired — baking a superseded ranking
+into panel position primes the reader toward a conclusion the current data has
+not re-established. Do not restore a tier ordering until the linear-only re-run
+is in and the tiers have actually been recomputed. If any figure is ever
+narrative-ordered again, document the deviation next to its order list rather
+than letting it drift silently.
 
 ---
 
@@ -422,9 +430,6 @@ header before any width-driven wrapping):
 | `onoff` | `On/Off-Task` | | `time` | `Time` |
 | `valence` | `Valence` | | `confidence` | `Confidence` |
 | `selfother` | `Self/Other` | | | |
-
-Quadratic terms use their display labels from "Quadratic-Dimension Display
-Labels" below (`Neutral/Emotional`, `Present/NotPresent`), not a variant.
 
 Line-wrapping to fit a narrow column is fine (`"On/Off-\nTask"`,
 `"Self/\nOther"`) as long as the unwrapped text is still the canonical label —
@@ -445,8 +450,6 @@ annotations, correlation-plot axis names):
 | `selfother` | `self-focused` | `other-focused` |
 | `time` | `past` | `future` |
 | `confidence` | `low` | `high` |
-| `valence_sq` | `neutral` | `extreme` |
-| `time_sq` | `present` | `extreme shift` |
 
 This is the short form (`SHORT_POLES` in `Stats_andrillon/plot_paper_figures.py`
 — the first place it was defined). A full-sentence variant exists for CBPT
@@ -480,27 +483,71 @@ Wired into (as of 2026-08-13):
 
 ---
 
-## Quadratic-Dimension Display Labels
+## Quadratic Terms: Removed (2026-08-13)
 
-The underlying column/key names `valence_sq` and `time_sq` (orthogonalised U-shaped
-terms) stay as-is everywhere in code, config, and data — **never rename the
-key**. Only the human-readable text shown in a plot (title, legend, axis, heatmap
-or forest-plot column header) must read:
+`valence_sq` / `time_sq` — the orthogonalised `(x-50)²/50` curvature terms — were
+removed from **every** analysis: CBPT (`Stats_andrillon`, `Statistics`,
+`Statistics_connectivity`), Behaviour (`lmm_probe_dimensions.py`), and the
+classification contrasts. Do not reintroduce them without changing how the term
+is constructed; the problem is the construction, not a bug.
+
+**Why.** The probe sliders are bounded and skewed, so the orthogonalised residual
+has skew 2.4–2.7 and its top 5% of observations carry ~60% of its variance (vs
+13% for a linear predictor like `onoff`). Every effect built on it was carried by
+that tail:
+
+| test | full sample | dropping top-5% leverage |
+|---|---|---|
+| CBPT `time_sq`, evoked/P1 at Oz | t = 2.76 | **t = 1.15** |
+| Behaviour `valence_sq` → omission_rate | z = 2.52, p_FDR .047 | **z = −1.10** (sign flip) |
+| Behaviour `valence_sq` → total_errors | z = 2.25, p_FDR .048 | **z = −0.73** (sign flip) |
+| control: CBPT `onoff`, PE-beta at FC5 | t = −5.24 | t = −5.13 (robust) |
+
+Model-free binning showed the supposed U was a single tail bin (n = 28 for time)
+with the adjacent bin going the other way. Extremes are unbalanced by
+construction — valence has 19 probes ≤10 vs 615 ≥90, so the "extreme negative"
+arm rested on 19 probes.
+
+**Two traps to avoid if this ever comes up again:**
+- *Orthogonalisation is not the culprit and re-fitting it does not help.* The
+  highest-order term is **invariant** under that reparametrisation — verified: t
+  is identical raw vs orthogonalised vs re-orthogonalised on the analysis sample.
+  What the quadratic term did change was the **linear** term, whose t swung from
+  −0.43 to +3.05 on the same data depending on parametrisation. That is why
+  `valence` and `time` also had to be re-estimated, not just the `_sq` targets.
+- *`min_predictor_variability_sq: 15` was justified by a false premise* ("quadratic
+  predictors live on a 0-50 scale, use half the linear threshold"). The
+  orthogonalised residual spans ≈ −10..+79, not 0-50. Since variability is measured
+  as within-subject range, that criterion selected subjects **for having extreme
+  probes** (r = 0.53 with max|time−50|), i.e. it enriched for the very leverage
+  driving the effect.
+
+**Classification is the exception, and was not itself invalid**: the median split
+only uses rank order, so the long tail is just "high". Those contrasts were
+disabled for consistency, not because they were wrong. If ever revived, note the
+"extreme" class is confounded with the raw dimension (corr +0.27 with valence,
++0.15 with time), so it partly re-learns the linear dimension.
+
+---
+
+## Quadratic-Dimension Display Labels *(historical)*
+
+The `valence_sq` / `time_sq` terms were removed from every analysis on
+2026-08-13 (see "Quadratic Terms: Removed"), so these labels are no longer
+wired into anything. Recorded only so that old figures and CSVs remain
+readable:
 
 | Column key | Display label |
 |------------|---------------|
 | `valence_sq` | `Neutral/Emotional` |
 | `time_sq` | `Present/NotPresent` |
 
-Apply this to any new figure. Wired into (as of 2026-07-31):
-- `Behavior/Objective_Markers/lmm_probe_dimensions.py` — `PREDICTOR_LABELS`
-- `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` — `CORR_VARS`
-- `Stats_andrillon/plot_paper_figures.py` — `HEATMAP_COLUMN_LABELS`,
-  `SECONDARY_COLUMN_LABELS` (not `POLE_LABELS`/`SHORT_POLES` — those describe
-  effect *direction*, e.g. "higher at extreme valence", a different concept
-  from the dimension's name)
-- `mw_classification_pipeline/scripts/config_feature_consistency.yaml` —
-  `contrasts[].label`
+Note `Present/NotPresent` was in any case a poor label: the `time_sq`
+regressor's minimum sat at time ≈ 63, not 50 ("present"), and it was
+asymmetric — +71 at the past extreme vs +17.9 at the future extreme, so a
+positive coefficient weighted *past* about 4:1 rather than "not present"
+symmetrically. If a curvature construct is ever reintroduced, name it from its
+actual fitted shape, not from the intended one.
 
 ---
 

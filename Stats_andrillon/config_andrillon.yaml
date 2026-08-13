@@ -25,11 +25,20 @@ project:
   # Filter probes by onoff value (optional)
   onoff_max_value: 100
 
-  # Filter subjects by predictor variability (optional)
+  # Filter subjects by predictor variability (optional). Measured as
+  # within-subject range (peak-to-peak) of the predictor of interest.
   min_predictor_variability: 30
-  # Quadratic predictors live on a 0-50 scale (half the original 0-100).
-  # Use half the linear threshold so the inclusion criterion is equivalent.
-  min_predictor_variability_sq: 15
+  # min_predictor_variability_sq: 15  — removed 2026-08-13 with the quadratic
+  # terms. Its justifying comment ("quadratic predictors live on a 0-50 scale,
+  # use half the linear threshold so the criterion is equivalent") was based on
+  # a false premise: the ORTHOGONALIZED residual spans about -10..+79 with
+  # median -5 and SD 11.7, not 0-50, so 15 was not an equivalent criterion. In
+  # practice it selected for exactly the wrong thing — it correlated 0.53 (time)
+  # with a subject having extreme probes, and kept subjects whose median
+  # max|time-50| was 43.5 vs 22.0 for those dropped, i.e. it preferentially
+  # retained the subjects supplying the high-leverage observations. Do not
+  # reintroduce a "half the linear threshold" rule for any derived predictor
+  # without checking the derived column's actual range.
 
 # =============================================================================
 # FEATURE FAMILIES (identical to Statistics — same Junifer marker names)
@@ -187,38 +196,63 @@ preprocessing:
       sleep/slowwaves_PTP: "log"
       sleep/slowwaves_Density: "log1p"
 
-  # Orthogonalized quadratic features
-  # For each base_col, computes (base_col - 50)^2 / 50 then residualizes w.r.t. base_col via OLS,
-  # yielding a U-shaped predictor orthogonal to the linear term.
+  # Orthogonalized quadratic features — DISABLED 2026-08-13.
+  #
+  # For each base_col this computed (base_col - 50)^2 / 50 then residualized
+  # w.r.t. base_col via OLS, intended as a U-shaped predictor orthogonal to the
+  # linear term. It was retired because the resulting regressor is dominated by
+  # a handful of probes, not because of an implementation bug — re-enabling it
+  # without changing the construction reinstates the artifact:
+  #
+  #   - The probe sliders are bounded and skewed, so the residual has skew
+  #     2.4-2.7: the top 5% of observations carry 61-64% of its variance
+  #     (vs 13% for a linear predictor like onoff).
+  #   - Drop-test, evoked/P1 at Oz: t(time_sq) 2.76 -> 1.15 when the top 5% is
+  #     removed, while t(time) holds (2.41 -> 2.26).
+  #   - Behaviour (GLMM, n=2460): both FDR-significant valence_sq effects
+  #     REVERSE SIGN when the top 5% is dropped — omission_rate z 2.52 -> -1.10,
+  #     total_errors z 2.25 -> -0.73.
+  #   - Model-free binning shows the supposed U is one tail bin (n=28 for time)
+  #     with the adjacent bin going the other way.
+  #   - Extremes are unbalanced by construction: valence has 19 probes <=10 vs
+  #     615 >=90, so the "extreme negative" arm rests on 19 probes.
+  #
+  # Orthogonalization is NOT the problem and re-fitting it post-filter does not
+  # help: the highest-order term is invariant under that reparametrization
+  # (verified — t is identical raw vs orthogonalized). What the quadratic term
+  # DID change was the linear term, whose t swung from -0.43 to +3.05 for the
+  # same data depending on parametrization.
   quadratic_features:
-    enabled: true
-    features:
-      valence: valence_sq
-      time: time_sq
+    enabled: false
+    features: {}
 
 # Linear mixed model parameters
 lmm:
   # Formula for the LMM
   # Same syntax as current pipeline
-  formula: "power ~ onoff + valence + valence_sq + selfother + time + time_sq + time_on_task + confidence + (1|subject)"
+  # Linear-only specification (2026-08-13). The quadratic terms valence_sq and
+  # time_sq were removed as covariates as well as targets — see the
+  # `quadratic_features` block above for the evidence. Because the model folder
+  # name is derived from the fixed effects, runs under this formula land in new
+  # directories and the previous quadratic-spec results stay on disk untouched.
+  formula: "power ~ onoff + valence + selfother + time + time_on_task + confidence + (1|subject)"
 
   # Predictor of interest (will be permuted and tested)
   # predictor_of_interest can be a single string or a list.
   # - Single string: run directly with python Stats_andrillon/run_andrillon_pipeline.py
   # - List: use submit_andrillon_array.sh / submit_parallel_andrillon_markers.sh to submit loop
+  # Five targets: the five MDES probe dimensions. valence_sq/time_sq were
+  # dropped 2026-08-13 (see `quadratic_features`), so the cross-dimension BH
+  # denominator in omnibus_test.py is now 5, not 7.
   predictor_of_interest:
     - "onoff"
     - "valence"
-    - "valence_sq"
     - "selfother"
     - "time"
-    - "time_sq"
     # confidence is the 5th MDES probe dimension (Q3, metacognitive certainty).
     # It was already a covariate in the formula; testing it as a target asks
     # whether metacognitive certainty itself has a neural correlate, and keeps
-    # the dimension set complete. Adding it as a *target* leaves the formula —
-    # and therefore the six existing runs — untouched; only the cross-dimension
-    # BH denominator in omnibus_test.py grows from 6 to 7.
+    # the dimension set complete.
     - "confidence"
     # - "time_on_task"
     # Interaction examples (requires per_predictor_formula override below):

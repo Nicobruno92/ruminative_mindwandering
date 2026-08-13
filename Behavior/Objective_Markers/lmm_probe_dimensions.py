@@ -4,14 +4,13 @@ LMM Analysis: Probe Dimensions → Objective Behavioral Markers
 TWO ANALYSES:
 
 1. ADDITIVE MODEL (one per marker):
-    marker ~ onoff + valence + valence_sq + selfother + time + time_sq
+    marker ~ onoff + valence + selfother + time
              + confidence + time_on_task + (1|subject)
-   Tests the independent contribution of each probe dimension, including
-   curvature (quadratic) terms for valence and time.
+   Tests the independent contribution of each probe dimension.
 
 2. MODERATION ANALYSIS (one per marker × moderator):
     marker ~ onoff * moderator + (1|subject)
-   For each non-onoff probe dimension (incl. valence_sq, time_sq), tests
+   For each non-onoff probe dimension, tests
    whether it moderates the effect of onoff on the objective marker. The
    interaction term onoff:moderator is the key test. FDR-BH corrected across
    all marker × moderator tests. Visualised as an interaction plot: onoff
@@ -26,27 +25,37 @@ Preprocessing mirrors objective_markers_analysis.py:
   - Derive time_on_task = probe_number + 15 * (sart_number - 1)
   - Within-subject z-scoring of objective markers (APPLY_WITHIN_SUBJECT_Z)
 
-QUADRATIC TERMS (time_sq, valence_sq) — global orthogonalization:
-  `time_sq = (time-50)^2/50` and `valence_sq = (valence-50)^2/50` (see
-  compute_time_squared / compute_valence_squared) test whether `time` and
-  `valence` have curvature (U-shaped) relationships with the markers, beyond
-  their linear effects. Each is then GLOBALLY ORTHOGONALIZED against its own
-  linear term (orthogonalize_quadratic): a single pooled OLS fit
-  `quad ~ linear` is subtracted off, leaving only the curvature component —
-  the same parametrization as R's `poly(x, 2)`. By the invariance of the
-  highest-order polynomial term, this does NOT change the quadratic term's
-  estimate/SE/t/p; it only removes its collinearity with the linear term
-  (cleaning up the linear term's VIF/SE). The (intercept, slope) of each
-  orthogonalization is saved to `<dataset>/quadratic_orthogonalization.csv`
-  for transparency.
+QUADRATIC TERMS (time_sq, valence_sq) — REMOVED 2026-08-13.
+  These tested whether `time`/`valence` have U-shaped relationships with the
+  markers, as `(x-50)^2/50` orthogonalized against the linear term. They were
+  retired because the regressor is dominated by a handful of probes, not
+  because of an implementation bug — the construction itself is the problem,
+  so do not reinstate it without changing how the term is built:
 
-`present` REMOVED: a previous predictor `present = 50 - |time-50|` aimed to
+    - The sliders are bounded and skewed, so the residual has skew 2.4-2.7 and
+      its top 5% of observations carry ~60% of its variance.
+    - Both FDR-significant effects here REVERSED SIGN under a drop-test of that
+      top 5% (n 2460 -> 2344):
+          omission_rate  est +0.171 z  2.518 p_fdr 0.047
+                      -> est -0.094 z -1.095 p_fdr 0.364
+          total_errors   est +0.115 z  2.254 p_fdr 0.048
+                      -> est -0.047 z -0.725 p_fdr 0.625
+    - Extremes are unbalanced by construction: valence has 19 probes <=10 vs
+      615 >=90, so the "extreme negative" arm rested on 19 probes.
+
+  Note the orthogonalization itself was never the issue and re-fitting it does
+  not rescue the term: the highest-order term is invariant under that
+  reparametrization (as the old docstring correctly noted). What it did change
+  was the LINEAR term — in the EEG pipeline the same data gave t(time) from
+  -0.43 to +3.05 depending on parametrization, which is why `valence` and
+  `time` also had to be re-estimated without the quadratics present.
+
+`present` REMOVED earlier: a predictor `present = 50 - |time-50|` aimed to
 capture "distance from now". It is a near-perfect monotonic function of
-`|time-50|` (r≈-0.97 with `time_sq`) — the same information as `time_sq`,
-just rescaled/flipped — so it cannot coexist with `time_sq` in one model
-(severe collinearity). `time_sq` (orthogonalized) already captures this
-construct, plus asymmetry, within the single unified model below, so
-`present` is dropped entirely.
+`|time-50|`, i.e. the same information as the quadratic term just rescaled and
+flipped, so it could not coexist with `time_sq` in one model. With the
+quadratic terms now gone too, no curvature-in-time construct is modelled at
+all — that is a deliberate scope reduction, not an oversight.
 
 Outputs (saved under OUTPUT_BASE_DIR/<dataset>/):
   full_model/<marker>_lmm_results.csv       — additive model results + FDR
@@ -56,7 +65,6 @@ Outputs (saved under OUTPUT_BASE_DIR/<dataset>/):
   full_model/moderation_summary.csv          — interaction term stats, FDR-corrected
   full_model/moderation_forest_<marker>.png  — forest of interaction coefficients
   full_model/interaction_<marker>_<mod>.png  — interaction plot per significant pair
-  quadratic_orthogonalization.csv            — (intercept, slope) for time_sq/valence_sq (dataset root)
 
 PREDICTOR_SETS ties the named predictor set (predictors, formula, output
 subdir, moderators) together; `plots_only(predictor_set_names=...)` /
@@ -125,17 +133,15 @@ MARKER_LABELS: dict[str, str] = {
 
 # Probe-level predictors (fixed effects, continuous, 0-100 scale)
 PREDICTORS: list[str] = [
-    "onoff", "valence", "valence_sq", "selfother", "time", "time_sq",
+    "onoff", "valence", "selfother", "time",
     "confidence", "time_on_task",
 ]
 
 PREDICTOR_LABELS: dict[str, str] = {
     "onoff": "On/Off-Task",
     "valence": "Valence",
-    "valence_sq": "Neutral/Emotional",
     "selfother": "Self/Other",
     "time": "Time",
-    "time_sq": "Present/NotPresent",
     "confidence": "Confidence",
     "time_on_task": "Time on Task",
 }
@@ -144,8 +150,6 @@ PREDICTOR_LABELS: dict[str, str] = {
 # Task Design" / CLAUDE.md). Shown on the scatter-panel x-axis in place of the
 # dimension name (already carried by the panel title above it), mirroring the
 # pole_low/pole_high labels in Behavior/Probe_analysis/probe_dimension_cloud_plot.py.
-# The _sq terms plot |base − 50| (distance from the neutral midpoint, 0-50), so
-# their pole is "neutral → extreme" rather than the base dimension's poles.
 # time_on_task is a covariate (probe index, not a 0-100 bipolar MDES rating),
 # so its entry isn't a "pole" in that sense either — "probe n" instead states
 # what the axis actually counts, since repeating the "Time on Task" title
@@ -154,24 +158,22 @@ PREDICTOR_LABELS: dict[str, str] = {
 POLE_LABELS: dict[str, str] = {
     "onoff": "off-task → on-task",
     "valence": "negative → positive",
-    "valence_sq": "neutral → extreme",
     "selfother": "self → other",
     "time": "past → future",
-    "time_sq": "neutral → extreme",
     "confidence": "low → high",
     "time_on_task": "probe n",
 }
 
 # LMM formula template — marker name is substituted at runtime
 FORMULA_TEMPLATE = (
-    "{marker} ~ onoff + valence + valence_sq + selfother + time + time_sq"
+    "{marker} ~ onoff + valence + selfother + time"
     " + confidence + time_on_task + (1|subject)"
 )
 
 # Potential moderators of the onoff effect (all probe dimensions except onoff)
 # Each will be tested in: marker ~ onoff * moderator + (1|subject)
 MODERATORS: list[str] = [
-    "valence", "valence_sq", "selfother", "time", "time_sq", "confidence",
+    "valence", "selfother", "time", "confidence",
     "time_on_task",
 ]
 
@@ -218,18 +220,15 @@ PALETTE_MOD_HIGH = "#F24236"  # red — high moderator
 PREDICTOR_COLORS: dict[str, str] = {
     "onoff":        PALETTE["dimensions"]["onoff"],       # red          — On/Off-Task
     "valence":      PALETTE["dimensions"]["valence"],     # blue         — Valence
-    "valence_sq":   PALETTE["quadratic"]["valence_sq"],   # light blue   — Valence² tint
     "selfother":    PALETTE["dimensions"]["selfother"],   # green        — Self/Other
     "time":         PALETTE["dimensions"]["time"],        # purple       — Time
-    "time_sq":      PALETTE["quadratic"]["time_sq"],      # light purple — Time² tint
     "confidence":   PALETTE["dimensions"]["confidence"],  # orange       — Confidence
     "time_on_task": PALETTE["neutral"]["covariate"],      # grey         — covariate
 }
 DEFAULT_PREDICTOR_COLOR: str = PALETTE["neutral"]["covariate"]
 
 # --- Predictor sets ----------------------------------------------------------
-# Single unified model: every probe dimension (incl. the orthogonalized
-# quadratic terms time_sq / valence_sq, see orthogonalize_quadratic) in one
+# Single unified model: every probe dimension in one
 # additive model + one onoff-moderation forest. Kept as a dict (rather than a
 # bare formula) so the full plot suite (scatter grid + additive forest +
 # onoff-moderation forest + combined panel) and `plots_only(...)` /
@@ -313,96 +312,6 @@ def add_time_on_task(df: pd.DataFrame) -> pd.DataFrame:
     df["sart_number"] = df["task"].str.extract(r"(\d+)").astype(int)
     df["time_on_task"] = df["probe_number"] + 15 * (df["sart_number"] - 1)
     return df
-
-
-def compute_time_squared(df: pd.DataFrame) -> pd.DataFrame:
-    """Derive a quadratic `time_sq` term from `time`.
-
-    `time_sq = (time - 50)^2 / 50` lets the additive model fit a parabola
-    whose vertex can fall anywhere in [0, 100] (vertex at
-    `time = 50 - beta_time / (2 * beta_time_sq)`), capturing asymmetric
-    U-shapes that the linear `time` term alone cannot. Centring on 50 before
-    squaring reduces collinearity with the linear `time` term; the `/ 50`
-    scaling puts `time_sq` on the same 0-50 range as `valence_sq`. Call
-    `orthogonalize_quadratic(df, "time_sq", "time")` afterwards to fully
-    remove the residual correlation (global poly-2 parametrization).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Dataframe containing a `time` column.
-
-    Returns
-    -------
-    pd.DataFrame
-        Input dataframe with `time_sq` column added (0-50 scale).
-    """
-    df["time_sq"] = (df["time"] - 50) ** 2 / 50
-    return df
-
-
-def compute_valence_squared(df: pd.DataFrame) -> pd.DataFrame:
-    """Derive a quadratic `valence_sq` term from `valence`.
-
-    `valence_sq = (valence - 50)^2 / 50` tests whether `valence` has a
-    curvature (U-shaped) relationship with the markers beyond its linear
-    effect. Centring on 50 follows the same "neutral midpoint" convention as
-    `time_sq` (compute_time_squared). The `/ 50` scaling puts `valence_sq` on
-    the same 0-50 range as `time_sq`. Call
-    `orthogonalize_quadratic(df, "valence_sq", "valence")` afterwards to fully
-    remove the residual correlation (global poly-2 parametrization).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Dataframe containing a `valence` column.
-
-    Returns
-    -------
-    pd.DataFrame
-        Input dataframe with `valence_sq` column added (0-50 scale).
-    """
-    df["valence_sq"] = (df["valence"] - 50) ** 2 / 50
-    return df
-
-
-def orthogonalize_quadratic(
-    df: pd.DataFrame, quad_col: str, linear_col: str
-) -> tuple[pd.DataFrame, float, float]:
-    """Globally orthogonalize a quadratic term against its linear counterpart.
-
-    Fits a pooled OLS regression `quad_col ~ linear_col` across all rows and
-    subtracts the fitted values, leaving only the curvature component. This is
-    the poly(x, 2) parametrization used in R and the EEG/CBPT pipeline, and
-    ensures that the quadratic term's coefficient is unconfounded by the linear
-    term's range (lower VIF). By the invariance of the highest-order polynomial
-    term under invertible linear reparametrizations of the fixed-effects design
-    matrix, the quadratic term's LMM estimate, SE, t, and p are unchanged —
-    only the linear term's SE is affected (reduced collinearity).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Dataframe containing `quad_col` and `linear_col`.
-    quad_col : str
-        Name of the quadratic column to orthogonalize in-place (e.g.
-        ``"time_sq"`` or ``"valence_sq"``).
-    linear_col : str
-        Name of the linear column to regress out (e.g. ``"time"`` or
-        ``"valence"``).
-
-    Returns
-    -------
-    df : pd.DataFrame
-        Input dataframe with `quad_col` replaced by the residualised version.
-    intercept : float
-        OLS intercept of `quad_col ~ linear_col` (saved for transparency).
-    slope : float
-        OLS slope of `quad_col ~ linear_col` (saved for transparency).
-    """
-    slope, intercept, *_ = stats.linregress(df[linear_col], df[quad_col])
-    df[quad_col] = df[quad_col] - (intercept + slope * df[linear_col])
-    return df, float(intercept), float(slope)
 
 
 def standardize_predictors(
@@ -2119,7 +2028,7 @@ def _fit_predictor_set(
     ----------
     df : pd.DataFrame
         Merged probe-level dataframe with all derived predictor columns
-        (time_on_task, time_sq⊥, valence_sq⊥).
+        (time_on_task).
     set_name : str
         Key into `PREDICTOR_SETS` (used for log messages only).
     set_cfg : dict
@@ -2314,20 +2223,6 @@ def run_pipeline_for_dataset(dataset_name: str, markers_path: str, output_base: 
 
     # --- Derived variables ---------------------------------------------------
     df = add_time_on_task(df)
-    df = compute_time_squared(df)
-    df = compute_valence_squared(df)
-    df, time_sq_intercept, time_sq_slope = orthogonalize_quadratic(df, "time_sq", "time")
-    df, valence_sq_intercept, valence_sq_slope = orthogonalize_quadratic(df, "valence_sq", "valence")
-    orth_df = pd.DataFrame([
-        {"term": "time_sq", "linear_col": "time",
-         "intercept": time_sq_intercept, "slope": time_sq_slope},
-        {"term": "valence_sq", "linear_col": "valence",
-         "intercept": valence_sq_intercept, "slope": valence_sq_slope},
-    ])
-    orth_path = output_dir / "quadratic_orthogonalization.csv"
-    orth_df.to_csv(orth_path, index=False)
-    print(f"\nQuadratic orthogonalization saved: {orth_path}")
-    print(orth_df.to_string(index=False))
 
     # --- Within-subject z-scoring (same as objective_markers_analysis.py) ----
     if APPLY_WITHIN_SUBJECT_Z:
@@ -2418,10 +2313,6 @@ def plots_only(predictor_set_names: list[str] | None = None) -> None:
         df["task"] = df["task"].apply(normalize_task_label)
         df = df[df["task"].isin(["Sart1", "Sart2", "Sart3", "Sart4"])].copy()
         df = add_time_on_task(df)
-        df = compute_time_squared(df)
-        df = compute_valence_squared(df)
-        df, _, _ = orthogonalize_quadratic(df, "time_sq", "time")
-        df, _, _ = orthogonalize_quadratic(df, "valence_sq", "valence")
         if APPLY_WITHIN_SUBJECT_Z:
             df = apply_within_subject_z_scoring(df, OBJECTIVE_MARKERS)
 

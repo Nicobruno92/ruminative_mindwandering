@@ -16,17 +16,14 @@ group summary -- they exist to show that individual subjects do not sample
 the 0-100 scale the same way (different peaks, different spread, some
 bimodal), which the pooled density alone hides.
 
-Panel 6 is a Spearman correlation matrix across the five raw dimensions plus
-the two curvature terms used elsewhere in the paper's LMMs (`valence_sq`,
-`time_sq` = `(x-50)^2/50`, see Behavior/Objective_Markers/lmm_probe_dimensions.py).
-This is the *raw* quadratic transform, not the version orthogonalized against
-its linear term for that regression -- orthogonalization is a model-fitting
-step to reduce collinearity in a specific formula, and would force
-corr(valence, valence_sq) to ~0 by construction, which is not a fact about
-the probe data and does not belong in a descriptive correlation matrix.
+Panel 6 is a Spearman correlation matrix across the five raw dimensions. It
+used to also carry the two curvature terms `valence_sq`/`time_sq`, on the
+grounds that they were used in the paper's LMMs; those terms were removed from
+every analysis on 2026-08-13 (see Stats_andrillon/config_andrillon.yaml), so
+they no longer have a referent here and were dropped from the matrix.
 Correlations pool all trials across subjects (matches the probe-probe method
 in Behavior/Probe_analysis/Correlations/final_correlation_analysis.py); BH-FDR
-is applied once across all 21 unique pairs. Non-significant pairs are left
+is applied once across all 10 unique pairs. Non-significant pairs are left
 uncolored (white) -- color/fill still means significance everywhere else in
 the project's figures, so it means the same thing here.
 
@@ -87,20 +84,17 @@ DIMENSIONS: list[dict] = [
 SCALE_MIN, SCALE_MAX = 0.0, 100.0
 GRID_N = 256  # KDE evaluation grid resolution
 
-# Panel 6: correlation matrix across the raw dimensions plus the curvature
-# terms used in the LMM sections of the paper.
+# Panel 6: correlation matrix across the five raw probe dimensions.
 CORR_VARS: list[dict] = [
     {"key": "onoff", "label": "On/Off-Task"},
     {"key": "valence", "label": "Valence"},
-    {"key": "valence_sq", "label": "Neutral/Emotional"},
     {"key": "selfother", "label": "Self/Other"},
     {"key": "time", "label": "Time"},
-    {"key": "time_sq", "label": "Present/NotPresent"},
     {"key": "confidence", "label": "Confidence"},
 ]
 CORR_ALPHA = 0.05
 CORR_COLUMN_WEIGHT = 1.0  # same width as each density panel
-CORR_CELL_FONT_PT = 5.5  # smaller than the template's 7pt tick size; 7x7 grid
+CORR_CELL_FONT_PT = 5.5  # smaller than the template's 7pt tick size; 5x5 grid
                          # at 1-panel width has no room for a bigger label
 # A blank spacer column between the last density panel and the matrix: the
 # matrix's row labels sit outside its own plot area (standard for a heatmap),
@@ -165,13 +159,10 @@ def init_palette() -> RepoPalette:
 # Data
 # =============================================================================
 def load_probe_data() -> pd.DataFrame:
-    """Load one row per probe with subject id, the five dimension scores, and
-    the raw curvature terms `valence_sq`/`time_sq` (see module docstring)."""
+    """Load one row per probe with subject id and the five dimension scores."""
     cols = ["subject"] + [d["key"] for d in DIMENSIONS]
     df = pd.read_csv(PROBE_DATA_PATH, usecols=cols)
     df = df.dropna(subset=cols)
-    df["valence_sq"] = (df["valence"] - 50) ** 2 / 50
-    df["time_sq"] = (df["time"] - 50) ** 2 / 50
     return df
 
 
@@ -184,7 +175,7 @@ def compute_correlation_matrix(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray
         Spearman r for every pair (diagonal = 1).
     significant : (n, n) bool array
         True where the BH-FDR-corrected p-value (single correction across all
-        21 unique off-diagonal pairs) is below ``CORR_ALPHA``. Diagonal is
+        10 unique off-diagonal pairs) is below ``CORR_ALPHA``. Diagonal is
         always True.
     """
     keys = [v["key"] for v in CORR_VARS]

@@ -16,6 +16,10 @@ paths:
 
 # Every contrast that has completed runs in BOTH pipelines. `ws_dir` / `loso_dir`
 # differ in case for on/off only, a historical naming inconsistency.
+# valence_sq / time_sq contrasts removed 2026-08-13 along with the quadratic
+# construct itself (see Stats_andrillon/config_andrillon.yaml). Their WS/LOSO
+# result directories may still exist on disk from earlier runs; they are no
+# longer read.
 contrasts:
   - key:         "on_off"
     label:       "On/Off-Task"
@@ -27,11 +31,6 @@ contrasts:
     ws_dir:      "valence_within_median"
     loso_dir:    "valence_within_median"
     palette_key: "valence"
-  - key:         "valence_sq"
-    label:       "Neutral/Emotional"
-    ws_dir:      "valence_sq"
-    loso_dir:    "valence_sq"
-    palette_key: "valence_sq"
   - key:         "selfother"
     label:       "Self/Other"
     ws_dir:      "selfother_within_median"
@@ -42,11 +41,6 @@ contrasts:
     ws_dir:      "time_within_median"
     loso_dir:    "time_within_median"
     palette_key: "time"
-  - key:         "time_sq"
-    label:       "Present/NotPresent"
-    ws_dir:      "time_sq"
-    loso_dir:    "time_sq"
-    palette_key: "time_sq"
   - key:         "confidence"
     label:       "Confidence"
     ws_dir:      "confidence_within_median"

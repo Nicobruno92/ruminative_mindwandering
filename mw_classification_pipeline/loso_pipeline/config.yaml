@@ -315,12 +315,21 @@ run_contrasts:
   # - time_within_median_offtask
   - confidence_within_median
   # - confidence_within_median_offtask
-  - valence_sq
-  - time_sq
-  - valence_sq_res
-  - time_sq_res
-  - valence_sq_res_cross
-  - time_sq_res_cross
+  # --- Quadratic contrasts disabled 2026-08-13 -----------------------------
+  # The (x-50)^2/50 construct was removed from the paper: in the LMM/CBPT and
+  # Behaviour pipelines its effects were driven by a tiny high-leverage tail
+  # and sign-flipped under a drop-test. The median split used HERE is far more
+  # robust to that tail (it only uses rank order), so these runs were not
+  # themselves invalid — they are disabled for consistency, because the
+  # construct is no longer part of the paper. One caveat if ever revived: the
+  # 'extreme' class is confounded with the raw dimension (corr +0.27 with
+  # valence, +0.15 with time), so it partly re-learns the linear dimension.
+  # - valence_sq
+  # - time_sq
+  # - valence_sq_res
+  # - time_sq_res
+  # - valence_sq_res_cross
+  # - time_sq_res_cross
   # --- Cross-dimension residualized contrasts (exploratory) -----------------
   # confidence_within_median_res: not used as a predictor for the other 4
   # (mediator concern, see design doc), but still run as its own target —
