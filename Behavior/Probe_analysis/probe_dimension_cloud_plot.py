@@ -488,7 +488,8 @@ def main() -> None:
 
     corr, significant = compute_correlation_matrix(df)
     corr_labels = [v["label"] for v in CORR_VARS]
-    print("\nSpearman correlations (BH-FDR across 21 pairs, alpha="
+    n_pairs = len(CORR_VARS) * (len(CORR_VARS) - 1) // 2
+    print(f"\nSpearman correlations (BH-FDR across {n_pairs} pairs, alpha="
           f"{CORR_ALPHA}); * = significant:")
     for i, row_label in enumerate(corr_labels):
         cells = "  ".join(

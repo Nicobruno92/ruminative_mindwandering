@@ -107,18 +107,17 @@ HEIGHT_MM = 165.0
 PALETTE_PATH = _REPO_ROOT / "color_palette.yaml"
 PROBE_DATA_PATH = _REPO_ROOT / "results/Behavior/probe_data/probe_level_aggregated_data.csv"
 
-# Panel 6: Spearman correlation matrix across the probe dimensions plus the
-# curvature terms used in the LMM sections of the paper (raw, non-orthogonalized
-# `(x-50)^2/50`; see Behavior/Probe_analysis/probe_dimension_cloud_plot.py for
-# why the raw form belongs in a descriptive matrix and the orthogonalized one
-# does not).
+# Panel 6: Spearman correlation matrix across the five raw probe dimensions.
+# The valence_sq/time_sq curvature terms this used to include were dropped
+# project-wide (see CLAUDE.md "Quadratic Terms: Removed", 2026-08-13) --
+# they no longer exist as analysis targets, so they don't belong in a
+# descriptive matrix either. Labels match CLAUDE.md's canonical display
+# labels for the five dimensions.
 CORR_VARS: list[dict] = [
-    {"key": "onoff", "label": "On/off"},
+    {"key": "onoff", "label": "On/Off-Task"},
     {"key": "valence", "label": "Valence"},
-    {"key": "valence_sq", "label": "Neutral/Emotional"},
-    {"key": "selfother", "label": "Self/other"},
+    {"key": "selfother", "label": "Self/Other"},
     {"key": "time", "label": "Time"},
-    {"key": "time_sq", "label": "Present/NotPresent"},
     {"key": "confidence", "label": "Confidence"},
 ]
 CORR_ALPHA = 0.05
@@ -313,13 +312,15 @@ def collect_all_dimensions() -> list[dict]:
 
 
 def load_probe_data() -> pd.DataFrame:
-    """Load probe-level dimension scores plus the raw curvature terms."""
+    """Load probe-level scores for the five canonical dimensions.
+
+    The valence_sq / time_sq curvature columns this used to derive here were
+    dropped with the quadratic construct (CLAUDE.md "Quadratic Terms:
+    Removed", 2026-08-13); ``CORR_VARS`` no longer references them.
+    """
     cols = ["subject", "onoff", "valence", "selfother", "time", "confidence"]
     df = pd.read_csv(PROBE_DATA_PATH, usecols=cols)
-    df = df.dropna(subset=cols)
-    df["valence_sq"] = (df["valence"] - 50) ** 2 / 50
-    df["time_sq"] = (df["time"] - 50) ** 2 / 50
-    return df
+    return df.dropna(subset=cols)
 
 
 def compute_correlation_matrix(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
@@ -331,7 +332,7 @@ def compute_correlation_matrix(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray
         Spearman r for every pair (diagonal = 1).
     significant : (n, n) bool array
         True where the BH-FDR-corrected p-value (single correction across all
-        21 unique off-diagonal pairs) is below ``CORR_ALPHA``. Diagonal is
+        10 unique off-diagonal pairs) is below ``CORR_ALPHA``. Diagonal is
         always True.
     """
     keys = [v["key"] for v in CORR_VARS]

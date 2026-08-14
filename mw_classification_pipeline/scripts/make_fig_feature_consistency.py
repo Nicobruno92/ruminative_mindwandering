@@ -76,7 +76,6 @@ DOTPLOT_WIDTH_MM, DOTPLOT_HEIGHT_MM = 180.0, 105.0
 PALETTE_KEY = {
     "on_off": "onoff", "valence": "valence", "confidence": "confidence",
     "selfother": "selfother", "time": "time",
-    "valence_sq": "valence_sq", "time_sq": "time_sq",
 }
 
 JITTER_WIDTH = 0.18

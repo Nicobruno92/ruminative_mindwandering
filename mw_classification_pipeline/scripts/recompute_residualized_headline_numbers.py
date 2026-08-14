@@ -37,8 +37,9 @@ DIMENSIONS: list[dict[str, str]] = [
     {"key": "selfother_res", "ws_dir": "selfother_within_median_res", "loso_dir": "selfother_within_median_res", "label": "selfother_res"},
     {"key": "time_res", "ws_dir": "time_within_median_res", "loso_dir": "time_within_median_res", "label": "time_res"},
     {"key": "confidence_res", "ws_dir": "confidence_within_median_res", "loso_dir": "confidence_within_median_res", "label": "confidence_res"},
-    {"key": "valence_sq_res_cross", "ws_dir": "valence_sq_res_cross", "loso_dir": "valence_sq_res_cross", "label": "valence_sq_res_cross"},
-    {"key": "time_sq_res_cross", "ws_dir": "time_sq_res_cross", "loso_dir": "time_sq_res_cross", "label": "time_sq_res_cross"},
+    # valence_sq_res_cross / time_sq_res_cross removed 2026-08-13 with the
+    # quadratic construct (CLAUDE.md "Quadratic Terms: Removed"). Their run
+    # directories still exist on disk; this list is what keeps them out.
 ]
 
 

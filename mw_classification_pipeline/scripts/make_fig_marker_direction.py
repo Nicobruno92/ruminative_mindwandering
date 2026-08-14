@@ -81,7 +81,6 @@ WIDTH_MM, HEIGHT_MM = 180.0, 115.0
 PALETTE_KEY = {
     "on_off": "onoff", "valence": "valence", "confidence": "confidence",
     "selfother": "selfother", "time": "time",
-    "valence_sq": "valence_sq", "time_sq": "time_sq",
 }
 
 ALPHA = 0.05
@@ -107,8 +106,6 @@ CLASS_POLES = {
     "confidence": ("low", "high"),
     "selfother": ("self-focused", "other-focused"),
     "time": ("past", "future"),
-    "valence_sq": ("neutral", "emotional"),
-    "time_sq": ("present", "not present"),
 }
 
 # Dimensions whose plotted direction is negated *for display only* — empty by

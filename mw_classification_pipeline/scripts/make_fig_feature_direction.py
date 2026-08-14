@@ -78,7 +78,6 @@ WIDTH_MM, HEIGHT_MM = 180.0, 78.0
 PALETTE_KEY = {
     "on_off": "onoff", "valence": "valence", "confidence": "confidence",
     "selfother": "selfother", "time": "time",
-    "valence_sq": "valence_sq", "time_sq": "time_sq",
 }
 
 ALPHA = 0.05

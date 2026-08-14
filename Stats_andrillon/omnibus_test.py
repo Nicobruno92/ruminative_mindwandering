@@ -66,6 +66,7 @@ from apply_mcc_postprocessing import (  # noqa: E402
     load_marker_results,
     partition_results_by_config,
 )
+from helpers import get_model_folder_name  # noqa: E402
 
 # =============================================================================
 # CONFIGURATION
@@ -334,17 +335,52 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     parser.add_argument("--config", required=True, type=str)
     parser.add_argument("--model-dir", type=str, default=None,
-                        help="Single model directory; default is all of them.")
+                        help="Single model directory; default is every directory "
+                             "matching the config's formula (see below).")
     args = parser.parse_args()
 
     config = yaml.safe_load(open(args.config))
     alpha = config["multiple_comparisons"]["alpha"]
     output_root = Path(config["project"]["output_path"])
 
-    model_dirs = (
-        [Path(args.model_dir)] if args.model_dir
-        else sorted(d for d in output_root.iterdir() if d.is_dir())
-    )
+    # Only directories produced by the CURRENT formula are eligible.
+    #
+    # This used to be `sorted(d for d in output_root.iterdir() if d.is_dir())`,
+    # i.e. every directory under output_root. That silently mixed
+    # specifications whenever results from two formulas coexisted — which is
+    # the normal state of affairs, because `get_model_folder_name` derives the
+    # folder name from the fixed effects, so changing the formula writes to new
+    # directories and leaves the old ones in place. Concretely, after the
+    # quadratic terms were dropped on 2026-08-13 the root held 7 old
+    # quadratic-spec dirs plus 5 new linear ones; the old default would have
+    # run the omnibus over all 12, emitted two rows both labelled
+    # `target=onoff` (the target is parsed out of the directory name), and
+    # BH-corrected across 12 targets per family instead of 5 — inflating the
+    # cross-dimension denominator with results from a retired model.
+    #
+    # `get_model_folder_name(formula, predictor)` is the same helper the
+    # pipeline uses to CREATE these directories, so deriving the expected names
+    # from the config cannot drift from what the pipeline writes.
+    if args.model_dir:
+        model_dirs = [Path(args.model_dir)]
+    else:
+        formula = config["lmm"]["formula"]
+        predictors = config["lmm"]["predictor_of_interest"]
+        if isinstance(predictors, str):
+            predictors = [predictors]
+        expected = [get_model_folder_name(formula, p) for p in predictors]
+        model_dirs = [output_root / name for name in expected if (output_root / name).is_dir()]
+        missing = [name for name in expected if not (output_root / name).is_dir()]
+        if missing:
+            raise RuntimeError(
+                "These model directories are declared in the config but absent "
+                "from disk, so the cross-dimension correction would silently run "
+                "on a smaller family than declared:\n  "
+                + "\n  ".join(missing)
+            )
+        print(f"Model dirs matching the config formula: {len(model_dirs)}")
+        for d in model_dirs:
+            print(f"  {d.name}")
 
     rows = []
     for model_dir in model_dirs:

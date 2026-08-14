@@ -54,6 +54,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.transforms as transforms
 from matplotlib.patches import Patch
 from scipy.stats import gaussian_kde
 from statsmodels.stats.multitest import multipletests
@@ -1893,23 +1894,45 @@ def plot_group_spatial_combined() -> Path | None:
     vmin, vmax = 0.5, max(float(df["mean_auc"].max()) for df in all_frames)
 
     # ---- Figure / GridSpec ----
-    # Columns: row-label | WS-dist | WS-topo | WS-cbar | spacer | LOSO-dist | LOSO-topo | LOSO-cbar
+    # Columns: row-label | WS-panel | WS-cbar | spacer | LOSO-panel | LOSO-cbar
     #
-    # width_ratios/height_ratios are set in literal inches (figsize is their
-    # sum, not an independent value scaled up from it) so the topo column's
-    # width exactly equals the data-row height, i.e. every topomap axes is
-    # square. mne.viz.plot_topomap enforces equal aspect internally, and the
-    # circular clip path in _draw_cbpt_topomap is drawn in ax.transAxes
-    # (0-1 assuming a square axes) — on a non-square axes the two disagree
-    # and the head comes out visibly stretched/oval. wspace/hspace stay
-    # small and identical in both directions so the shrink they introduce
-    # doesn't reintroduce a width/height mismatch.
-    ROW_H  = 1.65   # data-row height == topo column width (keeps topomaps square)
-    TITLE_FRAC = 0.20   # fraction of ROW_H reserved above the dist axes for its stats text
-    label_w, dist_w, topo_w, cbar_w, spacer_w = 0.42, 2.5, ROW_H, 0.13, 0.22
-    col_w = [label_w, dist_w, topo_w, cbar_w, spacer_w, dist_w, topo_w, cbar_w]
-    block_cols = {"ws": dict(dist=1, topo=2, cbar=3), "loso": dict(dist=5, topo=6, cbar=7)}
-    header_h = 1.5
+    # One axes per (row, pipeline) now, not two: the topomap is a small inset
+    # INSIDE the "Global Decoding" axes (top-right corner) rather than a
+    # separate column next to it. width_ratios/height_ratios are literal
+    # inches (figsize is their exact sum) so the inset's inches-per-fraction
+    # can be computed directly and forced square — same reasoning as before
+    # about mne.viz.plot_topomap's equal-aspect + the transAxes-based clip
+    # circle in _draw_cbpt_topomap disagreeing on a non-square axes.
+    # ROW_H/PANEL_W set the actual on-screen size of the curve panel —
+    # INSET_IN stays fixed (small, per earlier feedback) so growing these
+    # makes the inset proportionally SMALLER relative to its panel, i.e.
+    # more "aligned"/tucked-in rather than dominating it.
+    ROW_H   = 2.0
+    PANEL_W = 4.6
+    INSET_IN = 0.85   # inset side length in inches — keeps the topo genuinely small
+    label_w, cbar_w, spacer_w = 0.42, 0.13, 0.25
+    col_w = [label_w, PANEL_W, cbar_w, spacer_w, PANEL_W, cbar_w]
+    block_cols = {"ws": dict(panel=1, cbar=2), "loso": dict(panel=4, cbar=5)}
+    header_h = 1.3
+
+    # KDE ylim: curves peak at data-y=1.0 (fixed by _kde_fill's normalisation).
+    # Y_TOP is picked so that fraction 1.0/Y_TOP (the peak line) sits safely
+    # below INSET_Y0 (below) — both the stats text and the inset live in the
+    # headroom band above the peak, separated from each other horizontally
+    # (text left-of-centre, inset at the right edge) rather than stacked
+    # vertically, so neither has to fight the other for space. Lower than
+    # before (2.3 vs 3.0) so the curves themselves fill more of the panel —
+    # a bigger ROW_H shrinks the inset's fraction enough to still clear the
+    # peak with margin at this Y_TOP (checked below via INSET_Y0).
+    Y_TOP = 2.3
+    INSET_W_FRAC = INSET_IN / PANEL_W
+    INSET_H_FRAC = INSET_IN / ROW_H
+    INSET_X0 = 0.98 - INSET_W_FRAC
+    # Bottom-right, not top-right: sits at the same height as the curves
+    # (the curve zone runs from y-fraction 0 to ~peak_fraction=1/Y_TOP,
+    # about 0.435 here) rather than up in the text's headroom band. A small
+    # margin (0.03) off the baseline keeps it off the AUC axis line.
+    INSET_Y0 = 0.03
 
     fig = plt.figure(figsize=(sum(col_w), header_h + ROW_H * n_dims))
     gs = fig.add_gridspec(
@@ -1927,7 +1950,7 @@ def plot_group_spatial_combined() -> Path | None:
         p1 = gs[0, c1].get_position(fig)
         return p0.x0, p1.x1
 
-    # ---- Header row: block title banner + "Global/Spatial Decoding" sub-headers ----
+    # ---- Header row: block title banner + "Global Decoding" sub-header ----
     # Offsets are a fraction of the header row's OWN height (not a fixed
     # figure-fraction) so banner/sub-header spacing stays correct regardless
     # of how header_h is tuned — a fixed-fraction offset sized for one
@@ -1936,17 +1959,13 @@ def plot_group_spatial_combined() -> Path | None:
     header_span = header_y1 - header_y0
     for pkey, block_title in pipelines:
         cols = block_cols[pkey]
-        bx0, bx1 = _col_x(cols["dist"], cols["cbar"])
+        bx0, bx1 = _col_x(cols["panel"], cols["cbar"])
         fig.text((bx0 + bx1) / 2, header_y1 - 0.10 * header_span, block_title,
                  ha="center", va="top", fontsize=13, fontweight="bold", color="white",
                  bbox=dict(boxstyle="round,pad=0.35", facecolor="#333333", edgecolor="none"))
 
-        dx0, dx1 = _col_x(cols["dist"], cols["dist"])
-        fig.text((dx0 + dx1) / 2, header_y0 + 0.10 * header_span, "Global Decoding",
-                 ha="center", va="bottom", fontsize=11, fontweight="bold")
-
-        tx0, tx1 = _col_x(cols["topo"], cols["cbar"])
-        fig.text((tx0 + tx1) / 2, header_y0 + 0.10 * header_span, "Spatial Decoding",
+        fig.text((bx0 + bx1) / 2, header_y0 + 0.10 * header_span,
+                 "Global Decoding",
                  ha="center", va="bottom", fontsize=11, fontweight="bold")
 
     # ---- Per-dimension rows ----
@@ -1955,10 +1974,6 @@ def plot_group_spatial_combined() -> Path | None:
         row   = r + 1
         color = dim_info["color"]
 
-        # Rotated text has no auto-fit: a fixed size overflows into
-        # neighbouring rows for the longer compound labels ("Neutral/
-        # Emotional", "Present/NotPresent" — up to 19 characters vs. 4-11 for
-        # the rest), so size down once a label crosses that length.
         label_fontsize = 11 if len(dim_info["label"]) <= 12 else 8
         lp = gs[row, 0].get_position(fig)
         fig.text((lp.x0 + lp.x1) / 2, (lp.y0 + lp.y1) / 2, dim_info["label"],
@@ -1970,43 +1985,42 @@ def plot_group_spatial_combined() -> Path | None:
             t, p, t_res, p_res, p_adj, res_p_adj = dist_rows[pkey][r]
 
             # --- Global Decoding: vertical filled density curves ---
-            # The stats text used to sit INSIDE this axes (top-right corner)
-            # and visually collided with the curves it was labelling. It now
-            # lives in a dedicated strip above the axes instead: the dist
-            # axes is built manually at TITLE_FRAC-shrunk height (from the
-            # top only, so the bottom — where the last row's x-axis/"AUC"
-            # label live — doesn't move), and the text is placed in the
-            # freed strip via fig.text. This costs the dist column some
-            # height, not the topo column, so it doesn't shrink the topomaps.
-            cell = gs[row, cols["dist"]].get_position(fig)
-            title_h = TITLE_FRAC * (cell.y1 - cell.y0)
-            ax_d = fig.add_axes([cell.x0, cell.y0, cell.x1 - cell.x0,
-                                 (cell.y1 - cell.y0) - title_h])
+            ax_d = fig.add_subplot(gs[row, cols["panel"]])
             _kde_fill(ax_d, p,     PERM_COLOR, 0.55, bw=BW_GROUP)
             _kde_fill(ax_d, t,     color,      0.72, bw=BW_GROUP)
             _kde_fill(ax_d, t_res, color,      RESIDUALIZED_ALPHA, bw=BW_GROUP)
             _clean_kde_ax(ax_d, show_xticks=(row == n_dims), show_xlabel=(row == n_dims),
-                         fixed_ylim=False)
+                         fixed_ylim=True)
+            ax_d.set_ylim(0, Y_TOP)
+            # x needs axes-fraction (0.32 == left-of-centre, clear of the
+            # inset's footprint at the right) while y needs data coordinates
+            # (anchored to the curves' fixed peak at 1.0) — a blended
+            # transform mixes the two per-axis; a bare x with no transform
+            # defaults to DATA coordinates on BOTH axes, which previously
+            # put the text near AUC=x on the curve axis instead of at a
+            # fixed fraction of the panel.
+            blend = transforms.blended_transform_factory(ax_d.transAxes, ax_d.transData)
             line1, line2 = _true_res_annotation_lines(t, p_adj, t_res, res_p_adj)
-            xc = (cell.x0 + cell.x1) / 2
-            fig.text(xc, cell.y1 - 0.10 * title_h, line1, ha="center", va="top",
-                      fontsize=7.5, fontweight="bold", color=color)
-            fig.text(xc, cell.y1 - 0.55 * title_h, line2, ha="center", va="top",
-                      fontsize=7.5, fontstyle="italic", color=color)
+            ax_d.text(0.32, 1.30, line2, transform=blend, ha="center", va="bottom",
+                      fontsize=7, fontstyle="italic", color=color)
+            ax_d.text(0.32, 1.60, line1, transform=blend, ha="center", va="bottom",
+                      fontsize=7, fontweight="bold", color=color)
 
-            # --- Spatial Decoding: topomap ---
-            ax_s = fig.add_subplot(gs[row, cols["topo"]])
+            # --- Spatial Decoding: small topomap inset, top-right corner ---
+            # inset_axes bounds are axes-fraction by default (no transform
+            # kwarg needed), unlike the text above.
+            ax_s = ax_d.inset_axes([INSET_X0, INSET_Y0, INSET_W_FRAC, INSET_H_FRAC])
             df = spatial_by_pipeline[pkey].get(dim_info["label"])
             if df is not None:
                 info = build_info_from_channels(df["channel"].tolist())
                 mask = df["sig"].to_numpy(dtype=bool) if "sig" in df.columns else None
                 last_im_by_pipeline[pkey] = _draw_cbpt_topomap(
                     ax_s, df["mean_auc"].to_numpy(dtype=float), info, mask,
-                    vmin, vmax, "viridis", markersize=4,
+                    vmin, vmax, "viridis", markersize=2.5,
                 )
             else:
                 ax_s.axis("off")
-                ax_s.text(0.5, 0.5, "n/a", ha="center", va="center", fontsize=9, color="#999999")
+                ax_s.text(0.5, 0.5, "n/a", ha="center", va="center", fontsize=7, color="#999999")
 
     # ---- One shared colorbar per pipeline block, spanning all data rows ----
     for pkey, _ in pipelines:
@@ -2875,10 +2889,10 @@ def _residual_panel(
 
 
 def _residual_color(contrast_key: str) -> str:
-    """Palette colour for a dimension, covering the quadratic keys too."""
+    """Palette colour for a dimension, falling back to the neutral accent."""
     return DIM_COLORS.get(
         {"on_off": "onoff"}.get(contrast_key, contrast_key),
-        PALETTE["quadratic"].get(contrast_key, PALETTE["neutral"]["accent"]),
+        PALETTE["neutral"]["accent"],
     )
 
 
@@ -2891,10 +2905,13 @@ def _residual_dimension_order(profiles: pd.DataFrame) -> list[str]:
     residual panels follow it too rather than the order they happen to appear
     in ``config_feature_consistency.yaml`` — a reader moving between figures
     should not have to re-locate a dimension. Since the quadratic terms were
-    removed (2026-08-13) it is simply the canonical 5 (they aren't in that
-    5-entry list), which is exactly the "appended, not interleaved" ordering
-    CLAUDE.md's "Dimension Order (Figures)" rule forbids — this function must
-    use the 7-entry list, not the 5-entry one.
+    removed (2026-08-13) that list is simply the canonical 5.
+
+    Any contrast present in ``profiles`` but absent from
+    ``GROUP_ROW_DIMENSIONS`` is appended at the end rather than dropped, so a
+    stale profiles table is visible in the figure instead of silently
+    half-filtered. Re-run ``scripts/compute_residual_profiles.py`` if
+    valence_sq / time_sq ever reappear there.
 
     ``color_palette.yaml``, ``config_feature_consistency.yaml`` and
     ``GROUP_ROW_DIMENSIONS`` here all agree on dimension order (see CLAUDE.md

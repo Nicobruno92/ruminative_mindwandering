@@ -70,12 +70,11 @@ CONTRAST_PAIRS = [
     {"key": "time", "label": "Time",
      "ws": ("time_within_median", "time_within_median_res"),
      "loso": ("time_within_median", "time_within_median_res")},
-    {"key": "valence_sq", "label": "Neutral/Emotional",
-     "ws": ("valence_sq", "valence_sq_res_cross"),
-     "loso": ("valence_sq", "valence_sq_res_cross")},
-    {"key": "time_sq", "label": "Present/NotPresent",
-     "ws": ("time_sq", "time_sq_res_cross"),
-     "loso": ("time_sq", "time_sq_res_cross")},
+    # valence_sq / time_sq (paired with the *_res_cross residualized contrasts)
+    # removed 2026-08-13 together with the quadratic construct itself — see
+    # CLAUDE.md "Quadratic Terms: Removed". Their run directories still exist
+    # under results/MW_Classification/, so this list is what keeps them out of
+    # the profiles table, not the absence of data on disk.
 ]
 
 PIPELINE_SPEC = {
