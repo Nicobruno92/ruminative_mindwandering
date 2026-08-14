@@ -37,11 +37,6 @@ Focuses on neural correlates of mind-wandering independent of patient status.
   terms have been **removed from every analysis in the project** — see
   "Quadratic Terms: Removed" below. Five targets: onoff, valence, selfother,
   time, confidence.
-- **All Section 2 numbers below predate that removal and are being recomputed.**
-  They came from the quadratic specification, in which the quadratic covariates
-  measurably distorted the linear `valence`/`time` estimates (sign flips at
-  several electrodes). Do not quote any tier, p-value, or marker from this
-  section until the linear-only re-run lands.
 - **Multiple comparisons are read at two levels** (`Stats_andrillon/`, see the
   `andrillon-mcc-fdr-per-family` memory for the full method):
   1. *Marker-wise* — one max-statistic p per marker, Benjamini-Hochberg within each
@@ -51,25 +46,46 @@ Focuses on neural correlates of mind-wandering independent of patient status.
      step cannot: signal spread over several moderate markers fails every
      marker-wise test yet is collectively far from chance. Two statistics: a *count*
      (markers below α vs the permutation null) and a *min-p* (best marker, FWER-valid
-     under arbitrary dependence — the assumption-free counterpart to BH). Both are
-     then BH-corrected across the **five** dimensions within each family (was six
-     when the quadratic targets existed).
-- **SUPERSEDED — the three-tier hierarchy below came from the quadratic
-  specification and is retained only so nobody re-derives it from stale output.**
-  Two of its tiers rested on terms that no longer exist, and `valence`/`time`
-  were estimated with the quadratic covariates in the model. Recompute all of it
-  from the linear-only run before citing anything:
-  - ~~**Concentrated AND localizable** — `onoff` and `valence_sq`, both peaking in
-    PE-beta.~~ `onoff`/PE-beta is the one part independently verified to survive
-    (robust to dropping the quadratics *and* to a leverage drop-test);
-    `valence_sq` is gone.
-  - ~~**Distributed but real** — `time`, `valence` (linear), `time_sq` at BH≈0.052.~~
-  - ~~**Weak/null** — `selfother` (omnibus p≈0.085).~~
+     under arbitrary dependence). Both are then BH-corrected across the **five**
+     dimensions within each family.
+- **RESULT (linear-only re-run, 2026-08-13; 5 targets × 23 markers, 56 SLURM jobs,
+  0 failures).** Omnibus, sleep family, after cross-dimension BH over 5 dimensions:
+
+  | target | count p → BH | min-p FWER → BH | marker-wise BH survivors (sleep) |
+  |---|---|---|---|
+  | `onoff` | .0002 → **.0010** | .0002 → **.0005** | **16/19** |
+  | `confidence` | .0044 → **.0110** | .0002 → **.0005** | **8/19** |
+  | `selfother` | .0398 → .0663 | .3903 → .3903 | 0/19 |
+  | `valence` | .0842 → .0844 | .0450 → .0750 | 1/19 |
+  | `time` | .0844 → .0844 | .1952 → .2440 | 0/19 |
+
+  The evoked family (m=4) survives for no dimension after BH (`onoff` closest,
+  min-p BH .060).
+- **Two dimensions, not one**: `onoff` and `confidence` both leave a strong,
+  localizable trace in the sleep family. `confidence` was absent from the
+  pre-2026-08-13 omnibus entirely (it was added as a target after that run), so
+  this is new information, not a change.
+- **Reading "best marker" requires care**: with 5000 permutations the p floor is
+  1/5001 = .0002, so min-p cannot rank markers that tie there. For `onoff`,
+  `wsmi_gamma` has the smallest p (at the floor) but **PE-beta carries the largest
+  effect** (cluster stat −75.6 over 22 electrodes vs wsmi_gamma's +30.1 over 11),
+  so the historical "onoff peaks in PE-beta" holds when "peak" means cluster
+  statistic. Rank by |cluster_stat|, not min-p, when several markers sit at the floor.
+  `confidence` has an unambiguous top marker: `slowwaves_Density`, stat −90.3 over
+  29 electrodes — more slow waves at LOW confidence.
+- **What the quadratic removal changed**: marker-wise survivors are unchanged or
+  higher everywhere (`onoff` 17/19→16/19, `confidence` 6/19→8/19, `valence`
+  0/19→1/19 with `psd_relative_delta` newly at BH .0304) **except `time`/evoked,
+  which drops 2/4 → 0/4** — the P1 cluster statistic collapses from 46.5 to 2.3
+  and N1 from 38.8 to 2.4. Those two were produced by the quadratic covariate.
 - The old "48-electrode valence×confidence" and "slow waves increase with valence"
   claims do **not** survive the corrected analysis — do not reuse them.
 - Main figure: topomaps (representative markers × dimensions) + heatmap (marker
-  families × dimensions). Report both marker-wise and omnibus levels; flag the
-  distributed tier as suggestive, not confirmatory.
+  families × dimensions). Report both marker-wise and omnibus levels. `selfother`
+  is the one dimension where the two levels disagree — omnibus count p = .0398
+  (BH .0663) with 0/19 markers surviving marker-wise — so if it is mentioned at
+  all it is the "diffuse, not localizable" case, and suggestive rather than
+  confirmatory.
 - Results: `results/andrillon_cluster/` (per-dir `multiple_comparisons_summary.csv`,
   `mcc_family_composition.csv`; family-level `omnibus_test.csv` at the root).
 

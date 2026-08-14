@@ -79,6 +79,7 @@ from statsmodels.stats.multitest import multipletests
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "Statistics"))
 
 from Statistics.plot_results import (  # noqa: E402
     overlay_uncorrected_only_channels,
@@ -759,9 +760,24 @@ def load_color_palette(palette_path: Path) -> dict:
         return yaml.safe_load(handle)
 
 
-def find_model_dir(output_root: Path, target: str) -> Path:
+from helpers import get_model_folder_name  # noqa: E402
+
+
+def find_model_dir(output_root: Path, target: str, formula: Optional[str] = None) -> Path:
     """
     Locate the results directory for one predictor-of-interest.
+
+    When ``formula`` is given, the directory name is *derived* from it with the
+    same helper the pipeline uses to create it, so exactly one candidate is
+    named up front. Without it, this falls back to globbing on the
+    ``__target_<name>`` suffix, which is ambiguous whenever results from two
+    formulas coexist under ``output_root`` — the normal state of affairs, since
+    changing the formula writes to a new directory and leaves the old one in
+    place. That ambiguity is a hard error rather than a silent pick: after the
+    quadratic terms were dropped (2026-08-13) the glob matched both
+    ``onoff_valence_valence_sq_..._target_onoff`` and
+    ``onoff_valence_..._target_onoff``, and choosing either implicitly would
+    have mixed specifications in one figure.
 
     Parameters
     ----------
@@ -769,17 +785,31 @@ def find_model_dir(output_root: Path, target: str) -> Path:
         Root of the cluster results tree.
     target : str
         Predictor of interest, e.g. ``"onoff"``.
+    formula : str, optional
+        LMM formula whose fixed effects name the directory. Strongly preferred;
+        pass ``config["lmm"]["formula"]``.
 
     Returns
     -------
     Path
         The single matching model directory.
     """
+    if formula is not None:
+        expected = output_root / get_model_folder_name(formula, target)
+        if not expected.is_dir():
+            raise RuntimeError(
+                f"No results directory for target '{target}' under the configured "
+                f"formula. Expected: {expected.name}"
+            )
+        return expected
+
     matches = sorted(output_root.glob(f"*__target_{target}"))
     if len(matches) != 1:
         raise RuntimeError(
             f"Expected exactly one results directory for target '{target}', "
-            f"found {len(matches)}: {[m.name for m in matches]}"
+            f"found {len(matches)}: {[m.name for m in matches]}. Pass `formula` "
+            f"to disambiguate — results from more than one specification are "
+            f"present under {output_root}."
         )
     return matches[0]
 
@@ -1484,6 +1514,7 @@ def draw_other_dimensions_panel(
     summaries: Dict[str, pd.DataFrame],
     alpha: float,
     omnibus: Optional[pd.DataFrame],
+    formula: str,
     n_per_dimension: int = N_TOP_MARKERS_PER_DIMENSION,
     suptitle: Optional[str] = "Other dimensions: strongest markers",
     panel_letter: Optional[str] = None,
@@ -1543,7 +1574,7 @@ def draw_other_dimensions_panel(
         summary = summaries[dimension].copy()
         summary["abs_stat"] = summary["cluster_stat"].abs()
         top = summary.sort_values("abs_stat", ascending=False).head(n_per_dimension)
-        model_dir = find_model_dir(output_root, dimension)
+        model_dir = find_model_dir(output_root, dimension, formula)
         for rank, (_, row) in enumerate(top.iterrows()):
             record = row.to_dict()
             record["dimension"] = dimension
@@ -1645,6 +1676,7 @@ def figure_other_dimensions(
     alpha: float,
     omnibus: Optional[pd.DataFrame],
     output_path: Path,
+    formula: str,
     n_per_dimension: int = N_TOP_MARKERS_PER_DIMENSION,
 ) -> pd.DataFrame:
     """
@@ -1683,7 +1715,8 @@ def figure_other_dimensions(
     )
     fig = plt.figure(figsize=(TOPOMAP_PANEL_WIDTH_IN, panel_height_in))
     selected = draw_other_dimensions_panel(
-        fig, panel_height_in, output_root, summaries, alpha, omnibus, n_per_dimension
+        fig, panel_height_in, output_root, summaries, alpha, omnibus, formula,
+        n_per_dimension,
     )
     save_figure_multiformat(fig, output_path)
     plt.close(fig)
@@ -1994,6 +2027,7 @@ def figure_combined(
     alpha: float,
     omnibus: Optional[pd.DataFrame],
     output_path: Path,
+    formula: str,
     n_per_family: int = N_TOP_MARKERS_PER_FAMILY,
     n_per_dimension: int = N_TOP_MARKERS_PER_DIMENSION,
 ) -> None:
@@ -2106,7 +2140,7 @@ def figure_combined(
     draw_onoff_panel(
         onoff_fig,
         onoff_height_in,
-        find_model_dir(output_root, "onoff"),
+        find_model_dir(output_root, "onoff", formula),
         summaries["onoff"],
         alpha,
         n_per_family,
@@ -2119,6 +2153,7 @@ def figure_combined(
         summaries,
         alpha,
         omnibus,
+        formula,
         n_per_dimension,
         panel_letter="C",
     )
@@ -2155,6 +2190,9 @@ def main() -> None:
     palette = load_color_palette(REPO_ROOT / "color_palette.yaml")
     alpha = config["multiple_comparisons"]["alpha"]
     output_root = Path(config["project"]["output_path"])
+    # Names the model directories, so figures can never silently pick up results
+    # from a retired specification left on disk (see find_model_dir).
+    formula = config["lmm"]["formula"]
     output_dir = args.output_dir or (output_root / "paper_figures")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2162,7 +2200,7 @@ def main() -> None:
 
     summaries: Dict[str, pd.DataFrame] = {}
     for dimension in HEATMAP_DIMENSION_ORDER:
-        model_dir = find_model_dir(output_root, dimension)
+        model_dir = find_model_dir(output_root, dimension, formula)
         summaries[dimension] = collect_target_results(model_dir, marker_names, alpha)
         print(
             f"  {dimension:12s} BH-significant {int(summaries[dimension]['sig_bh'].sum()):2d}"
@@ -2174,7 +2212,7 @@ def main() -> None:
 
     print("\nFigure 1 — onoff topographies")
     selected_onoff = figure_onoff(
-        find_model_dir(output_root, "onoff"),
+        find_model_dir(output_root, "onoff", formula),
         summaries["onoff"],
         alpha,
         output_dir / "figure1_onoff_topographies",
@@ -2183,7 +2221,8 @@ def main() -> None:
 
     print("\nFigure 2 — other dimensions")
     selected_other = figure_other_dimensions(
-        output_root, summaries, alpha, omnibus, output_dir / "figure2_other_dimensions"
+        output_root, summaries, alpha, omnibus,
+        output_dir / "figure2_other_dimensions", formula,
     )
     print(selected_other[["dimension", "marker_name", "p_raw", "p_bh", "sig_bh"]].to_string(index=False))
 
@@ -2198,6 +2237,7 @@ def main() -> None:
         alpha,
         omnibus,
         output_dir / "figure_combined",
+        formula,
     )
 
     # Provenance: the figures are only as current as the fits they were built
@@ -2215,7 +2255,7 @@ def main() -> None:
         .to_dict(),
         "marker_fit_timestamps": {
             dimension: {
-                marker: load_marker_result(find_model_dir(output_root, dimension), marker)[
+                marker: load_marker_result(find_model_dir(output_root, dimension, formula), marker)[
                     "analysis_timestamp"
                 ]
                 for marker in marker_names
