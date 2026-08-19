@@ -1,0 +1,340 @@
+_data_provenance:
+  contrast: valence_within_median
+  excluded_min_minority_ratio:
+  - '11'
+  - '14'
+  - '15'
+  - '18'
+  - '39'
+  - '41'
+  excluded_min_samples:
+    '07': 6
+    '17': 1
+    '23': 5
+    '27': 9
+  excluded_no_data_or_all_neutral:
+  - 09
+  - '13'
+  - '16'
+  - '20'
+  - '33'
+  gap: 5
+  min_minority_ratio: 0.2
+  min_samples: 10
+  n_subjects_final: 27
+  n_subjects_requested: 42
+  split_method: within_subject_median
+  subjects_final:
+  - '02'
+  - '03'
+  - '04'
+  - '05'
+  - '06'
+  - 08
+  - '10'
+  - '12'
+  - '19'
+  - '21'
+  - '22'
+  - '24'
+  - '25'
+  - '26'
+  - '28'
+  - '29'
+  - '30'
+  - '31'
+  - '32'
+  - '34'
+  - '35'
+  - '36'
+  - '37'
+  - '38'
+  - '40'
+  - '42'
+  - '43'
+active_family: all
+contrast: valence_within_median
+data_format: per_roi
+data_paths:
+  features_root: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features
+  results_root: results/MW_Classification
+epoch_types: &id001
+- sleep
+- evoked
+exclude_column_suffixes:
+- _std
+feature_families:
+  all:
+    epoch_types: *id001
+    prefixes:
+    - N1
+    - P1
+    - P3a
+    - P3b
+    - PE_theta
+    - PE_alpha
+    - PE_beta
+    - PE_gamma
+    - kolmogorov_complexity
+    - psd_relative_delta
+    - psd_relative_theta
+    - psd_relative_alpha
+    - psd_relative_beta
+    - psd_relative_gamma
+    - wsmi_theta
+    - wsmi_alpha
+    - wsmi_beta
+    - wsmi_gamma
+    - slowwaves
+  connectivity:
+    epoch_types:
+    - sleep
+    prefixes:
+    - wsmi_theta
+    - wsmi_alpha
+    - wsmi_beta
+    - wsmi_gamma
+  erp:
+    epoch_types:
+    - evoked
+    prefixes:
+    - P1
+    - N1
+    - P3a
+    - P3b
+  information_theory:
+    epoch_types:
+    - sleep
+    prefixes:
+    - PE_theta
+    - PE_alpha
+    - PE_beta
+    - PE_gamma
+    - kolmogorov_complexity
+  sleep:
+    epoch_types:
+    - sleep
+    prefixes:
+    - slowwaves
+    - spindles
+  spectral:
+    epoch_types:
+    - sleep
+    prefixes:
+    - power_normalized
+feature_selection_method: none
+iforest_contamination: auto
+iforest_n_estimators: 100
+include_connectivity_pairs: false
+k: 20
+label_contrasts:
+  ON_vs_OFF:
+    label_source: onoff
+    positive_above: true
+    split_method: threshold
+    threshold: 50
+  ON_vs_OFF_within_median:
+    confidence_weight:
+      enabled: false
+      normalization: within_subject
+      w_min: 0.1
+    gap: 5
+    label_source: onoff
+    positive_above: true
+    split_method: within_subject_median
+  confidence_within_median:
+    gap: 5
+    label_source: confidence
+    negative_class_name: low-confidence
+    positive_above: true
+    positive_class_name: high-confidence
+    split_method: within_subject_median
+  selfother_within_median:
+    gap: 5
+    label_source: selfother
+    negative_class_name: other
+    positive_above: true
+    positive_class_name: self
+    split_method: within_subject_median
+  time_sq:
+    gap: 2.5
+    label_source: time
+    negative_class_name: moderate
+    positive_above: true
+    positive_class_name: extreme
+    split_method: within_subject_median
+    transform: midpoint_sq
+  time_sq_res:
+    gap: 2.5
+    label_source: time
+    negative_class_name: moderate
+    positive_above: true
+    positive_class_name: extreme
+    split_method: within_subject_median
+    transform: midpoint_sq_residual
+  time_within_median:
+    gap: 5
+    label_source: time
+    negative_class_name: past
+    positive_above: true
+    positive_class_name: future
+    split_method: within_subject_median
+  valence_sq:
+    gap: 2.5
+    label_source: valence
+    negative_class_name: moderate
+    positive_above: true
+    positive_class_name: extreme
+    split_method: within_subject_median
+    transform: midpoint_sq
+  valence_sq_res:
+    gap: 2.5
+    label_source: valence
+    negative_class_name: moderate
+    positive_above: true
+    positive_class_name: extreme
+    split_method: within_subject_median
+    transform: midpoint_sq_residual
+  valence_within_median:
+    gap: 5
+    label_source: valence
+    negative_class_name: negative
+    positive_above: true
+    positive_class_name: positive
+    split_method: within_subject_median
+label_source: onoff
+lmm_n_jobs: 2
+lmm_prefilter_factor: 3
+lr_C: 0.5
+lr_class_weight: balanced
+lr_l1_ratio: 0.1
+lr_max_iter: 2000
+lr_penalty: elasticnet
+lr_solver: saga
+min_minority_ratio: 0.2
+min_samples: 10
+model_type: rf
+n_runs: 100
+ocsvm_gamma: scale
+ocsvm_kernel: rbf
+ocsvm_nu: 0.1
+oneclass_target: minority
+oversampling_method: SMOTE
+oversampling_scope: within
+parallelism:
+  n_perm_jobs: 1
+  perm_cv_n_jobs: 4
+  true_cv_n_jobs: 4
+pca_kernel: rbf
+pca_n_components: 20
+pca_type: standard
+permutation_runs: 500
+permutation_scope: within
+plot_style: seaborn-v0_8
+preprocessing:
+  imputation: mean
+  max_feature_nan_frac: 0.25
+  zero_fill_patterns:
+  - density
+random_seed: 42
+rf_bootstrap: true
+rf_class_weight: balanced_subsample
+rf_max_depth: 8
+rf_max_features: sqrt
+rf_min_samples_leaf: 5
+rf_min_samples_split: 10
+rf_n_estimators: 200
+rf_n_jobs: 1
+run_contrasts:
+- ON_vs_OFF_within_median
+- valence_within_median
+- selfother_within_median
+- time_within_median
+- confidence_within_median
+- valence_sq
+- time_sq
+run_families:
+- all
+save_csv: true
+save_pickle: false
+save_plots: true
+save_probabilities: true
+save_shap: true
+scale_by_participant: within
+scaler: standard
+scoring_metrics:
+- auc
+- balanced_accuracy
+- auprc
+- mcc
+slurm:
+  conda_env: ML
+  cpus_per_task: 8
+  job_name: mw_class
+  max_array_size: 2000
+  mem: 32G
+  time: 02:00:00
+smote_k_neighbors: 5
+subjects:
+- '02'
+- '03'
+- '04'
+- '05'
+- '06'
+- '07'
+- 08
+- 09
+- '10'
+- '11'
+- '12'
+- '13'
+- '14'
+- '15'
+- '16'
+- '17'
+- '18'
+- '19'
+- '20'
+- '21'
+- '22'
+- '23'
+- '24'
+- '25'
+- '26'
+- '27'
+- '28'
+- '29'
+- '30'
+- '31'
+- '32'
+- '33'
+- '34'
+- '35'
+- '36'
+- '37'
+- '38'
+- '39'
+- '40'
+- '41'
+- '42'
+- '43'
+tasks:
+- Sart1
+- Sart2
+- Sart3
+- Sart4
+top_n_features_plot: 20
+use_pca: false
+use_smote: true
+verbose: true
+xgb_colsample_bytree: 0.8
+xgb_gamma: 0
+xgb_learning_rate: 0.1
+xgb_max_depth: 6
+xgb_min_child_weight: 1
+xgb_n_estimators: 200
+xgb_n_jobs: -1
+xgb_objective: binary:logistic
+xgb_scale_pos_weight: auto
+xgb_seed: 42
+xgb_subsample: 0.8

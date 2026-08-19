@@ -1,0 +1,2 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,1,FT8,-2.319408146771229,0.5004865693527961,False,sleep/slowwaves_Frequency,sleep,fdr_bh,0.05,2026-08-14T00:09:34.114874,0.395120975804839,0.5004865693527961,False,False,0.395120975804839,0.5004865693527961,False,marker

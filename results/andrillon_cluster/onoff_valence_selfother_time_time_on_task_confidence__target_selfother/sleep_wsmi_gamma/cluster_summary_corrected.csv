@@ -1,0 +1,2 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,1,P3,2.273467644263122,0.5185962807438512,False,sleep/wsmi_gamma,sleep,fdr_bh,0.05,2026-08-14T00:16:43.679340,0.4367126574685063,0.5185962807438512,False,False,0.4367126574685063,0.5185962807438512,False,marker

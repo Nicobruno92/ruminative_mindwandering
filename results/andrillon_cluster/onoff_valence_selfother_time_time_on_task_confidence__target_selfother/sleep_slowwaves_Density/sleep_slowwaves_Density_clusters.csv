@@ -1,0 +1,4 @@
+cluster_id,cluster_type,n_electrodes,electrodes,cluster_stat,p_value
+0,negative,7,"CP5,P3,P5,P7,PO7,T7,TP7",-18.734927710114476,0.01879624075184963
+1,negative,2,"CP6,P6",-5.159475062538966,0.07898420315936813
+2,negative,2,"O2,PO4",-5.510925951808512,0.06898620275944811

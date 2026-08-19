@@ -1,0 +1,4 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,2,"AF4, Fp2",5.8854071759047475,0.042063015968234925,True,sleep/wsmi_theta,sleep,fdr_bh,0.05,2026-08-13T22:18:50.337734,0.03099380123975205,0.042063015968234925,True,True,0.03099380123975205,0.042063015968234925,True,marker
+2,1,CP1,2.9931574636153147,0.09698060387922415,False,sleep/wsmi_theta,sleep,fdr_bh,0.05,2026-08-13T22:18:50.337734,0.09698060387922415,0.09698060387922415,False,False,0.03099380123975205,0.042063015968234925,True,marker
+3,1,PO3,2.8917785269197713,0.10677864427114576,False,sleep/wsmi_theta,sleep,fdr_bh,0.05,2026-08-13T22:18:50.337734,0.10677864427114576,0.10677864427114576,False,False,0.03099380123975205,0.042063015968234925,True,marker

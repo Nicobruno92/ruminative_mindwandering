@@ -1,0 +1,2 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,2,"CP1, P1",-5.125323028896635,0.39592081583683264,False,evoked/N1,evoked,fdr_bh,0.05,2026-08-13T22:16:25.191149,0.09898020395920816,0.39592081583683264,False,False,0.09898020395920816,0.39592081583683264,False,marker

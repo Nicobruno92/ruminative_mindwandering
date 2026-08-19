@@ -1,0 +1,3 @@
+cluster_id,cluster_type,n_electrodes,electrodes,cluster_stat,p_value
+0,positive,1,CPz,2.3974704960597846,0.19796040791841632
+1,positive,1,PO8,4.008527501899619,0.10177964407118577

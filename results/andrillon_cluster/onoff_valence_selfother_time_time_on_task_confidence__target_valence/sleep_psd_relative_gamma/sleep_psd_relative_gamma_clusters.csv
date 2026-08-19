@@ -1,0 +1,3 @@
+cluster_id,cluster_type,n_electrodes,electrodes,cluster_stat,p_value
+0,negative,1,C6,-2.337856262337154,0.22155568886222757
+1,negative,1,CP1,-3.378027316249653,0.10617876424715057

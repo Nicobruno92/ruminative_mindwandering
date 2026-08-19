@@ -1,0 +1,6 @@
+row_label,col_label,xref,yref,x,y,text
+,On/Off-Task,x domain,y domain,0.05,0.97,r=0.40 | p<.001
+,Valence,x2 domain,y2 domain,0.05,0.97,r=0.20 | p<.001
+,Self/Other,x3 domain,y3 domain,0.05,0.97,r=0.14 | p<.001
+,Time,x4 domain,y4 domain,0.05,0.97,r=0.02 | p=.487
+,Confidence,x5 domain,y5 domain,0.05,0.97,r=0.38 | p<.001

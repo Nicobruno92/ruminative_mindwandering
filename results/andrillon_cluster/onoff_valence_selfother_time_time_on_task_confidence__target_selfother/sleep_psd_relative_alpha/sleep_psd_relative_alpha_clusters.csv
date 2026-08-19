@@ -1,0 +1,2 @@
+cluster_id,cluster_type,n_electrodes,electrodes,cluster_stat,p_value
+0,negative,4,"O2,P6,P8,PO8",-12.488539594803562,0.03199360127974405

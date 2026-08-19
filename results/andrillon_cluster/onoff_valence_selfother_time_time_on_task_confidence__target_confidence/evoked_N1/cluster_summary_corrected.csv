@@ -1,0 +1,2 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,2,"AFz, Fp1",5.102260890964555,0.20262614143837898,False,evoked/N1,evoked,fdr_bh,0.05,2026-08-14T00:52:40.864510,0.0643871225754849,0.20262614143837898,False,False,0.0643871225754849,0.20262614143837898,False,marker

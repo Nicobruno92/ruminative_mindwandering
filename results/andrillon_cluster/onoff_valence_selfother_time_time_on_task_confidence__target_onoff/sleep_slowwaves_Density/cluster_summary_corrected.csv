@@ -1,0 +1,2 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,11,"C2, CP1, CP2, CP4, CPz, Cz, P2, P3, P4, PO4, Pz",-30.63691400317057,0.007123575284943012,True,sleep/slowwaves_Density,sleep,fdr_bh,0.05,2026-08-13T22:23:56.218078,0.002999400119976005,0.007123575284943012,True,True,0.002999400119976005,0.007123575284943012,True,marker

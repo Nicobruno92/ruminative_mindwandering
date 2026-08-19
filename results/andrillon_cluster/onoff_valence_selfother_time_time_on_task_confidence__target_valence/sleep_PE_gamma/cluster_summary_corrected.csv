@@ -1,0 +1,3 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,1,C6,-2.708310348561176,0.2064253815903486,False,sleep/PE_gamma,sleep,fdr_bh,0.05,2026-08-13T22:16:38.011846,0.130373925214957,0.2064253815903486,False,False,0.130373925214957,0.2064253815903486,False,marker
+2,1,CP1,-2.28579742698689,0.23015396920615877,False,sleep/PE_gamma,sleep,fdr_bh,0.05,2026-08-13T22:16:38.011846,0.23015396920615877,0.23015396920615877,False,False,0.130373925214957,0.2064253815903486,False,marker

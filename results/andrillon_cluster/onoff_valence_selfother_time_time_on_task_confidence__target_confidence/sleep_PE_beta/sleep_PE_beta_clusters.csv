@@ -1,0 +1,3 @@
+cluster_id,cluster_type,n_electrodes,electrodes,cluster_stat,p_value
+0,positive,8,"C5,F3,F5,F7,FC3,FC5,FT7,T7",27.94829598717004,0.004599080183963208
+1,positive,3,"P8,T8,TP8",11.767459185327217,0.025994801039792043

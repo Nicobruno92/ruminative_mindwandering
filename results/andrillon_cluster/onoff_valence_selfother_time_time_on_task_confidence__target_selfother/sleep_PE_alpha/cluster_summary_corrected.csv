@@ -1,0 +1,4 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,2,"AF8, F8",5.039311405628315,0.15529394121175766,False,sleep/PE_alpha,sleep,fdr_bh,0.05,2026-08-13T23:25:44.510487,0.07838432313537293,0.15529394121175766,False,False,0.057588482303539294,0.15529394121175766,False,marker
+2,2,"FT7, T7",5.723326997514689,0.15529394121175766,False,sleep/PE_alpha,sleep,fdr_bh,0.05,2026-08-13T23:25:44.510487,0.057588482303539294,0.15529394121175766,False,False,0.057588482303539294,0.15529394121175766,False,marker
+3,1,P8,2.6642022289016762,0.15529394121175766,False,sleep/PE_alpha,sleep,fdr_bh,0.05,2026-08-13T23:25:44.510487,0.14257148570285944,0.15529394121175766,False,False,0.057588482303539294,0.15529394121175766,False,marker

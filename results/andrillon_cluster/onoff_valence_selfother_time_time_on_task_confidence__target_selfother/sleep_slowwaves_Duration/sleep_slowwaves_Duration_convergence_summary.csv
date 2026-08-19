@@ -1,0 +1,2 @@
+n_channels,observed_n_converged,observed_n_warnings,observed_n_failed,observed_n_insufficient,observed_n_nan_t,observed_convergence_rate,perm_n_converged_mean,perm_n_converged_std,perm_n_warnings_mean,perm_n_failed_mean,perm_n_nan_t_mean,perm_convergence_rate_mean,perm_convergence_rate_std,perm_n_degenerate,perm_degenerate_rate,perm_degenerate_threshold,nan_asymmetry_obs_minus_perm_mean
+64,62,2,0,0,0,0.96875,59.9448,1.373655832466493,4.0384,0.0168,0.0168,0.9366375,0.021463372382288952,0,0.0,0.5,-0.0168

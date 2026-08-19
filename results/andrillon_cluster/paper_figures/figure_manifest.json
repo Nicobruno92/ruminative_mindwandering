@@ -1,0 +1,184 @@
+{
+  "alpha": 0.05,
+  "correction_families": {
+    "evoked": 4,
+    "sleep": 19
+  },
+  "corrections_recomputed_from": "per-marker results.pkl (not multiple_comparisons_summary.csv)",
+  "figure1_markers": {
+    "Complexity / information": [
+      "sleep/PE_beta",
+      "sleep/PE_gamma",
+      "sleep/PE_alpha"
+    ],
+    "Connectivity (wSMI)": [
+      "sleep/wsmi_gamma",
+      "sleep/wsmi_beta",
+      "sleep/wsmi_theta"
+    ],
+    "Evoked (ERP)": [
+      "evoked/P3b",
+      "evoked/P3a",
+      "evoked/P1"
+    ],
+    "Slow waves": [
+      "sleep/slowwaves_PTP",
+      "sleep/slowwaves_Density",
+      "sleep/slowwaves_Duration"
+    ],
+    "Spectral (relative power)": [
+      "sleep/psd_relative_theta",
+      "sleep/psd_relative_alpha",
+      "sleep/psd_relative_gamma"
+    ]
+  },
+  "figure2_markers": {
+    "confidence": [
+      "sleep/slowwaves_Density",
+      "sleep/psd_relative_delta",
+      "sleep/psd_relative_gamma"
+    ],
+    "selfother": [
+      "evoked/P3a",
+      "evoked/P3b",
+      "sleep/slowwaves_Density"
+    ],
+    "time": [
+      "sleep/PE_alpha",
+      "sleep/psd_relative_gamma",
+      "sleep/psd_relative_alpha"
+    ],
+    "valence": [
+      "sleep/psd_relative_delta",
+      "sleep/slowwaves_Density",
+      "sleep/psd_relative_theta"
+    ]
+  },
+  "marker_fit_timestamps": {
+    "onoff": {
+      "evoked/P1": "2026-08-13T22:16:35.000371",
+      "evoked/N1": "2026-08-13T22:12:46.815365",
+      "evoked/P3a": "2026-08-13T22:12:50.594195",
+      "evoked/P3b": "2026-08-13T22:12:15.140508",
+      "sleep/psd_relative_delta": "2026-08-13T22:16:17.298767",
+      "sleep/psd_relative_theta": "2026-08-13T22:20:01.644744",
+      "sleep/psd_relative_alpha": "2026-08-13T22:10:23.978464",
+      "sleep/psd_relative_beta": "2026-08-13T22:08:34.401481",
+      "sleep/psd_relative_gamma": "2026-08-13T22:19:20.762942",
+      "sleep/PE_theta": "2026-08-13T22:12:25.032150",
+      "sleep/PE_alpha": "2026-08-13T22:10:21.411602",
+      "sleep/PE_beta": "2026-08-13T22:13:01.192473",
+      "sleep/PE_gamma": "2026-08-13T22:11:59.380997",
+      "sleep/kolmogorov_complexity": "2026-08-13T22:13:00.579918",
+      "sleep/wsmi_theta": "2026-08-13T22:18:50.337734",
+      "sleep/wsmi_alpha": "2026-08-13T22:18:47.018866",
+      "sleep/wsmi_beta": "2026-08-13T22:20:22.892393",
+      "sleep/wsmi_gamma": "2026-08-13T22:21:40.922567",
+      "sleep/slowwaves_Density": "2026-08-13T22:23:56.218078",
+      "sleep/slowwaves_Duration": "2026-08-13T22:20:46.620296",
+      "sleep/slowwaves_Frequency": "2026-08-13T22:20:53.470359",
+      "sleep/slowwaves_PTP": "2026-08-13T22:09:46.499926",
+      "sleep/slowwaves_Slope": "2026-08-13T22:13:40.753115"
+    },
+    "valence": {
+      "evoked/P1": "2026-08-13T22:21:27.296530",
+      "evoked/N1": "2026-08-13T22:16:25.191149",
+      "evoked/P3a": "2026-08-13T22:16:58.949512",
+      "evoked/P3b": "2026-08-13T22:17:44.146847",
+      "sleep/psd_relative_delta": "2026-08-13T23:09:46.307350",
+      "sleep/psd_relative_theta": "2026-08-13T23:11:45.822203",
+      "sleep/psd_relative_alpha": "2026-08-13T23:10:45.376530",
+      "sleep/psd_relative_beta": "2026-08-13T23:08:16.011001",
+      "sleep/psd_relative_gamma": "2026-08-13T23:10:38.906370",
+      "sleep/PE_theta": "2026-08-13T22:17:04.454542",
+      "sleep/PE_alpha": "2026-08-13T22:17:00.153585",
+      "sleep/PE_beta": "2026-08-13T22:15:21.298918",
+      "sleep/PE_gamma": "2026-08-13T22:16:38.011846",
+      "sleep/kolmogorov_complexity": "2026-08-13T23:07:28.278595",
+      "sleep/wsmi_theta": "2026-08-13T23:21:20.845981",
+      "sleep/wsmi_alpha": "2026-08-13T23:19:12.915686",
+      "sleep/wsmi_beta": "2026-08-13T23:21:28.376267",
+      "sleep/wsmi_gamma": "2026-08-13T23:20:17.443325",
+      "sleep/slowwaves_Density": "2026-08-13T23:14:36.435891",
+      "sleep/slowwaves_Duration": "2026-08-13T23:12:04.293004",
+      "sleep/slowwaves_Frequency": "2026-08-13T23:12:34.801990",
+      "sleep/slowwaves_PTP": "2026-08-13T23:04:14.988477",
+      "sleep/slowwaves_Slope": "2026-08-13T23:07:56.430278"
+    },
+    "selfother": {
+      "evoked/P1": "2026-08-13T23:35:03.997228",
+      "evoked/N1": "2026-08-13T23:22:30.903019",
+      "evoked/P3a": "2026-08-13T23:27:09.219963",
+      "evoked/P3b": "2026-08-13T23:29:32.270657",
+      "sleep/psd_relative_delta": "2026-08-13T23:33:24.062261",
+      "sleep/psd_relative_theta": "2026-08-13T23:34:55.264155",
+      "sleep/psd_relative_alpha": "2026-08-13T23:29:03.943217",
+      "sleep/psd_relative_beta": "2026-08-13T23:28:38.609012",
+      "sleep/psd_relative_gamma": "2026-08-13T23:34:28.383082",
+      "sleep/PE_theta": "2026-08-13T23:31:02.701855",
+      "sleep/PE_alpha": "2026-08-13T23:25:44.510487",
+      "sleep/PE_beta": "2026-08-13T23:30:19.541624",
+      "sleep/PE_gamma": "2026-08-13T23:29:42.623316",
+      "sleep/kolmogorov_complexity": "2026-08-13T23:30:29.977654",
+      "sleep/wsmi_theta": "2026-08-14T00:19:30.083579",
+      "sleep/wsmi_alpha": "2026-08-14T00:12:59.273093",
+      "sleep/wsmi_beta": "2026-08-14T00:15:41.315773",
+      "sleep/wsmi_gamma": "2026-08-14T00:16:43.679340",
+      "sleep/slowwaves_Density": "2026-08-13T23:39:01.153240",
+      "sleep/slowwaves_Duration": "2026-08-13T23:36:41.622034",
+      "sleep/slowwaves_Frequency": "2026-08-14T00:09:34.114874",
+      "sleep/slowwaves_PTP": "2026-08-14T00:04:03.595677",
+      "sleep/slowwaves_Slope": "2026-08-14T00:07:38.351109"
+    },
+    "time": {
+      "evoked/P1": "2026-08-14T00:18:24.485327",
+      "evoked/N1": "2026-08-14T00:12:22.608730",
+      "evoked/P3a": "2026-08-14T00:14:11.092341",
+      "evoked/P3b": "2026-08-14T00:17:47.010744",
+      "sleep/psd_relative_delta": "2026-08-14T00:37:15.473037",
+      "sleep/psd_relative_theta": "2026-08-14T00:38:30.940306",
+      "sleep/psd_relative_alpha": "2026-08-14T00:31:09.420587",
+      "sleep/psd_relative_beta": "2026-08-14T00:32:21.000084",
+      "sleep/psd_relative_gamma": "2026-08-14T00:37:20.241397",
+      "sleep/PE_theta": "2026-08-14T00:29:59.175618",
+      "sleep/PE_alpha": "2026-08-14T00:25:41.902759",
+      "sleep/PE_beta": "2026-08-14T00:28:47.689364",
+      "sleep/PE_gamma": "2026-08-14T00:29:17.486357",
+      "sleep/kolmogorov_complexity": "2026-08-14T00:25:46.811196",
+      "sleep/wsmi_theta": "2026-08-14T00:45:22.706863",
+      "sleep/wsmi_alpha": "2026-08-14T00:42:50.207587",
+      "sleep/wsmi_beta": "2026-08-14T00:44:34.120519",
+      "sleep/wsmi_gamma": "2026-08-14T00:45:32.118014",
+      "sleep/slowwaves_Density": "2026-08-14T00:43:24.265946",
+      "sleep/slowwaves_Duration": "2026-08-14T00:40:32.189244",
+      "sleep/slowwaves_Frequency": "2026-08-14T00:39:05.531754",
+      "sleep/slowwaves_PTP": "2026-08-14T00:30:25.689505",
+      "sleep/slowwaves_Slope": "2026-08-14T00:37:00.742807"
+    },
+    "confidence": {
+      "evoked/P1": "2026-08-14T01:02:06.820856",
+      "evoked/N1": "2026-08-14T00:52:40.864510",
+      "evoked/P3a": "2026-08-14T00:57:39.176414",
+      "evoked/P3b": "2026-08-14T01:01:28.882380",
+      "sleep/psd_relative_delta": "2026-08-14T01:17:52.896163",
+      "sleep/psd_relative_theta": "2026-08-14T01:21:43.438174",
+      "sleep/psd_relative_alpha": "2026-08-14T01:04:27.581364",
+      "sleep/psd_relative_beta": "2026-08-14T01:10:00.800717",
+      "sleep/psd_relative_gamma": "2026-08-14T01:16:15.741632",
+      "sleep/PE_theta": "2026-08-14T01:06:10.665045",
+      "sleep/PE_alpha": "2026-08-14T00:58:54.044515",
+      "sleep/PE_beta": "2026-08-14T01:03:31.684816",
+      "sleep/PE_gamma": "2026-08-14T01:04:12.958436",
+      "sleep/kolmogorov_complexity": "2026-08-14T01:05:51.417650",
+      "sleep/wsmi_theta": "2026-08-14T01:32:29.276402",
+      "sleep/wsmi_alpha": "2026-08-14T01:31:15.278365",
+      "sleep/wsmi_beta": "2026-08-14T01:32:25.304133",
+      "sleep/wsmi_gamma": "2026-08-14T01:32:53.120337",
+      "sleep/slowwaves_Density": "2026-08-14T01:25:25.003219",
+      "sleep/slowwaves_Duration": "2026-08-14T01:26:50.691921",
+      "sleep/slowwaves_Frequency": "2026-08-14T01:24:27.357146",
+      "sleep/slowwaves_PTP": "2026-08-14T01:18:23.290817",
+      "sleep/slowwaves_Slope": "2026-08-14T01:22:52.853442"
+    }
+  }
+}

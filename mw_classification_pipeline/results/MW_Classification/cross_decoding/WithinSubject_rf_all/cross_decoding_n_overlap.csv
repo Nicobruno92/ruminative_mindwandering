@@ -1,0 +1,6 @@
+,onoff,valence,selfother,time,confidence
+onoff,1216,497,852,542,546
+valence,497,808,605,408,311
+selfother,852,605,1313,642,545
+time,542,408,642,853,333
+confidence,546,311,545,333,742

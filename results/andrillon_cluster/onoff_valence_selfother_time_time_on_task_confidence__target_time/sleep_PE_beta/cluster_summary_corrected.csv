@@ -1,0 +1,5 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,1,AF7,-2.4645092144159557,0.1869226154769046,False,sleep/PE_beta,sleep,fdr_bh,0.05,2026-08-14T00:28:47.689364,0.13777244551089782,0.1869226154769046,False,False,0.08998200359928014,0.1869226154769046,False,marker
+2,1,AFz,-2.7028780069908467,0.1869226154769046,False,sleep/PE_beta,sleep,fdr_bh,0.05,2026-08-14T00:28:47.689364,0.10497900419916016,0.1869226154769046,False,False,0.08998200359928014,0.1869226154769046,False,marker
+3,1,P8,-2.9651167079850085,0.1869226154769046,False,sleep/PE_beta,sleep,fdr_bh,0.05,2026-08-14T00:28:47.689364,0.08998200359928014,0.1869226154769046,False,False,0.08998200359928014,0.1869226154769046,False,marker
+4,1,T8,-2.778061296667197,0.1869226154769046,False,sleep/PE_beta,sleep,fdr_bh,0.05,2026-08-14T00:28:47.689364,0.10017996400719856,0.1869226154769046,False,False,0.08998200359928014,0.1869226154769046,False,marker

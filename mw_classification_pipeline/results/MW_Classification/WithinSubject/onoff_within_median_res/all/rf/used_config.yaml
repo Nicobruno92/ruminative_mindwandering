@@ -1,0 +1,403 @@
+_data_provenance:
+  contrast: onoff_within_median_res
+  excluded_min_minority_ratio:
+  - '04'
+  - '07'
+  excluded_min_samples:
+    '02': 1
+    09: 9
+    '11': 7
+    '13': 2
+    '20': 3
+  excluded_no_data_or_all_neutral:
+  - '16'
+  gap: 5
+  min_minority_ratio: 0.2
+  min_samples: 10
+  n_subjects_final: 34
+  n_subjects_requested: 42
+  split_method: within_subject_median
+  subjects_final:
+  - '03'
+  - '05'
+  - '06'
+  - 08
+  - '10'
+  - '12'
+  - '14'
+  - '15'
+  - '17'
+  - '18'
+  - '19'
+  - '21'
+  - '22'
+  - '23'
+  - '24'
+  - '25'
+  - '26'
+  - '27'
+  - '28'
+  - '29'
+  - '30'
+  - '31'
+  - '32'
+  - '33'
+  - '34'
+  - '35'
+  - '36'
+  - '37'
+  - '38'
+  - '39'
+  - '40'
+  - '41'
+  - '42'
+  - '43'
+active_family: all
+classifiers:
+  iforest:
+    contamination: auto
+    n_estimators: 100
+  lr:
+    C: 1.0
+    class_weight: balanced
+    penalty: l2
+    solver: lbfgs
+  ocsvm:
+    gamma: scale
+    kernel: rbf
+    nu: 0.1
+  oneclass_target: minority
+  rf:
+    bootstrap: true
+    class_weight: balanced_subsample
+    max_depth: 8
+    max_features: sqrt
+    min_samples_leaf: 5
+    min_samples_split: 10
+    n_estimators: 200
+  run_models:
+  - rf
+  xgb:
+    learning_rate: 0.1
+    max_depth: 3
+    n_estimators: 100
+    scale_pos_weight: auto
+contrast: onoff_within_median_res
+cv:
+  folds: 5
+  min_samples_per_class: 5
+  strategy: stratified_kfold
+data_format: per_roi
+data_paths:
+  features_root: /network/iss/cenir/analyse/meeg/CYBERSART/BIDS/features
+  results_root: results/MW_Classification
+epoch_types: &id001
+- sleep
+- evoked
+exclude_column_suffixes:
+- _std
+feature_families:
+  all:
+    epoch_types: *id001
+    prefixes:
+    - N1
+    - P1
+    - P3a
+    - P3b
+    - PE_theta
+    - PE_alpha
+    - PE_beta
+    - PE_gamma
+    - kolmogorov_complexity
+    - psd_relative_delta
+    - psd_relative_theta
+    - psd_relative_alpha
+    - psd_relative_beta
+    - psd_relative_gamma
+    - wsmi_theta
+    - wsmi_alpha
+    - wsmi_beta
+    - wsmi_gamma
+    - slowwaves
+  connectivity:
+    epoch_types:
+    - sleep
+    prefixes:
+    - wsmi_theta
+    - wsmi_alpha
+    - wsmi_beta
+    - wsmi_gamma
+  erp:
+    epoch_types:
+    - evoked
+    prefixes:
+    - P1
+    - N1
+    - P3a
+    - P3b
+  information_theory:
+    epoch_types:
+    - sleep
+    prefixes:
+    - PE_theta
+    - PE_alpha
+    - PE_beta
+    - PE_gamma
+    - kolmogorov_complexity
+  sleep:
+    epoch_types:
+    - sleep
+    prefixes:
+    - slowwaves
+    - spindles
+  spectral:
+    epoch_types:
+    - sleep
+    prefixes:
+    - power_normalized
+feature_selection:
+  k: 20
+  lmm_n_jobs: 4
+  lmm_prefilter_factor: 3
+  method: none
+include_connectivity_pairs: false
+label_contrasts:
+  confidence_within_median:
+    column_name: confidence
+    gap: 5
+    negative_class_name: low-confidence
+    positive_above: true
+    positive_class_name: high-confidence
+    split_method: within_subject_median
+  confidence_within_median_res:
+    column_name: confidence
+    gap: 5
+    min_valid_for_residual: 15
+    negative_class_name: low-confidence
+    positive_above: true
+    positive_class_name: high-confidence
+    residualize_against:
+    - onoff
+    - valence
+    - selfother
+    - time
+    split_method: within_subject_median
+    transform: linear_residual
+  on_vs_off_within_median:
+    column_name: onoff
+    gap: 5
+    negative_class_name: OFF-task
+    positive_above: true
+    positive_class_name: ON-task
+    split_method: within_subject_median
+  onoff_within_median_res:
+    column_name: onoff
+    gap: 5
+    min_valid_for_residual: 12
+    negative_class_name: OFF-task
+    positive_above: true
+    positive_class_name: ON-task
+    residualize_against:
+    - valence
+    - selfother
+    - time
+    split_method: within_subject_median
+    transform: linear_residual
+  selfother_within_median:
+    column_name: selfother
+    gap: 5
+    negative_class_name: other
+    positive_above: true
+    positive_class_name: self
+    split_method: within_subject_median
+  selfother_within_median_res:
+    column_name: selfother
+    gap: 5
+    min_valid_for_residual: 12
+    negative_class_name: other
+    positive_above: true
+    positive_class_name: self
+    residualize_against:
+    - onoff
+    - valence
+    - time
+    split_method: within_subject_median
+    transform: linear_residual
+  time_sq:
+    column_name: time
+    gap: 2.5
+    negative_class_name: moderate
+    positive_above: true
+    positive_class_name: extreme
+    split_method: within_subject_median
+    transform: midpoint_sq
+  time_sq_res:
+    column_name: time
+    gap: 2.5
+    negative_class_name: moderate
+    positive_above: true
+    positive_class_name: extreme
+    split_method: within_subject_median
+    transform: midpoint_sq_residual
+  time_within_median:
+    column_name: time
+    gap: 5
+    negative_class_name: past
+    positive_above: true
+    positive_class_name: future
+    split_method: within_subject_median
+  time_within_median_res:
+    column_name: time
+    gap: 5
+    min_valid_for_residual: 12
+    negative_class_name: past
+    positive_above: true
+    positive_class_name: future
+    residualize_against:
+    - onoff
+    - valence
+    - selfother
+    split_method: within_subject_median
+    transform: linear_residual
+  valence_sq:
+    column_name: valence
+    gap: 2.5
+    negative_class_name: moderate
+    positive_above: true
+    positive_class_name: extreme
+    split_method: within_subject_median
+    transform: midpoint_sq
+  valence_sq_res:
+    column_name: valence
+    gap: 2.5
+    negative_class_name: moderate
+    positive_above: true
+    positive_class_name: extreme
+    split_method: within_subject_median
+    transform: midpoint_sq_residual
+  valence_within_median:
+    column_name: valence
+    gap: 5
+    negative_class_name: negative
+    positive_above: true
+    positive_class_name: positive
+    split_method: within_subject_median
+  valence_within_median_res:
+    column_name: valence
+    gap: 5
+    min_valid_for_residual: 12
+    negative_class_name: negative
+    positive_above: true
+    positive_class_name: positive
+    residualize_against:
+    - onoff
+    - selfother
+    - time
+    split_method: within_subject_median
+    transform: linear_residual
+min_minority_ratio: 0.2
+min_samples: 10
+min_shap_feature_row_frac: 0.15
+model_type: rf
+n_permutations: 500
+n_runs: 100
+outputs:
+  run_permutations: true
+  save_pickle: false
+  save_plots: true
+  save_probabilities: true
+  save_shap: true
+  scoring_metrics:
+  - auc
+  - balanced_accuracy
+  - f1
+  - mcc
+  - precision
+  - recall
+oversampling:
+  k_neighbors: 5
+  method: SMOTE
+  scope: within
+  use_smote: true
+parallelism:
+  cv_n_jobs: 1
+  n_perm_jobs: 1
+  n_subject_jobs: 4
+preprocessing:
+  imputation: median
+  max_feature_nan_frac: 0.25
+  pca:
+    n_components: null
+    pca_kernel: rbf
+    pca_type: standard
+    use_pca: false
+  scale_by_participant: none
+  scaler: standard
+project:
+  data_file: BIDS/derivatives/dataset_classification.csv
+  results_dir: results/MW_Classification
+  root_dir: /network/iss/levy/analyze/valerocabre/analyse/nbruno/depressed_mindwandering
+random_seed: 42
+run_contrasts:
+- onoff_within_median_res
+- valence_within_median_res
+- selfother_within_median_res
+- time_within_median_res
+run_families:
+- all
+slurm:
+  conda_env: ML
+  cpus_per_task: 4
+  job_name: mw_ws_clf
+  max_array_size: 2000
+  mem: 16G
+  time: 02:00:00
+subjects:
+- '02'
+- '03'
+- '04'
+- '05'
+- '06'
+- '07'
+- 08
+- 09
+- '10'
+- '11'
+- '12'
+- '13'
+- '14'
+- '15'
+- '16'
+- '17'
+- '18'
+- '19'
+- '20'
+- '21'
+- '22'
+- '23'
+- '24'
+- '25'
+- '26'
+- '27'
+- '28'
+- '29'
+- '30'
+- '31'
+- '32'
+- '33'
+- '34'
+- '35'
+- '36'
+- '37'
+- '38'
+- '39'
+- '40'
+- '41'
+- '42'
+- '43'
+tasks:
+- Sart1
+- Sart2
+- Sart3
+- Sart4
+top_n_features_plot: 20

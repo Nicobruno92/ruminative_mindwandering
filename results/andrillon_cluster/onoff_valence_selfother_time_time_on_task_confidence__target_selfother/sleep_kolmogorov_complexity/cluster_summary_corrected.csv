@@ -1,0 +1,3 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,1,C1,2.2686321966165166,0.2986787257933029,False,sleep/kolmogorov_complexity,sleep,fdr_bh,0.05,2026-08-13T23:30:29.977654,0.27494501099780044,0.2986787257933029,False,False,0.20435912817436513,0.2986787257933029,False,marker
+2,1,FC6,-2.4745917750427426,0.2986787257933029,False,sleep/kolmogorov_complexity,sleep,fdr_bh,0.05,2026-08-13T23:30:29.977654,0.20435912817436513,0.2986787257933029,False,False,0.20435912817436513,0.2986787257933029,False,marker

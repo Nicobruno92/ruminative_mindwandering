@@ -1,0 +1,2 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,2,"CPz, Cz",-5.357599003306564,0.15434413117376525,False,sleep/psd_relative_alpha,sleep,fdr_bh,0.05,2026-08-13T23:10:45.376530,0.0649870025994801,0.15434413117376525,False,False,0.0649870025994801,0.15434413117376525,False,marker

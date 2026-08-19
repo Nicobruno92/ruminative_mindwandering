@@ -1,0 +1,4 @@
+cluster_id,cluster_type,n_electrodes,electrodes,cluster_stat,p_value
+0,negative,3,"AF4,AF8,F2",-8.772426932314298,0.03679264147170566
+1,negative,1,AF7,-2.4739205146790777,0.15276944611077783
+2,negative,1,FC5,-2.407820933221749,0.16916616676664667

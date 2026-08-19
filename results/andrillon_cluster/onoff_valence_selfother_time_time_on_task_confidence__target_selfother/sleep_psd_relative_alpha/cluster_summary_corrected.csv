@@ -1,0 +1,2 @@
+cluster_id,n_channels,channels,statistic,p_value,significant,marker_name,marker_type,correction_method,correction_alpha,analysis_timestamp,p_value_uncorrected,p_value_corrected,significant_uncorrected,significant_corrected,marker_p_value_uncorrected,marker_p_value_corrected,marker_rejected,correction_unit
+1,4,"O2, P6, P8, PO8",-12.488539594803562,0.1310737852429514,False,sleep/psd_relative_alpha,sleep,fdr_bh,0.05,2026-08-13T23:29:03.943217,0.03199360127974405,0.1310737852429514,True,False,0.03199360127974405,0.1310737852429514,False,marker
