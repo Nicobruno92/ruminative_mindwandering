@@ -718,6 +718,134 @@ def plot_combined_topomap_panel(
     plt.close(fig)
 
 
+def plot_pipeline_comparison_topomap_panel_multirow(
+    row_specs: list,
+    value_col: str,
+    out_path: str,
+    montage: str = DEFAULT_MONTAGE,
+    mask_col: str | None = None,
+    cmap: str = "viridis",
+    vlim: tuple | None = (0.5, None),
+    dim_colors: dict | None = None,
+    row_groups: list | None = None,
+) -> None:
+    """
+    Render an N-row topomap panel, one column per dimension (paper figure).
+
+    Generalizes :func:`plot_pipeline_comparison_topomap_panel` (which fixes
+    exactly 2 rows, WS/LOSO) to an arbitrary number of rows — e.g. 4 rows for
+    a WS-full / WS-residualized / LOSO-full / LOSO-residualized comparison
+    that keeps the same 5 dimension columns as the canonical 2-row figure
+    instead of doubling the column count.
+
+    Only dimension keys present in EVERY row's metrics dict are drawn, in the
+    order they appear in the first row.
+
+    Parameters
+    ----------
+    row_specs : list[tuple[str, dict[str, pd.DataFrame]]]
+        (row_label, metrics_by_dim) pairs, one per row, top to bottom.
+        metrics_by_dim maps dimension label -> per-channel metrics DataFrame
+        (channel + value_col).
+    value_col : str
+        Metric column to map.
+    out_path : str
+        Output image path (extension controls format, e.g. ``.png``/``.svg``).
+    montage : str
+        MNE standard montage name.
+    mask_col : str or None
+        Boolean column marking significant electrodes.
+    cmap : str
+        Colormap.
+    vlim : tuple or None
+        Shared (vmin, vmax) across every panel (all rows). None = auto.
+    dim_colors : dict[str, str] or None
+        Optional dimension label -> hex color, used to tint the per-column
+        title text (project convention: color encodes the dimension).
+    row_groups : list[tuple[str, int]] or None
+        Optional outer grouping of consecutive rows under one shared label,
+        e.g. ``[("Within-Subject", 2), ("LOSO", 2)]`` groups rows 0-1 under
+        "Within-Subject" and rows 2-3 under "LOSO" (counts must sum to
+        ``len(row_specs)``). When given, each row's own ``row_specs`` label
+        (e.g. "Full"/"Residualized") is drawn as a smaller inner sub-label
+        and the group label is drawn once, bold, vertically centered on its
+        row span, further to the left. When None (default, the canonical
+        2-row figure's case), each row's row_specs label is the only label,
+        drawn as before.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    if not row_specs:
+        raise ValueError("row_specs must contain at least one (row_label, metrics_by_dim) pair.")
+
+    first_metrics = row_specs[0][1]
+    dims = [d for d in first_metrics if all(d in metrics for _, metrics in row_specs)]
+    if not dims:
+        raise ValueError("No dimension present in every row's metrics dict.")
+
+    all_frames = [metrics[d] for _, metrics in row_specs for d in dims]
+    vmin = 0.5 if vlim is None else (vlim[0] if vlim[0] is not None else 0.5)
+    if vlim is not None and vlim[1] is not None:
+        vmax = vlim[1]
+    else:
+        vmax = max(float(m[value_col].max()) for m in all_frames)
+
+    n_rows = len(row_specs)
+    if row_groups is not None and sum(n for _, n in row_groups) != n_rows:
+        raise ValueError("row_groups row counts must sum to len(row_specs).")
+
+    # Tight gutters (wspace/hspace) and a near-square per-panel size: the head
+    # outline itself has generous internal padding, so squeezing the subplot
+    # grid is what actually removes the dead space around it — figsize and
+    # tight_layout alone don't touch the gutters between axes. A wider left
+    # margin is reserved only when row_groups adds a second label column.
+    left_margin = 0.08 if row_groups is not None else 0.03
+    fig, axes = plt.subplots(
+        n_rows, len(dims), figsize=(2.15 * len(dims), 2.25 * n_rows), squeeze=False,
+        gridspec_kw=dict(wspace=0.04, hspace=0.04),
+    )
+    im = None
+    for col, dim in enumerate(dims):
+        for row, (row_label, metrics_by_dim) in enumerate(row_specs):
+            ax = axes[row][col]
+            m = metrics_by_dim[dim]
+            info = build_info_from_channels(m["channel"].tolist(), montage=montage)
+            mask = m[mask_col].to_numpy(dtype=bool) if mask_col else None
+            im = _draw_cbpt_topomap(ax, m[value_col].to_numpy(dtype=float), info, mask,
+                                    vmin, vmax, cmap, markersize=4)
+            if row == 0:
+                title_color = (dim_colors or {}).get(dim, "black")
+                ax.set_title(dim, fontsize=10, fontweight="bold", color=title_color, pad=3)
+            if col == 0:
+                label_x     = -0.08 if row_groups is not None else -0.12
+                fontsize    = 13 if row_groups is not None else 11
+                fontweight  = "normal" if row_groups is not None else "bold"
+                ax.text(label_x, 0.5, row_label, transform=ax.transAxes, fontsize=fontsize,
+                        fontweight=fontweight, rotation=90, ha="center", va="center")
+    fig.subplots_adjust(left=left_margin, right=0.93, top=0.92, bottom=0.02,
+                        wspace=0.04, hspace=0.04)
+
+    if row_groups is not None:
+        row_idx = 0
+        for group_label, n in row_groups:
+            top_ax    = axes[row_idx][0]
+            bottom_ax = axes[row_idx + n - 1][0]
+            y_mid = (top_ax.get_position().y1 + bottom_ax.get_position().y0) / 2
+            fig.text(0.005, y_mid, group_label, fontsize=13, fontweight="bold",
+                     rotation=90, ha="center", va="center")
+            row_idx += n
+
+    if im is not None:
+        cbar = fig.colorbar(im, ax=axes, fraction=0.02, pad=0.015, label=value_col)
+        cbar.set_ticks([vmin, vmax])
+        cbar.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"])
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.05)
+    plt.close(fig)
+
+
 def plot_pipeline_comparison_topomap_panel(
     ws_metrics: dict,
     loso_metrics: dict,
@@ -735,6 +863,10 @@ def plot_pipeline_comparison_topomap_panel(
 
     Only dimension keys present in BOTH ``ws_metrics`` and ``loso_metrics``
     are drawn, in the order they appear in ``ws_metrics``.
+
+    Thin wrapper around :func:`plot_pipeline_comparison_topomap_panel_multirow`
+    with the row layout fixed to (Within-Subject, LOSO) — see that function
+    for the general N-row version.
 
     Parameters
     ----------
@@ -757,51 +889,8 @@ def plot_pipeline_comparison_topomap_panel(
         Optional dimension label -> hex color, used to tint the per-column
         title text (project convention: color encodes the dimension).
     """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    dims = [d for d in ws_metrics if d in loso_metrics]
-    if not dims:
-        raise ValueError("No dimension present in both ws_metrics and loso_metrics.")
-
-    all_frames = [ws_metrics[d] for d in dims] + [loso_metrics[d] for d in dims]
-    vmin = 0.5 if vlim is None else (vlim[0] if vlim[0] is not None else 0.5)
-    if vlim is not None and vlim[1] is not None:
-        vmax = vlim[1]
-    else:
-        vmax = max(float(m[value_col].max()) for m in all_frames)
-
-    # Tight gutters (wspace/hspace) and a near-square per-panel size: the head
-    # outline itself has generous internal padding, so squeezing the subplot
-    # grid is what actually removes the dead space around it — figsize and
-    # tight_layout alone don't touch the gutters between axes.
-    row_specs = [("Within-Subject", ws_metrics), ("LOSO", loso_metrics)]
-    fig, axes = plt.subplots(
-        2, len(dims), figsize=(2.15 * len(dims), 4.5), squeeze=False,
-        gridspec_kw=dict(wspace=0.04, hspace=0.04),
+    plot_pipeline_comparison_topomap_panel_multirow(
+        [("Within-Subject", ws_metrics), ("LOSO", loso_metrics)],
+        value_col, out_path, montage=montage, mask_col=mask_col, cmap=cmap,
+        vlim=vlim, dim_colors=dim_colors,
     )
-    im = None
-    for col, dim in enumerate(dims):
-        for row, (row_label, metrics_by_dim) in enumerate(row_specs):
-            ax = axes[row][col]
-            m = metrics_by_dim[dim]
-            info = build_info_from_channels(m["channel"].tolist(), montage=montage)
-            mask = m[mask_col].to_numpy(dtype=bool) if mask_col else None
-            im = _draw_cbpt_topomap(ax, m[value_col].to_numpy(dtype=float), info, mask,
-                                    vmin, vmax, cmap, markersize=4)
-            if row == 0:
-                title_color = (dim_colors or {}).get(dim, "black")
-                ax.set_title(dim, fontsize=10, fontweight="bold", color=title_color, pad=3)
-            if col == 0:
-                ax.text(-0.12, 0.5, row_label, transform=ax.transAxes, fontsize=11,
-                        fontweight="bold", rotation=90, ha="center", va="center")
-    fig.subplots_adjust(left=0.03, right=0.93, top=0.92, bottom=0.02,
-                        wspace=0.04, hspace=0.04)
-    if im is not None:
-        cbar = fig.colorbar(im, ax=axes, fraction=0.02, pad=0.015, label=value_col)
-        cbar.set_ticks([vmin, vmax])
-        cbar.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"])
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.05)
-    plt.close(fig)

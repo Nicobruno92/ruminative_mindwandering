@@ -12,6 +12,19 @@ Outputs (in results/combined_figures/):
                                 dimensions. Consumes the tables written by
                                 scripts/feature_consistency_analysis.py and is
                                 skipped with a message if they are absent.
+    scatter_shap_marker.{png,svg}
+                              — WS vs LOSO mean |SHAP|, one point per CBPT
+                                marker (mean over ROI), one panel per
+                                dimension. Built from the same true_runs SHAP
+                                pkls as scatter_shap_absolute — unlike
+                                marker_direction_all_dimensions above, it does
+                                not depend on feature_consistency_analysis.py.
+    scatter_shap_marker_{key}.{png,svg}
+                              — the same marker-level comparison, one
+                                standalone file per dimension (key = on_off,
+                                valence, selfother, time, confidence) at a size
+                                comfortable to read every label, mirroring
+                                residual_vs_plain_{key} below.
     spatial_comparison_ws_loso.{png,svg}
                               — WS (row 1) vs LOSO (row 2) spatial (per-electrode)
                                 decoding topomaps, one column per dimension
@@ -19,12 +32,27 @@ Outputs (in results/combined_figures/):
                                 from results/MW_Classification/SpatialDecoding/;
                                 skipped with a message for any dimension missing
                                 on either pipeline.
+    spatial_comparison_ws_loso_residualized.{png,svg}
+                              — Same 5 dimension columns as
+                                spatial_comparison_ws_loso, but 4 rows instead
+                                of 2: WS-Full, WS-Residualized, LOSO-Full,
+                                LOSO-Residualized (RESIDUALIZED_DIR). Does not
+                                modify spatial_comparison_ws_loso.{png,svg}.
     group_comparison_spatial_combined.{png,svg}
                               — WS | LOSO "Global Decoding" (True/Residualized/
                                 Shuffled AUC density) next to "Spatial Decoding"
                                 (topomap) per dimension, one combined panel per
                                 pipeline. Pure Matplotlib (see
                                 plot_group_spatial_combined docstring for why).
+    cv_stability_combined.{png,svg}
+                              — Two-panel union of scatter_loso_vs_ws.{png,svg}
+                                (Panel A, per-subject mean AUC) and
+                                scatter_proba_ws_vs_loso.{png,svg} (Panel B,
+                                per-probe predicted probability), stacked one
+                                row per panel, one column per dimension. Reads
+                                the same source data as those two standalone
+                                figures and does not replace them (kept as
+                                separate outputs per project convention).
 Each dimension has a consistent color used across all four figures.
 Full (true labels) = dimension color; Shuffled = grey.
 
@@ -44,6 +72,7 @@ figure builds there and then the run dies at the final write step.
 
 import asyncio
 import os
+import re
 import sys
 import warnings
 import pickle
@@ -56,7 +85,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
 from matplotlib.patches import Patch
-from scipy.stats import gaussian_kde
+from scipy.stats import gaussian_kde, pearsonr
 from statsmodels.stats.multitest import multipletests
 from pathlib import Path
 from plotly.subplots import make_subplots
@@ -91,7 +120,12 @@ SPATIAL_MODEL  = "rf"
 # top-N features (by its own ranking metric).
 SHAP_SCATTER_TOP_N = 10
 
-# Per-dimension color, consistent across every figure
+# Per-dimension color, consistent across every figure. pole_low/pole_high are
+# the canonical SHORT_POLES wording (CLAUDE.md "Dimension Labels & Pole
+# Wording" — same pairs as Stats_andrillon/plot_paper_figures.py's
+# SHORT_POLES and Behavior/Probe_analysis/probe_dimension_cloud_plot.py's
+# DIMENSIONS): raw-score axis labels must name the actual poles, never a
+# generic "Raw score (0-100)".
 DIMENSIONS = [
     {
         "key":          "on_off",
@@ -100,6 +134,8 @@ DIMENSIONS = [
         "label":        "On/Off-Task",
         "color":        DIM_COLORS["onoff"],   # red
         "label_source": "onoff",
+        "pole_low":     "off-task",
+        "pole_high":    "on-task",
     },
     {
         "key":          "valence",
@@ -108,6 +144,8 @@ DIMENSIONS = [
         "label":        "Valence",
         "color":        DIM_COLORS["valence"],   # blue
         "label_source": "valence",
+        "pole_low":     "negative",
+        "pole_high":    "positive",
     },
     {
         "key":          "selfother",
@@ -116,6 +154,8 @@ DIMENSIONS = [
         "label":        "Self/Other",
         "color":        DIM_COLORS["selfother"],   # green
         "label_source": "selfother",
+        "pole_low":     "self-focused",
+        "pole_high":    "other-focused",
     },
     {
         "key":          "time",
@@ -124,6 +164,8 @@ DIMENSIONS = [
         "label":        "Time",
         "color":        DIM_COLORS["time"],   # purple
         "label_source": "time",
+        "pole_low":     "past",
+        "pole_high":    "future",
     },
     {
         "key":          "confidence",
@@ -132,12 +174,19 @@ DIMENSIONS = [
         "label":        "Confidence",
         "color":        DIM_COLORS["confidence"],   # orange
         "label_source": "confidence",
+        "pole_low":     "low",
+        "pole_high":    "high",
     },
 ]
 
 PERM_COLOR   = PALETTE["neutral"]["permutation"]   # gray
 CHANCE       = 0.5
 AUC_RANGE    = (0.35, 1.0)
+
+# Same lookup as make_fig_prob_vs_dim_ws_loso.py's _CONFIDENCE_DIM — the two
+# scripts are documented as one figure family (see that module's docstring)
+# and must share pole wording for any confidence axis, not just a color.
+_CONFIDENCE_DIM = next(d for d in DIMENSIONS if d["label_source"] == "confidence")
 
 # Residualized-contrast result directories, one per canonical dimension (same
 # folder name under WithinSubject/ and LOSO/ for every dimension — see
@@ -281,6 +330,23 @@ def format_pval(p: float) -> str:
     return f"p = {p:.3f}"
 
 
+def _format_p_compact(p: float) -> str:
+    """
+    APA-style p-value: decimal, no leading zero, no space around "=" — the
+    same convention as make_fig_prob_vs_dim_ws_loso.py's _format_p. Kept as
+    a separate helper rather than changing format_pval itself, which two
+    dozen other figures in this file rely on for its "p = 0.032" spacing;
+    used only by the handful of scatter figures meant to read as one family
+    with prob_vs_dim/ (scatter_loso_vs_ws, scatter_proba_ws_vs_loso,
+    scatter_regression_overlay).
+    """
+    if np.isnan(p):
+        return "p=n/a"
+    if p < 0.001:
+        return "p<.001"
+    return f"p={p:.3f}".replace("=0.", "=.")
+
+
 def sig_stars(p: float) -> str:
     if np.isnan(p) or p >= 0.05:
         return ""
@@ -409,6 +475,157 @@ def _clean_kde_ax(
             ax.set_xlabel("AUC", fontsize=9)
     else:
         ax.tick_params(bottom=False, labelbottom=False)
+
+
+# =============================================================================
+# CSV export helpers
+# =============================================================================
+
+# Text an axis-anchored annotation must match (after stripping HTML tags) to
+# be trusted as a row/column label rather than a p-value readout or other
+# incidental annotation — the canonical dimension labels, the two pipeline
+# column titles, and per-subject "sub-NN" row labels (plot_individual /
+# plot_individual_with_residualized).
+_KNOWN_AXIS_LABELS = {d["label"] for d in DIMENSIONS} | {"Within-Subject", "LOSO"}
+_SUBJECT_LABEL_RE = re.compile(r"^sub-\d+$")
+
+
+def _infer_axis_labels(fig: go.Figure) -> dict[str, str]:
+    """
+    Best-effort ``{axis_id: label}`` map built from a figure's OWN row/column
+    annotations (e.g. the ``"<b>On/Off-Task</b>"`` text every multi-panel
+    figure in this script already places at each row's y-domain, or the
+    ``"Within-Subject"``/``"LOSO"`` column titles) — reused by
+    :func:`_export_fig_csv` to label exported rows without editing every
+    individual ``fig.add_trace`` call site.
+    """
+    axis_labels: dict[str, str] = {}
+    for ann in fig.layout.annotations:
+        text = re.sub(r"<[^>]+>", "", ann.text or "").strip()
+        if text not in _KNOWN_AXIS_LABELS and not _SUBJECT_LABEL_RE.match(text):
+            continue
+        for ref in (ann.xref, ann.yref):
+            if ref and ref.endswith(" domain"):
+                axis_labels.setdefault(ref.split()[0], text)
+
+    # make_subplots(subplot_titles=...) / column_titles=... annotations carry
+    # no axis id at all (xref=yref="paper") — match by x-position against
+    # each xaxis's own domain instead. Y is intentionally NOT matched this
+    # way: column titles at a shared top y would collide across columns.
+    col_anns = [
+        (re.sub(r"<[^>]+>", "", a.text or "").strip(), a.x)
+        for a in fig.layout.annotations
+        if a.xref == "paper" and a.yref == "paper"
+    ]
+    col_anns = [(t, x) for t, x in col_anns if t in _KNOWN_AXIS_LABELS]
+    if col_anns:
+        for axis_name in fig.layout:
+            axis_name = str(axis_name)
+            if not axis_name.startswith("xaxis"):
+                continue
+            domain = getattr(fig.layout[axis_name], "domain", None)
+            if not domain:
+                continue
+            axis_id = "x" + axis_name[5:]
+            for text, ax in col_anns:
+                if domain[0] - 1e-6 <= ax <= domain[1] + 1e-6:
+                    axis_labels.setdefault(axis_id, text)
+    return axis_labels
+
+
+#: An annotation is treated as a plotted *statistic* (r/p, z/p, AUC, β...)
+#: rather than a structural label (dimension name, pole wording, subject id,
+#: panel letter) when it is anchored relative to a specific panel's axis
+#: (at least one of xref/yref ends in " domain" — a bare "x"/"y"/"paper" ref
+#: is a data-coordinate arrow target or a whole-figure title/letter, not a
+#: per-panel readout) *and* its text contains a digit — every stats
+#: annotation in this file has one (an estimate, a p-value, a percentage);
+#: every purely-verbal label (a pole pair, a category name) does not.
+_STATS_ANNOTATION_DIGIT_RE = re.compile(r"\d")
+
+
+def _export_annotation_stats(fig: go.Figure, axis_labels: dict[str, str]) -> pd.DataFrame:
+    """
+    Every per-panel statistic *annotation* (r/p, z/p, AUC, β, LRT...) as one
+    tidy row per annotation — the numbers actually printed on the figure,
+    which :func:`_export_fig_csv`'s trace dump never captures because a
+    statistic lives in ``fig.add_annotation(text=...)``, not in any trace's
+    x/y. Without this, a reviewer reading the points CSV has to recompute
+    r/p themselves to check what the figure claims, instead of reading it
+    off a table — see the ``scientific-plots`` skill's
+    ``references/learnings/scatter-correlation.md`` for why both tables are
+    required, not just the raw one.
+    """
+    known_text = _KNOWN_AXIS_LABELS
+    rows: list[dict] = []
+    for ann in fig.layout.annotations:
+        raw_text = ann.text or ""
+        stripped = re.sub(r"<[^>]+>", " ", raw_text).strip()
+        if not stripped or stripped in known_text or _SUBJECT_LABEL_RE.match(stripped):
+            continue
+        if not _STATS_ANNOTATION_DIGIT_RE.search(stripped):
+            continue
+        refs_anchored = any(
+            isinstance(r, str) and r.endswith(" domain") for r in (ann.xref, ann.yref)
+        )
+        if not refs_anchored:
+            continue
+        xaxis = ann.xref.split()[0] if isinstance(ann.xref, str) else ann.xref
+        yaxis = ann.yref.split()[0] if isinstance(ann.yref, str) else ann.yref
+        rows.append(dict(
+            row_label=axis_labels.get(yaxis, ""), col_label=axis_labels.get(xaxis, ""),
+            xref=ann.xref, yref=ann.yref, x=ann.x, y=ann.y,
+            text=re.sub(r"\s*<br\s*/?>\s*", " | ", raw_text),
+        ))
+    return pd.DataFrame(rows)
+
+
+def _export_fig_csv(fig: go.Figure, csv_path: Path) -> None:
+    """
+    Dump every trace's plotted values — the exact numbers rendered, not a
+    KDE/derived summary — to one tidy long-format CSV next to the figure's
+    PNG/SVG. Generic over every trace type used in this project: Violin,
+    Scatter, and Bar via x/y; Pie via labels/values. Per-point ``subject``
+    is included where the trace carries it via ``customdata`` (only
+    plot_individual / plot_individual_with_residualized set this — every
+    other figure's data is already fully identified by x/y alone).
+
+    Also writes a companion ``{stem}_stats.csv`` — see
+    :func:`_export_annotation_stats` — whenever the figure carries at least
+    one per-panel statistic annotation, so the numbers backing the plot
+    (r/p, z/p, AUC...) are on disk next to the raw points that produced
+    them, not only visible as text baked into the PNG/SVG.
+    """
+    axis_labels = _infer_axis_labels(fig)
+    stats_df = _export_annotation_stats(fig, axis_labels)
+    if not stats_df.empty:
+        stats_df.to_csv(csv_path.with_name(f"{csv_path.stem}_stats.csv"), index=False)
+    rows: list[dict] = []
+    for i, trace in enumerate(fig.data):
+        # Pie traces are domain-type (no xaxis/yaxis attribute at all).
+        xaxis = getattr(trace, "xaxis", None) or "x"
+        yaxis = getattr(trace, "yaxis", None) or "y"
+        common = dict(
+            trace_index=i, trace_type=trace.type, trace_name=trace.name or "",
+            row_label=axis_labels.get(yaxis, ""), col_label=axis_labels.get(xaxis, ""),
+        )
+        if trace.type == "pie":
+            for lab, val in zip(trace.labels or [], trace.values or []):
+                rows.append({**common, "label": lab, "value": val})
+            continue
+        xs = list(trace.x) if trace.x is not None else []
+        ys = list(trace.y) if trace.y is not None else []
+        subj = list(trace.customdata) if trace.customdata is not None else []
+        for j in range(max(len(xs), len(ys))):
+            row = {**common,
+                   "x": xs[j] if j < len(xs) else None,
+                   "y": ys[j] if j < len(ys) else None}
+            if j < len(subj):
+                s = subj[j]
+                row["subject"] = s[0] if isinstance(s, (list, tuple, np.ndarray)) else s
+            rows.append(row)
+    if rows:
+        pd.DataFrame(rows).to_csv(csv_path, index=False)
 
 
 # =============================================================================
@@ -812,6 +1029,7 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
         fig.add_trace(go.Violin(
             x=p_df["auc"].values,
             y=p_df["subj_y"].values,
+            customdata=p_df["subject"].values,
             legendgroup="Permuted",
             scalegroup=f"Permuted_{dk}",
             name="Permuted",
@@ -830,6 +1048,7 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
         fig.add_trace(go.Violin(
             x=t_df["auc"].values,
             y=t_df["subj_y"].values,
+            customdata=t_df["subject"].values,
             legendgroup="Full",
             scalegroup=f"True_{dk}",
             name="Full",
@@ -910,6 +1129,7 @@ def plot_individual(pipeline: str, title_prefix: str, stem: str) -> bool:
     fig.add_trace(go.Bar(
         x=sig_pcts,
         y=[i + 0.2 for i in range(n_subjs)],
+        customdata=sorted_subjects,
         orientation="h",
         marker_color=PALETTE["neutral"]["accent"],
         showlegend=False,
@@ -1148,6 +1368,7 @@ def plot_individual_with_residualized(
         fig.add_trace(go.Violin(
             x=p_df["auc"].values,
             y=p_df["subj_y"].values,
+            customdata=p_df["subject"].values,
             legendgroup="Permuted",
             scalegroup=f"Permuted_{dk}",
             name="Permuted",
@@ -1166,6 +1387,7 @@ def plot_individual_with_residualized(
         fig.add_trace(go.Violin(
             x=t_df["auc"].values,
             y=t_df["subj_y"].values,
+            customdata=t_df["subject"].values,
             legendgroup="Full",
             scalegroup=f"True_{dk}",
             name="Full",
@@ -1185,6 +1407,7 @@ def plot_individual_with_residualized(
         fig.add_trace(go.Violin(
             x=r_df["auc"].values,
             y=r_df["subj_y"].values,
+            customdata=r_df["subject"].values,
             legendgroup="Residualized",
             scalegroup=f"Residualized_{dk}",
             name="Residualized",
@@ -1347,6 +1570,7 @@ def plot_individual_with_residualized(
     fig.add_trace(go.Bar(
         x=sig_pcts,
         y=[i + 0.2 for i in range(n_subjs)],
+        customdata=sorted_subjects,
         orientation="h",
         marker_color=PALETTE["neutral"]["accent"],
         showlegend=False,
@@ -1832,6 +2056,104 @@ def plot_spatial_comparison_panel() -> Path | None:
             ws_metrics, loso_metrics, value_col="mean_auc", out_path=str(out_path),
             mask_col="sig", dim_colors=dim_colors,
         )
+
+    labeled = []
+    for pipeline_label, metrics in [("WS", ws_metrics), ("LOSO", loso_metrics)]:
+        for dim_label, df in metrics.items():
+            d = df.copy()
+            d["dimension"] = dim_label
+            d["pipeline"] = pipeline_label
+            labeled.append(d)
+    pd.concat(labeled, ignore_index=True).to_csv(
+        OUTPUT_DIR / "spatial_comparison_ws_loso.csv", index=False
+    )
+    return out_png
+
+
+def plot_spatial_comparison_panel_with_residualized() -> Path | None:
+    """
+    Variant of :func:`plot_spatial_comparison_panel` with 4 rows instead of 2:
+    WS-Full, WS-Residualized, LOSO-Full, LOSO-Residualized — keeping the SAME
+    5 dimension columns as the canonical panel (not doubled), so a reader
+    scans down each column to see how residualizing that one dimension
+    changes its own pipeline's topomap, with WS and LOSO each getting their
+    own full/residualized row pair.
+
+    Reuses ``plot_pipeline_comparison_topomap_panel_multirow`` (the N-row
+    generalization of the 2-row function the canonical panel uses), with the
+    residualized-contrast data (RESIDUALIZED_DIR) swapped in for rows 2 and 4.
+
+    Does not modify or overwrite spatial_comparison_ws_loso.{png,svg} — saves
+    to its own spatial_comparison_ws_loso_residualized.{png,svg}.
+
+    Returns the PNG path, or None if fewer than one dimension has data in
+    all four (WS-full, WS-res, LOSO-full, LOSO-res) row sets.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.spatial_decoding_utils import plot_pipeline_comparison_topomap_panel_multirow
+
+    ws_full, ws_res, loso_full, loso_res, dim_colors = {}, {}, {}, {}, {}
+    for dim_info in GROUP_ROW_DIMENSIONS:
+        label = dim_info["label"]
+        res_dim_info = _residualized_dim_info(dim_info)
+
+        ws_df       = load_spatial_metrics("ws", dim_info)
+        loso_df     = load_spatial_metrics("loso", dim_info)
+        ws_res_df   = load_spatial_metrics("ws", res_dim_info)
+        loso_res_df = load_spatial_metrics("loso", res_dim_info)
+        missing = [name for name, df in [
+            ("WS full", ws_df), ("LOSO full", loso_df),
+            ("WS res", ws_res_df), ("LOSO res", loso_res_df),
+        ] if df is None]
+        if missing:
+            print(f"  ! {label}: missing spatial per_channel_metrics.csv for "
+                  f"{', '.join(missing)}; skipping from residualized comparison panel.")
+            continue
+
+        ws_full[label]   = ws_df
+        loso_full[label] = loso_df
+        ws_res[label]    = ws_res_df
+        loso_res[label]  = loso_res_df
+        dim_colors[label] = dim_info["color"]
+
+    if not ws_full:
+        print("  No dimension has both full and residualized spatial data on both "
+              "pipelines; skipping residualized spatial comparison panel.")
+        return None
+
+    # Inner row labels are just "Full"/"Residualized" — the outer group label
+    # (Within-Subject/LOSO, matching the canonical panel's row naming) is
+    # supplied separately via row_groups so it's drawn once per pipeline,
+    # spanning both its rows, instead of repeated on every row.
+    row_specs = [
+        ("Full",           ws_full),
+        ("Residualized",   ws_res),
+        ("Full",           loso_full),
+        ("Residualized",   loso_res),
+    ]
+    row_groups = [("Within-Subject", 2), ("LOSO", 2)]
+    out_png = OUTPUT_DIR / "spatial_comparison_ws_loso_residualized.png"
+    out_svg = OUTPUT_DIR / "spatial_comparison_ws_loso_residualized.svg"
+    for out_path in (out_png, out_svg):
+        plot_pipeline_comparison_topomap_panel_multirow(
+            row_specs, value_col="mean_auc", out_path=str(out_path),
+            mask_col="sig", dim_colors=dim_colors, row_groups=row_groups,
+        )
+
+    labeled = []
+    for pipeline_label, contrast_label, metrics in [
+        ("WS", "Full", ws_full), ("WS", "Residualized", ws_res),
+        ("LOSO", "Full", loso_full), ("LOSO", "Residualized", loso_res),
+    ]:
+        for dim_label, df in metrics.items():
+            d = df.copy()
+            d["dimension"] = dim_label
+            d["pipeline"] = pipeline_label
+            d["contrast"] = contrast_label
+            labeled.append(d)
+    pd.concat(labeled, ignore_index=True).to_csv(
+        OUTPUT_DIR / "spatial_comparison_ws_loso_residualized.csv", index=False
+    )
     return out_png
 
 
@@ -2037,6 +2359,42 @@ def plot_group_spatial_combined() -> Path | None:
     fig.savefig(out_png, dpi=200, bbox_inches="tight", pad_inches=0.04)
     fig.savefig(out_svg, bbox_inches="tight", pad_inches=0.04)
     plt.close(fig)
+
+    # Global-decoding half: the True/Shuffled/Residualized AUC arrays behind
+    # each panel's density curves (same arrays fed to _kde_fill above).
+    global_rows = []
+    for pkey, _ in pipelines:
+        for r, dim_info in enumerate(row_dims):
+            t, p, t_res, p_res, _, _ = dist_rows[pkey][r]
+            for series_name, vals in [
+                ("Full_True", t), ("Full_Shuffled", p),
+                ("Residualized_True", t_res), ("Residualized_Shuffled", p_res),
+            ]:
+                for v in vals:
+                    global_rows.append(dict(
+                        pipeline=pkey, dimension=dim_info["label"],
+                        series=series_name, auc=v,
+                    ))
+    pd.DataFrame(global_rows).to_csv(
+        OUTPUT_DIR / "group_comparison_spatial_combined_global.csv", index=False
+    )
+
+    # Spatial-decoding half: the per_channel_metrics.csv rows behind each
+    # dimension's topomap inset.
+    spatial_rows = []
+    for pkey, sp in spatial_by_pipeline.items():
+        for dim_label, df in sp.items():
+            if df is None:
+                continue
+            d = df.copy()
+            d["pipeline"] = pkey
+            d["dimension"] = dim_label
+            spatial_rows.append(d)
+    if spatial_rows:
+        pd.concat(spatial_rows, ignore_index=True).to_csv(
+            OUTPUT_DIR / "group_comparison_spatial_combined_spatial.csv", index=False
+        )
+
     return out_png
 
 
@@ -2064,7 +2422,7 @@ def plot_loso_vs_ws_scatter() -> go.Figure:
     # Color subplot titles
     for i, dim_info in enumerate(DIMENSIONS):
         fig.layout.annotations[i].font.color = dim_info["color"]
-        fig.layout.annotations[i].font.size  = 14
+        fig.layout.annotations[i].font.size  = 18
         fig.layout.annotations[i].font.family = "Times New Roman"
 
     auc_min, auc_max = 0.35, 1.0
@@ -2094,7 +2452,7 @@ def plot_loso_vs_ws_scatter() -> go.Figure:
             mode="markers+text",
             text=subj_labels,
             textposition="top center",
-            textfont=dict(size=9, family="Times New Roman"),
+            textfont=dict(size=11, family="Times New Roman"),
             marker=dict(color=color, size=7, opacity=0.85,
                         line=dict(color="white", width=0.5)),
             showlegend=False,
@@ -2134,16 +2492,15 @@ def plot_loso_vs_ws_scatter() -> go.Figure:
                 showlegend=False,
             ), row=1, col=col)
 
-            r = float(np.corrcoef(merged["ws"].values, merged["loso"].values)[0, 1])
-            n = len(merged)
+            r, p = pearsonr(merged["ws"].values, merged["loso"].values)
             fig.add_annotation(
-                text=f"r = {r:.2f}, n = {n}",
+                text=f"r={r:.2f}<br>{_format_p_compact(p)}",
                 xref=f"x{col} domain" if col > 1 else "x domain",
                 yref=f"y{col} domain" if col > 1 else "y domain",
                 x=0.05, y=0.96,
                 xanchor="left", yanchor="top",
                 showarrow=False,
-                font=dict(size=10, color=color, family="Times New Roman"),
+                font=dict(size=18, color=color, family="Times New Roman"),
             )
 
         # Axis formatting
@@ -2154,25 +2511,177 @@ def plot_loso_vs_ws_scatter() -> go.Figure:
             fig.layout[ax_name].tickmode = "array"
             fig.layout[ax_name].tickvals = [0.5, 0.75, 1.0]
             fig.layout[ax_name].ticktext = ["0.5", ".75", "1.0"]
-            fig.layout[ax_name].tickfont = dict(size=10)
+            fig.layout[ax_name].tickfont = dict(size=13)
             fig.layout[ax_name].showgrid = True
             fig.layout[ax_name].gridcolor = "#EEEEEE"
             fig.layout[ax_name].zeroline = False
 
-        fig.layout[x_ax].title = dict(text="WS AUC", font=dict(size=12))
+        fig.layout[x_ax].title = dict(text="WS AUC", font=dict(size=15))
         if col == 1:
-            fig.layout[y_ax].title = dict(text="LOSO AUC", font=dict(size=12))
+            fig.layout[y_ax].title = dict(text="LOSO AUC", font=dict(size=15))
 
     fig.update_layout(
         title=dict(
             text="LOSO vs Within-Subject AUC per Participant",
-            font=dict(size=14, family="Times New Roman"),
+            font=dict(size=18, family="Times New Roman"),
         ),
         template="plotly_white",
         height=380,
         width=320 * n_dims,
         margin=dict(l=60, r=30, t=100, b=60),
-        font=dict(family="Times New Roman", size=12),
+        font=dict(family="Times New Roman", size=15),
+    )
+    return fig
+
+
+# =============================================================================
+# Figure D2 — AUC vs self-reported confidence (exploratory)
+# =============================================================================
+
+
+def plot_auc_vs_confidence_scatter() -> go.Figure:
+    """
+    Two rows (WS, LOSO) x one column per dimension: per-subject AUC against
+    that subject's mean self-reported confidence.
+
+    x = subject's mean 'confidence' rating across every probe of every task
+    (PROBE_DATA_PATH), independent of which dimension is being decoded.
+    y = subject's mean AUC for that dimension/pipeline (load_subject_data).
+
+    Tests whether subjects who report higher confidence on average are also
+    better individually decoded — for any of the five dimensions, not only
+    the 'confidence' dimension itself. EXPLORATORY: not part of the
+    confirmatory Section 2 (CBPT) / Section 3 (classification) analyses: no
+    correction is applied across the 10 panels here.
+    """
+    from scipy.stats import pearsonr
+
+    probe_df = pd.read_csv(PROBE_DATA_PATH)
+    probe_df["subject"] = probe_df["subject"].astype(str).str.zfill(2)
+    subj_confidence = probe_df.groupby("subject")["confidence"].mean().rename("confidence")
+
+    n_dims = len(DIMENSIONS)
+    pipelines = [("ws", "WS AUC"), ("loso", "LOSO AUC")]
+
+    subplot_titles = [d["label"] for d in DIMENSIONS] + [""] * n_dims
+    fig = make_subplots(
+        rows=2, cols=n_dims,
+        # 'columns' / True share one axis object per column/row so only the
+        # bottom row keeps x tick labels and only the left column keeps y
+        # tick labels — lets the panels sit flush with near-zero spacing
+        # instead of each repeating its own tick numbers.
+        shared_xaxes="columns",
+        shared_yaxes=True,
+        horizontal_spacing=0.008,
+        vertical_spacing=0.05,
+        subplot_titles=subplot_titles,
+    )
+
+    for i, dim_info in enumerate(DIMENSIONS):
+        fig.layout.annotations[i].font.color = dim_info["color"]
+        fig.layout.annotations[i].font.size = 20
+        fig.layout.annotations[i].font.family = "Times New Roman"
+
+    x_min = float(subj_confidence.min()) - 3
+    x_max = float(subj_confidence.max()) + 3
+
+    # AUC data never exceeds 1.0, so the band above it (up to Y_TOP) is
+    # reserved for the r/n annotation — keeps it clear of subject points and
+    # their labels regardless of where a given panel's cloud happens to sit.
+    y_bottom, y_top = AUC_RANGE[0], 1.16
+    annot_y = 1.09
+
+    for row_idx, (pipeline, y_title) in enumerate(pipelines):
+        row = row_idx + 1
+        for col_idx, dim_info in enumerate(DIMENSIONS):
+            col   = col_idx + 1
+            color = dim_info["color"]
+            idx   = (row - 1) * n_dims + col
+            x_ref = "x" if idx == 1 else f"x{idx}"
+            y_ref = "y" if idx == 1 else f"y{idx}"
+            x_ax  = "xaxis" if idx == 1 else f"xaxis{idx}"
+            y_ax  = "yaxis" if idx == 1 else f"yaxis{idx}"
+
+            t_df, _ = load_subject_data(pipeline, dim_info)
+            if t_df.empty:
+                continue
+            auc_means = t_df.groupby("subject")["auc"].mean().rename("auc")
+            auc_means.index = auc_means.index.astype(str)
+
+            merged = pd.concat([subj_confidence, auc_means], axis=1).dropna()
+            if merged.empty:
+                continue
+
+            subj_labels = [str(int(s)) if s.isdigit() else s for s in merged.index]
+
+            # Chance line
+            fig.add_shape(
+                type="line", x0=x_min, x1=x_max, y0=CHANCE, y1=CHANCE,
+                xref=x_ref, yref=y_ref,
+                line=dict(color=PERM_COLOR, dash="dash", width=1.0),
+            )
+
+            fig.add_trace(go.Scatter(
+                x=merged["confidence"].values,
+                y=merged["auc"].values,
+                mode="markers+text",
+                text=subj_labels,
+                textposition="top center",
+                textfont=dict(size=11, family="Times New Roman"),
+                marker=dict(color=color, size=8, opacity=0.85,
+                            line=dict(color="white", width=0.5)),
+                showlegend=False,
+                name=f"{dim_info['label']} ({y_title})",
+            ), row=row, col=col)
+
+            if len(merged) >= 3:
+                m, b = np.polyfit(merged["confidence"].values, merged["auc"].values, 1)
+                x_reg = np.array([x_min, x_max])
+                y_reg = m * x_reg + b
+                fig.add_trace(go.Scatter(
+                    x=x_reg, y=y_reg,
+                    mode="lines",
+                    line=dict(color=color, width=2, dash="solid"),
+                    showlegend=False,
+                ), row=row, col=col)
+
+                r, p = pearsonr(merged["confidence"].values, merged["auc"].values)
+                fig.add_annotation(
+                    text=f"r = {r:.2f}, {format_pval(p)}",
+                    xref=f"{x_ref} domain", yref=y_ref,
+                    x=0.05, y=annot_y,
+                    xanchor="left", yanchor="middle",
+                    showarrow=False,
+                    font=dict(size=14, color=color, family="Times New Roman"),
+                )
+
+            fig.layout[y_ax].range = [y_bottom, y_top]
+            fig.layout[y_ax].tickmode = "array"
+            fig.layout[y_ax].tickvals = [0.5, 0.75, 1.0]
+            fig.layout[y_ax].ticktext = ["0.5", ".75", "1.0"]
+            fig.layout[y_ax].tickfont = dict(size=15)
+            fig.layout[y_ax].showgrid = True
+            fig.layout[y_ax].gridcolor = "#EEEEEE"
+            fig.layout[y_ax].zeroline = False
+
+            fig.layout[x_ax].range = [x_min, x_max]
+            fig.layout[x_ax].tickfont = dict(size=15)
+            fig.layout[x_ax].showgrid = True
+            fig.layout[x_ax].gridcolor = "#EEEEEE"
+            fig.layout[x_ax].zeroline = False
+
+            if col == 1:
+                fig.layout[y_ax].title = dict(text=y_title, font=dict(size=17))
+            if row == 2:
+                x_title = f"{_CONFIDENCE_DIM['pole_low']} → {_CONFIDENCE_DIM['pole_high']}"
+                fig.layout[x_ax].title = dict(text=x_title, font=dict(size=15))
+
+    fig.update_layout(
+        template="plotly_white",
+        height=780,
+        width=340 * n_dims,
+        margin=dict(l=70, r=20, t=50, b=70),
+        font=dict(family="Times New Roman", size=15),
     )
     return fig
 
@@ -2222,7 +2731,7 @@ def plot_regression_overlay() -> go.Figure:
         y = merged["loso"].values
         n = len(merged)
         m, b = np.polyfit(x, y, 1)
-        r    = float(np.corrcoef(x, y)[0, 1])
+        r, p = pearsonr(x, y)
 
         # Bootstrap 95% CI band on the regression line
         rng = np.random.default_rng(42)
@@ -2251,34 +2760,37 @@ def plot_regression_overlay() -> go.Figure:
             x=x_reg, y=m * x_reg + b,
             mode="lines",
             line=dict(color=color, width=2.5),
-            name=f"{dim_info['label']} (r={r:.2f}, n={n})",
+            name=f"{dim_info['label']} (r={r:.2f}, {_format_p_compact(p)})",
         ))
 
     fig.update_layout(
         title=dict(
             text="LOSO vs WS AUC — Regression Lines by Dimension",
-            font=dict(size=14, family="Times New Roman"),
+            font=dict(size=16, family="Times New Roman"),
         ),
         template="plotly_white",
-        height=480, width=520,
+        height=480, width=620,
         margin=dict(l=70, r=30, t=80, b=70),
-        font=dict(family="Times New Roman", size=12),
+        font=dict(family="Times New Roman", size=13),
         xaxis=dict(
-            title=dict(text="WS AUC", font=dict(size=13)),
+            title=dict(text="WS AUC", font=dict(size=15)),
             range=[auc_min, auc_max],
             tickmode="array", tickvals=[0.5, 0.75, 1.0],
             ticktext=["0.5", ".75", "1.0"],
+            tickfont=dict(size=13),
             showgrid=True, gridcolor="#EEEEEE", zeroline=False,
         ),
         yaxis=dict(
-            title=dict(text="LOSO AUC", font=dict(size=13)),
+            title=dict(text="LOSO AUC", font=dict(size=15)),
             range=[auc_min, auc_max],
             tickmode="array", tickvals=[0.5, 0.75, 1.0],
             ticktext=["0.5", ".75", "1.0"],
+            tickfont=dict(size=13),
             showgrid=True, gridcolor="#EEEEEE", zeroline=False,
         ),
         legend=dict(
-            font=dict(size=11), bgcolor="rgba(255,255,255,0.8)",
+            font=dict(size=14, family="Times New Roman"),
+            bgcolor="rgba(255,255,255,0.8)",
             bordercolor="#DDDDDD", borderwidth=1,
         ),
     )
@@ -2351,12 +2863,12 @@ def _new_dimension_grid_fig() -> go.Figure:
         rows=1, cols=n_dims,
         shared_xaxes=False,
         shared_yaxes=False,
-        horizontal_spacing=0.06,
+        horizontal_spacing=0.07,
         subplot_titles=[d["label"] for d in DIMENSIONS],
     )
     for i, dim_info in enumerate(DIMENSIONS):
         fig.layout.annotations[i].font.color  = dim_info["color"]
-        fig.layout.annotations[i].font.size   = 14
+        fig.layout.annotations[i].font.size   = 16
         fig.layout.annotations[i].font.family = "Times New Roman"
     return fig
 
@@ -2438,14 +2950,37 @@ def _add_scatter_panel(
     ), row=1, col=col)
 
     highlight_feats = [f for f, h in zip(common_feats, highlight) if h]
+
+    # Spread labels around their point instead of a fixed "top center": with
+    # up to 2*SHAP_SCATTER_TOP_N labelled points in one panel, a shared fixed
+    # position stacks nearby labels directly on top of each other (see
+    # _residual_panel above, which the same fix was needed for). Points left
+    # of the labelled subset's own median go left, the rest go right; within
+    # each side a 3-way top/middle/bottom cycle (ordered by y) keeps close
+    # neighbours from landing on the same spot.
+    x_hi, y_hi = x_common[highlight], y_common[highlight]
+    x_mid = float(np.median(x_hi))
+    order = np.argsort(np.argsort(y_hi))
+    left_cycle = np.array(["middle left", "top left", "bottom left"])
+    right_cycle = np.array(["middle right", "top right", "bottom right"])
+    goes_left = x_hi < x_mid
+    # A point within the outer 8% of the axis range would have its "outward"
+    # label push past the panel/figure boundary and get clipped — anchor
+    # those toward the inside of the axis instead, overriding the median split.
+    edge_margin = 0.08 * (axis_range[1] - axis_range[0])
+    goes_left = np.where(x_hi > axis_range[1] - edge_margin, True, goes_left)
+    goes_left = np.where(x_hi < axis_range[0] + edge_margin, False, goes_left)
+    label_positions = np.where(goes_left, left_cycle[order % 3], right_cycle[order % 3])
+
     fig.add_trace(go.Scatter(
-        x=x_common[highlight], y=y_common[highlight],
+        x=x_hi, y=y_hi,
         mode="markers+text",
         marker=dict(color=color, size=7, opacity=0.9,
                     line=dict(color="white", width=0.5)),
-        text=[f.split("_")[0] for f in highlight_feats],
-        textposition="top center",
-        textfont=dict(size=7, family="Times New Roman"),
+        text=[_pretty_feature_label(f) for f in highlight_feats],
+        textposition=label_positions,
+        textfont=dict(size=9, family="Times New Roman"),
+        cliponaxis=False,
         customdata=highlight_feats,
         hovertemplate="%{customdata}<br>WS: %{x:.3f}<br>LOSO: %{y:.3f}<extra></extra>",
         showlegend=False,
@@ -2482,7 +3017,7 @@ def _add_scatter_panel(
         x=0.05, y=0.97,
         xanchor="left", yanchor="top",
         showarrow=False,
-        font=dict(size=10, color=color, family="Times New Roman"),
+        font=dict(size=12, color=color, family="Times New Roman"),
     )
 
     x_ax = f"xaxis{col}" if col > 1 else "xaxis"
@@ -2496,10 +3031,10 @@ def _add_scatter_panel(
         fig.layout[ax_name].zeroline   = show_zeroline
         fig.layout[ax_name].zerolinecolor = "#AAAAAA"
         fig.layout[ax_name].zerolinewidth = 1.0
-        fig.layout[ax_name].tickfont   = dict(size=9)
-    fig.layout[x_ax].title = dict(text=x_label, font=dict(size=11))
+        fig.layout[ax_name].tickfont   = dict(size=11)
+    fig.layout[x_ax].title = dict(text=x_label, font=dict(size=13))
     if col == 1:
-        fig.layout[y_ax].title = dict(text=y_label, font=dict(size=11))
+        fig.layout[y_ax].title = dict(text=y_label, font=dict(size=13))
 
 
 # =============================================================================
@@ -2668,13 +3203,13 @@ def _build_gini_scatter_fig() -> go.Figure | None:
             text=(f"LOSO vs WS — RF Feature Importance "
                   f"(Gini, min-max scaled; r over all common features, "
                   f"top-{SHAP_SCATTER_TOP_N} of each pipeline labelled)"),
-            font=dict(size=14, family="Times New Roman"),
+            font=dict(size=16, family="Times New Roman"),
         ),
         template="plotly_white",
-        height=380,
-        width=320 * len(DIMENSIONS),
-        margin=dict(l=60, r=30, t=100, b=60),
-        font=dict(family="Times New Roman", size=12),
+        height=460,
+        width=420 * len(DIMENSIONS),
+        margin=dict(l=70, r=40, t=110, b=70),
+        font=dict(family="Times New Roman", size=13),
     )
     return fig
 
@@ -2747,12 +3282,12 @@ def _build_shap_scatter_figs() -> tuple[go.Figure, go.Figure]:
                    f"(same features as |SHAP|, symmetric scaled ÷ max|SHAP|)")),
     ):
         fig.update_layout(
-            title=dict(text=title, font=dict(size=14, family="Times New Roman")),
+            title=dict(text=title, font=dict(size=16, family="Times New Roman")),
             template="plotly_white",
-            height=380,
-            width=320 * len(DIMENSIONS),
-            margin=dict(l=60, r=30, t=100, b=60),
-            font=dict(family="Times New Roman", size=12),
+            height=460,
+            width=420 * len(DIMENSIONS),
+            margin=dict(l=70, r=40, t=110, b=70),
+            font=dict(family="Times New Roman", size=13),
         )
 
     return fig_abs, fig_dir
@@ -2767,13 +3302,314 @@ def _pretty_marker_name(name: str) -> str:
     return name
 
 
+# Compact marker×ROI labels for scatter-panel point labels, where up to
+# SHAP_SCATTER_TOP_N*2 labels share one panel and every character counts —
+# same compact tier (Greek band symbols) as
+# make_fig_ws_loso_sign_forest.py's MARKER_LABELS, per CLAUDE.md "Marker
+# Naming": both files must use the same stem word per family, so this dict
+# only differs from that one by trimming entries not present in the 23-marker
+# CBPT feature space (psd_bands_*, per_channel_*, spindles_*).
+_FEATURE_LABEL_MARKERS: dict[str, str] = {
+    "kolmogorov_complexity": "KoC",
+    "psd_relative_alpha": "PSD α",
+    "psd_relative_beta": "PSD β",
+    "psd_relative_gamma": "PSD γ",
+    "psd_relative_delta": "PSD δ",
+    "psd_relative_theta": "PSD θ",
+    "slowwaves_Density": "SW density",
+    "slowwaves_Duration": "SW duration",
+    "slowwaves_Frequency": "SW frequency",
+    "slowwaves_PTP": "SW PTP",
+    "slowwaves_Slope": "SW slope",
+    "wsmi_alpha": "wSMI α",
+    "wsmi_beta": "wSMI β",
+    "wsmi_gamma": "wSMI γ",
+    "wsmi_theta": "wSMI θ",
+}
+_FEATURE_LABEL_GREEK = {"theta": "θ", "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ"}
+_FEATURE_LABEL_REGION = {"frontal": "Front", "central": "Cent", "posterior": "Post"}
+_FEATURE_LABEL_SIDE = {"left": "L", "right": "R", "mid": "M"}
+
+
+def _pretty_feature_label(feature: str) -> str:
+    """
+    Full marker×ROI label for a point in the WS-vs-LOSO scatter panels.
+
+    ``f.split("_")[0]`` (the previous implementation) kept only the family
+    stem — e.g. every PSD band and every slow-wave statistic at every ROI all
+    rendered as the bare word "psd" / "slowwaves", indistinguishable from one
+    another once several such points cluster in one panel. This instead
+    reproduces the full ``marker · ROI`` label (e.g. "PSD γ · Front R"),
+    matching make_fig_ws_loso_sign_forest.py's pretty_feature_label so the two
+    figures name the same feature the same way.
+
+    'psd_relative_gamma_mean_frontal_right_trimmean' -> 'PSD γ · Front R'
+    """
+    marker, roi = feature.split("_mean_", 1)
+    if marker in _FEATURE_LABEL_MARKERS:
+        marker_label = _FEATURE_LABEL_MARKERS[marker]
+    else:
+        marker_label = marker
+        for band, symbol in _FEATURE_LABEL_GREEK.items():
+            if marker.endswith(f"_{band}"):
+                marker_label = f"{marker[: -(len(band) + 1)]} {symbol}"
+                break
+    roi_parts = roi.replace("_trimmean", "").split("_")
+    region = _FEATURE_LABEL_REGION.get(roi_parts[0], roi_parts[0].title())
+    side = _FEATURE_LABEL_SIDE.get(roi_parts[1], roi_parts[1].title()) if len(roi_parts) > 1 else ""
+    roi_label = f"{region} {side}".strip()
+    return f"{marker_label} · {roi_label}"
+
+
+# =============================================================================
+# Figure — WS-vs-LOSO SHAP scatter, aggregated to the 23 CBPT markers
+# =============================================================================
+# Built from the same _load_shap_summary data (the true_runs SHAP pkls) as
+# _build_shap_scatter_figs above, not from feature_consistency_analysis.py's
+# separate per-subject pipeline — this keeps the marker-level view inside the
+# same combined-figure generator instead of depending on another script's
+# output tables. It answers a coarser-grained version of the same question:
+# _build_shap_scatter_figs shows whether individual marker×ROI columns agree
+# between pipelines (175 points), this collapses each marker's ROI columns to
+# one point (mean, never sum, per CLAUDE.md "Marker Naming" — the 4 evoked
+# markers own one ROI column and the 19 sleep markers own up to nine, so
+# summing would hand sleep markers ~9x the mass before any data is seen).
+_MARKER_SCATTER_LABEL_N = 8
+
+
+def _build_shap_marker_scatter_fig() -> go.Figure:
+    """
+    One panel per dimension: WS vs LOSO mean |SHAP|, one point per CBPT marker.
+
+    Styled like _residual_panel (dashed diagonal spanning the data with a 10%
+    pad, Spearman rho over all markers, top-N-union labelled) with the full-vs-
+    residualized axes swapped for WS-vs-LOSO — the same comparison as
+    _build_shap_scatter_figs, one resolution coarser.
+    """
+    fig = _new_dimension_grid_fig()
+    # Column titles enlarged to match _residual_panel's sibling figure
+    # (residual_vs_plain_markers.png) — this and that one are read side by
+    # side, so the same font scale keeps them equally legible.
+    for i in range(len(DIMENSIONS)):
+        fig.layout.annotations[i].font.size = 20
+
+    for col_idx, dim_info in enumerate(DIMENSIONS):
+        col = col_idx + 1
+        print(f"  Loading marker-level SHAP [{dim_info['label']}]…", flush=True)
+
+        ws_abs, _, ws_feats = _load_shap_summary("ws", dim_info)
+        lo_abs, _, lo_feats = _load_shap_summary("loso", dim_info)
+        if len(ws_abs) == 0 or len(lo_abs) == 0:
+            continue
+
+        x_idx, y_idx, common = _common_feature_indices(ws_feats, lo_feats)
+        if not common:
+            continue
+
+        marker_of = {f: f.split("_mean_", 1)[0] for f in common}
+        markers = sorted(set(marker_of.values()))
+        ws_marker = np.array([
+            np.mean([ws_abs[x_idx[f]] for f in common if marker_of[f] == marker])
+            for marker in markers
+        ])
+        lo_marker = np.array([
+            np.mean([lo_abs[y_idx[f]] for f in common if marker_of[f] == marker])
+            for marker in markers
+        ])
+
+        _add_marker_scatter_panel(fig, col, dim_info, ws_marker, lo_marker, markers)
+
+    # No figure-level title — the column titles plus each panel's own axis
+    # labels and rho annotation already carry the comparison, matching
+    # residual_vs_plain_markers.png's untitled layout.
+    fig.update_layout(
+        template="plotly_white",
+        height=500,
+        width=420 * len(DIMENSIONS),
+        margin=dict(l=90, r=40, t=55, b=85),
+        font=dict(family="Times New Roman", size=13),
+    )
+    return fig
+
+
+def _add_marker_scatter_panel(
+    fig: go.Figure, col: int, dim_info: dict,
+    ws_marker: np.ndarray, lo_marker: np.ndarray, markers: list[str],
+) -> None:
+    """Add one WS-vs-LOSO marker-level scatter panel to ``fig`` at column ``col``."""
+    from scipy.stats import spearmanr
+
+    color = dim_info["color"]
+    names = [_pretty_marker_name(m) for m in markers]
+    rho, pval = spearmanr(ws_marker, lo_marker)
+
+    # Axes span the data, not [0, max] — anchoring at zero pushes a positive-
+    # valued cloud into one corner where any spread reads as a tight diagonal
+    # band regardless of the actual correlation (see _residual_panel above,
+    # which needed the same fix for the same reason).
+    low = float(min(ws_marker.min(), lo_marker.min()))
+    high = float(max(ws_marker.max(), lo_marker.max()))
+    pad = 0.10 * (high - low)
+    axis_lo, axis_hi = low - pad, high + pad
+
+    x_ref = f"x{col}" if col > 1 else "x"
+    y_ref = f"y{col}" if col > 1 else "y"
+    fig.add_shape(
+        type="line", x0=axis_lo, y0=axis_lo, x1=axis_hi, y1=axis_hi,
+        xref=x_ref, yref=y_ref,
+        line=dict(color=PERM_COLOR, width=0.9, dash="dot"), layer="below",
+    )
+
+    # Ranked by the mean of the two pipelines, not the max — a marker one
+    # pipeline leans on and the other ignores would otherwise outrank one both
+    # use steadily (same rationale as make_fig_feature_consistency.py's
+    # build_marker_scatter_figure, which this panel mirrors at the group level).
+    rank = (ws_marker + lo_marker) / 2.0
+    top_idx = set(np.argsort(rank)[-_MARKER_SCATTER_LABEL_N:])
+    mask = np.array([i in top_idx for i in range(len(markers))])
+
+    fig.add_trace(go.Scatter(
+        x=ws_marker[~mask], y=lo_marker[~mask], mode="markers",
+        marker=dict(color=color, size=6, opacity=0.45, line=dict(color="white", width=0.4)),
+        customdata=[n for n, m in zip(names, mask) if not m],
+        hovertemplate="%{customdata}<br>WS %{x:.4f}<br>LOSO %{y:.4f}<extra></extra>",
+        showlegend=False,
+    ), row=1, col=col)
+
+    # Spread labels left/right of their point (3-way top/middle/bottom cycle),
+    # anchored inward near the axis edges so a label never pushes past the
+    # panel boundary — same technique as _add_scatter_panel above.
+    x_hi, y_hi = ws_marker[mask], lo_marker[mask]
+    x_mid = float(np.median(x_hi))
+    order = np.argsort(np.argsort(y_hi))
+    left_cycle = np.array(["middle left", "top left", "bottom left"])
+    right_cycle = np.array(["middle right", "top right", "bottom right"])
+    goes_left = x_hi < x_mid
+    edge_margin = 0.08 * (axis_hi - axis_lo)
+    goes_left = np.where(x_hi > axis_hi - edge_margin, True, goes_left)
+    goes_left = np.where(x_hi < axis_lo + edge_margin, False, goes_left)
+    label_positions = np.where(goes_left, left_cycle[order % 3], right_cycle[order % 3])
+
+    fig.add_trace(go.Scatter(
+        x=x_hi, y=y_hi, mode="markers+text",
+        marker=dict(color=color, size=8, opacity=0.9, line=dict(color="white", width=0.5)),
+        text=[n for n, m in zip(names, mask) if m],
+        textposition=label_positions, textfont=dict(size=11, family="Times New Roman"),
+        cliponaxis=False,
+        hovertemplate="%{text}<br>WS %{x:.4f}<br>LOSO %{y:.4f}<extra></extra>",
+        showlegend=False,
+    ), row=1, col=col)
+
+    # Bottom-right rather than top-left: the labelled set skews toward high
+    # WS-and-LOSO markers (ranked by their mean), so their text routinely
+    # lands in the top-left corner and collided with the annotation there.
+    fig.add_annotation(
+        text=f"ρ = {rho:.2f}<br>{_format_p_compact(pval)}",
+        xref=f"{x_ref} domain", yref=f"{y_ref} domain",
+        x=0.95, y=0.05, xanchor="right", yanchor="bottom", showarrow=False,
+        font=dict(size=17, color=color, family="Times New Roman"),
+    )
+
+    x_ax = f"xaxis{col}" if col > 1 else "xaxis"
+    y_ax = f"yaxis{col}" if col > 1 else "yaxis"
+    fig.layout[x_ax].range = [axis_lo, axis_hi]
+    fig.layout[y_ax].range = [axis_lo, axis_hi]
+    for ax_name in (x_ax, y_ax):
+        fig.layout[ax_name].showgrid  = True
+        fig.layout[ax_name].gridcolor = "#EEEEEE"
+        fig.layout[ax_name].tickfont  = dict(size=16)
+    fig.layout[x_ax].title = dict(text="WS mean |SHAP| (marker)", font=dict(size=15))
+    if col == 1:
+        fig.layout[y_ax].title = dict(text="LOSO mean |SHAP| (marker)", font=dict(size=15))
+
+
+_MARKER_SCATTER_SINGLE_MM = (95.0, 90.0)
+
+
+def _build_shap_marker_single_figures() -> list[tuple[go.Figure, str]]:
+    """
+    One standalone WS-vs-LOSO marker-SHAP figure per dimension.
+
+    _build_shap_marker_scatter_fig above puts all five dimensions in one row
+    at 420px per panel; fine as a five-dimension survey, tight for reading
+    every marker label. These are the same panels at a size comfortable to
+    read, one file per dimension — same naming convention as
+    _build_residual_single_figures's "residual_vs_plain_{key}"
+    ("scatter_shap_marker_{key}").
+
+    Returns
+    -------
+    list[tuple[go.Figure, str]]
+        ``(figure, output stem)`` pairs, skipping any dimension whose SHAP
+        pkls are absent (matching _build_shap_marker_scatter_fig's per-column
+        skip behaviour).
+    """
+    figures: list[tuple[go.Figure, str]] = []
+
+    for dim_info in DIMENSIONS:
+        print(f"  Loading marker-level SHAP (standalone) [{dim_info['label']}]…", flush=True)
+
+        ws_abs, _, ws_feats = _load_shap_summary("ws", dim_info)
+        lo_abs, _, lo_feats = _load_shap_summary("loso", dim_info)
+        if len(ws_abs) == 0 or len(lo_abs) == 0:
+            continue
+
+        x_idx, y_idx, common = _common_feature_indices(ws_feats, lo_feats)
+        if not common:
+            continue
+
+        marker_of = {f: f.split("_mean_", 1)[0] for f in common}
+        markers = sorted(set(marker_of.values()))
+        ws_marker = np.array([
+            np.mean([ws_abs[x_idx[f]] for f in common if marker_of[f] == marker])
+            for marker in markers
+        ])
+        lo_marker = np.array([
+            np.mean([lo_abs[y_idx[f]] for f in common if marker_of[f] == marker])
+            for marker in markers
+        ])
+
+        fig = make_subplots(rows=1, cols=1)
+        _add_marker_scatter_panel(fig, 1, dim_info, ws_marker, lo_marker, markers)
+        # _add_marker_scatter_panel sizes its axis text for the five-panel
+        # combined figure (420 px/panel); rescaled down here for this
+        # standalone panel's smaller 95 mm canvas, same as
+        # _build_residual_single_figures does after calling _residual_panel.
+        fig.update_xaxes(tickfont=dict(size=10), title_font=dict(size=11), row=1, col=1)
+        fig.update_yaxes(tickfont=dict(size=10), title_font=dict(size=11), row=1, col=1)
+        # The rho annotation's y=0.05 (domain fraction) put it comfortably
+        # above the x-axis on the five-panel combined figure's taller canvas;
+        # on this panel's shorter one it sat right down against the tick
+        # labels. Raised rather than shrunk, to keep it as legible as the
+        # combined figure's.
+        fig.layout.annotations[-1].y = 0.13
+        fig.update_layout(
+            title=dict(
+                # Two lines, not one long string — a single line at a legible
+                # size ran past the panel's 95 mm width and got clipped by the
+                # canvas edge (the dimension<br><sub>...</sub> pattern already
+                # used for the column titles elsewhere in this file).
+                text=f"{dim_info['label']}<br><sub>WS vs LOSO mean |SHAP| (marker)</sub>",
+                font=dict(size=15, family="Times New Roman", color=dim_info["color"]),
+            ),
+            template="plotly_white",
+            width=int(_MARKER_SCATTER_SINGLE_MM[0] * _MM_TO_PX),
+            height=int(_MARKER_SCATTER_SINGLE_MM[1] * _MM_TO_PX),
+            margin=dict(l=70, r=30, t=70, b=55),
+            font=dict(family="Times New Roman", size=12),
+        )
+        figures.append((fig, f"scatter_shap_marker_{dim_info['key']}"))
+
+    return figures
+
+
 # =============================================================================
 # Figure — plain vs residualized: does residualizing change which markers matter?
 # =============================================================================
 
 _RESIDUAL_PROFILES = CONSISTENCY_DIR / "residual_marker_profiles.csv"
 _RESIDUAL_TOP_N = 5
-_RESIDUAL_WIDTH_MM, _RESIDUAL_HEIGHT_MM = 180.0, 250.0
+_RESIDUAL_WIDTH_MM, _RESIDUAL_HEIGHT_MM = 380.0, 190.0
 _RESIDUAL_SINGLE_MM = (150.0, 78.0)
 # Labels name the top markers of each side; the union is at most twice this and
 # collapses to fewer when the two sides agree, which is itself informative.
@@ -2823,7 +3659,7 @@ def _residual_panel(
 
     top_full = block.nlargest(_RESIDUAL_LABEL_N, "abs_full")["marker"]
     top_residual = block.nlargest(_RESIDUAL_LABEL_N, "abs_residual")["marker"]
-    rho, _ = spearmanr(full, residual)
+    rho, pval = spearmanr(full, residual)
 
     # Axes span the data, not [0, max]. Anchoring at zero pushed the cloud into
     # a corner occupying 41-70% of the panel, where any positive-valued scatter
@@ -2870,21 +3706,21 @@ def _residual_panel(
         x=full[mask], y=residual[mask], mode="markers+text",
         marker=dict(color=color, size=7, line=dict(color="white", width=0.6)),
         text=[n for n, m in zip(names, mask) if m],
-        textposition=positions, textfont=dict(size=6.5, color="#333333"),
+        textposition=positions, textfont=dict(size=11, color="#333333"),
         cliponaxis=False,
         hovertemplate="%{text}<br>full %{x:.4f}<br>residualized %{y:.4f}<extra></extra>",
         showlegend=False,
     ), row=row, col=col)
 
     fig.add_annotation(
-        text=f"Spearman ρ = {rho:.2f}",
+        text=f"Spearman ρ = {rho:.2f}<br>{_format_p_compact(pval)}",
         xref="x domain", yref="y domain", x=0.03, y=0.97,
         xanchor="left", yanchor="top", showarrow=False,
-        font=dict(size=6.5, color=color), align="left", row=row, col=col,
+        font=dict(size=17, color=color), align="left", row=row, col=col,
     )
-    fig.update_xaxes(range=[axis_lo, axis_hi], nticks=4, tickfont=dict(size=6),
+    fig.update_xaxes(range=[axis_lo, axis_hi], nticks=4, tickfont=dict(size=16),
                      row=row, col=col)
-    fig.update_yaxes(range=[axis_lo, axis_hi], nticks=4, tickfont=dict(size=6),
+    fig.update_yaxes(range=[axis_lo, axis_hi], nticks=4, tickfont=dict(size=16),
                      row=row, col=col)
 
 
@@ -2943,10 +3779,11 @@ def _build_residual_comparison_figure() -> go.Figure | None:
     """
     Marker attribution before vs after residualizing, all dimensions.
 
-    One row per dimension, two columns facing each other: within-subject on the
-    left, LOSO on the right. Facing columns rather than a flat grid so the two
-    pipelines for a dimension sit side by side and the question "does
-    residualizing hit both the same way?" is answered by a glance along a row.
+    Two rows, one per pipeline (within-subject on top, LOSO below), one column
+    per dimension. Dimension name is a column header shown once (top row only);
+    the pipeline name is a row-spanning supra-title shown once per row instead
+    of being repeated inside every panel's own title — a reader lines a column
+    up against the header once, not ten times.
 
     Each dimension is paired with the contrast that residualizes it against the
     other probe dimensions (within-subject OLS): if the same markers carry the
@@ -2964,39 +3801,57 @@ def _build_residual_comparison_figure() -> go.Figure | None:
         return None
 
     dimensions = _residual_dimension_order(profiles)
-    pipelines = [("ws", "within-subject"), ("loso", "LOSO")]
+    n_cols = len(dimensions)
+    pipelines = [("ws", "Within-Subject"), ("loso", "LOSO")]
 
+    subplot_titles = [
+        profiles.loc[profiles["contrast"] == key, "label"].iloc[0] if row_idx == 0 else ""
+        for row_idx in range(2) for key in dimensions
+    ]
     fig = make_subplots(
-        rows=len(dimensions), cols=2,
-        horizontal_spacing=0.10, vertical_spacing=0.045,
-        subplot_titles=[
-            f"{profiles.loc[profiles['contrast'] == key, 'label'].iloc[0]} · {name}"
-            for key in dimensions for _, name in pipelines
-        ],
+        rows=2, cols=n_cols,
+        horizontal_spacing=0.045, vertical_spacing=0.16,
+        subplot_titles=subplot_titles,
     )
-    for index, key in enumerate(dimensions):
-        for offset in (0, 1):
-            fig.layout.annotations[index * 2 + offset].font.size = 7.5
-            fig.layout.annotations[index * 2 + offset].font.color = _residual_color(key)
+    for col_idx, key in enumerate(dimensions):
+        fig.layout.annotations[col_idx].font.size = 20
+        fig.layout.annotations[col_idx].font.color = _residual_color(key)
 
-    for row, key in enumerate(dimensions, start=1):
-        for col, (pipeline, _) in enumerate(pipelines, start=1):
+    for row_idx, (pipeline_key, _) in enumerate(pipelines):
+        row = row_idx + 1
+        for col_idx, key in enumerate(dimensions):
+            col = col_idx + 1
             block = profiles[(profiles["contrast"] == key)
-                             & (profiles["pipeline"] == pipeline)]
+                             & (profiles["pipeline"] == pipeline_key)]
             _residual_panel(fig, row, col, block, _residual_color(key))
-            if row == len(dimensions):
+            if row == 2:
                 fig.update_xaxes(title_text="full model — mean |SHAP|",
-                                 title_font=dict(size=7), row=row, col=col)
+                                 title_font=dict(size=15), row=row, col=col)
             if col == 1:
                 fig.update_yaxes(title_text="residualized model",
-                                 title_font=dict(size=7), row=row, col=col)
+                                 title_font=dict(size=15), row=row, col=col)
+
+    # Row-spanning supra-titles: "Within-Subject" above row 1, "LOSO" centred
+    # in the gap between the two rows — the pipeline name shown once per row
+    # rather than baked into every panel title (see docstring).
+    row1_domain = fig.layout["yaxis"].domain
+    row2_axis = "yaxis" if n_cols == 1 else f"yaxis{n_cols + 1}"
+    row2_domain = fig.layout[row2_axis].domain
+    supra_font = dict(size=21, color="#333333")
+    fig.add_annotation(xref="paper", yref="paper", x=0.5, y=1.05,
+                        xanchor="center", yanchor="bottom", showarrow=False,
+                        text=f"<b>{pipelines[0][1]}</b>", font=supra_font)
+    fig.add_annotation(xref="paper", yref="paper", x=0.5,
+                        y=(row1_domain[0] + row2_domain[1]) / 2,
+                        xanchor="center", yanchor="middle", showarrow=False,
+                        text=f"<b>{pipelines[1][1]}</b>", font=supra_font)
 
     fig.update_layout(
         template="plotly_white",
         width=int(_RESIDUAL_WIDTH_MM * _MM_TO_PX),
         height=int(_RESIDUAL_HEIGHT_MM * _MM_TO_PX),
-        margin=dict(l=52, r=18, t=28, b=40),
-        font=dict(size=8),
+        margin=dict(l=110, r=95, t=68, b=75),
+        font=dict(size=15),
     )
     return fig
 
@@ -3391,29 +4246,106 @@ def _load_probe_predictions_loso(dim_info: dict) -> pd.DataFrame:
     return agg
 
 
-def plot_proba_ws_vs_loso_scatter() -> go.Figure:
+#: Physical canvas for plot_proba_ws_vs_loso_scatter — a double-column-width
+#: page figure, sized in mm like every other figure a paper actually uses
+#: (see scientific-plots skill, references/learnings/multipanel-layout.md).
+#: The previous version sized this canvas in raw pixels
+#: (`350 * n_dims` x `430`), which at the 96 dpi Plotly/Kaleido assume is
+#: ~463 mm wide — 2.5x the printable page — so every font constant on it was
+#: chosen as if for a screen-sized canvas and read as tiny once the PNG was
+#: actually placed at 180 mm. Margins below are hand-set (not automargin,
+#: matching this file's other mm-sized figures, e.g. _build_marker_direction_figure)
+#: because five equal-width panels sharing one y-axis need a predictable,
+#: not auto-negotiated, left/right split.
+_PROBA_SCATTER_WIDTH_MM  = 180.0
+_PROBA_SCATTER_HEIGHT_MM = 68.0
+_PROBA_SCATTER_MARGIN_MM = dict(l=15.0, r=27.0, t=29.0, b=14.0)
+_PROBA_SCATTER_GUTTER_MM = 3.0
+
+#: Type sizes in points at the figure's final print size (converted to the
+#: px Plotly expects via _MM_TO_PX-equivalent pt->px, see below) — the house
+#: floor from the scientific-plots skill (10 pt axis titles / 9 pt ticks),
+#: not the smaller sizes this file's other panels sometimes use.
+_PROBA_SCATTER_PT = dict(
+    fig_title=13.0, panel_title=12.0, panel_pole=9.5,
+    stat_annotation=10.5, axis_title=10.0, tick=9.0, legend=9.0,
+)
+_PT_TO_PX = 96.0 / 72.0  # points at final size -> the px Plotly/Kaleido lay out in
+
+
+def plot_proba_ws_vs_loso_scatter() -> tuple[go.Figure, int, int]:
     """
     One panel per dimension: scatter of per-probe predicted probability (WS vs LOSO).
 
     Each point is one probe. Fill encodes true label per project convention:
-      - filled marker  → y_true = 1 (high end of dimension)
-      - hollow marker  → y_true = 0 (low end of dimension)
-    Diagonal y=x and chance lines at 0.5 drawn for reference.
+      - filled marker  → y_true = 1 (high end of the dimension's 0-100 scale)
+      - hollow marker  → y_true = 0 (low end of the dimension's 0-100 scale)
+    Diagonal y=x and chance lines at 0.5 drawn for reference. The legend
+    ("High end (y=1)" / "Low end (y=0)") is deliberately generic — it is one
+    legend shared across all 5 panels, and each dimension's actual pole word
+    (on-task, positive, ...) differs, so the legend can't literally name the
+    pole and stays true to just the fill encoding; the per-panel subtitle
+    gives the dimension-specific pole wording instead (CLAUDE.md "Dimension
+    Labels & Pole Wording").
+
+    Only the leftmost panel carries the shared 0-1 probability y-axis (title
+    + tick labels); the other four keep the gridlines only, so a value still
+    lines up visually across panels without five redundant copies of
+    "0, .25, .5, .75, 1" eating into the plot area (see
+    references/learnings/multipanel-layout.md in the scientific-plots skill
+    — a repeated shared axis is the other common source of a facet row
+    reading as cramped even though nothing is actually missing).
+
+    Returns
+    -------
+    (figure, width_px, height_px)
+        Matches the ``plot_individual``-style return so the caller can queue
+        it with its own physical size and a 600 dpi export scale instead of
+        the shared ``_queue()`` helper's screen-preview scale.
     """
     n_dims = len(DIMENSIONS)
+    pt = _PROBA_SCATTER_PT
+
+    width_mm, height_mm = _PROBA_SCATTER_WIDTH_MM, _PROBA_SCATTER_HEIGHT_MM
+    margin_mm = _PROBA_SCATTER_MARGIN_MM
+    plot_width_mm = width_mm - margin_mm["l"] - margin_mm["r"]
+    gutters_mm = _PROBA_SCATTER_GUTTER_MM * (n_dims - 1)
+    h_spacing = _PROBA_SCATTER_GUTTER_MM / plot_width_mm
 
     fig = make_subplots(
         rows=1, cols=n_dims,
         shared_xaxes=False,
         shared_yaxes=False,
-        horizontal_spacing=0.05,
-        subplot_titles=[d["label"] for d in DIMENSIONS],
+        horizontal_spacing=h_spacing,
+        subplot_titles=None,  # built by hand below: two lines, two sizes, no HTML sub-scaling guess
     )
 
     for i, dim_info in enumerate(DIMENSIONS):
-        fig.layout.annotations[i].font.color  = dim_info["color"]
-        fig.layout.annotations[i].font.size   = 14
-        fig.layout.annotations[i].font.family = "Times New Roman"
+        col = i + 1
+        xa = fig.layout[f"xaxis{col}" if col > 1 else "xaxis"]
+        x_center = sum(xa.domain) / 2
+        fig.add_annotation(
+            text=f"<b>{dim_info['label']}</b>", x=x_center, y=1.0,
+            xref="x domain" if col == 1 else f"x{col} domain", yref="paper",
+            xanchor="center", yanchor="bottom", yshift=38,
+            showarrow=False,
+            font=dict(size=pt["panel_title"] * _PT_TO_PX, color=dim_info["color"],
+                      family="Times New Roman"),
+        )
+        # Two lines, not one: the widest pole pair ("self-focused" /
+        # "other-focused") does not fit one column's ~33 mm width on one
+        # line at a legible size — wrapping (not abbreviating; CLAUDE.md
+        # "Dimension Labels & Pole Wording" allows line-wrap but not a
+        # shorter synonym) keeps every pole at full canonical wording.
+        fig.add_annotation(
+            text=f"{dim_info['pole_low']}<br>↔ {dim_info['pole_high']}",
+            x=x_center, y=1.0,
+            xref="x domain" if col == 1 else f"x{col} domain", yref="paper",
+            xanchor="center", yanchor="top", yshift=32,
+            showarrow=False,
+            font=dict(size=pt["panel_pole"] * _PT_TO_PX, color=dim_info["color"],
+                      family="Times New Roman"),
+        )
 
     proba_min, proba_max = 0.0, 1.0
 
@@ -3439,8 +4371,8 @@ def plot_proba_ws_vs_loso_scatter() -> go.Figure:
         y_true = merged["y_true_ws"] if "y_true_ws" in merged.columns else merged["y_true"]
 
         for label_val, symbol, marker_label in [
-            (1, "circle",      "High (y=1)"),
-            (0, "circle-open", "Low (y=0)"),
+            (1, "circle",      "High end (y=1)"),
+            (0, "circle-open", "Low end (y=0)"),
         ]:
             mask = y_true == label_val
             show_leg = (col_idx == 0)
@@ -3482,18 +4414,28 @@ def plot_proba_ws_vs_loso_scatter() -> go.Figure:
                 line=dict(color="#BBBBBB", dash="dash", width=1.0),
             )
 
-        # Pearson r + n annotation
+        # Regression line + Pearson r / p-value annotation
         if len(merged) >= 3:
-            r = float(np.corrcoef(merged["ws_proba"].values, merged["loso_proba"].values)[0, 1])
-            n = len(merged)
+            m, b = np.polyfit(merged["ws_proba"].values, merged["loso_proba"].values, 1)
+            x_reg = np.array([proba_min, proba_max])
+            y_reg = m * x_reg + b
+            fig.add_trace(go.Scatter(
+                x=x_reg, y=y_reg,
+                mode="lines",
+                line=dict(color=color, width=2, dash="solid"),
+                showlegend=False,
+            ), row=1, col=col)
+
+            r, p = pearsonr(merged["ws_proba"].values, merged["loso_proba"].values)
             fig.add_annotation(
-                text=f"r = {r:.2f}<br>n = {n}",
+                text=f"r={r:.2f}<br>{_format_p_compact(p)}",
                 xref=f"x{col} domain" if col > 1 else "x domain",
                 yref=f"y{col} domain" if col > 1 else "y domain",
                 x=0.05, y=0.97,
                 xanchor="left", yanchor="top",
                 showarrow=False,
-                font=dict(size=10, color=color, family="Times New Roman"),
+                font=dict(size=pt["stat_annotation"] * _PT_TO_PX, color=color,
+                          family="Times New Roman"),
             )
 
         x_ax = f"xaxis{col}" if col > 1 else "xaxis"
@@ -3503,38 +4445,323 @@ def plot_proba_ws_vs_loso_scatter() -> go.Figure:
             fig.layout[ax_name].tickmode  = "array"
             fig.layout[ax_name].tickvals  = [0.0, 0.25, 0.5, 0.75, 1.0]
             fig.layout[ax_name].ticktext  = ["0", ".25", ".5", ".75", "1"]
-            fig.layout[ax_name].tickfont  = dict(size=10)
+            fig.layout[ax_name].tickfont  = dict(size=pt["tick"] * _PT_TO_PX)
             fig.layout[ax_name].showgrid  = True
             fig.layout[ax_name].gridcolor = "#EEEEEE"
             fig.layout[ax_name].zeroline  = False
 
-        fig.layout[x_ax].title = dict(text="WS predicted probability", font=dict(size=11))
+        # Shared 0-1 scale across all 5 panels: only the leftmost panel keeps
+        # the y tick labels + title (gridlines stay on every panel so a value
+        # still lines up visually across the row) — see
+        # references/learnings/multipanel-layout.md in the scientific-plots
+        # skill. The x title is dropped per-panel too, in favour of one
+        # centered annotation below the whole row (added after this loop),
+        # since all 5 columns share the identical "WS predicted probability"
+        # text.
         if col == 1:
-            fig.layout[y_ax].title = dict(text="LOSO predicted probability", font=dict(size=11))
+            fig.layout[y_ax].title = dict(
+                text="LOSO predicted probability",
+                font=dict(size=pt["axis_title"] * _PT_TO_PX),
+            )
+        else:
+            fig.layout[y_ax].showticklabels = False
 
+    x_domain_lo = fig.layout.xaxis.domain[0]
+    x_domain_hi = fig.layout[f"xaxis{n_dims}"].domain[1]
+    fig.add_annotation(
+        text="WS predicted probability",
+        x=(x_domain_lo + x_domain_hi) / 2, y=0,
+        xref="paper", yref="paper",
+        xanchor="center", yanchor="top", yshift=-32,
+        showarrow=False,
+        font=dict(size=pt["axis_title"] * _PT_TO_PX, family="Times New Roman"),
+    )
+
+    width_px  = round(width_mm * _MM_TO_PX)
+    height_px = round(height_mm * _MM_TO_PX)
     fig.update_layout(
         title=dict(
             text="Per-probe predicted probability: Within-Subject vs LOSO",
-            font=dict(size=16, family="Times New Roman"),
-            x=0.5,
+            font=dict(size=pt["fig_title"] * _PT_TO_PX, family="Times New Roman"),
+            x=0.5, y=0.99, yanchor="top",
         ),
         plot_bgcolor="white",
         paper_bgcolor="white",
-        font=dict(family="Times New Roman"),
-        width=350 * n_dims,
-        height=400,
+        font=dict(family="Times New Roman", size=pt["tick"] * _PT_TO_PX),
+        width=width_px,
+        height=height_px,
         legend=dict(
             orientation="v",
-            x=1.01,
-            y=0.5,
-            xanchor="left",
-            yanchor="middle",
-            font=dict(size=11, family="Times New Roman"),
-            title=dict(text="True label", font=dict(size=11)),
+            x=1.0, y=0.5,
+            xanchor="left", yanchor="middle",
+            font=dict(size=pt["legend"] * _PT_TO_PX, family="Times New Roman"),
+            title=dict(text="True label", font=dict(size=pt["legend"] * _PT_TO_PX)),
         ),
-        margin=dict(t=80, b=60, l=70, r=130),
+        margin=dict(
+            l=round(margin_mm["l"] * _MM_TO_PX), r=round(margin_mm["r"] * _MM_TO_PX),
+            t=round(margin_mm["t"] * _MM_TO_PX), b=round(margin_mm["b"] * _MM_TO_PX),
+        ),
     )
 
+    return fig, width_px, height_px
+
+
+# =============================================================================
+# Figure D3 — CV-scheme stability: performance (A) + probability agreement (B)
+# =============================================================================
+
+
+def _subplot_axis_ids(row: int, col: int, n_cols: int) -> tuple[str, str, str, str]:
+    """
+    ``(xaxis_key, yaxis_key, xref, yref)`` for a ``make_subplots`` cell.
+
+    ``plot_loso_vs_ws_scatter``/``plot_proba_ws_vs_loso_scatter`` each only
+    ever address row 1, so their inline ``f"xaxis{col}"`` is correct as
+    written; this combined figure stacks two rows, so the same cell needs a
+    row-major index (``(row-1)*n_cols+col``) instead of just ``col``.
+    """
+    idx = (row - 1) * n_cols + col
+    suffix = "" if idx == 1 else str(idx)
+    return f"xaxis{suffix}", f"yaxis{suffix}", f"x{suffix}", f"y{suffix}"
+
+
+def _add_diag_and_chance_lines(fig: go.Figure, xref: str, yref: str, lo: float, hi: float) -> None:
+    """Diagonal (y=x) + chance crosshair (0.5) shared by both rows of the CV-stability figure."""
+    fig.add_shape(
+        type="line", x0=lo, x1=hi, y0=lo, y1=hi,
+        xref=xref, yref=yref,
+        line=dict(color="#888888", dash="dot", width=1.2),
+    )
+    for x0, x1, y0, y1 in [(0.5, 0.5, lo, hi), (lo, hi, 0.5, 0.5)]:
+        fig.add_shape(
+            type="line", x0=x0, x1=x1, y0=y0, y1=y1,
+            xref=xref, yref=yref,
+            line=dict(color="#BBBBBB", dash="dash", width=1.0),
+        )
+
+
+def _add_regression_and_annotation(
+    fig: go.Figure, row: int, col: int, xref: str, yref: str,
+    x: np.ndarray, y: np.ndarray, lo: float, hi: float, color: str,
+) -> None:
+    """Fit line + Pearson r/p annotation, shared by both rows of the CV-stability figure."""
+    m, b = np.polyfit(x, y, 1)
+    x_reg = np.array([lo, hi])
+    y_reg = m * x_reg + b
+    fig.add_trace(go.Scatter(
+        x=x_reg, y=y_reg, mode="lines",
+        line=dict(color=color, width=2, dash="solid"),
+        showlegend=False,
+    ), row=row, col=col)
+
+    r, p = pearsonr(x, y)
+    fig.add_annotation(
+        text=f"r={r:.2f}<br>{_format_p_compact(p)}",
+        xref=f"{xref} domain", yref=f"{yref} domain",
+        x=0.05, y=0.96, xanchor="left", yanchor="top",
+        showarrow=False,
+        font=dict(size=16, color=color, family="Times New Roman"),
+    )
+
+
+def plot_cv_stability_combined() -> go.Figure:
+    """
+    Two-panel figure: does WS agree with LOSO, at both the performance level
+    and the prediction level?
+
+    Panel A (row 1) — per-subject mean AUC, WS vs LOSO (same data as
+    ``plot_loso_vs_ws_scatter``): does a dimension's decoding *performance*
+    replicate across CV schemes?
+    Panel B (row 2) — per-probe predicted probability, WS vs LOSO (same data
+    as ``plot_proba_ws_vs_loso_scatter``): do the two schemes agree on
+    individual predictions, not just on the summary AUC? A dimension can
+    tie on A while disagreeing probe-by-probe on B, or vice versa, so the two
+    rows are deliberately kept as one figure rather than two standalone ones.
+
+    One column per canonical dimension, shared across both rows. Letters
+    follow the project convention (CLAUDE.md "Figure Assembly"): one per
+    distinct *kind* of panel, at that row's first column, top-left corner —
+    not one per column, since all five columns within a row are the same
+    kind of panel repeated.
+    """
+    n_dims = len(DIMENSIONS)
+
+    fig = make_subplots(
+        rows=2, cols=n_dims,
+        shared_xaxes=False,
+        shared_yaxes=False,
+        horizontal_spacing=0.045,
+        vertical_spacing=0.30,
+        subplot_titles=[d["label"] for d in DIMENSIONS] + [""] * n_dims,
+    )
+
+    for i, dim_info in enumerate(DIMENSIONS):
+        fig.layout.annotations[i].text = (
+            f"<b>{dim_info['label']}</b><br>"
+            f"<sub>{dim_info['pole_low']} ↔ {dim_info['pole_high']}</sub>"
+        )
+        fig.layout.annotations[i].font.color  = dim_info["color"]
+        fig.layout.annotations[i].font.size   = 22
+        fig.layout.annotations[i].font.family = "Times New Roman"
+
+    auc_min, auc_max = AUC_RANGE
+    proba_min, proba_max = 0.0, 1.0
+
+    # ---- Row 1 (Panel A): per-subject mean AUC ----
+    for col_idx, dim_info in enumerate(DIMENSIONS):
+        col, color = col_idx + 1, dim_info["color"]
+        x_ax, y_ax, xref, yref = _subplot_axis_ids(1, col, n_dims)
+
+        t_ws, _   = load_subject_data("ws",   dim_info)
+        t_lo, _   = load_subject_data("loso", dim_info)
+        ws_means   = t_ws.groupby("subject")["auc"].mean().rename("ws")
+        loso_means = t_lo.groupby("subject")["auc"].mean().rename("loso")
+        merged = pd.concat([ws_means, loso_means], axis=1).dropna()
+        if merged.empty:
+            continue
+
+        fig.add_trace(go.Scatter(
+            x=merged["ws"].values, y=merged["loso"].values,
+            mode="markers",
+            marker=dict(color=color, size=6, opacity=0.85,
+                        line=dict(color="white", width=0.5)),
+            showlegend=False, name=dim_info["label"],
+        ), row=1, col=col)
+
+        _add_diag_and_chance_lines(fig, xref, yref, auc_min, auc_max)
+        if len(merged) >= 3:
+            _add_regression_and_annotation(
+                fig, 1, col, xref, yref,
+                merged["ws"].values, merged["loso"].values, auc_min, auc_max, color,
+            )
+
+        for ax_name in (x_ax, y_ax):
+            fig.layout[ax_name].range     = [auc_min, auc_max]
+            fig.layout[ax_name].tickmode  = "array"
+            fig.layout[ax_name].tickvals  = [0.5, 0.75, 1.0]
+            fig.layout[ax_name].ticktext  = ["0.5", ".75", "1.0"]
+            fig.layout[ax_name].tickfont  = dict(size=12)
+            fig.layout[ax_name].showgrid  = True
+            fig.layout[ax_name].gridcolor = "#EEEEEE"
+            fig.layout[ax_name].zeroline  = False
+        fig.layout[x_ax].title = dict(text="WS AUC", font=dict(size=13))
+        if col == 1:
+            fig.layout[y_ax].title = dict(text="LOSO AUC", font=dict(size=13))
+
+    # ---- Row 2 (Panel B): per-probe predicted probability ----
+    for col_idx, dim_info in enumerate(DIMENSIONS):
+        col, color = col_idx + 1, dim_info["color"]
+        x_ax, y_ax, xref, yref = _subplot_axis_ids(2, col, n_dims)
+
+        ws_df   = _load_probe_predictions_ws(dim_info)
+        loso_df = _load_probe_predictions_loso(dim_info)
+        if ws_df.empty or loso_df.empty:
+            continue
+
+        merged = ws_df.merge(loso_df, on=["subject", "task", "probe_number"], suffixes=("_ws", "_loso"))
+        merged = merged.dropna(subset=["ws_proba", "loso_proba"])
+        if merged.empty:
+            print(f"  ! {dim_info['label']}: WS/LOSO probe tables share no "
+                  f"(subject, task, probe_number) key — panel B will be empty for this column.")
+            continue
+
+        y_true = merged["y_true_ws"] if "y_true_ws" in merged.columns else merged["y_true"]
+
+        for label_val, symbol, marker_label in [
+            (1, "circle",      "High end (y=1)"),
+            (0, "circle-open", "Low end (y=0)"),
+        ]:
+            mask = y_true == label_val
+            fig.add_trace(go.Scatter(
+                x=merged.loc[mask, "ws_proba"].values,
+                y=merged.loc[mask, "loso_proba"].values,
+                mode="markers",
+                name=marker_label,
+                marker=dict(symbol=symbol, color=color, size=4.5, opacity=0.6,
+                            line=dict(color=color, width=1.1)),
+                showlegend=(col_idx == 0),
+                legendgroup=marker_label,
+            ), row=2, col=col)
+
+        _add_diag_and_chance_lines(fig, xref, yref, proba_min, proba_max)
+        if len(merged) >= 3:
+            _add_regression_and_annotation(
+                fig, 2, col, xref, yref,
+                merged["ws_proba"].values, merged["loso_proba"].values, proba_min, proba_max, color,
+            )
+
+        for ax_name in (x_ax, y_ax):
+            fig.layout[ax_name].range     = [proba_min, proba_max]
+            fig.layout[ax_name].tickmode  = "array"
+            fig.layout[ax_name].tickvals  = [0.0, 0.25, 0.5, 0.75, 1.0]
+            fig.layout[ax_name].ticktext  = ["0", ".25", ".5", ".75", "1"]
+            fig.layout[ax_name].tickfont  = dict(size=12)
+            fig.layout[ax_name].showgrid  = True
+            fig.layout[ax_name].gridcolor = "#EEEEEE"
+            fig.layout[ax_name].zeroline  = False
+        fig.layout[x_ax].title = dict(text="WS probability", font=dict(size=13))
+        if col == 1:
+            fig.layout[y_ax].title = dict(text="LOSO probability", font=dict(size=13))
+
+    # Panel letters (top-left corner, per project convention — one per row
+    # since all 5 columns are the same kind of panel repeated) + a centered
+    # per-panel title for each row. No figure-wide title.
+    #
+    # Positioning uses `yshift` (fixed pixels) rather than a fractional `y`
+    # offset: the column-title annotations above row 1 (dimension name + pole
+    # subtitle, 2 lines) have a pixel-sized vertical extent that a fractional
+    # guess kept colliding with. A pixel offset is measured from each row's
+    # own domain edge and stays correct regardless of that text's height.
+    y1_top = fig.layout.yaxis.domain[1]
+    _, y2_ax, _, _ = _subplot_axis_ids(2, 1, n_dims)
+    y2_top = fig.layout[y2_ax].domain[1]
+    x1_left = fig.layout.xaxis.domain[0]
+
+    header_specs = [
+        ("A", "Performance",   y1_top, 95),  # clears the 2-line column titles above it
+        ("B", "Probabilities", y2_top, 95),  # clears the legend sitting below it (yshift=25)
+    ]
+    for letter, panel_title, y_base, yshift in header_specs:
+        fig.add_annotation(
+            text=f"<b>{letter}</b>",
+            xref="paper", yref="paper",
+            x=x1_left - 0.03, y=y_base, yshift=yshift,
+            xanchor="right", yanchor="bottom",
+            showarrow=False,
+            font=dict(size=30, family="Times New Roman", color="black"),
+        )
+        fig.add_annotation(
+            text=f"<b>{panel_title}</b>",
+            xref="paper", yref="paper",
+            x=0.5, y=y_base, yshift=yshift,
+            xanchor="center", yanchor="bottom",
+            showarrow=False,
+            font=dict(size=18, family="Times New Roman", color="#333333"),
+        )
+
+    # Legend: horizontal, centered, inside the figure in the row1/row2 gap —
+    # not off to the right (which only pads the canvas). Sits on its own line
+    # below panel B's "B  Probabilities" header, directly above panel B's
+    # plots. `layout.legend` has no `yshift` (annotations do), so the same
+    # ~25px offset used for the header is pre-converted to a plot-area
+    # fraction here (25 / (height - margin.t - margin.b) = 25/630).
+    fig.update_layout(
+        template="plotly_white",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        width=320 * n_dims,
+        height=840,
+        margin=dict(l=130, r=30, t=150, b=60),
+        font=dict(family="Times New Roman", size=15),
+        legend=dict(
+            orientation="h",
+            x=0.5, xanchor="center",
+            y=y2_top + 25 / 630, yanchor="bottom",
+            font=dict(size=13, family="Times New Roman"),
+            title=dict(text="True label:  ", font=dict(size=13), side="left"),
+            bgcolor="rgba(255,255,255,0)",
+        ),
+    )
     return fig
 
 
@@ -3544,6 +4771,11 @@ def plot_proba_ws_vs_loso_scatter() -> go.Figure:
 
 
 def main() -> None:
+    # NOT wiped before regenerating: OUTPUT_DIR is also the parent of
+    # prob_vs_dim/, owned by make_fig_prob_vs_dim_ws_loso.py — an
+    # rmtree here silently deletes that script's output too. Each stem this
+    # script writes overwrites its own file in place; a stem removed
+    # upstream can leave an orphan behind, but that is the safer failure mode.
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Accumulate (fig, path, opts) — written in one kaleido/Chrome session at the end
@@ -3551,6 +4783,7 @@ def main() -> None:
     pending: list[tuple[go.Figure, Path, dict]] = []
 
     def _queue(fig: go.Figure, stem: str) -> None:
+        _export_fig_csv(fig, OUTPUT_DIR / f"{stem}.csv")
         w = int(fig.layout.width  or 800)
         h = int(fig.layout.height or 600)
         for fmt in ("png", "svg"):
@@ -3575,6 +4808,7 @@ def main() -> None:
         result = plot_individual(pipeline, title_prefix, indiv_stem)
         if result is not None:
             fig_i, w_i, h_i = result
+            _export_fig_csv(fig_i, OUTPUT_DIR / f"{indiv_stem}.csv")
             for fmt in ("png", "svg"):
                 pending.append((fig_i, OUTPUT_DIR / f"{indiv_stem}.{fmt}",
                                 {"format": fmt, "width": int(w_i), "height": int(h_i), "scale": 2}))
@@ -3593,6 +4827,7 @@ def main() -> None:
         )
         if isinstance(result_res, tuple):
             fig_i_res, w_i_res, h_i_res = result_res
+            _export_fig_csv(fig_i_res, OUTPUT_DIR / f"{indiv_stem}_residualized.csv")
             for fmt in ("png", "svg"):
                 pending.append((fig_i_res, OUTPUT_DIR / f"{indiv_stem}_residualized.{fmt}",
                                 {"format": fmt, "width": int(w_i_res), "height": int(h_i_res), "scale": 2}))
@@ -3616,6 +4851,14 @@ def main() -> None:
         print(f"  Saved: {spatial_path.with_suffix('.svg')}")
 
     print("=" * 60)
+    print("Spatial decoding comparison (+ residualized): WS vs LOSO topomaps")
+    print("=" * 60)
+    spatial_res_path = plot_spatial_comparison_panel_with_residualized()
+    if spatial_res_path is not None:
+        print(f"  Saved: {spatial_res_path}")
+        print(f"  Saved: {spatial_res_path.with_suffix('.svg')}")
+
+    print("=" * 60)
     print("Global Decoding + Spatial Decoding combined: WS | LOSO")
     print("=" * 60)
     combined_path = plot_group_spatial_combined()
@@ -3627,6 +4870,11 @@ def main() -> None:
     print("LOSO vs WS scatter")
     print("=" * 60)
     _queue(plot_loso_vs_ws_scatter(), "scatter_loso_vs_ws")
+
+    print("=" * 60)
+    print("AUC vs self-reported confidence (exploratory)")
+    print("=" * 60)
+    _queue(plot_auc_vs_confidence_scatter(), "scatter_auc_vs_confidence")
 
     print("=" * 60)
     print("Regression overlay")
@@ -3648,9 +4896,31 @@ def main() -> None:
     _queue(fig_shap_dir, "scatter_shap_directional")
 
     print("=" * 60)
+    print("SHAP scatter — marker-aggregated (WS vs LOSO)")
+    print("=" * 60)
+    _queue(_build_shap_marker_scatter_fig(), "scatter_shap_marker")
+    for fig_marker_single, stem in _build_shap_marker_single_figures():
+        _queue(fig_marker_single, stem)
+
+    print("=" * 60)
     print("Probe-level probability scatter: WS vs LOSO")
     print("=" * 60)
-    _queue(plot_proba_ws_vs_loso_scatter(), "scatter_proba_ws_vs_loso")
+    # Bypasses _queue()'s screen-preview scale=2 (192 dpi): this figure is
+    # sized to its real 180x60 mm print footprint (see
+    # plot_proba_ws_vs_loso_scatter), so it needs its own export scale to
+    # hit the project's 600 dpi minimum for a paper PNG — scale is relative
+    # to the 96 dpi Plotly/Kaleido assume, so 600/96.
+    fig_proba, w_proba, h_proba = plot_proba_ws_vs_loso_scatter()
+    _export_fig_csv(fig_proba, OUTPUT_DIR / "scatter_proba_ws_vs_loso.csv")
+    for fmt in ("png", "svg"):
+        pending.append((fig_proba, OUTPUT_DIR / f"scatter_proba_ws_vs_loso.{fmt}",
+                        {"format": fmt, "width": w_proba, "height": h_proba,
+                         "scale": 600.0 / 96.0 if fmt == "png" else 1}))
+
+    print("=" * 60)
+    print("CV-scheme stability combined: performance (A) + probability (B)")
+    print("=" * 60)
+    _queue(plot_cv_stability_combined(), "cv_stability_combined")
 
     print("=" * 60)
     print("SHAP direction per marker — WS vs LOSO, all dimensions")

@@ -201,6 +201,90 @@ STANDARDIZE_PREDICTORS: bool = True
 # Figure settings
 FIG_DPI: int = 300
 
+# Number of binscatter columns in the combined panel's scatter block. With the
+# quadratic terms removed (see CLAUDE.md, "Quadratic Terms: Removed") PREDICTORS
+# holds 6 entries — the 5 MDES dimensions plus the time_on_task covariate — so 3
+# columns tile them exactly into 2 full rows with no blank cells. It was 4 while
+# `valence_sq`/`time_sq` were still in the model (8 predictors); leaving it at 4
+# now would leave 2 empty cells and keep the figure wider than its content.
+COMBINED_PANEL_SCATTER_COLS: int = 3
+
+# Combined-panel column geometry. One binscatter panel is SCATTER_PANEL_IN wide;
+# the forest column is FOREST_COL_RATIO times that, and the figure width is
+# derived from both (see plot_combined_panel), so a scatter panel keeps the same
+# size whichever way the forest column is tuned.
+#
+# The ratio was 1.9 while the z/p annotation sat on one line and ate ~38% of the
+# forest axes. Stacking z over p (see FOREST_ANNOT_*) cut that to ~23%, which
+# left the whiskers over-wide — the ratio absorbs the difference, so the space
+# the annotation gave back goes to the figure rather than to already-legible
+# whiskers. Do not push it much below this: the panel still has to fit its
+# x-axis label, which is what runs out of room first (see FOREST_XLABEL_FONTSIZE).
+SCATTER_PANEL_IN: float = 2.2
+FOREST_COL_RATIO: float = 1.45
+
+# Constrained-layout gutters for the combined panel. `*_PAD_IN` is the padding
+# (inches) between an axes' decorations and its neighbour; `*SPACE` is the extra
+# gap as a fraction of the axes size.
+#
+# Horizontal is cut far below the matplotlib default (0.04167 in / 0.02): once
+# the redundant y tick labels are dropped from every column but the first (see
+# SHARE_SCATTER_Y_TICKLABELS) that gutter holds nothing at all, so the panels
+# can sit almost flush. Vertical keeps the default pad: the row gutter still has
+# to fit row 1's x tick labels *and* pole x-label above row 2's panel title —
+# and in the forest column, the "β (log-odds per SD)" x-label directly above the
+# "onoff Moderation" title, which is the tightest pair in the figure and the
+# first thing to collide if this is shrunk.
+CONSTRAINED_W_PAD_IN: float = 0.015
+CONSTRAINED_H_PAD_IN: float = 0.04167
+CONSTRAINED_WSPACE: float = 0.008
+CONSTRAINED_HSPACE: float = 0.02
+
+# Draw y tick labels only on the leftmost binscatter column. Safe because
+# plot_combined_panel applies one shared y-range to every scatter panel, so the
+# repeated labels carry no information and only widen the inter-panel gutter.
+# Set False to restore per-panel tick labels if that shared range is ever lifted.
+SHARE_SCATTER_Y_TICKLABELS: bool = True
+
+# Forest-panel z/p annotation. The text is drawn *inside* the axes, so the room
+# for it is bought by widening xlim past the real data range: WIDTH_FRAC is that
+# extra span as a fraction of the data range, i.e. the annotation column ends up
+# occupying WIDTH_FRAC / (1 + WIDTH_FRAC) of the panel and the CI whiskers keep
+# the rest. GAP_FRAC is the leading gap between the widest CI cap and the text.
+# These move together: shrinking WIDTH_FRAC without also shrinking FONTSIZE runs
+# the text off the right edge (there is no clipping to catch it).
+#
+# The z and p are stacked on two lines, which is what lets WIDTH_FRAC be this
+# small — the column only has to fit the *wider* of the two halves rather than
+# both side by side, so the whiskers keep ~3/4 of the panel instead of the ~5/8
+# they had as one 11 pt line at 0.62. The cost is vertical: two lines have to fit
+# inside one row's pitch, which is the axes height divided by the number of rows
+# (6 in the additive panel — the tighter of the two). At 9.5 pt with
+# LINESPACING 1.0 the pair occupies roughly 70% of that pitch, so rows stay
+# visually separate; raising either value eats into the neighbouring row before
+# it ever runs out of horizontal room.
+# Forest x-axis label, matching the scatter panels' x-label size so the two
+# halves of the figure read as one. Both forest labels are kept to a single
+# short line that fits inside the narrowed forest column: "95% CI" was dropped
+# from every one of them (see coefficient_axis_label) because the panel already
+# *draws* the interval as whiskers — restating it in words cost more width than
+# it bought, and width is what the label ran out of. Wrapping onto two lines was
+# tried instead and is worse: it leaves a bare "β" over a second line still
+# wider than the axes, which then overhangs into the scatter panels.
+FOREST_XLABEL_FONTSIZE: float = 12.0
+
+# Moderation forest x-axis label. Unlike the additive one it also drops the link
+# scale, which loses nothing here: the additive forest sits directly above it in
+# the same figure, on the same scale, and spells it out. Note the moderation β
+# is a product of two z-scored predictors, i.e. per SD × SD — state that in the
+# caption if this panel is ever shown without its neighbour.
+MODERATION_XLABEL: str = "onoff × moderator"
+
+FOREST_ANNOT_FONTSIZE: float = 9.5
+FOREST_ANNOT_LINESPACING: float = 1.0
+FOREST_ANNOT_WIDTH_FRAC: float = 0.30
+FOREST_ANNOT_GAP_FRAC: float = 0.03
+
 # Shared project color palette (single source of truth). Resolved path-relative
 # to this script so it works regardless of the current working directory.
 PALETTE = yaml.safe_load(
@@ -558,8 +642,8 @@ def coefficient_axis_label(link: str, standardized: bool) -> str:
     """
     scale = LINK_SCALE_LABELS[link]
     if standardized:
-        return f"β ({scale} per SD, 95% CI)" if scale else "β (SD units, 95% CI)"
-    return f"Coefficient ({scale}, 95% CI)" if scale else "Coefficient (95% CI)"
+        return f"β ({scale} per SD)" if scale else "β (SD units)"
+    return f"Coefficient ({scale})" if scale else "Coefficient"
 
 
 def _draw_forest_panel(
@@ -579,12 +663,14 @@ def _draw_forest_panel(
     ``plot_combined_panel`` (embedded). Significance encoded by fill
     (filled = significant, hollow = not) and line style (solid / dashed).
     Row labels sit on the left of the axis (standard forest-plot layout).
-    The z/p stat annotation is drawn *inside* the same axes, in a column
-    reserved to the right of the CI data (the x-axis is widened to make
-    room, then clipped back to the real data range for ticks/gridlines) —
-    every row's text lines up at one fixed x, rather than floating at each
-    row's own CI-upper-bound (which zig-zags row to row) or living outside
-    the axes in the figure margin.
+    The z/p stat annotation is drawn *inside* the same axes, z over p on two
+    lines, in a column reserved to the right of the CI data (the x-axis is
+    widened to make room, then clipped back to the real data range for
+    ticks/gridlines) — every row's text lines up at one fixed x, rather than
+    floating at each row's own CI-upper-bound (which zig-zags row to row) or
+    living outside the axes in the figure margin. See FOREST_ANNOT_* for the
+    horizontal/vertical trade-off the two-line stacking buys, and
+    FOREST_XLABEL_FONTSIZE for why ``xlabel`` is expected to be one short line.
 
     Parameters
     ----------
@@ -615,7 +701,7 @@ def _draw_forest_panel(
     for tick, c in zip(ax.get_yticklabels(), colors):
         tick.set_color(c)
         tick.set_fontweight("bold")
-    ax.set_xlabel(xlabel, fontsize=13, fontweight="bold")
+    ax.set_xlabel(xlabel, fontsize=FOREST_XLABEL_FONTSIZE, fontweight="bold")
     ax.set_title(title, fontsize=15, fontweight="bold", pad=12)
     ax.tick_params(axis="x", labelsize=10)
     ax.set_ylim(-0.6, len(labels) - 0.4)
@@ -634,8 +720,8 @@ def _draw_forest_panel(
     ax.set_xticks(ticks)
     ax.grid(True, axis="x", alpha=0.3)
 
-    text_col_x = data_hi + 0.06 * (data_hi - data_lo)
-    ax.set_xlim(data_lo, data_hi + 0.62 * (data_hi - data_lo))
+    text_col_x = data_hi + FOREST_ANNOT_GAP_FRAC * (data_hi - data_lo)
+    ax.set_xlim(data_lo, data_hi + FOREST_ANNOT_WIDTH_FRAC * (data_hi - data_lo))
     ax.spines["right"].set_visible(False)
 
     for i, (_, row) in enumerate(plot_df.iterrows()):
@@ -647,8 +733,9 @@ def _draw_forest_panel(
         # Wald z for both backends: statsmodels MixedLM and lme4 glmer both
         # report a normal-approximation statistic, not a t.
         ax.text(
-            text_col_x, i, f"{star}z={row['t_value']:.2f}  {p_label}",
-            va="center", ha="left", fontsize=11, color=c,
+            text_col_x, i, f"{star}z={row['t_value']:.2f}\n{p_label}",
+            va="center", ha="left", fontsize=FOREST_ANNOT_FONTSIZE, color=c,
+            linespacing=FOREST_ANNOT_LINESPACING,
             fontweight="bold" if sig else "normal",
         )
 
@@ -752,12 +839,7 @@ def plot_combined_forest(
         _draw_forest_panel(
             ax_mod, mod_plot, mod_labels, mod_colors, mod_sig,
             ci_lower_col="ci_lower", ci_upper_col="ci_upper",
-            xlabel=(
-                "onoff × moderator "
-                f"({LINK_SCALE_LABELS[link]}, 95% CI)"
-                if LINK_SCALE_LABELS[link]
-                else "onoff × moderator coefficient (95% CI)"
-            ),
+            xlabel=MODERATION_XLABEL,
             title="Moderation of onoff Effect",
         )
 
@@ -1246,16 +1328,15 @@ def plot_combined_panel(
 ) -> None:
     """Combined matplotlib figure: binscatter grid (left) + forest panels (right).
 
-    Layout: N_scatter_rows × 5 columns. Columns 1-4 hold one binscatter panel
-    per predictor (row-major order); column 5 holds the additive-effects forest
-    (row 1) and, if ``moderation_df`` is given, the onoff-moderation forest
-    (row 2). Each scatter panel's title is just the dimension's plain
-    PREDICTOR_LABELS name (the quadratic counterpart of a predictor already
-    has its own distinct name, e.g. "Neutral/Emotional" next to "Valence", so
-    no "(linear)"-style qualifier is needed to tell them apart); its x-axis
-    instead states what the 0-100 scale *means* (its poles, e.g.
-    "off-task → on-task"), via ``POLE_LABELS``, so the panel doesn't repeat
-    the same text twice.
+    Layout: N_scatter_rows × (COMBINED_PANEL_SCATTER_COLS + 1) columns. The
+    leading ``COMBINED_PANEL_SCATTER_COLS`` columns hold one binscatter panel
+    per predictor (row-major order) — with the default of 3 and the 6-entry
+    ``PREDICTORS`` list that is a 2 × 3 block with no blank cells; the last
+    column holds the additive-effects forest (row 1) and, if ``moderation_df``
+    is given, the onoff-moderation forest (row 2). Each scatter panel's title
+    is the dimension's plain PREDICTOR_LABELS name; its x-axis instead states
+    what the 0-100 scale *means* (its poles, e.g. "off-task → on-task"), via
+    ``POLE_LABELS``, so the panel doesn't repeat the same text twice.
 
     Parameters
     ----------
@@ -1279,7 +1360,7 @@ def plot_combined_panel(
     if predictors is None:
         predictors = PREDICTORS
 
-    n_scatter_cols = 4
+    n_scatter_cols = COMBINED_PANEL_SCATTER_COLS
     n_preds = len(predictors)
     n_scatter_rows = int(np.ceil(n_preds / n_scatter_cols))
     n_forest_rows = 2 if moderation_df is not None else 1
@@ -1293,19 +1374,28 @@ def plot_combined_panel(
     # past the requested minimum only where a collision would otherwise occur,
     # instead of the fixed-fraction spacing plain GridSpec uses (which overlaps
     # once panel fonts/text are large relative to the figure).
-    # The forest column keeps a generous width_ratio (not compressed further)
-    # so its CI whiskers stay visually spread out — squeezing that column is
-    # what stops it from reading as a forest plot at all, not just "smaller".
-    # The scatter columns and the gutters between everything are what actually
-    # shrink here.
-    fig_w = 2.2 * n_scatter_cols + 4.2
+    # fig_w is derived from the column ratios rather than written as its own
+    # number so that a scatter panel is SCATTER_PANEL_IN wide whatever
+    # FOREST_COL_RATIO is set to. The previous form hardcoded the forest
+    # allowance as a separate "+ 4.2" term that happened to equal
+    # 2.2 * 1.9 — changing the ratio without also editing that constant would
+    # have silently resized the scatter panels instead of the forest column.
+    fig_w = SCATTER_PANEL_IN * (n_scatter_cols + FOREST_COL_RATIO)
     fig_h = 2.5 * n_total_rows + 0.6
-    fig = plt.figure(figsize=(fig_w, fig_h), layout="constrained")
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    # Set the engine explicitly rather than via `layout="constrained"`: the
+    # gutter sizes are engine parameters, and a GridSpec's own hspace/wspace
+    # are *ignored* once constrained layout is active — passing them there
+    # (as this function used to) silently did nothing.
+    fig.set_layout_engine(
+        "constrained",
+        w_pad=CONSTRAINED_W_PAD_IN, h_pad=CONSTRAINED_H_PAD_IN,
+        wspace=CONSTRAINED_WSPACE, hspace=CONSTRAINED_HSPACE,
+    )
 
     gs = fig.add_gridspec(
         n_total_rows, n_scatter_cols + 1,
-        width_ratios=[1] * n_scatter_cols + [1.9],
-        hspace=0.05, wspace=0.05,
+        width_ratios=[1] * n_scatter_cols + [FOREST_COL_RATIO],
     )
 
     # ── x-label helper ────────────────────────────────────────────────────────
@@ -1399,6 +1489,8 @@ def plot_combined_panel(
         if s_col == 0:
             ax.set_ylabel(marker_label, fontsize=12)
         ax.tick_params(labelsize=11)
+        if SHARE_SCATTER_Y_TICKLABELS and s_col != 0:
+            ax.tick_params(labelleft=False)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1465,11 +1557,7 @@ def plot_combined_panel(
         _draw_forest_panel(
             ax_mod, mod_plot, mod_labels, mod_colors, mod_sig,
             ci_lower_col="ci_lower", ci_upper_col="ci_upper",
-            xlabel=(
-                f"onoff × moderator ({LINK_SCALE_LABELS[link]}, 95% CI)"
-                if LINK_SCALE_LABELS[link]
-                else "onoff × moderator (95% CI)"
-            ),
+            xlabel=MODERATION_XLABEL,
             title="onoff Moderation",
         )
 

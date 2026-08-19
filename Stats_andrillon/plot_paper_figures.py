@@ -121,12 +121,14 @@ TOPOMAP_KWARGS = dict(
 # solve_square_topomap_row_height_in), that area gap mostly closed, and the
 # old 4.2pt dot read as barely-visible ("los puntos... quedaron muy chicos")
 # against a head circle several times its old size. Scaled up to match.
+# 10.5 -> 14 (2026-08-18 follow-up: "los puntos del topoplot" still too small
+# relative to the rest of the enlarged chrome).
 MASK_PARAMS = dict(
     marker="o",
     markerfacecolor="k",
     markeredgecolor="k",
     linewidth=0,
-    markersize=10.5,
+    markersize=14,
 )
 
 # Style for channels that are part of a raw-significant cluster (p < alpha)
@@ -135,8 +137,9 @@ MASK_PARAMS = dict(
 # reused verbatim) rather than omitted — the marker still carries genuine
 # nominal signal, it just doesn't clear the multiple-comparisons bar on its
 # own (see the "distributed but real" tier in CLAUDE.md).
-HOLLOW_MARKERSIZE = 11.5
-HOLLOW_MARKEREDGEWIDTH = 2.6
+# Scaled up alongside MASK_PARAMS' markersize, same 2026-08-18 pass.
+HOLLOW_MARKERSIZE = 15.0
+HOLLOW_MARKEREDGEWIDTH = 3.2
 
 # Panels per family (onoff figure) / per dimension (other-dimensions figure).
 # Kept small and equal-sized on purpose: a main figure shows the strongest
@@ -165,7 +168,9 @@ N_TOP_MARKERS_PER_DIMENSION = 3
 # text bigger" desynced a font size from a budget that was tuned for the old,
 # smaller size, which is exactly what caused new collisions each time. Bump a
 # *_FONTSIZE constant and its budget grows with it automatically.
-SUPTITLE_FONTSIZE = 40
+# 40 -> 64 to match the 2026-08-17 hand edit in Inkscape (figure_combined_edited.svg):
+# both panel-B/C suptitles were retyped as native <text> at font-size:64px, bold.
+SUPTITLE_FONTSIZE = 64
 # Bare panel letter (A/B/C) drawn in the combined figure instead of a
 # descriptive suptitle — see the panel_letter parameter on draw_heatmap /
 # draw_onoff_panel / draw_other_dimensions_panel. Still clearly larger than
@@ -179,9 +184,16 @@ SUPTITLE_FONTSIZE = 40
 # its own — a lone character doesn't carry the same visual weight as the
 # sentence it replaced, so giving it an equally large dedicated row just left
 # that row looking empty.
-PANEL_LETTER_FONTSIZE = 92
-HEADER_FONTSIZE = 36
-PANEL_TITLE_FONTSIZE = 32
+# 2026-08-17 hand edit measured (via SVG transform archaeology against a
+# from-source baseline render, not eyeballed — see figure_combined_edited.svg):
+# panel letters A/B/C landed at matrix scale 1.1050285 => 110.5pt.
+PANEL_LETTER_FONTSIZE = 110.5
+# Column group headers ("Evoked (ERP)" etc. above panels B/C) measured at
+# outer*inner scale 1.2205729*0.36 => ~44pt.
+HEADER_FONTSIZE = 44
+# Per-topomap marker title (e.g. "P3b") measured at outer*inner scale
+# 1.5*0.32 => exactly 48pt.
+PANEL_TITLE_FONTSIZE = 48
 # Gap, in points, between the marker-name title (e.g. "P3b") and its axes'
 # top edge (``ax.set_title(..., pad=...)`` in draw_onoff_panel /
 # draw_other_dimensions_panel). MNE's head outline draws almost to the very
@@ -198,13 +210,25 @@ MARKER_TITLE_PAD_PT = 14
 # HEADER_FONTSIZE itself grew a lot in that pass, so a legend still at 24
 # would have re-created the exact "legend reads as oversized/undersized next
 # to its neighbour" problem this comment originally describes, just inverted.
-LEGEND_FONTSIZE = 30
+# 30 -> 38 (2026-08-18 follow-up: "el tamaño de las leyendas" — B/C's own
+# legend still read as small next to the rest of the pass's enlarged text).
+LEGEND_FONTSIZE = 38
+# Panel A's own significance legend (draw_heatmap's panel_letter branch) got a
+# separate, larger treatment in the 2026-08-17 hand edit — measured ~40pt
+# (vs LEGEND_FONTSIZE=30, confirmed unchanged for panels B/C's own legend in
+# the same edit) — and moved from sharing "A"'s row at the top to its own
+# two-line block under the heatmap. Kept as its own constant rather than
+# folded into LEGEND_FONTSIZE because B/C's legend did NOT change to match.
+PANEL_A_LEGEND_FONTSIZE = 40
 # The onoff directional bar (add_directional_colorbar) spans the middle
 # columns of a 5-column panel and its pole text overflows OUTWARD into the
 # (otherwise empty, at that row) outer columns — there is nothing there for it
 # to collide with, so this one tolerates a much bigger font than the
 # per-dimension bars below.
-COLORBAR_LABEL_FONTSIZE = 32
+# 32 -> 48 to match the 2026-08-17 hand edit: the onoff bar's pole labels were
+# retyped bold at font-size:48px, dropping the arrow-decorated multi-line
+# POLE_LABELS sentence for the bare SHORT_POLES word (see add_directional_colorbar).
+COLORBAR_LABEL_FONTSIZE = 48
 # The per-dimension column colour bars (add_column_colorbar) are only ~1/6 of
 # the figure width, unlike the single wide onoff bar that COLORBAR_LABEL_FONTSIZE
 # is sized for, and neighbouring columns each have their own label to collide
@@ -216,7 +240,9 @@ COLORBAR_LABEL_FONTSIZE = 32
 # this read as essentially blank ("el texto del cbar no se ve nada"), so this
 # is the single largest proportional jump in the 2026-08-13 pass; the column
 # width safety margin below (COLUMN_COLORBAR_WIDTH_SAFETY_IN) grew to match.
-COLUMN_COLORBAR_LABEL_FONTSIZE = 34
+# 34 -> 45 to match the 2026-08-17 hand edit (measured outer*inner scale
+# 1.3283216*0.34 => ~45.2pt).
+COLUMN_COLORBAR_LABEL_FONTSIZE = 45
 COLORBAR_TICK_FONTSIZE = 30
 # Tuned against measured text extents (not guessed): at HEATMAP_TICK_FONTSIZE
 # pt, the widest column header ("quadratic") and the left-margin row/group
@@ -318,9 +344,14 @@ HEATMAP_LEGEND_BUDGET_IN = text_block_height_in(LEGEND_FONTSIZE)
 # sharing one row with it (see add_significance_legend).
 LEGEND_ROW_BUDGET_IN = HEATMAP_LEGEND_BUDGET_IN
 HEATMAP_TITLE_BUDGET_IN = text_block_height_in(HEATMAP_TITLE_FONTSIZE)
-# Panel-letter mode (combined figure): letter and glyph-legend share one row
-# instead of each getting a stacked row of their own — same reasoning as
-# PANEL_LETTER_ROW_BUDGET_IN above.
+# Panel-letter mode (combined figure): top row is just "A" above the column
+# headers — PANEL_LETTER_ROW_BUDGET_IN still covers it alone since
+# PANEL_LETTER_FONTSIZE (110.5) dwarfs anything else that could share the row.
+# The significance legend used to share this row too; the 2026-08-17 hand
+# edit moved it to its own two-line block under the heatmap instead (see
+# HEATMAP_BOTTOM_BUDGET_LETTER_IN) — column headers were tight against "A"'s
+# row either way, so this budget's formula is unchanged, only what used to
+# ALSO be budgeted here (the legend) no longer is.
 HEATMAP_TOP_BUDGET_LETTER_IN = (
     HEATMAP_XTICK_BUDGET_IN + PANEL_LETTER_ROW_BUDGET_IN + 2 * GAP_BUDGET_IN
 )
@@ -331,6 +362,11 @@ HEATMAP_TOP_BUDGET_IN = (
     + 3 * GAP_BUDGET_IN
 )
 HEATMAP_BOTTOM_BUDGET_IN = 0.04
+# Panel-letter mode only: room for the significance legend's two-line block
+# under the heatmap (2026-08-17 hand edit — see PANEL_A_LEGEND_FONTSIZE).
+HEATMAP_BOTTOM_BUDGET_LETTER_IN = (
+    text_block_height_in(PANEL_A_LEGEND_FONTSIZE, n_lines=2) + GAP_BUDGET_IN
+)
 
 # GridSpec margins shared by draw_onoff_panel/draw_other_dimensions_panel and
 # the row-height solver below — the solver has to reproduce the exact same
@@ -348,8 +384,17 @@ TOPOMAP_PANEL_BOTTOM_BUDGET_IN = 0.06
 # branch — both compute this identically, so it is a single constant rather
 # than two copies that could silently drift apart (as they briefly did
 # during the 2026-08-13 font-size pass).
+#
+# Includes a full SUPTITLE_BUDGET_IN row (2026-08-17): the combined figure's
+# panel_letter branch now ALSO draws the descriptive suptitle added by hand
+# in that day's Inkscape edit (see draw_onoff_panel's panel_letter branch),
+# on its own row above the letter/legend row rather than sharing one row with
+# them — a shared row was tried first and the suptitle's real rendered width
+# (bold, 64pt, centred on the ~28in-wide subfigure) ran directly into the
+# right-aligned significance legend with no gap.
 TOPOMAP_PANEL_LETTER_TOP_BUDGET_IN = (
-    PANEL_LETTER_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 3 * GAP_BUDGET_IN
+    SUPTITLE_BUDGET_IN + GAP_BUDGET_IN
+    + PANEL_LETTER_ROW_BUDGET_IN + HEADER_BUDGET_IN + PANEL_TITLE_BUDGET_IN + 3 * GAP_BUDGET_IN
 )
 # Same idea for the "suptitle" branch (standalone figure_onoff/
 # figure_other_dimensions exports) — was duplicated inline in both
@@ -1195,25 +1240,31 @@ def add_directional_colorbar(
     if not label_poles:
         return
 
-    low_label, high_label = POLE_LABELS[dimension]
+    # Bare SHORT_POLES word, bold, no arrows — 2026-08-17 hand edit dropped the
+    # longer POLE_LABELS sentence ("higher when OFF-task\n(mind-wandering)") in
+    # favour of this bar's own suptitle ("On-task vs Off-task", directly above
+    # at SUPTITLE_FONTSIZE) to carry the "higher when" framing instead.
+    low_label, high_label = SHORT_POLES[dimension]
     bar_ax.text(
         -0.03,
         0.5,
-        f"← {low_label}",
+        low_label.capitalize(),
         transform=bar_ax.transAxes,
         ha="right",
         va="center",
         fontsize=COLORBAR_LABEL_FONTSIZE,
+        fontweight="bold",
         linespacing=1.2,
     )
     bar_ax.text(
         1.03,
         0.5,
-        f"{high_label} →",
+        high_label.capitalize(),
         transform=bar_ax.transAxes,
         ha="left",
         va="center",
         fontsize=COLORBAR_LABEL_FONTSIZE,
+        fontweight="bold",
         linespacing=1.2,
     )
 
@@ -1294,9 +1345,14 @@ def add_significance_legend(fig: plt.Figure, y: float) -> None:
     The right edge stays open, but sharing the suptitle's own row with it
     only works while both strings are short: at the current (much larger)
     SUPTITLE_FONTSIZE/LEGEND_FONTSIZE, "B · On/off-task: effect per family"
-    and "survives correction / p < .05, uncorrected" are each wide enough
+    and "survives FDR correction / p < .05, uncorrected" are each wide enough
     that a shared row makes them collide. Callers instead give this its own
     row below the suptitle, sized by LEGEND_ROW_BUDGET_IN.
+
+    "FDR correction" (2026-08-18), not the bare "correction" this said before
+    — panel A's own legend already spells out "p_FDR < .05" etc., so this
+    shorter legend read as ambiguous about which correction "survives" next
+    to it.
 
     Parameters
     ----------
@@ -1308,7 +1364,7 @@ def add_significance_legend(fig: plt.Figure, y: float) -> None:
     fig.text(
         0.995,
         y,
-        "●  survives correction     ○  p < .05, uncorrected",
+        "●  survives FDR correction     ○  p < .05, uncorrected",
         ha="right",
         va="top",
         fontsize=LEGEND_FONTSIZE,
@@ -1369,15 +1425,14 @@ def draw_onoff_panel(
     n_per_family : int
         Number of topographies per family.
     suptitle : str, optional
-        Descriptive title drawn centred above the panel. Used only for the
-        standalone export, which has no sibling panels to distinguish itself
-        from; ignored when ``panel_letter`` is given.
+        Descriptive title drawn centred above the panel, on its own row above
+        ``panel_letter``/the legend when both are given (2026-08-17: was
+        ignored whenever ``panel_letter`` was given, until then).
     panel_letter : str, optional
         Bare panel letter (e.g. ``"B"``) drawn bold at the panel's top-left
-        corner per the project's multi-panel-figure convention — used instead
-        of ``suptitle`` when this panel sits inside a combined figure, where a
-        full descriptive sentence per panel is redundant with the column
-        headers already naming what's shown.
+        corner per the project's multi-panel-figure convention, on the row
+        below ``suptitle`` when both are given — the column headers name what
+        each column shows, but not what the panel as a whole compares.
 
     Returns
     -------
@@ -1452,8 +1507,17 @@ def draw_onoff_panel(
     add_directional_colorbar(fig, image, cax, "onoff")
 
     if panel_letter is not None:
-        fig.text(0.008, 1.0, panel_letter, ha="left", va="top", fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold")
-        add_significance_legend(fig, y=1.0)
+        # 2026-08-17 hand edit added a descriptive suptitle above the letter/
+        # legend row (see TOPOMAP_PANEL_LETTER_TOP_BUDGET_IN) — it needs its
+        # own row, not a shared one: at bold 64pt, centred on this ~28in
+        # subfigure, the title's real rendered width ran directly into the
+        # right-aligned legend with no gap when both sat at y=1.0 together.
+        letter_row_y = 1.0
+        if suptitle is not None:
+            fig.suptitle(suptitle, fontsize=SUPTITLE_FONTSIZE, fontweight="bold", y=1.0, va="top")
+            letter_row_y = 1.0 - (SUPTITLE_BUDGET_IN + GAP_BUDGET_IN) / panel_height_in
+        fig.text(0.008, letter_row_y, panel_letter, ha="left", va="top", fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold")
+        add_significance_legend(fig, y=letter_row_y)
     elif suptitle is not None:
         fig.suptitle(suptitle, fontsize=SUPTITLE_FONTSIZE, fontweight="bold", y=1.0, va="top")
         legend_y = 1.0 - (SUPTITLE_BUDGET_IN + GAP_BUDGET_IN) / panel_height_in
@@ -1557,8 +1621,8 @@ def draw_other_dimensions_panel(
     n_per_dimension : int
         Number of topographies per dimension.
     suptitle : str, optional
-        Descriptive title drawn centred above the panel. Used only for the
-        standalone export; ignored when ``panel_letter`` is given.
+        Descriptive title drawn centred above the panel, sharing its row with
+        ``panel_letter`` when both are given — see ``draw_onoff_panel``.
     panel_letter : str, optional
         Bare panel letter drawn bold at the panel's top-left corner — see
         ``draw_onoff_panel`` for the rationale.
@@ -1660,8 +1724,14 @@ def draw_other_dimensions_panel(
         add_column_colorbar(fig, images.get(dimension, reference_image), cax, dimension)
 
     if panel_letter is not None:
-        fig.text(0.008, 1.0, panel_letter, ha="left", va="top", fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold")
-        add_significance_legend(fig, y=1.0)
+        # See draw_onoff_panel's matching branch for the suptitle-above-
+        # letter-row layout and why it needs its own row.
+        letter_row_y = 1.0
+        if suptitle is not None:
+            fig.suptitle(suptitle, fontsize=SUPTITLE_FONTSIZE, fontweight="bold", y=1.0, va="top")
+            letter_row_y = 1.0 - (SUPTITLE_BUDGET_IN + GAP_BUDGET_IN) / panel_height_in
+        fig.text(0.008, letter_row_y, panel_letter, ha="left", va="top", fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold")
+        add_significance_legend(fig, y=letter_row_y)
     elif suptitle is not None:
         fig.suptitle(suptitle, fontsize=SUPTITLE_FONTSIZE, fontweight="bold", y=1.0, va="top")
         legend_y = 1.0 - (SUPTITLE_BUDGET_IN + GAP_BUDGET_IN) / panel_height_in
@@ -1919,7 +1989,8 @@ def draw_heatmap(
         )
 
     top_budget_in = HEATMAP_TOP_BUDGET_LETTER_IN if panel_letter is not None else HEATMAP_TOP_BUDGET_IN
-    top, bottom = fractions_from_budget(panel_height_in, top_budget_in, HEATMAP_BOTTOM_BUDGET_IN)
+    bottom_budget_in = HEATMAP_BOTTOM_BUDGET_LETTER_IN if panel_letter is not None else HEATMAP_BOTTOM_BUDGET_IN
+    top, bottom = fractions_from_budget(panel_height_in, top_budget_in, bottom_budget_in)
     gap_fraction = GAP_BUDGET_IN / panel_height_in
 
     if panel_letter is not None:
@@ -1934,10 +2005,23 @@ def draw_heatmap(
             0.015, 1.0, panel_letter, ha="left", va="top",
             fontsize=PANEL_LETTER_FONTSIZE, fontweight="bold",
         )
+        # 2026-08-17 hand edit moved this legend off "A"'s row entirely, to a
+        # centred two-line block under the heatmap (own font size — see
+        # PANEL_A_LEGEND_FONTSIZE — and own budget — see
+        # HEATMAP_BOTTOM_BUDGET_LETTER_IN). Panels B/C's own legend
+        # (add_significance_legend) was NOT moved or resized in that edit.
+        legend_line_y = bottom - gap_fraction
         fig.text(
-            0.97, 1.0,
-            "•  p < .05, uncorrected     *  p_FDR < .05     **  p_FDR < .01     ***  p_FDR < .001",
-            ha="right", va="top", fontsize=LEGEND_FONTSIZE, fontweight="bold",
+            0.5, legend_line_y,
+            "•  p < .05, uncorrected     *  p_FDR < .05",
+            ha="center", va="top", fontsize=PANEL_A_LEGEND_FONTSIZE, fontweight="bold",
+            color="black",
+        )
+        legend_line_y -= text_block_height_in(PANEL_A_LEGEND_FONTSIZE) / panel_height_in
+        fig.text(
+            0.5, legend_line_y,
+            "**  p_FDR < .01     ***  p_FDR < .001",
+            ha="center", va="top", fontsize=PANEL_A_LEGEND_FONTSIZE, fontweight="bold",
             color="black",
         )
     else:
@@ -2075,8 +2159,17 @@ def figure_combined(
     fig_width_in = heatmap_width_in + bc_width_in
     width_ratios = [heatmap_width_in / fig_width_in, bc_width_in / fig_width_in]
     heatmap_left_margin = 0.38
-    heatmap_tick_fontsize = 28.0
-    heatmap_family_fontsize = 31.0
+    # 28 -> 36 (2026-08-18 follow-up, after the 2026-08-17 SVG-matching pass
+    # left this one alone since it measured unchanged there): both the column
+    # headers (xlab) at this size and the row/marker labels (ylab, scaled off
+    # it via HEATMAP_YLABEL_FONTSIZE_RATIO) still read as too small once seen
+    # next to the rest of the enlarged chrome. Kept below
+    # heatmap_family_fontsize (62) so the family label still reads as the
+    # more prominent of the two margin texts.
+    heatmap_tick_fontsize = 36.0
+    # 31 -> 62 to match the 2026-08-17 hand edit (measured outer*inner scale
+    # 2.0099392*0.31 => ~62.3pt) — nearly doubled.
+    heatmap_family_fontsize = 62.0
 
     # fig_height_in is DERIVED, not chosen: solve_square_topomap_row_height_in
     # asks "how tall must one topomap row be to equal the column width
@@ -2144,6 +2237,11 @@ def figure_combined(
         summaries["onoff"],
         alpha,
         n_per_family,
+        # Wording matches the 2026-08-17 hand edit (figure_combined_edited.svg),
+        # not the standalone export's default ("On/off-task: effect per
+        # family") — this panel already sits beside its own column headers, so
+        # it only needs to name the comparison, not restate what's compared.
+        suptitle="On-task vs Off-task",
         panel_letter="B",
     )
     draw_other_dimensions_panel(
@@ -2155,6 +2253,7 @@ def figure_combined(
         omnibus,
         formula,
         n_per_dimension,
+        suptitle="Phenomenological Dimension",
         panel_letter="C",
     )
 

@@ -24,6 +24,7 @@ import tempfile
 import yaml
 import numpy as np
 import pandas as pd
+from contextlib import nullcontext
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -70,11 +71,12 @@ def make_common(config: dict, model: str) -> dict:
         n_subject_jobs=par.get("n_subject_jobs", 1), cv_n_jobs=par.get("cv_n_jobs", 1),
         lmm_n_jobs=fs.get("lmm_n_jobs", 1), lmm_prefilter_factor=fs.get("lmm_prefilter_factor", 0),
         save_pickle=False, save_csv=False, save_probabilities=False,
-        save_plots=False, save_shap=False, verbose=False,
+        save_plots=False, verbose=False,
     )
 
 
-def _group_mean_auc(X_ch, y, df, subjects, tasks, contrast, common, n_runs):
+def _group_mean_auc(X_ch, y, df, subjects, tasks, contrast, common, n_runs,
+                    save_shap: bool = False, shap_dir: str | None = None):
     """
     Group-mean AUC across subjects for one channel.
 
@@ -82,11 +84,23 @@ def _group_mean_auc(X_ch, y, df, subjects, tasks, contrast, common, n_runs):
       mean_auc   — group mean of each subject's run-averaged AUC (stable; for the map).
       auc_single — group mean of each subject's FIRST-run AUC (matched to the single-pass
                    permutation statistic; used for the FWER test).
+
+    Parameters
+    ----------
+    save_shap : bool
+        When True, compute per-subject SHAP values for this channel (RF/XGB/LR
+        only) and persist them under ``shap_dir`` instead of the disposable
+        scratch directory used for every other per-run artifact.
+    shap_dir : str or None
+        Permanent output directory for the SHAP pickles. Required when
+        ``save_shap`` is True.
     """
-    with tempfile.TemporaryDirectory(prefix="spatial_") as scratch:
+    scratch_cm = nullcontext(shap_dir) if save_shap else tempfile.TemporaryDirectory(prefix="spatial_")
+    with scratch_cm as scratch:
         metrics, _shap = run_within_subject_distribution_analysis(
             dimension=contrast, df=df, X=X_ch, y=y, subjects=subjects, tasks=tasks,
-            feature_cols=X_ch.columns.tolist(), n_runs=n_runs, results_path=scratch, **common,
+            feature_cols=X_ch.columns.tolist(), n_runs=n_runs, results_path=scratch,
+            save_shap=save_shap, **common,
         )
     subj_df = pd.DataFrame(metrics)
     if subj_df.empty:
@@ -161,11 +175,15 @@ def main():
         return
 
     channels = [args.channel] if args.channel else all_channels
+    save_shap = sd.get("save_shap", False)
     rows = []
     for i, ch in enumerate(channels):
         X_ch = select_channel_columns(X, ch)
-        mean_auc, std_auc, auc_single = _group_mean_auc(X_ch, y, df, groups, tasks,
-                                                        args.contrast, common, n_runs)
+        shap_dir = os.path.join(results_path, "shap", ch) if save_shap else None
+        mean_auc, std_auc, auc_single = _group_mean_auc(
+            X_ch, y, df, groups, tasks, args.contrast, common, n_runs,
+            save_shap=save_shap, shap_dir=shap_dir,
+        )
         rows.append({"channel": ch, "n_features": X_ch.shape[1],
                      "mean_auc": mean_auc, "std_auc": std_auc, "auc_single": auc_single})
         print(f"  [true] [{i+1}/{len(channels)}] {ch}: n_feat={X_ch.shape[1]} "

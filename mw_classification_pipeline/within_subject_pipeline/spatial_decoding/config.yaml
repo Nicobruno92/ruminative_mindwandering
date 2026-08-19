@@ -612,6 +612,11 @@ min_shap_feature_row_frac: 0.15
 # from that AUC + FDR-corrected permutation significance.
 spatial_decoding:
   channels: "all"                 # or an explicit list to subset electrodes
+  save_shap: false                # TRUE mode only (never for --perm_idx draws). Per-electrode
+                                   # SHAP is expensive (one extra explainer pass per channel per
+                                   # subject per run) — leave false for the full 64-channel
+                                   # searchlight and use scripts/extract_cluster_shap.py for a
+                                   # post-hoc, cluster-only run.
   montage: "data_harmonization/utils/CACS-64_REF.bvef"
   multiple_comparisons:
     method: "maxstat"            # max-statistic permutation (FWER) across channels; CBPT-consistent. ("fdr_bh" available as secondary)
