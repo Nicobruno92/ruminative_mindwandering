@@ -941,6 +941,68 @@ def build_model_pipeline(
 
 from joblib import Parallel, delayed
 
+
+def _extract_fold_importances(fold_pipeline, n_features: int) -> np.ndarray:
+    """
+    Recover per-feature impurity importances from a fitted fold pipeline.
+
+    Parameters
+    ----------
+    fold_pipeline : Pipeline
+        A fitted pipeline whose classifier step is named ``clf``.
+    n_features : int
+        Width of the original feature matrix, i.e. the length of the returned
+        vector.
+
+    Returns
+    -------
+    np.ndarray, shape (n_features,)
+        Importances positioned in the original feature space. Features the
+        classifier never saw are 0.
+
+    Notes
+    -----
+    There are two valid pipeline shapes and the caller cannot assume either:
+
+    - **With a ``feature_selection`` step**, the classifier's importance vector
+      is indexed in the *selected* subspace and has to be scattered back to the
+      original columns via ``get_support``.
+    - **Without one** (``feature_selection.method: "none"``, the current setting
+      in both pipelines), the classifier is fitted on every column and its
+      importance vector already lines up one-to-one.
+
+    Handling only the first case silently returned an all-zero vector for every
+    run once selection was disabled, which is what made the Gini feature
+    importances on disk uniformly zero — and made any figure built on them a
+    correlation between two zero vectors rather than an empty panel that would
+    have announced itself.
+
+    A ``pca`` step is a third shape: importances then live in component space
+    and no honest mapping back to features exists, so this returns zeros rather
+    than inventing one.
+    """
+    importances = np.zeros(n_features)
+    clf_step = fold_pipeline.named_steps.get('clf', None)
+    if clf_step is None or not hasattr(clf_step, 'feature_importances_'):
+        return importances
+
+    if fold_pipeline.named_steps.get('pca', None) is not None:
+        return importances
+
+    raw = np.asarray(clf_step.feature_importances_)
+    fs_step = fold_pipeline.named_steps.get('feature_selection', None)
+    if fs_step is not None:
+        importances[fs_step.get_support(indices=True)] = raw
+        return importances
+
+    if len(raw) != n_features:
+        raise ValueError(
+            f"Classifier reports {len(raw)} importances but the feature matrix "
+            f"has {n_features} columns, and the pipeline has no feature_selection "
+            f"step to explain the gap. Steps: {[n for n, _ in fold_pipeline.steps]}."
+        )
+    return raw
+
 def _process_cv_fold_loso(
     fold_idx, train_idx, test_idx, X, y, groups, pipeline, scale_by_participant, scaler,
     use_smote, oversampling_scope, oversampling_method, random_state, smote_k_neighbors: int = 5,
@@ -1057,13 +1119,7 @@ def _process_cv_fold_loso(
         'label_percentages': label_counts,
     }
 
-    importances = np.zeros(X.shape[1])
-    fs_step = fold_pipeline.named_steps.get('feature_selection', None)
-    clf_step = fold_pipeline.named_steps.get('clf', None)
-    if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
-        selected_indices = fs_step.get_support(indices=True)
-        importances_val = clf_step.feature_importances_
-        importances[selected_indices] = importances_val
+    importances = _extract_fold_importances(fold_pipeline, X.shape[1])
 
     return {
         'fold_idx': fold_idx,
@@ -1504,14 +1560,14 @@ def _process_cv_fold_within(
         # Scale first (fitting on training data only), then SMOTE in normalized
         # feature space so k-NN distances are not distorted by raw magnitudes.
         pre_names = {'preprocessor', 'scaler'}
+        pre_steps = [(n, s) for n, s in fold_pipeline.steps if n in pre_names]
         X_train_t = X_train.copy()
         X_test_t = X_test.copy()
-        for name, step in fold_pipeline.steps:
-            if name in pre_names:
-                arr_tr = step.fit_transform(X_train_t, y_train)
-                arr_te = step.transform(X_test_t)
-                X_train_t = pd.DataFrame(arr_tr, columns=X_train.columns)
-                X_test_t = pd.DataFrame(arr_te, columns=X_train.columns)
+        for name, step in pre_steps:
+            arr_tr = step.fit_transform(X_train_t, y_train)
+            arr_te = step.transform(X_test_t)
+            X_train_t = pd.DataFrame(arr_tr, columns=X_train.columns)
+            X_test_t = pd.DataFrame(arr_te, columns=X_train.columns)
 
         X_train_t, y_train = apply_within_subject_oversampling(
             X_train_t, y_train, np.zeros(len(y_train)),
@@ -1533,6 +1589,15 @@ def _process_cv_fold_within(
         fold_pipeline = Pipeline(remaining_steps)
         fold_pipeline.fit(X_train_t, y_train, **fit_params)
         X_test = X_test_t
+        # Reassemble the already-fitted preprocessor/scaler steps ahead of the
+        # already-fitted remaining steps into one self-contained pipeline for
+        # SHAP.  `fold_pipeline` above (remaining steps only) is correct for
+        # this function's own predict()/predict_proba() calls, which already
+        # operate on the pre-transformed X_test_t — but without a `scaler`
+        # step of its own, a caller that later feeds RAW test data into
+        # compute_shap_values_for_pipeline() has no way to reproduce that same
+        # transform, so SHAP would be computed on the wrong scale entirely.
+        shap_estimator = Pipeline(pre_steps + fold_pipeline.steps)
     else:
         # LMM selectors require groups passed via fit_params.
         fit_params = {}
@@ -1546,6 +1611,7 @@ def _process_cv_fold_within(
                     groups_train.values if hasattr(groups_train, 'values') else groups_train
                 )
         fold_pipeline.fit(X_train, y_train, **fit_params)
+        shap_estimator = fold_pipeline
 
     y_pred = fold_pipeline.predict(X_test)
     y_score = None
@@ -1582,13 +1648,7 @@ def _process_cv_fold_within(
         'label_percentages': label_counts,
     }
 
-    importances = np.zeros(X.shape[1])
-    fs_step = fold_pipeline.named_steps.get('feature_selection', None)
-    clf_step = fold_pipeline.named_steps.get('clf', None)
-    if fs_step is not None and clf_step is not None and hasattr(clf_step, 'feature_importances_'):
-        selected_indices = fs_step.get_support(indices=True)
-        importances_val = clf_step.feature_importances_
-        importances[selected_indices] = importances_val
+    importances = _extract_fold_importances(fold_pipeline, X.shape[1])
 
     return {
         'fold_idx': fold_idx,
@@ -1606,7 +1666,7 @@ def _process_cv_fold_within(
         'rec_curve': recall_curve,
         'importances': importances,
         'fold_detail': fold_detail,
-        'estimator': fold_pipeline
+        'estimator': shap_estimator
     }
 
 def run_within_subject_cv(
@@ -1738,7 +1798,7 @@ def run_within_subject_cv(
 
 def compute_shap_values_for_pipeline(
     pipeline, X: pd.DataFrame, feature_names
-) -> np.ndarray:
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """
     Compute SHAP values for a fitted pipeline (RF or XGB).
 
@@ -1746,6 +1806,13 @@ def compute_shap_values_for_pipeline(
     and SHAP computation so that the classifier receives data on the same scale
     it was trained on.  Unselected features are assigned SHAP value of zero so
     the output shape always matches the full feature set.
+
+    Returns the exact (scaled, selected) feature matrix used to compute the
+    SHAP values alongside them, so callers never need to independently
+    re-derive what was actually fed to the explainer (Fix FIND-001: a
+    previous version returned only the SHAP array, so callers re-tracked
+    their own — differently scaled — copy of X, silently decorrelating the
+    beeswarm color axis from the SHAP values it was supposed to explain).
 
     Parameters
     ----------
@@ -1758,8 +1825,12 @@ def compute_shap_values_for_pipeline(
 
     Returns
     -------
-    np.ndarray
-        SHAP values of shape (n_samples, n_features).
+    tuple of (np.ndarray, np.ndarray, np.ndarray)
+        ``(shap_values, x_used, selected_mask)``, each of shape
+        ``(n_samples, n_features)`` for the first two and ``(n_features,)``
+        for ``selected_mask``.  ``x_used`` holds the actual (scaler-applied)
+        feature values fed to the explainer; columns for features the fold
+        did not select are zero in both ``shap_values`` and ``x_used``.
     """
     if not HAS_SHAP:
         raise ImportError("shap is required. Install with: pip install shap")
@@ -1784,6 +1855,9 @@ def compute_shap_values_for_pipeline(
     if clf is None or not hasattr(clf, 'predict_proba'):
         raise ValueError("SHAP computation requires a classifier with predict_proba (RF or XGB).")
 
+    # Positive-class index within predict_proba's column order.
+    pos_idx = list(clf.classes_).index(1)
+
     explainer = shap.Explainer(clf, X_selected)
     # RF predict_proba SHAP values are reconstructed from per-tree margin
     # contributions; floating-point summation order can make the additivity
@@ -1792,12 +1866,12 @@ def compute_shap_values_for_pipeline(
 
     # Handle 3D output (n_samples, n_features, 2) — take positive class
     if shap_vals.ndim == 3 and shap_vals.shape[2] == 2:
-        shap_vals = shap_vals[..., 1]
+        shap_vals = shap_vals[..., pos_idx]
 
     # Map back to full feature space
-    if feature_selector is not None:
-        full_shap = np.zeros((len(X_selected), len(feature_names)))
-        full_shap[:, selected_mask] = shap_vals
-        return full_shap
+    full_shap = np.zeros((len(X_selected), len(feature_names)))
+    full_shap[:, selected_mask] = shap_vals
+    full_x = np.zeros((len(X_selected), len(feature_names)))
+    full_x[:, selected_mask] = X_selected.values
 
-    return shap_vals
+    return full_shap, full_x, selected_mask

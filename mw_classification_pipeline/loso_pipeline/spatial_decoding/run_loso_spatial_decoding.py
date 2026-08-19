@@ -31,6 +31,7 @@ import argparse
 import tempfile
 import yaml
 import numpy as np
+from contextlib import nullcontext
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -80,9 +81,23 @@ def build_results_path(config: dict, contrast: str, family: str, model: str) -> 
     return path
 
 
-def _score_channel(X_ch, y, df, groups, contrast, config, model_type, model_params, n_runs):
-    """One searchlight cell: mean AUC over n_runs of LOSO for a single channel."""
-    with tempfile.TemporaryDirectory(prefix="spatial_") as scratch:
+def _score_channel(X_ch, y, df, groups, contrast, config, model_type, model_params, n_runs,
+                   save_shap: bool = False, shap_dir: str | None = None):
+    """
+    One searchlight cell: mean AUC over n_runs of LOSO for a single channel.
+
+    Parameters
+    ----------
+    save_shap : bool
+        When True, compute per-run SHAP values for this channel (RF/XGB/LR
+        only) and persist them under ``shap_dir`` instead of the disposable
+        scratch directory used for every other per-run artifact.
+    shap_dir : str or None
+        Permanent output directory for the SHAP pickles. Required when
+        ``save_shap`` is True.
+    """
+    scratch_cm = nullcontext(shap_dir) if save_shap else tempfile.TemporaryDirectory(prefix="spatial_")
+    with scratch_cm as scratch:
         results_df, _all, _shap = run_distribution_analysis(
             dimension=contrast, df=df, X=X_ch, y=y, groups=groups,
             feature_cols=X_ch.columns.tolist(), config=config,
@@ -98,7 +113,7 @@ def _score_channel(X_ch, y, df, groups, contrast, config, model_type, model_para
             scaler=config.get("scaler", "standard"),
             smote_k_neighbors=config.get("smote_k_neighbors", 5),
             save_pickle=False, save_csv=False, save_probabilities=False,
-            save_plots=False, save_shap=False, verbose=False,
+            save_plots=False, save_shap=save_shap, verbose=False,
             cv_n_jobs=config.get("parallelism", {}).get("true_cv_n_jobs", 1),
         )
     aucs = results_df["mean_auc"].dropna().tolist()
@@ -172,12 +187,16 @@ def main():
 
     # TRUE mode
     channels = [args.channel] if args.channel else all_channels
+    save_shap = sd.get("save_shap", False)
     import pandas as pd
     rows = []
     for i, ch in enumerate(channels):
         X_ch = select_channel_columns(X, ch)
-        mean_auc, std_auc, auc_single = _score_channel(X_ch, y, df, groups, args.contrast,
-                                                       config, model_type, model_params, n_runs)
+        shap_dir = os.path.join(results_path, "shap", ch) if save_shap else None
+        mean_auc, std_auc, auc_single = _score_channel(
+            X_ch, y, df, groups, args.contrast, config, model_type, model_params, n_runs,
+            save_shap=save_shap, shap_dir=shap_dir,
+        )
         rows.append({"channel": ch, "n_features": X_ch.shape[1],
                      "mean_auc": mean_auc, "std_auc": std_auc, "auc_single": auc_single})
         print(f"  [true] [{i+1}/{len(channels)}] {ch}: n_feat={X_ch.shape[1]} "

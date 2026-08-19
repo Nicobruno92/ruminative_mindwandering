@@ -15,8 +15,8 @@ Pipeline Overview
 
 Epoch Types
 -----------
-- **Evoked**: Trial-locked epochs. Aggregates last N go/correct trials 
-  based on distance_to_probe (0 = closest to probe).
+- **Evoked**: Trial-locked epochs. Aggregates last N go/correct trials
+  based on distance_to_probe (1 = closest to probe; positive, 1-based).
   
 - **State**: Temporal bins before probe. Aggregates all bins (dt=-3 to dt=-10).
 
@@ -521,8 +521,8 @@ def filter_epochs_for_probe(
     df: pd.DataFrame,
     probe_number: int,
     epoch_type: str,
-    distance_min: int = 0,
-    distance_max: int = 4,
+    distance_min: int = 1,
+    distance_max: int = 5,
     filter_go: bool = True,
     filter_correct: bool = True,
 ) -> pd.DataFrame:
@@ -541,9 +541,11 @@ def filter_epochs_for_probe(
     epoch_type : str
         "evoked", "state", or "sleep"
     distance_min : int
-        Minimum distance to include (evoked only, 0 = closest)
+        Minimum distance to include (evoked only; 1-based, 1 = closest).
+        Inclusive.
     distance_max : int
-        Maximum distance to include (evoked only)
+        Maximum distance to include (evoked only). Inclusive, so
+        distance_min=1, distance_max=5 selects the last 5 trials.
     only_go_correct : bool
         Filter for go/correct trials only (evoked only)
         

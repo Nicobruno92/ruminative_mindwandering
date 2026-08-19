@@ -39,6 +39,11 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy import stats
+
+# Shared with the Python backend so both report residual shape on the same
+# scale and against the same flag thresholds.
+from lmm_model import RESIDUAL_OUTLIER_SD
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +235,8 @@ def run_lmm_per_channel(
         'convergence_warnings': [],
         'aic': [], 'bic': [], 'log_likelihood': [],
         'conditional_r2': [], 'residual_variance': [],
-        'shapiro_p_values': [], 'breusch_pagan_p': [],
+        'residual_skew': [], 'residual_exkurt': [],
+        'pct_residual_outliers': [], 'breusch_pagan_p': [],
     }
 
     r_formula_str = _statsmodels_formula_to_r(formula)
@@ -637,9 +643,30 @@ def _collect_model_metrics(model, r_summary, df_ch: pd.DataFrame, diagnostics: D
         cond_r2 = 1.0 - residual_var / total_var if total_var > 0 else 0.0
         diagnostics['conditional_r2'].append(cond_r2)
         diagnostics['residual_variance'].append(residual_var)
+
+        # Residual shape, mirroring the Python backend. These are O(n) so —
+        # unlike the Shapiro-Wilk test this replaces — they are cheap enough
+        # to compute on every channel of every permutation.
+        resid_sd = float(np.std(r_resid))
+        diagnostics['residual_skew'].append(float(stats.skew(r_resid)))
+        diagnostics['residual_exkurt'].append(float(stats.kurtosis(r_resid)))
+        if resid_sd > 0:
+            n_outliers = int(
+                np.sum(
+                    np.abs(r_resid - r_resid.mean())
+                    > RESIDUAL_OUTLIER_SD * resid_sd
+                )
+            )
+            diagnostics['pct_residual_outliers'].append(
+                float(100.0 * n_outliers / r_resid.size)
+            )
+        else:
+            diagnostics['pct_residual_outliers'].append(0.0)
     except Exception:
         diagnostics['conditional_r2'].append(np.nan)
         diagnostics['residual_variance'].append(np.nan)
+        diagnostics['residual_skew'].append(np.nan)
+        diagnostics['residual_exkurt'].append(np.nan)
+        diagnostics['pct_residual_outliers'].append(np.nan)
 
-    diagnostics['shapiro_p_values'].append(np.nan)   # expensive, skip
     diagnostics['breusch_pagan_p'].append(np.nan)

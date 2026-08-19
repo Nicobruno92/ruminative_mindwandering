@@ -73,6 +73,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "utils"))
 from plotting_utils import (
     generate_all_comparison_plots,
     plot_shap_beeswarm_official,
+    filter_shap_by_feature_consensus,
     set_plot_style,
     plot_probability_vs_raw,
 )
@@ -295,10 +296,19 @@ def load_all_results_from_model_dir(
     model_dir: str, from_perms: bool = False
 ) -> tuple:
     """
-    Load (all_results, shap_runs, feature_names) from disk.
+    Load (all_results, shap_runs, x_runs, feature_names) from disk.
 
     True runs   → ``model_dir/true_runs/run_{n}/``
     Perm runs   → ``model_dir/permuted_runs/run_{n}/``
+
+    ``shap_runs[i]`` and ``x_runs[i]`` are built from the same pkl file(s) in
+    the same iteration, so they are always the same length and row/column
+    aligned — a single pkl missing its ``x_test`` entry raises immediately
+    instead of being silently zero-filled later (Fix FIND-004), and there is
+    no second, independent re-scan of the run directories that could diverge
+    in length from this one (the previous version rebuilt the color-axis
+    array in ``generate_model_plots`` via a separate loop over the same
+    run dirs, with no guarantee the two loops picked up the same runs).
 
     Returns
     -------
@@ -306,6 +316,8 @@ def load_all_results_from_model_dir(
         Compatible with generate_all_comparison_plots.
     shap_runs : list of np.ndarray
         Per-run SHAP value matrices (n_samples × n_features).
+    x_runs : list of np.ndarray
+        Per-run feature-value matrices, row/column-aligned with shap_runs.
     feature_names : list of str
         Feature names extracted from FI CSV or SHAP pkl.
     """
@@ -315,6 +327,7 @@ def load_all_results_from_model_dir(
 
     all_results:   list = []
     shap_runs:     list = []
+    x_runs:        list = []
     feature_names: list = []
 
     for rd in run_dirs:
@@ -327,39 +340,40 @@ def load_all_results_from_model_dir(
         all_results.append(r)
 
         # SHAP pkl — loaded for both true and permuted runs.
-        # LOSO true:  single _shap_values.pkl per run (all test subjects stacked)
-        # LOSO perm:  single _shap_values.pkl per run
-        # WS true:    one _shap_values.pkl per subject → stacked here
-        # WS perm:    one _shap_values.pkl per subject → stacked here
-        shap_pkl_single = find_file_by_suffix(rd, "_shap_values_stacked.pkl")
-        if not shap_pkl_single:
-            # Collect all per-subject pkl files ending with _shap_values.pkl
-            all_shap_pkls = find_files_by_suffix(rd, "_shap_values.pkl")
-            if len(all_shap_pkls) == 1:
-                shap_pkl_single = all_shap_pkls[0]
-            elif len(all_shap_pkls) > 1:
-                # WS: stack per-subject arrays into one (n_all_samples, n_features)
-                shap_arrays, fn_candidate = [], []
-                for sp in all_shap_pkls:
-                    d = load_pkl(sp)
-                    if isinstance(d, dict) and "shap_values" in d:
-                        shap_arrays.append(d["shap_values"])
-                        if not fn_candidate and "feature_names" in d:
-                            fn_candidate = d["feature_names"]
-                if shap_arrays:
-                    shap_runs.append(np.concatenate(shap_arrays, axis=0))
-                    if not feature_names and fn_candidate:
-                        feature_names = fn_candidate
-                shap_pkl_single = None  # already handled
+        # LOSO: single _shap_values.pkl per run (all test subjects stacked)
+        # WS:   one _shap_values.pkl per subject → stacked here
+        stacked_pkl = find_file_by_suffix(rd, "_shap_values_stacked.pkl")
+        pkl_paths = [stacked_pkl] if stacked_pkl else find_files_by_suffix(rd, "_shap_values.pkl")
 
-        if shap_pkl_single:
-            data = load_pkl(shap_pkl_single)
-            if isinstance(data, dict) and "shap_values" in data:
-                shap_runs.append(data["shap_values"])
-                if not feature_names and "feature_names" in data:
-                    feature_names = data["feature_names"]
+        shap_arrays, x_arrays, fn_candidate = [], [], []
+        for sp in pkl_paths:
+            d = load_pkl(sp)
+            if not (isinstance(d, dict) and "shap_values" in d):
+                continue
+            sv = np.asarray(d["shap_values"])
+            xv = d.get("x_test")
+            if xv is None:
+                raise ValueError(
+                    f"'{sp}' has a 'shap_values' entry but no 'x_test' — "
+                    f"cannot pair SHAP values with the feature values they explain."
+                )
+            xv = np.asarray(xv)
+            if xv.shape != sv.shape:
+                raise ValueError(
+                    f"'{sp}': x_test shape {xv.shape} != shap_values shape {sv.shape}."
+                )
+            shap_arrays.append(sv)
+            x_arrays.append(xv)
+            if not fn_candidate and "feature_names" in d:
+                fn_candidate = d["feature_names"]
 
-    return all_results, shap_runs, feature_names
+        if shap_arrays:
+            shap_runs.append(np.concatenate(shap_arrays, axis=0))
+            x_runs.append(np.concatenate(x_arrays, axis=0))
+            if not feature_names and fn_candidate:
+                feature_names = fn_candidate
+
+    return all_results, shap_runs, x_runs, feature_names
 
 
 # =============================================================================
@@ -394,6 +408,7 @@ def generate_model_plots(
     positive_class: str,
     negative_class: str,
     dimension_name: str,
+    min_shap_feature_row_frac: float = 0.15,
 ) -> None:
     """
     Generate all comparison plots for a single model directory.
@@ -414,6 +429,13 @@ def generate_model_plots(
         Negative-class label for confusion-matrix / ROC plots.
     dimension_name : str
         Contrast name used in plot titles.
+    min_shap_feature_row_frac : float
+        Within-subject only: minimum fraction of pooled rows that must carry
+        a genuine (non-structural-zero) SHAP attribution for a feature to be
+        eligible for the beeswarm. Each WS subject independently selects its
+        own feature subset, so pooling all subjects unfiltered is dominated
+        by zero-padding for whichever subjects did not select a given
+        feature (Fix FIND-003).
     """
     model_type    = Path(model_dir).name
     plots_dir     = os.path.join(model_dir, "plots")
@@ -425,10 +447,10 @@ def generate_model_plots(
     print(f"\n  [Model: {model_type.upper()} | Mode: {pipeline_mode.upper()}]  {model_dir}")
 
     # Load data from disk
-    true_all_results, true_shap_runs, feature_names = load_all_results_from_model_dir(
+    true_all_results, true_shap_runs, true_x_runs, feature_names = load_all_results_from_model_dir(
         model_dir, from_perms=False
     )
-    perm_all_results, perm_shap_runs, _ = load_all_results_from_model_dir(
+    perm_all_results, perm_shap_runs, _perm_x_runs, _ = load_all_results_from_model_dir(
         model_dir, from_perms=True
     )
 
@@ -465,36 +487,37 @@ def generate_model_plots(
     # ------------------------------------------------------------------
     if true_shap_runs and feature_names:
         print("    -> SHAP beeswarm (official)")
-        combined_shap = np.concatenate(true_shap_runs, axis=0)
+        # Use one representative true run (run 0) rather than concatenating
+        # all n_runs repeated passes: those passes share the same fold/subject
+        # membership (only the RF seed differs), so pooling all of them treats
+        # ~100 non-independent resamplings as if they were independent trials,
+        # inflating N and overplotting the swarm. Run-to-run stability is
+        # already reported separately via the mean±std feature-importance bar
+        # plot above (Fix FIND-005).
+        run_shap, run_x = true_shap_runs[0], true_x_runs[0]
+        run_names = feature_names
 
-        # Build X_test for colour coding — load from each run's pkl (not just run_0)
-        run_dirs_true = collect_run_dirs_from_base(os.path.join(model_dir, "true_runs"))
-        x_arrays = []
-        for rd in run_dirs_true:
-            # LOSO: one _shap_values.pkl per run; WS: multiple per-subject pkls
-            all_shap_pkls = find_files_by_suffix(rd, "_shap_values.pkl")
-            stacked_pkl = find_file_by_suffix(rd, "_shap_values_stacked.pkl")
-            if stacked_pkl:
-                all_shap_pkls = [stacked_pkl]
-            if all_shap_pkls:
-                x_parts = []
-                for sp in all_shap_pkls:
-                    d = load_pkl(sp)
-                    if isinstance(d, dict) and d.get("x_test") is not None:
-                        x_parts.append(np.asarray(d["x_test"]))
-                if x_parts:
-                    x_arrays.append(np.concatenate(x_parts, axis=0))
-        # If any runs had no x_test, fill with zeros of the right shape
-        if not x_arrays or len(x_arrays) != len(true_shap_runs):
-            x_arrays = [
-                np.zeros_like(sv) for sv in true_shap_runs
-            ]
+        coverage_df = None
+        if pipeline_mode == "ws":
+            run_shap, run_x, run_names, coverage_df = filter_shap_by_feature_consensus(
+                run_shap, run_x, feature_names,
+                min_selected_row_frac=min_shap_feature_row_frac,
+                max_display=top_n_features,
+            )
+            n_included = int(coverage_df["included"].sum())
+            print(
+                f"    -> WS consensus filter: {n_included}/{len(feature_names)} "
+                f"features reach >= {min_shap_feature_row_frac:.0%} row coverage"
+            )
+            coverage_df.to_csv(
+                os.path.join(plots_dir, f"{filename_base}_shap_beeswarm_coverage.csv"),
+                index=False,
+            )
 
-        combined_x = np.concatenate(x_arrays, axis=0)
         plot_shap_beeswarm_official(
-            shap_values=combined_shap,
-            x_test=combined_x,
-            feature_names=feature_names,
+            shap_values=run_shap,
+            x_test=run_x,
+            feature_names=run_names,
             save_path=plots_dir,
             filename_base=filename_base,
             max_display=top_n_features,
@@ -552,6 +575,16 @@ def parse_args():
         default="OFF-task",
         help="Negative-class label for confusion-matrix / ROC plots.",
     )
+    parser.add_argument(
+        "--min_shap_feature_row_frac",
+        type=float,
+        default=0.15,
+        help=(
+            "Within-subject only: minimum fraction of pooled rows that must "
+            "carry a genuine (non-structural-zero) SHAP attribution for a "
+            "feature to appear in the beeswarm."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -591,6 +624,7 @@ def main():
             positive_class=args.positive_class,
             negative_class=args.negative_class,
             dimension_name=dimension_name,
+            min_shap_feature_row_frac=args.min_shap_feature_row_frac,
         )
 
     print(f"\nDone. Plots generated for {len(model_dirs)} model(s).")

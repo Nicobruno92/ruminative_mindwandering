@@ -32,25 +32,124 @@ Focuses on neural correlates of mind-wandering independent of patient status.
 
 **Section 2 — CBPT: dimension-specific neural signatures**
 - Andrillon pipeline (LMM + cluster-permutation): which EEG markers show group-level correlates for each dimension?
-- Report by marker family, not marker by marker:
-  - **Attentional** (P3b, P3a): onoff > selfother, absent for valence/time
-  - **Complexity/arousal** (KoC, PE-beta/gamma, SEF90/95): strong for onoff; emerges for valence only via valence×confidence interaction (48-electrode clusters)
-  - **Broadband power** (PSD gamma/beta): mostly specific to onoff
-  - **Sleep-like oscillations** (slow waves, delta/theta, spindles): present across dimensions with dimension-specific polarity — slow waves decrease on-task (onoff) but increase with emotional content (valence)
-- Main figure: topomaps (representative markers × dimensions) + heatmap (marker families × dimensions)
-- Full details: supplementary table
-- Results: `results/andrillon_cluster/`
+- **Linear specification only** (as of 2026-08-13). A quadratic variant adding
+  orthogonalised `valence_sq`/`time_sq` was previously the reported one; those
+  terms have been **removed from every analysis in the project** — see
+  "Quadratic Terms: Removed" below. Five targets: onoff, valence, selfother,
+  time, confidence.
+- **Multiple comparisons are read at two levels** (`Stats_andrillon/`, see the
+  `andrillon-mcc-fdr-per-family` memory for the full method):
+  1. *Marker-wise* — one max-statistic p per marker, Benjamini-Hochberg within each
+     marker family (evoked m=4, sleep m=19). Answers "which specific marker?".
+  2. *Omnibus* (`Stats_andrillon/omnibus_test.py`) — a family-level permutation test.
+     Answers "does this dimension leave ANY neural trace?", which the marker-wise
+     step cannot: signal spread over several moderate markers fails every
+     marker-wise test yet is collectively far from chance. Two statistics: a *count*
+     (markers below α vs the permutation null) and a *min-p* (best marker, FWER-valid
+     under arbitrary dependence). Both are then BH-corrected across the **five**
+     dimensions within each family.
+- **RESULT (linear-only re-run, 2026-08-13; 5 targets × 23 markers, 56 SLURM jobs,
+  0 failures).** Omnibus, sleep family, after cross-dimension BH over 5 dimensions:
+
+  | target | count p → BH | min-p FWER → BH | marker-wise BH survivors (sleep) |
+  |---|---|---|---|
+  | `onoff` | .0002 → **.0010** | .0002 → **.0005** | **16/19** |
+  | `confidence` | .0044 → **.0110** | .0002 → **.0005** | **8/19** |
+  | `selfother` | .0398 → .0663 | .3903 → .3903 | 0/19 |
+  | `valence` | .0842 → .0844 | .0450 → .0750 | 1/19 |
+  | `time` | .0844 → .0844 | .1952 → .2440 | 0/19 |
+
+  The evoked family (m=4) survives for no dimension after BH (`onoff` closest,
+  min-p BH .060).
+- **Two dimensions, not one**: `onoff` and `confidence` both leave a strong,
+  localizable trace in the sleep family. `confidence` was absent from the
+  pre-2026-08-13 omnibus entirely (it was added as a target after that run), so
+  this is new information, not a change.
+- **Reading "best marker" requires care**: with 5000 permutations the p floor is
+  1/5001 = .0002, so min-p cannot rank markers that tie there. For `onoff`,
+  `wsmi_gamma` has the smallest p (at the floor) but **PE-beta carries the largest
+  effect** (cluster stat −75.6 over 22 electrodes vs wsmi_gamma's +30.1 over 11),
+  so the historical "onoff peaks in PE-beta" holds when "peak" means cluster
+  statistic. Rank by |cluster_stat|, not min-p, when several markers sit at the floor.
+  `confidence` has an unambiguous top marker: `slowwaves_Density`, stat −90.3 over
+  29 electrodes — more slow waves at LOW confidence.
+- **What the quadratic removal changed**: marker-wise survivors are unchanged or
+  higher everywhere (`onoff` 17/19→16/19, `confidence` 6/19→8/19, `valence`
+  0/19→1/19 with `psd_relative_delta` newly at BH .0304) **except `time`/evoked,
+  which drops 2/4 → 0/4** — the P1 cluster statistic collapses from 46.5 to 2.3
+  and N1 from 38.8 to 2.4. Those two were produced by the quadratic covariate.
+- The old "48-electrode valence×confidence" and "slow waves increase with valence"
+  claims do **not** survive the corrected analysis — do not reuse them.
+- Main figure: topomaps (representative markers × dimensions) + heatmap (marker
+  families × dimensions). Report both marker-wise and omnibus levels. `selfother`
+  is the one dimension where the two levels disagree — omnibus count p = .0398
+  (BH .0663) with 0/19 markers surviving marker-wise — so if it is mentioned at
+  all it is the "diffuse, not localizable" case, and suggestive rather than
+  confirmatory.
+- Results: `results/andrillon_cluster/` (per-dir `multiple_comparisons_summary.csv`,
+  `mcc_family_composition.csv`; family-level `omnibus_test.csv` at the root).
 
 **Section 3 — Classification: individual-level decodability**
-- Within-subject RF classifier (median split per dimension): tests whether neural signatures support trial-by-trial prediction per individual
-- Decodability hierarchy mirrors CBPT density: onoff (AUC=0.703, 16/29 subjects sig.) > valence (0.658, 7/23) > confidence (0.630) > selfother (0.632) > time (0.593 ≈ weak)
-- LOSO (onoff only): AUC=0.628 vs within=0.703 — gap reveals idiosyncratic component of MW neural signatures
-- ~45% of subjects not individually decodable even for onoff — result, not failure
-- Main figure: AUC bar chart per dimension + permutation baseline + individual points; LOSO point for onoff
+- Within-subject (WS) and leave-one-subject-out (LOSO) RF classifiers, median split
+  per dimension, on a **175-feature** space (the 23 Andrillon CBPT markers per ROI).
+- **All numbers below are the 2026-07-30 re-run.** Anything quoting the old
+  AUCs (onoff 0.703, valence 0.658, LOSO 0.628, "16/29") predates the
+  feature-space cache fix and must not be reused — see
+  `memory/classification-canonical-feature-space-177.md`. Never quote the
+  convenience `*_summary*.csv` files; recompute with
+  `scripts/recompute_headline_numbers.py`.
+- **Within subject**, every dimension is decodable (all p_FDR < .05):
+  onoff 0.721 (15/29 subjects sig.) > valence 0.647 (5/23) > confidence 0.640
+  (7/23) > selfother 0.587 (5/31) > time 0.554 (3/27).
+- **LOSO**: only **onoff 0.627** and **confidence 0.620** survive FDR. Valence
+  0.536, time 0.538, selfother 0.517 do not.
+- The headline is a **dissociation**: valence is second-best within subject yet
+  at chance across subjects (gap 0.111), while confidence loses almost nothing
+  (gap 0.020). Affective valence during MW has a largely idiosyncratic neural
+  signature; metacognitive confidence has a shared one.
+- ~48% of subjects are not individually decodable even for onoff — result, not failure.
+- Main figure: `scripts/make_fig_section3_decoding.py` →
+  `results/figures/section3_decoding/` (per-dimension WS/LOSO dot plot, per-subject
+  points, permutation band; fill encodes significance).
 - Results: `mw_classification_pipeline/results/MW_Classification/`
 
+**Feature consistency (WS vs LOSO)** — `scripts/feature_consistency_analysis.py`,
+figures via `scripts/make_fig_feature_consistency.py`, outputs in
+`results/feature_consistency/`:
+- Per subject, mean(|SHAP|) from their own model vs from the model trained
+  without them, over the same trials.
+- **Group level**: Spearman ρ = 0.41 (onoff), 0.35 (valence), 0.31 (confidence),
+  0.22 (selfother), 0.003 (time, n.s.) over 175 features. Collapsing collinear
+  ROI columns to the 23 markers raises this to **0.58 (onoff) / 0.56 (valence) /
+  0.58 (confidence)**, with selfother 0.31 (p = .07) and time ≈ 0 both
+  non-significant. (The valence² 0.39 / time² 0.39 entries were dropped with the
+  quadratic contrasts — see "Quadratic Terms: Removed".) Part of the feature-level disagreement is
+  arbitrary choice among collinear ROI columns, not disagreement about markers.
+- **Marker aggregation must be `mean` (per ROI), never `sum`** — set in
+  `scripts/config_feature_consistency.yaml`. The 4 evoked markers own 1 column
+  each and the 19 sleep markers own 9, so summing hands sleep markers 9× the
+  mass before any data is seen: it buries P3b (which rises to 4th of 23 under
+  `mean`) and inflates every marker-level ρ, because the ROI-count pattern is
+  identical in both pipelines and correlates with itself. The superseded
+  sum-based figures reported ρ = 0.43–0.87; do not reuse those.
+- **Individual level**: mean per-subject ρ ≤ 0.08; only 6/29 (onoff), 4/23
+  (valence), 2/23 (confidence) subjects individually significant. Split-half
+  noise ceiling ≥ 0.97, so this is not seed/CV noise (it does *not* bound
+  single-subject sampling noise — state that limitation when citing it).
+- The old "WS and LOSO pick opposite features, r ≈ −1" claim is a
+  **selection-on-extremes artifact** of correlating over a top-10 ∪ top-10
+  subset. Do not reuse it, and never annotate a correlation computed on a
+  top-N subsample.
+
 **Narrative bridge between sections 2 and 3:**
-> CBPT establishes which dimensions leave a detectable group-level neural trace. Classification asks whether that trace is strong enough to predict MW state in a specific person. The decodability hierarchy directly mirrors the CBPT signal density — validating both methods and establishing a hierarchy of neural encodability across MW dimensions.
+> CBPT establishes which dimensions leave a detectable group-level neural trace. Classification asks whether that trace is strong enough to predict MW state in a specific person.
+
+**Caveat on that bridge**: do not assert that the two orderings validate each
+other. The CBPT side is being recomputed under the linear-only specification
+(see Section 2), so there is currently no CBPT tier ranking to compare against.
+The previous claim — that CBPT's localizable tier was `onoff` + `valence_sq`
+while LOSO picks `onoff` + `confidence` — is void on the `valence_sq` half.
+Re-check both orderings against the new numbers before writing this bridge.
 
 ---
 
@@ -282,6 +381,265 @@ Neutral: gray `#9498A0` = permutation/chance baseline and non-dimension covariat
 **Significance encoding (project-wide convention):** color encodes the *dimension*, never significance. Significance is encoded by **fill**: significant (after correction) = **filled/solid** marker; non-significant = **hollow/empty** (white face, colored edge) or **dashed**. Keep this consistent across forest plots, topomaps, heatmaps, and any new figure — so a reader can read dimension from hue and significance from fill independently.
 
 Currently wired into the Paper 2 plots: `mw_classification_pipeline/` and `results/Behavior/objective_markers/lmm_probe_dimensions/` (generators in `Behavior/Objective_Markers/lmm_probe_dimensions.py`). Apply the same palette to any new plot.
+
+---
+
+## Dimension Order (Figures)
+
+Canonical left-to-right / top-to-bottom order for any multi-dimension figure —
+panel order, heatmap/table columns, forest-plot rows, legend order:
+
+```
+onoff → valence → selfother → time → confidence
+```
+
+That is the complete order — the quadratic terms that used to be interleaved
+after their linear parents were removed from the project (see "Quadratic Terms:
+Removed"), so no interleaving rule is needed any more.
+
+**Why this order and not another**: it matches `color_palette.yaml`'s
+`dimensions:` key order, which was already the majority convention across the
+codebase before this was written down. It is **not** derived from the SART
+probe's on-screen question order (Q1 onoff, Q2a selfother, Q2b valence, Q2c
+time, Q3 confidence — see "SART Task Design" above puts selfother before
+valence) and **not** from decodability or effect-size ranking (Section 3's
+AUC ranking is onoff > valence > confidence > selfother > time; CBPT's tiers
+in Section 2 are a different ordering again). Keeping the panel layout itself
+independent of any one result keeps the figure from priming the reader toward
+a conclusion before they read the fill/significance encoding — rankings are
+reported as findings inside prose and tables, not baked into panel position.
+
+Wired into (as of 2026-08-12):
+- `color_palette.yaml` — `dimensions:` key order
+- `Stats_andrillon/plot_paper_figures.py` — `HEATMAP_DIMENSION_ORDER`
+- `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` — `DIMENSIONS`, `CORR_VARS`
+- `mw_classification_pipeline/scripts/generate_combined_classification_figure.py`
+  — `DIMENSIONS`, `GROUP_ROW_DIMENSIONS`
+- `mw_classification_pipeline/scripts/config_feature_consistency.yaml` —
+  `contrasts[]`
+
+**Former exception, now retired**: `Stats_andrillon/plot_paper_figures.py`'s
+`SECONDARY_DIMENSIONS` used to be ordered by CBPT tier (concentrated →
+distributed → null) on the grounds that the ordering *was* the finding. It was
+reverted to canonical order on 2026-08-13 because those tiers came from the
+quadratic specification, which has been retired — baking a superseded ranking
+into panel position primes the reader toward a conclusion the current data has
+not re-established. Do not restore a tier ordering until the linear-only re-run
+is in and the tiers have actually been recomputed. If any figure is ever
+narrative-ordered again, document the deviation next to its order list rather
+than letting it drift silently.
+
+---
+
+## Dimension Labels & Pole Wording (Figures)
+
+Two different pieces of text appear per dimension across Paper 2 figures, and
+each has exactly one canonical wording — don't introduce a synonym for either,
+even under space pressure (shorten by line-wrapping or omitting a word, not by
+substituting a different word).
+
+**1. Display label** (panel title, legend entry, table row, heatmap column
+header before any width-driven wrapping):
+
+| Dimension | Canonical label | | Dimension | Canonical label |
+|-----------|------------------|--|-----------|------------------|
+| `onoff` | `On/Off-Task` | | `time` | `Time` |
+| `valence` | `Valence` | | `confidence` | `Confidence` |
+| `selfother` | `Self/Other` | | | |
+
+Line-wrapping to fit a narrow column is fine (`"On/Off-\nTask"`,
+`"Self/\nOther"`) as long as the unwrapped text is still the canonical label —
+`Self vs. other` / `Self / other` / `Self/other` were three such variants
+that existed in the repo and have been consolidated to `Self/Other`;
+`On/off task` / `On/Off Task` / `On/off-task` were consolidated to
+`On/Off-Task` (sentence-case prose mentioning the dimension inline, e.g. "the
+on/off-task effect", is not a label and is exempt).
+
+**2. Pole / extreme wording** (what the low and high end of the 0–100 scale
+are called — axis endpoint labels, "higher when X" effect-direction
+annotations, correlation-plot axis names):
+
+| Dimension | Low pole (0) | High pole (100) |
+|-----------|--------------|------------------|
+| `onoff` | `off-task` | `on-task` |
+| `valence` | `negative` | `positive` |
+| `selfother` | `self-focused` | `other-focused` |
+| `time` | `past` | `future` |
+| `confidence` | `low` | `high` |
+
+This is the short form (`SHORT_POLES` in `Stats_andrillon/plot_paper_figures.py`
+— the first place it was defined). A full-sentence variant exists for CBPT
+effect-direction annotations only (`POLE_LABELS` in the same file, e.g.
+`"higher when OFF-task\n(mind-wandering)"` / `"higher when ON-task"`) — use it
+only where a bare pole word would be ambiguous about what "higher" means;
+everywhere else (raw-data axis labels, correlation matrices) use the short
+form above. `self` / `other` is *not* valid shorthand for `self-focused` /
+`other-focused` — it was found as an inconsistent shortening in
+`probe_dimension_cloud_plot.py` and corrected (2026-08-12).
+
+`confidence`'s row was corrected a second time (2026-08-13): the 2026-08-12
+pass had flagged `low` / `high` as an inconsistent shortening too and
+"corrected" it to `unconfident` / `confident` — backwards. The SART Task
+Design section above defines Q3's own poles literally as "(low ↔ high)", and
+`unconfident` carries connotations (anxiety, insecurity) the slider never
+measured — it only asked how confident the self-assessment was. `low` / `high`
+reads correctly wherever it's used because the column header or panel title
+right next to it always already says "Confidence".
+
+Wired into (as of 2026-08-13):
+- `Stats_andrillon/plot_paper_figures.py` — `POLE_LABELS`, `SHORT_POLES`,
+  `HEATMAP_COLUMN_LABELS`, `SECONDARY_COLUMN_LABELS`
+- `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` — `DIMENSIONS`
+  (`label`, `pole_low`, `pole_high`), `CORR_VARS`
+- `Behavior/Objective_Markers/lmm_probe_dimensions.py` — `PREDICTOR_LABELS`
+- `mw_classification_pipeline/scripts/generate_combined_classification_figure.py`
+  — `DIMENSIONS[].label`
+- `mw_classification_pipeline/scripts/config_feature_consistency.yaml` —
+  `contrasts[].label`
+
+---
+
+## Quadratic Terms: Removed (2026-08-13)
+
+`valence_sq` / `time_sq` — the orthogonalised `(x-50)²/50` curvature terms — were
+removed from **every** analysis: CBPT (`Stats_andrillon`, `Statistics`,
+`Statistics_connectivity`), Behaviour (`lmm_probe_dimensions.py`), and the
+classification contrasts. Do not reintroduce them without changing how the term
+is constructed; the problem is the construction, not a bug.
+
+**Why.** The probe sliders are bounded and skewed, so the orthogonalised residual
+has skew 2.4–2.7 and its top 5% of observations carry ~60% of its variance (vs
+13% for a linear predictor like `onoff`). Every effect built on it was carried by
+that tail:
+
+| test | full sample | dropping top-5% leverage |
+|---|---|---|
+| CBPT `time_sq`, evoked/P1 at Oz | t = 2.76 | **t = 1.15** |
+| Behaviour `valence_sq` → omission_rate | z = 2.52, p_FDR .047 | **z = −1.10** (sign flip) |
+| Behaviour `valence_sq` → total_errors | z = 2.25, p_FDR .048 | **z = −0.73** (sign flip) |
+| control: CBPT `onoff`, PE-beta at FC5 | t = −5.24 | t = −5.13 (robust) |
+
+Model-free binning showed the supposed U was a single tail bin (n = 28 for time)
+with the adjacent bin going the other way. Extremes are unbalanced by
+construction — valence has 19 probes ≤10 vs 615 ≥90, so the "extreme negative"
+arm rested on 19 probes.
+
+**Two traps to avoid if this ever comes up again:**
+- *Orthogonalisation is not the culprit and re-fitting it does not help.* The
+  highest-order term is **invariant** under that reparametrisation — verified: t
+  is identical raw vs orthogonalised vs re-orthogonalised on the analysis sample.
+  What the quadratic term did change was the **linear** term, whose t swung from
+  −0.43 to +3.05 on the same data depending on parametrisation. That is why
+  `valence` and `time` also had to be re-estimated, not just the `_sq` targets.
+- *`min_predictor_variability_sq: 15` was justified by a false premise* ("quadratic
+  predictors live on a 0-50 scale, use half the linear threshold"). The
+  orthogonalised residual spans ≈ −10..+79, not 0-50. Since variability is measured
+  as within-subject range, that criterion selected subjects **for having extreme
+  probes** (r = 0.53 with max|time−50|), i.e. it enriched for the very leverage
+  driving the effect.
+
+**Classification is the exception, and was not itself invalid**: the median split
+only uses rank order, so the long tail is just "high". Those contrasts were
+disabled for consistency, not because they were wrong. If ever revived, note the
+"extreme" class is confounded with the raw dimension (corr +0.27 with valence,
++0.15 with time), so it partly re-learns the linear dimension.
+
+---
+
+## Quadratic-Dimension Display Labels *(historical)*
+
+The `valence_sq` / `time_sq` terms were removed from every analysis on
+2026-08-13 (see "Quadratic Terms: Removed"), so these labels are no longer
+wired into anything. Recorded only so that old figures and CSVs remain
+readable:
+
+| Column key | Display label |
+|------------|---------------|
+| `valence_sq` | `Neutral/Emotional` |
+| `time_sq` | `Present/NotPresent` |
+
+Note `Present/NotPresent` was in any case a poor label: the `time_sq`
+regressor's minimum sat at time ≈ 63, not 50 ("present"), and it was
+asymmetric — +71 at the past extreme vs +17.9 at the future extreme, so a
+positive coefficient weighted *past* about 4:1 rather than "not present"
+symmetrically. If a curvature construct is ever reintroduced, name it from its
+actual fitted shape, not from the intended one.
+
+---
+
+## Marker Naming (Figures)
+
+Canonical stem per marker family — matches the family name shown in
+`DISPLAY_GROUPS`/`HEATMAP_GROUP_LABELS` — with a full-word and a compact
+rendering:
+
+| Family | Stem | Full-word example | Compact example |
+|--------|------|--------------------|------------------|
+| Evoked (ERP) | *(none — component name is already unambiguous)* | `P1`, `N1`, `P3a`, `P3b` | same |
+| Spectral (relative power) | `PSD` | `PSD alpha` | `PSD α` |
+| Complexity / information | `PE` *(Kolmogorov has no stem — the one non-band marker in its family, already unambiguous)* | `PE alpha`, `Kolmogorov` | `PE α`, `KoC` |
+| Connectivity (wSMI) | `wSMI` | `wSMI alpha` | `wSMI α` |
+| Slow waves | `SW` | `SW density` | `SW density` |
+
+**Exactly two verbosity tiers exist, not more or a mix**: full spelled-out
+band names, for the wide topomap/heatmap panels in
+`Stats_andrillon/plot_paper_figures.py`'s `MARKER_DISPLAY_NAMES`; and a
+Greek-symbol compact tier for
+`mw_classification_pipeline/scripts/make_fig_ws_loso_sign_forest.py`'s
+`MARKER_LABELS`, which lists dozens of marker×ROI combinations as forest-plot
+y-tick labels and needs every character. Both tiers use the *same* stem word
+per family — only the band spelling (`alpha` vs `α`) and stem punctuation
+(`PSD` vs no equivalent shorthand needed) change between them. Never
+introduce a third stem word for a family that already has one — `rel.` was
+briefly a synonym for `PSD` in the spectral family (in the compact tier only)
+and has been corrected to `PSD` (2026-08-12) so a reader moving between the
+CBPT figure and the forest plot sees the same word for the same marker.
+
+**Do not fix**: `Stats_andrillon/plot_cbpt_summary_figure.py` still carries
+the old `rel.` wording, but it is an orphaned precursor to
+`plot_paper_figures.py` — nothing imports or invokes it (verified by
+repo-wide reference search, 2026-08-12). Delete it rather than patch it if it
+resurfaces in a future figure pass.
+
+Wired into (as of 2026-08-12):
+- `Stats_andrillon/plot_paper_figures.py` — `MARKER_DISPLAY_NAMES`
+- `mw_classification_pipeline/scripts/make_fig_ws_loso_sign_forest.py` —
+  `MARKER_LABELS`
+
+---
+
+## Figure Assembly (Paper 2)
+
+**Default: Plotly via the `scientific-plots` skill's `sciplot` helper**, not
+raw Plotly calls or matplotlib. Invoke the `scientific-plots` skill before
+building or restyling any figure — it defines the actual API (`sp.save`,
+`sp.make_template`, `sp.mm2px`/`sp.pt2px`, `sp.grid`, `sp.panel_labels`,
+`sp.TYPE_PT`); don't re-derive it here. Repo-specific conventions on top of
+that skill:
+- Figure size is set in **millimetres** (`WIDTH_MM` / `HEIGHT_MM` constants
+  at the top of the script, e.g. `Behavior/Probe_analysis/probe_dimension_cloud_plot.py`),
+  passed to `sp.save(fig, out_dir, name, width_mm=..., height_mm=...)`, which
+  writes both `.svg` and `.png`.
+- Colors always resolve through `color_palette.yaml` (see "Color Palette"
+  above) via `sp.make_template(pal)`, never a hardcoded hex.
+- Multi-panel figures use letter labels (`sp.panel_labels`) rather than
+  relying on subplot titles alone to identify panels in prose.
+- Output goes to `results/{pipeline}/...` or `results/figures/{section}/...`
+  per the "Paper Structure" section above — never inside a source directory.
+
+**Exception — matplotlib, not sciplot**: `Stats_andrillon/plot_paper_figures.py`
+(CBPT topomaps/heatmap) uses matplotlib directly, sized in **inches**
+(`figsize=`) and saved through `Statistics/plot_results.save_figure_multiformat`
+(also PNG+SVG, `dpi=300`), because MNE's topomap plotting (`mne.viz`) only
+draws onto matplotlib axes — there is no Plotly equivalent. Keep this the one
+documented exception rather than porting it to sciplot or adding a second
+undocumented one elsewhere.
+
+**When a figure mixes both** (e.g. a combined panel that embeds a matplotlib
+topomap next to Plotly panels), render each half through its native library
+and compose the raster/vector outputs at the results-folder level — do not
+attempt to fake MNE topomaps in Plotly or reimplement `sciplot`'s layout
+logic in matplotlib.
 
 ---
 

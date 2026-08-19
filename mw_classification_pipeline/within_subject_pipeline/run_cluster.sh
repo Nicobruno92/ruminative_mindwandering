@@ -9,7 +9,12 @@
 #   • Array A: (model × contrast × family × run_idx)  — one job per true run
 #   • Array B: (model × contrast × family × perm_idx) — one job per permutation
 #
-# After all jobs complete, run merge_ws_results.py to aggregate.
+# After all jobs complete, aggregate with:
+#   python ../scripts/recompute_headline_numbers.py
+# (There is no merge_ws_results.py; it was referenced here but never existed.
+# recompute_headline_numbers.py reads true_runs/run_*/ and permuted_runs/run_*/
+# directly, which is the source of truth — the per-model consolidated CSVs are
+# deliberately not written by shard jobs.)
 #
 # USAGE:
 #   bash run_cluster.sh                     # uses config.yaml

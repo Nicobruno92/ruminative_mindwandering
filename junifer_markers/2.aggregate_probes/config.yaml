@@ -57,9 +57,18 @@ tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
 # -----------------------------------------------------------------------------
 #
 # EVOKED EPOCHS (trial-locked):
-#   - distance = 0 is the trial closest to the probe
-#   - distance = 1 is the second closest, etc.
-#   - Example: distance_min=0, distance_max=4 → aggregate last 5 go/correct trials
+#   - distance_to_probe is parsed from the `/distance-N/` field of the epoch
+#     description (see helpers.py), so it is POSITIVE and 1-BASED:
+#     distance = 1 is the trial closest to the probe, 2 the second closest, etc.
+#     There is no distance 0 (verified: min = 1 across all 168 evoked files).
+#   - Both bounds are inclusive.
+#   - Example: distance_min=1, distance_max=10 → aggregate last 10 go trials
+#     (the -10..-1 range under the negative convention used elsewhere in the
+#     project, e.g. ERPs_new/config.yaml, which reads distance as negative).
+#
+#   NOTE: ERPs_new/config.yaml deliberately stays at -5..-1. That pipeline
+#   feeds the temporal LMM / lmm_cluster analysis, not the CBPT marker
+#   families, and was not re-run with the widened window.
 #
 # STATE EPOCHS (temporal bins):
 #   - All temporal bins (dt=-3 to dt=-10) are aggregated automatically
@@ -71,8 +80,20 @@ tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
 trial_selection:
   filter_go: true                # Filter for 'go' trials only
   filter_correct: false           # Filter for 'correct' trials only
-  evoked_distance_min: 0         # Closest trial to probe (inclusive)
-  evoked_distance_max: 5         # 5 trials total: 0,1,2,3,4 (inclusive)
+  evoked_distance_min: 1         # Closest trial to probe (inclusive; 1-based)
+  evoked_distance_max: 10        # 10 trials total: 1..10 (inclusive)
+  # Widened from 5 to 10 (2026-07-28) so the trial-locked window spans the same
+  # ~20 s pre-probe period as the sleep/state epochs (SOA = 2.02 s, so the 20 s
+  # sleep window contains 10-11 trials) and as the n10 behavioural window.
+  #
+  # CAVEAT, deliberate and accepted: this crosses the task's 8-trial no-target
+  # guard. Distances 1-7 are a pure go-trial zone (96-99% of epochs retained
+  # after filter_go), but at distance 8 retention falls to 65% (77% at 9, 82%
+  # at 10) because those trials are no-go and are dropped by `filter_go`.
+  # Epoch count and composition per probe therefore covary with block
+  # structure, and trials adjacent to a no-go carry post-inhibition effects.
+  # The previous 5-trial setting is archived at
+  # BIDS/features_backup_evoked_5trials_20260728/evoked_5trials.tar.gz
   min_required_distances: 3      # Minimum trials required to aggregate a probe
 
 
@@ -129,16 +150,22 @@ aggregation:
     posterior_mid:   ['Pz', 'POz', 'Oz']
     posterior_right: ['P2', 'P4', 'P6', 'PO4', 'PO8', 'O2']
 
-    # ----- ROIs estrictos para componentes ERP (BC-32, alineados con literatura MW/SART) -----
-    # P1 / N1: parieto-occipital lateral (PO7/PO8 ausentes en BC-32 → surrogate O+P lateral)
-    p1_lateral_left:  ['O1', 'P7']
-    p1_lateral_right: ['O2', 'P8']
+    # ----- ROIs estrictos para componentes ERP (alineados con literatura MW/SART) -----
+    # Montaje real = CACS-64 (64 canales). Verificado sobre los 168 archivos
+    # desc-evoked_epo.fif: PO7/PO8 y CPz están presentes en el 100% de los sujetos;
+    # el único electrodo canónico realmente ausente es FCz.
+    #
+    # P1 / N1: occipito-parietal lateral, bilateral.
+    # Sin lateralización: la tarea (SART) es central-foveal y ninguna hipótesis del
+    # estudio predice asimetría hemisférica en los componentes visuales tempranos.
+    # Separar L/R sólo duplicaba columnas colineales y bajaba el SNR por ROI.
+    occipitoparietal_lateral: ['PO7', 'PO8', 'O1', 'O2']
 
-    # P3a: fronto-central midline (FCz ausente → surrogate Fz + FC1/FC2 + Cz)
+    # P3a: fronto-central midline (FCz ausente en CACS-64 → surrogate Fz + FC1/FC2 + Cz)
     frontocentral_midline: ['Fz', 'FC1', 'FC2', 'Cz']
 
-    # P3b: centroparietal midline (CPz ausente → surrogate Cz + CP1/CP2 + Pz)
-    centroparietal_midline: ['Cz', 'CP1', 'CP2', 'Pz']
+    # P3b: centroparietal midline (sitio canónico CPz + vecinos)
+    centroparietal_midline: ['CPz', 'CP1', 'CP2', 'Pz']
   
   # Default ROIs for all markers (if not specified per-marker)
   # Set to null to skip ROI aggregation, or list of ROI names to apply to all markers
@@ -151,8 +178,8 @@ aggregation:
   # Mantener acotado al sitio canónico maximiza SNR y evita dilución hacia
   # topografías de otros componentes.
   marker_rois:
-    P1:  [p1_lateral_left, p1_lateral_right]      # Bozhilova, Broadway, Baird
-    N1:  [p1_lateral_left, p1_lateral_right]      # Smallwood multimodal (misma topografía que P1)
+    P1:  [occipitoparietal_lateral]               # Bozhilova, Broadway, Baird
+    N1:  [occipitoparietal_lateral]               # Smallwood multimodal (misma topografía que P1)
     P2:  [centroparietal_midline]                 # P2 visual centroparietal
     P3a: [frontocentral_midline]                  # Henríquez, Arnett, Barroso meta
     P3b: [centroparietal_midline]                 # Bozhilova, Smallwood, Cooper, Wang ("P3" preregistrado)

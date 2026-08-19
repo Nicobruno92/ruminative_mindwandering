@@ -69,13 +69,18 @@ epoch_types:
 lmm:
   # Formula for per-connection LMM
   # "power" is the placeholder for wSMI value (replaced internally)
+  # Quadratic terms removed 2026-08-13: the orthogonalized (x-50)^2/50
+  # regressor is dominated by a tiny high-leverage tail (top 5% of probes
+  # carry ~60% of its variance). Drop-tests killed or sign-flipped every
+  # effect built on it. See Stats_andrillon/config_andrillon.yaml for the
+  # full evidence; do not re-enable without changing the construction.
   formula: "power ~ onoff + valence + selfother + time + time_on_task + confidence + (1|subject)"
-  predictor_of_interest: 
+  predictor_of_interest:
     - "onoff"
     - "valence"
+    - "time"
     # - "selfother"
     # - "confidence"
-    # - "time"
   method: "powell"
   maxiter: 500
   random_state: 42
@@ -100,8 +105,14 @@ preprocessing:
   predictor_normalization:
     enabled: true
     method: "zscore"
-    predictors: ["valence", "selfother", "confidence", "time", "time_on_task",
-                 "PC1", "PC2", "PC3"]
+    predictors: ["valence", "selfother", "confidence", "time",
+                 "time_on_task", "PC1", "PC2", "PC3"]
+
+  # Orthogonalized quadratic features — computed before predictor normalization
+  # so that the OLS fit is on raw (0–100) scale values.
+  quadratic_features:
+    enabled: false
+    features: {}
 
 
 # ── Multiple comparisons correction ─────────────────────────────────────────

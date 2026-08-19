@@ -684,7 +684,14 @@ def main():
             total_n_permutations=total_n_perms_for_seeds,
         )
         
-        if config.get("save_plots", True):
+        # Skip in SLURM per-permutation mode (--perm_idx): each of the many
+        # parallel array tasks writes only its own run_N subdirectory, so
+        # triggering a full-directory plot regeneration here would read
+        # sibling tasks' results mid-write (race) and duplicate the same
+        # regeneration once per task. Plotting runs once, after the whole
+        # sweep completes, via run_plots.sh — the same pattern run_merge.sh
+        # already uses for result aggregation.
+        if config.get("save_plots", True) and args.perm_idx is None:
             print("\nGenerating comparison plots via generate_pipeline_plots.py ...")
             import subprocess
             _plot_script = Path(__file__).resolve().parent.parent / "scripts" / "generate_pipeline_plots.py"
@@ -692,12 +699,18 @@ def main():
             _miniforge = Path(os.path.expanduser("~")) / "miniforge3"
             _ml_python = _miniforge / "envs" / _conda_env / "bin" / "python"
             _python = str(_ml_python) if _ml_python.exists() else sys.executable
-            subprocess.run(
+            _plot_result = subprocess.run(
                 [_python, str(_plot_script),
                  "--results_dir", results_path,
                  "--top_n_features", str(config.get("top_n_features_plot", 20))],
                 check=False,
             )
+            if _plot_result.returncode != 0:
+                raise RuntimeError(
+                    f"generate_pipeline_plots.py failed (exit code "
+                    f"{_plot_result.returncode}) for results_dir={results_path}; "
+                    f"see the subprocess output above for the root cause."
+                )
 
     print(f"\n{'='*60}")
     print(f"Done. Results → {results_path}")

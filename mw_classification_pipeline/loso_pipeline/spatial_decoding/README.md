@@ -49,6 +49,12 @@ done
 # 4. Combined 5-dimension paper panel
 $ENV scripts/generate_spatial_panel.py \
   --pipeline_dir results/MW_Classification/SpatialDecoding/LOSO
+
+# 5. (optional) Per-marker SHAP for the FWER-significant electrode cluster only —
+#    re-fits just those channels with SHAP enabled; see "SHAP for the significant
+#    cluster" below.
+$ENV scripts/extract_cluster_shap.py \
+  --results_dir results/MW_Classification/SpatialDecoding/LOSO/$C/all/rf
 ```
 
 ## Outputs
@@ -60,6 +66,9 @@ results/MW_Classification/SpatialDecoding/LOSO/{contrast}/all/rf/
   per_channel_metrics.csv           # channel, mean_auc, perm_p (FWER), sig, fwer_threshold
   topomap_auc.png / topomap_sig.png
   used_config.yaml
+  shap/{channel}/...                # only if config.yaml's spatial_decoding.save_shap: true
+  shap_cluster/{channel}/...        # only if extract_cluster_shap.py was run (step 5)
+  shap_cluster/cluster_shap_summary.csv
 combined/topomap_panel_auc.png
 ```
 
@@ -70,3 +79,20 @@ combined/topomap_panel_auc.png
 - A single-channel TRUE shard is also supported (`--channel CH`) for a finer
   (dimension × channel) true array; `merge` reads `true/*.csv` either way.
 - `feature_selection_method`, `k`, `n_runs`, classifier params — all from `config.yaml`.
+
+## SHAP for the significant cluster
+
+The searchlight never computes SHAP by default (`spatial_decoding.save_shap: false`)
+— one explainer pass per electrode per run per permutation would be far too slow
+across the full 64-channel × `permutation_runs` grid. Two ways to get per-marker
+SHAP importance instead:
+
+- **Post-hoc, cluster-only (recommended)**: after step 3 (merge) has produced
+  `per_channel_metrics.csv`, run `scripts/extract_cluster_shap.py --results_dir ...`
+  (step 5 above). It reads the FWER-`sig` channels and `used_config.yaml`, re-fits
+  only those channels with SHAP on, and writes `shap_cluster/cluster_shap_summary.csv`
+  (one row per channel × marker, `mean_abs_shap` averaged over all runs).
+- **Full future run**: set `spatial_decoding.save_shap: true` in `config.yaml` before
+  submitting `run_true_slurm.sh` — every channel in the TRUE-mode array gets SHAP
+  pickles under `shap/{channel}/`. Only combine this with a `channels:` subset
+  (rather than `"all"`) unless you actually want SHAP on all 64 electrodes.

@@ -25,6 +25,7 @@ from utils.data_utils import (
     get_feature_columns,
     pivot_to_wide,
     get_project_root,
+    residualize_within_subject,
 )
 from conftest import make_synthetic_data
 
@@ -133,6 +134,329 @@ class TestCreateLabelContrastExtremeGroups:
         df = self._df([35, 40, 50, 60, 65])
         result = create_label_contrast(df, contrast)
         assert len(result) == 0
+
+
+# =============================================================================
+# residualize_within_subject
+# =============================================================================
+
+class TestResidualizeWithinSubject:
+    """Tests for the within-subject OLS residualization helper."""
+
+    def _df(self, subject_blocks):
+        """subject_blocks: dict of subject -> (target_vals, predictor_vals)."""
+        rows = []
+        for subj, (target_vals, pred_vals) in subject_blocks.items():
+            for t, p in zip(target_vals, pred_vals):
+                rows.append({"subject": subj, "valence": t, "onoff": p})
+        return pd.DataFrame(rows)
+
+    def test_perfect_linear_relationship_gives_near_zero_residuals(self):
+        """Target is an exact linear function of the predictor -> residuals ~0."""
+        onoff = np.linspace(0, 100, 20)
+        valence = 2.0 * onoff + 10.0  # no noise
+        df = self._df({"02": (valence, onoff)})
+        resid, excluded = residualize_within_subject(
+            df, target_col="valence", predictor_cols=["onoff"], min_valid=5
+        )
+        assert excluded == []
+        assert np.allclose(resid, 0.0, atol=1e-8)
+
+    def test_independent_predictor_leaves_target_mostly_unchanged(self):
+        """Target unrelated to the predictor -> residual highly correlated with raw target."""
+        rng = np.random.default_rng(0)
+        onoff = rng.uniform(0, 100, 50)          # predictor: pure noise
+        valence = rng.uniform(0, 100, 50)         # target: independent noise
+        df = self._df({"02": (valence, onoff)})
+        resid, excluded = residualize_within_subject(
+            df, target_col="valence", predictor_cols=["onoff"], min_valid=5
+        )
+        assert excluded == []
+        # Residual should just be target minus a near-zero-slope fit: highly
+        # correlated with the demeaned original.
+        correlation = np.corrcoef(resid, valence)[0, 1]
+        assert correlation > 0.9
+
+    def test_subject_below_min_valid_is_excluded(self):
+        """Subject with too few valid rows -> all-NaN residual, reported as excluded."""
+        onoff = np.array([10.0, 20.0, 30.0, 40.0])
+        valence = np.array([15.0, 25.0, 35.0, 45.0])
+        df = self._df({"02": (valence, onoff)})
+        resid, excluded = residualize_within_subject(
+            df, target_col="valence", predictor_cols=["onoff"], min_valid=10
+        )
+        assert excluded == ["02"]
+        assert np.all(np.isnan(resid))
+
+    def test_mixed_subjects_only_low_data_one_excluded(self):
+        """One subject has enough data, another doesn't -> only the latter is excluded."""
+        rng = np.random.default_rng(1)
+        good_onoff = rng.uniform(0, 100, 20)
+        good_valence = 0.5 * good_onoff + rng.normal(0, 1, 20)
+        bad_onoff = np.array([10.0, 20.0, 30.0])
+        bad_valence = np.array([12.0, 22.0, 32.0])
+        df = self._df({"02": (good_valence, good_onoff), "03": (bad_valence, bad_onoff)})
+        resid, excluded = residualize_within_subject(
+            df, target_col="valence", predictor_cols=["onoff"], min_valid=10
+        )
+        assert excluded == ["03"]
+        subj_mask = (df["subject"] == "02").values
+        assert not np.any(np.isnan(resid[subj_mask]))
+        subj_mask_bad = (df["subject"] == "03").values
+        assert np.all(np.isnan(resid[subj_mask_bad]))
+
+    def test_row_with_missing_predictor_is_nan_even_if_subject_included(self):
+        """A single row missing a predictor value -> NaN just for that row."""
+        onoff = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, np.nan])
+        valence = np.array([15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0, 85.0, 95.0, 5.0, 50.0])
+        df = self._df({"02": (valence, onoff)})
+        resid, excluded = residualize_within_subject(
+            df, target_col="valence", predictor_cols=["onoff"], min_valid=5
+        )
+        assert excluded == []
+        assert np.isnan(resid[-1])
+        assert not np.any(np.isnan(resid[:-1]))
+
+    def test_multiple_predictors_supported(self):
+        """residualize_against a list of >1 predictor columns."""
+        rng = np.random.default_rng(2)
+        n = 20
+        p1 = rng.uniform(0, 100, n)
+        p2 = rng.uniform(0, 100, n)
+        target = 1.5 * p1 - 0.5 * p2 + 3.0  # no noise, two predictors
+        df = pd.DataFrame({"subject": "02", "valence": target, "onoff": p1, "selfother": p2})
+        resid, excluded = residualize_within_subject(
+            df, target_col="valence", predictor_cols=["onoff", "selfother"], min_valid=5
+        )
+        assert excluded == []
+        assert np.allclose(resid, 0.0, atol=1e-8)
+
+
+# =============================================================================
+# create_label_contrast: linear_residual transform
+# =============================================================================
+
+class TestCreateLabelContrastLinearResidual:
+    """Tests for the 'linear_residual' transform inside create_label_contrast."""
+
+    def test_missing_residualize_against_raises(self):
+        df = pd.DataFrame({"subject": "02", "task": "Sart1", "valence": [10.0, 20.0], "onoff": [1.0, 2.0]})
+        contrast = {
+            "label_source": "valence",
+            "transform": "linear_residual",
+            "split_method": "threshold",
+            "threshold": 0,
+        }
+        with pytest.raises(ValueError, match="residualize_against"):
+            create_label_contrast(df, contrast)
+
+    def test_unknown_predictor_column_raises(self):
+        df = pd.DataFrame({"subject": "02", "task": "Sart1", "valence": [10.0, 20.0], "onoff": [1.0, 2.0]})
+        contrast = {
+            "label_source": "valence",
+            "transform": "linear_residual",
+            "residualize_against": ["nonexistent_dim"],
+            "split_method": "threshold",
+            "threshold": 0,
+        }
+        with pytest.raises(ValueError, match="nonexistent_dim"):
+            create_label_contrast(df, contrast)
+
+    def test_excluded_subject_has_no_rows_in_final_output(self):
+        """A subject below min_valid_for_residual should be fully absent from the result."""
+        rng = np.random.default_rng(3)
+        n_good = 20
+        good_onoff = rng.uniform(0, 100, n_good)
+        good_valence = rng.uniform(0, 100, n_good)
+        low_onoff = np.array([10.0, 20.0, 30.0])
+        low_valence = np.array([15.0, 25.0, 35.0])
+        df = pd.concat([
+            pd.DataFrame({"subject": "02", "task": "Sart1", "valence": good_valence, "onoff": good_onoff}),
+            pd.DataFrame({"subject": "03", "task": "Sart1", "valence": low_valence, "onoff": low_onoff}),
+        ], ignore_index=True)
+        contrast = {
+            "label_source": "valence",
+            "transform": "linear_residual",
+            "residualize_against": ["onoff"],
+            "min_valid_for_residual": 10,
+            "split_method": "within_subject_median",
+            # gap=0 takes a different code path (no dropna — see
+            # pre-existing latent bug noted in the linear_residual design
+            # spec) that is not used by any real contrast; gap=5 matches
+            # actual usage and exercises the dropna path correctly.
+            "gap": 5,
+            "positive_above": True,
+        }
+        result = create_label_contrast(df, contrast)
+        assert "03" not in result["subject"].values
+        assert set(result["subject"].unique()) == {"02"}
+
+    def test_split_runs_on_residualized_column_not_raw(self):
+        """
+        Constant-per-subject predictor carries no information, so residualizing
+        against it is equivalent to demeaning: residual = target - subject_mean.
+        This lets us predict the resulting split exactly.
+        """
+        onoff = np.full(10, 50.0)  # constant -> zero information, pure demeaning
+        valence = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0])
+        df = pd.DataFrame({"subject": "02", "task": "Sart1", "valence": valence, "onoff": onoff})
+        contrast = {
+            "label_source": "valence",
+            "transform": "linear_residual",
+            "residualize_against": ["onoff"],
+            "min_valid_for_residual": 5,
+            "split_method": "within_subject_median",
+            "gap": 5,
+            "positive_above": True,
+        }
+        result = create_label_contrast(df, contrast)
+        # mean(valence) = 55; residual = valence - 55; median(residual) = 0
+        # gap=5 -> residual > 5 => class 1, residual < -5 => class 0, else excluded.
+        for _, row in result.iterrows():
+            resid = row["valence"] - 55.0
+            if resid > 5:
+                assert row["target"] == 1
+            elif resid < -5:
+                assert row["target"] == 0
+        # values 50 and 60 (residual 0.0 and 5.0) fall inside/at the neutral
+        # zone boundary and must be excluded
+        assert 50.0 not in result["valence"].values
+        assert 60.0 not in result["valence"].values
+
+
+# =============================================================================
+# create_label_contrast: midpoint_sq_residual_cross transform
+# =============================================================================
+
+class TestCreateLabelContrastMidpointSqResidualCross:
+    """Tests for the 'midpoint_sq_residual_cross' transform."""
+
+    def test_missing_residualize_against_raises(self):
+        df = pd.DataFrame({
+            "subject": "02", "task": "Sart1",
+            "valence": [10.0, 20.0], "onoff": [1.0, 2.0],
+        })
+        contrast = {
+            "label_source": "valence",
+            "transform": "midpoint_sq_residual_cross",
+            "split_method": "threshold",
+            "threshold": 0,
+        }
+        with pytest.raises(ValueError, match="residualize_against"):
+            create_label_contrast(df, contrast)
+
+    def test_unknown_predictor_column_raises(self):
+        df = pd.DataFrame({
+            "subject": "02", "task": "Sart1",
+            "valence": [10.0, 20.0], "onoff": [1.0, 2.0],
+        })
+        contrast = {
+            "label_source": "valence",
+            "transform": "midpoint_sq_residual_cross",
+            "residualize_against": ["nonexistent_dim"],
+            "split_method": "threshold",
+            "threshold": 0,
+        }
+        with pytest.raises(ValueError, match="nonexistent_dim"):
+            create_label_contrast(df, contrast)
+
+    def test_perfect_joint_fit_collapses_to_near_zero(self):
+        """
+        Construct (valence-50)^2/50 as an EXACT linear combination of
+        [valence, onoff, selfother, time] (by fitting then using the fitted
+        values as the "observed" sq) -> the joint regression inside the
+        transform should drive the residual to ~0. Checked via the internal
+        helper directly, since create_label_contrast only exposes the
+        binarized target, not the continuous residual.
+        """
+        rng = np.random.default_rng(0)
+        n = 30
+        valence = rng.uniform(0, 100, n)
+        onoff = rng.uniform(0, 100, n)
+        selfother = rng.uniform(0, 100, n)
+        time = rng.uniform(0, 100, n)
+        raw_sq = (valence - 50.0) ** 2 / 50.0
+        A = np.column_stack([valence, onoff, selfother, time, np.ones(n)])
+        coeffs, _, _, _ = np.linalg.lstsq(A, raw_sq, rcond=None)
+        exact_sq = A @ coeffs  # now an exact linear function of the 4 predictors
+
+        df = pd.DataFrame({
+            "subject": "02", "_sq_valence": exact_sq,
+            "valence": valence, "onoff": onoff, "selfother": selfother, "time": time,
+        })
+        resid, excluded = residualize_within_subject(
+            df, target_col="_sq_valence",
+            predictor_cols=["valence", "onoff", "selfother", "time"],
+            min_valid=5,
+        )
+        assert excluded == []
+        assert np.allclose(resid, 0.0, atol=1e-8)
+
+    def test_own_linear_dimension_used_even_if_others_are_noise(self):
+        """
+        sq is a pure function of its own linear dimension (quadratic, so a
+        linear regressor cannot drive the residual to exactly 0 — it can
+        only remove the LINEAR component); the other 3 predictors are
+        independent noise. The own-linear term should still be used
+        automatically (it's not in residualize_against), so the residual's
+        linear correlation with valence should collapse near 0, same as the
+        existing single-predictor midpoint_sq_residual behavior.
+        """
+        rng = np.random.default_rng(1)
+        n = 40
+        valence = np.linspace(0, 100, n)
+        sq = (valence - 50.0) ** 2 / 50.0  # exact function of valence alone
+        onoff = rng.uniform(0, 100, n)       # noise, unrelated to sq
+        selfother = rng.uniform(0, 100, n)   # noise
+        time = rng.uniform(0, 100, n)        # noise
+        df = pd.DataFrame({
+            "subject": "02",
+            "valence": valence, "onoff": onoff, "selfother": selfother, "time": time,
+            "_sq_valence": sq,
+        })
+        # Access the residual via the internal helper for a precise check
+        # (create_label_contrast only exposes the binarized target).
+        resid, excluded = residualize_within_subject(
+            df, target_col="_sq_valence",
+            predictor_cols=["valence", "onoff", "selfother", "time"],
+            min_valid=5,
+        )
+        assert excluded == []
+        assert abs(np.corrcoef(resid, valence)[0, 1]) < 1e-8
+        # noise predictors carry no information either
+        assert abs(np.corrcoef(resid, onoff)[0, 1]) < 0.3
+        assert abs(np.corrcoef(resid, selfother)[0, 1]) < 0.3
+        assert abs(np.corrcoef(resid, time)[0, 1]) < 0.3
+
+    def test_subject_below_min_valid_excluded_from_final_output(self):
+        rng = np.random.default_rng(2)
+        n_good = 20
+        good = pd.DataFrame({
+            "subject": "02", "task": "Sart1",
+            "valence": rng.uniform(0, 100, n_good),
+            "onoff": rng.uniform(0, 100, n_good),
+            "selfother": rng.uniform(0, 100, n_good),
+            "time": rng.uniform(0, 100, n_good),
+        })
+        low = pd.DataFrame({
+            "subject": "03", "task": "Sart1",
+            "valence": [10.0, 20.0, 30.0],
+            "onoff": [15.0, 25.0, 35.0],
+            "selfother": [5.0, 15.0, 25.0],
+            "time": [50.0, 60.0, 70.0],
+        })
+        df = pd.concat([good, low], ignore_index=True)
+        contrast = {
+            "label_source": "valence",
+            "transform": "midpoint_sq_residual_cross",
+            "residualize_against": ["onoff", "selfother", "time"],
+            "min_valid_for_residual": 10,
+            "split_method": "within_subject_median",
+            "gap": 2.5,
+            "positive_above": True,
+        }
+        result = create_label_contrast(df, contrast)
+        assert "03" not in result["subject"].values
 
 
 # =============================================================================

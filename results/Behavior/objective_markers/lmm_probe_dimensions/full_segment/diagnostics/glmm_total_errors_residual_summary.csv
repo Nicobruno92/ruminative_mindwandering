@@ -1,0 +1,2 @@
+skew,kurtosis,breusch_pagan_stat,breusch_pagan_p,n,model,family,dispersion,converged
+2.3013685706066656,11.572731562139404,246.2110524011658,1.7397595089173093e-55,2460,glmm_total_errors,binomial,1.72997890898028,True

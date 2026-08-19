@@ -1,0 +1,2 @@
+skew,kurtosis,breusch_pagan_stat,breusch_pagan_p,n,model,family,dispersion,converged
+1.396904080332258,1.6821776685513186,4.883123417989889,0.027120500882191097,2460,glmm_olre_commission_rate,binomial,0.919309465633666,False

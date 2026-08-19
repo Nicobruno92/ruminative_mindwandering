@@ -1,0 +1,22 @@
+predictor,estimate,std_error,z_value,p_value,conf_lower,conf_upper,t_value,p_fdr,significant_fdr,converged,conv_message,singular,re_sd,max_grad,dispersion,n_obs
+Intercept,-4.47633955186001,0.0003518426714558,-12722.560152632,0.0,-4.47702916349606,-4.47564994022396,-12722.560152632,,,False,"Model failed to converge with max|grad| = 0.203251 (tol = 0.002, component 1)
+  See ?lme4::convergence and ?lme4::troubleshooting.; Model is nearly unidentifiable: very large eigenvalue
+ - Rescale variables?",False,obs_id=1.0853; subject=1.3703,816.806794009608,0.329816784621954,2460
+onoff,-0.512241763758563,0.0003522803525205,-1454.07417726668,0.0,-0.512932233249504,-0.511551294267623,-1454.07417726668,0.0,True,False,"Model failed to converge with max|grad| = 0.203251 (tol = 0.002, component 1)
+  See ?lme4::convergence and ?lme4::troubleshooting.; Model is nearly unidentifiable: very large eigenvalue
+ - Rescale variables?",False,obs_id=1.0853; subject=1.3703,816.806794009608,0.329816784621954,2460
+valence,-0.0633202806768017,0.0003520443450248,-179.864501650578,0.0,-0.0640102875930504,-0.062630273760553,-179.864501650578,0.0,True,False,"Model failed to converge with max|grad| = 0.203251 (tol = 0.002, component 1)
+  See ?lme4::convergence and ?lme4::troubleshooting.; Model is nearly unidentifiable: very large eigenvalue
+ - Rescale variables?",False,obs_id=1.0853; subject=1.3703,816.806794009608,0.329816784621954,2460
+selfother,0.0263941123005899,0.0003520869534645,74.9647552710253,0.0,0.0257040218717994,0.0270842027293804,74.9647552710253,0.0,True,False,"Model failed to converge with max|grad| = 0.203251 (tol = 0.002, component 1)
+  See ?lme4::convergence and ?lme4::troubleshooting.; Model is nearly unidentifiable: very large eigenvalue
+ - Rescale variables?",False,obs_id=1.0853; subject=1.3703,816.806794009608,0.329816784621954,2460
+time,-0.0001126024808778,0.000351890479061,-0.319992973888762,0.748973656780626,-0.0008023078198376,0.0005771028580818,-0.319992973888762,0.748973656780626,False,False,"Model failed to converge with max|grad| = 0.203251 (tol = 0.002, component 1)
+  See ?lme4::convergence and ?lme4::troubleshooting.; Model is nearly unidentifiable: very large eigenvalue
+ - Rescale variables?",False,obs_id=1.0853; subject=1.3703,816.806794009608,0.329816784621954,2460
+confidence,-0.0179726806761696,0.0003518916030645,-51.0744800945748,0.0,-0.0186623882181762,-0.017282973134163,-51.0744800945748,0.0,True,False,"Model failed to converge with max|grad| = 0.203251 (tol = 0.002, component 1)
+  See ?lme4::convergence and ?lme4::troubleshooting.; Model is nearly unidentifiable: very large eigenvalue
+ - Rescale variables?",False,obs_id=1.0853; subject=1.3703,816.806794009608,0.329816784621954,2460
+time_on_task,0.0500643503109524,0.0003523160169637,142.100693412712,0.0,0.0493738109177035,0.0507548897042014,142.100693412712,0.0,True,False,"Model failed to converge with max|grad| = 0.203251 (tol = 0.002, component 1)
+  See ?lme4::convergence and ?lme4::troubleshooting.; Model is nearly unidentifiable: very large eigenvalue
+ - Rescale variables?",False,obs_id=1.0853; subject=1.3703,816.806794009608,0.329816784621954,2460

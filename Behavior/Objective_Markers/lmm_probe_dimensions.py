@@ -4,14 +4,13 @@ LMM Analysis: Probe Dimensions → Objective Behavioral Markers
 TWO ANALYSES:
 
 1. ADDITIVE MODEL (one per marker):
-    marker ~ onoff + valence + valence_sq + selfother + time + time_sq
+    marker ~ onoff + valence + selfother + time
              + confidence + time_on_task + (1|subject)
-   Tests the independent contribution of each probe dimension, including
-   curvature (quadratic) terms for valence and time.
+   Tests the independent contribution of each probe dimension.
 
 2. MODERATION ANALYSIS (one per marker × moderator):
     marker ~ onoff * moderator + (1|subject)
-   For each non-onoff probe dimension (incl. valence_sq, time_sq), tests
+   For each non-onoff probe dimension, tests
    whether it moderates the effect of onoff on the objective marker. The
    interaction term onoff:moderator is the key test. FDR-BH corrected across
    all marker × moderator tests. Visualised as an interaction plot: onoff
@@ -26,27 +25,37 @@ Preprocessing mirrors objective_markers_analysis.py:
   - Derive time_on_task = probe_number + 15 * (sart_number - 1)
   - Within-subject z-scoring of objective markers (APPLY_WITHIN_SUBJECT_Z)
 
-QUADRATIC TERMS (time_sq, valence_sq) — global orthogonalization:
-  `time_sq = (time-50)^2/50` and `valence_sq = (valence-50)^2/50` (see
-  compute_time_squared / compute_valence_squared) test whether `time` and
-  `valence` have curvature (U-shaped) relationships with the markers, beyond
-  their linear effects. Each is then GLOBALLY ORTHOGONALIZED against its own
-  linear term (orthogonalize_quadratic): a single pooled OLS fit
-  `quad ~ linear` is subtracted off, leaving only the curvature component —
-  the same parametrization as R's `poly(x, 2)`. By the invariance of the
-  highest-order polynomial term, this does NOT change the quadratic term's
-  estimate/SE/t/p; it only removes its collinearity with the linear term
-  (cleaning up the linear term's VIF/SE). The (intercept, slope) of each
-  orthogonalization is saved to `<dataset>/quadratic_orthogonalization.csv`
-  for transparency.
+QUADRATIC TERMS (time_sq, valence_sq) — REMOVED 2026-08-13.
+  These tested whether `time`/`valence` have U-shaped relationships with the
+  markers, as `(x-50)^2/50` orthogonalized against the linear term. They were
+  retired because the regressor is dominated by a handful of probes, not
+  because of an implementation bug — the construction itself is the problem,
+  so do not reinstate it without changing how the term is built:
 
-`present` REMOVED: a previous predictor `present = 50 - |time-50|` aimed to
+    - The sliders are bounded and skewed, so the residual has skew 2.4-2.7 and
+      its top 5% of observations carry ~60% of its variance.
+    - Both FDR-significant effects here REVERSED SIGN under a drop-test of that
+      top 5% (n 2460 -> 2344):
+          omission_rate  est +0.171 z  2.518 p_fdr 0.047
+                      -> est -0.094 z -1.095 p_fdr 0.364
+          total_errors   est +0.115 z  2.254 p_fdr 0.048
+                      -> est -0.047 z -0.725 p_fdr 0.625
+    - Extremes are unbalanced by construction: valence has 19 probes <=10 vs
+      615 >=90, so the "extreme negative" arm rested on 19 probes.
+
+  Note the orthogonalization itself was never the issue and re-fitting it does
+  not rescue the term: the highest-order term is invariant under that
+  reparametrization (as the old docstring correctly noted). What it did change
+  was the LINEAR term — in the EEG pipeline the same data gave t(time) from
+  -0.43 to +3.05 depending on parametrization, which is why `valence` and
+  `time` also had to be re-estimated without the quadratics present.
+
+`present` REMOVED earlier: a predictor `present = 50 - |time-50|` aimed to
 capture "distance from now". It is a near-perfect monotonic function of
-`|time-50|` (r≈-0.97 with `time_sq`) — the same information as `time_sq`,
-just rescaled/flipped — so it cannot coexist with `time_sq` in one model
-(severe collinearity). `time_sq` (orthogonalized) already captures this
-construct, plus asymmetry, within the single unified model below, so
-`present` is dropped entirely.
+`|time-50|`, i.e. the same information as the quadratic term just rescaled and
+flipped, so it could not coexist with `time_sq` in one model. With the
+quadratic terms now gone too, no curvature-in-time construct is modelled at
+all — that is a deliberate scope reduction, not an oversight.
 
 Outputs (saved under OUTPUT_BASE_DIR/<dataset>/):
   full_model/<marker>_lmm_results.csv       — additive model results + FDR
@@ -56,7 +65,6 @@ Outputs (saved under OUTPUT_BASE_DIR/<dataset>/):
   full_model/moderation_summary.csv          — interaction term stats, FDR-corrected
   full_model/moderation_forest_<marker>.png  — forest of interaction coefficients
   full_model/interaction_<marker>_<mod>.png  — interaction plot per significant pair
-  quadratic_orthogonalization.csv            — (intercept, slope) for time_sq/valence_sq (dataset root)
 
 PREDICTOR_SETS ties the named predictor set (predictors, formula, output
 subdir, moderators) together; `plots_only(predictor_set_names=...)` /
@@ -72,6 +80,7 @@ from pathlib import Path
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
@@ -124,31 +133,47 @@ MARKER_LABELS: dict[str, str] = {
 
 # Probe-level predictors (fixed effects, continuous, 0-100 scale)
 PREDICTORS: list[str] = [
-    "onoff", "valence", "valence_sq", "selfother", "time", "time_sq",
+    "onoff", "valence", "selfother", "time",
     "confidence", "time_on_task",
 ]
 
 PREDICTOR_LABELS: dict[str, str] = {
-    "onoff": "On/Off Task",
+    "onoff": "On/Off-Task",
     "valence": "Valence",
-    "valence_sq": "Valence² (curvature)",
     "selfother": "Self/Other",
-    "time": "Time (probe dim.)",
-    "time_sq": "Time² (curvature)",
+    "time": "Time",
     "confidence": "Confidence",
     "time_on_task": "Time on Task",
 }
 
+# Pole meaning of each 0-100 MDES probe dimension (scale convention: see "SART
+# Task Design" / CLAUDE.md). Shown on the scatter-panel x-axis in place of the
+# dimension name (already carried by the panel title above it), mirroring the
+# pole_low/pole_high labels in Behavior/Probe_analysis/probe_dimension_cloud_plot.py.
+# time_on_task is a covariate (probe index, not a 0-100 bipolar MDES rating),
+# so its entry isn't a "pole" in that sense either — "probe n" instead states
+# what the axis actually counts, since repeating the "Time on Task" title
+# verbatim as the x-axis text (the fallback for any predictor missing here)
+# doesn't say what the numbers mean.
+POLE_LABELS: dict[str, str] = {
+    "onoff": "off-task → on-task",
+    "valence": "negative → positive",
+    "selfother": "self → other",
+    "time": "past → future",
+    "confidence": "low → high",
+    "time_on_task": "probe n",
+}
+
 # LMM formula template — marker name is substituted at runtime
 FORMULA_TEMPLATE = (
-    "{marker} ~ onoff + valence + valence_sq + selfother + time + time_sq"
+    "{marker} ~ onoff + valence + selfother + time"
     " + confidence + time_on_task + (1|subject)"
 )
 
 # Potential moderators of the onoff effect (all probe dimensions except onoff)
 # Each will be tested in: marker ~ onoff * moderator + (1|subject)
 MODERATORS: list[str] = [
-    "valence", "valence_sq", "selfother", "time", "time_sq", "confidence",
+    "valence", "selfother", "time", "confidence",
     "time_on_task",
 ]
 
@@ -176,6 +201,90 @@ STANDARDIZE_PREDICTORS: bool = True
 # Figure settings
 FIG_DPI: int = 300
 
+# Number of binscatter columns in the combined panel's scatter block. With the
+# quadratic terms removed (see CLAUDE.md, "Quadratic Terms: Removed") PREDICTORS
+# holds 6 entries — the 5 MDES dimensions plus the time_on_task covariate — so 3
+# columns tile them exactly into 2 full rows with no blank cells. It was 4 while
+# `valence_sq`/`time_sq` were still in the model (8 predictors); leaving it at 4
+# now would leave 2 empty cells and keep the figure wider than its content.
+COMBINED_PANEL_SCATTER_COLS: int = 3
+
+# Combined-panel column geometry. One binscatter panel is SCATTER_PANEL_IN wide;
+# the forest column is FOREST_COL_RATIO times that, and the figure width is
+# derived from both (see plot_combined_panel), so a scatter panel keeps the same
+# size whichever way the forest column is tuned.
+#
+# The ratio was 1.9 while the z/p annotation sat on one line and ate ~38% of the
+# forest axes. Stacking z over p (see FOREST_ANNOT_*) cut that to ~23%, which
+# left the whiskers over-wide — the ratio absorbs the difference, so the space
+# the annotation gave back goes to the figure rather than to already-legible
+# whiskers. Do not push it much below this: the panel still has to fit its
+# x-axis label, which is what runs out of room first (see FOREST_XLABEL_FONTSIZE).
+SCATTER_PANEL_IN: float = 2.2
+FOREST_COL_RATIO: float = 1.45
+
+# Constrained-layout gutters for the combined panel. `*_PAD_IN` is the padding
+# (inches) between an axes' decorations and its neighbour; `*SPACE` is the extra
+# gap as a fraction of the axes size.
+#
+# Horizontal is cut far below the matplotlib default (0.04167 in / 0.02): once
+# the redundant y tick labels are dropped from every column but the first (see
+# SHARE_SCATTER_Y_TICKLABELS) that gutter holds nothing at all, so the panels
+# can sit almost flush. Vertical keeps the default pad: the row gutter still has
+# to fit row 1's x tick labels *and* pole x-label above row 2's panel title —
+# and in the forest column, the "β (log-odds per SD)" x-label directly above the
+# "onoff Moderation" title, which is the tightest pair in the figure and the
+# first thing to collide if this is shrunk.
+CONSTRAINED_W_PAD_IN: float = 0.015
+CONSTRAINED_H_PAD_IN: float = 0.04167
+CONSTRAINED_WSPACE: float = 0.008
+CONSTRAINED_HSPACE: float = 0.02
+
+# Draw y tick labels only on the leftmost binscatter column. Safe because
+# plot_combined_panel applies one shared y-range to every scatter panel, so the
+# repeated labels carry no information and only widen the inter-panel gutter.
+# Set False to restore per-panel tick labels if that shared range is ever lifted.
+SHARE_SCATTER_Y_TICKLABELS: bool = True
+
+# Forest-panel z/p annotation. The text is drawn *inside* the axes, so the room
+# for it is bought by widening xlim past the real data range: WIDTH_FRAC is that
+# extra span as a fraction of the data range, i.e. the annotation column ends up
+# occupying WIDTH_FRAC / (1 + WIDTH_FRAC) of the panel and the CI whiskers keep
+# the rest. GAP_FRAC is the leading gap between the widest CI cap and the text.
+# These move together: shrinking WIDTH_FRAC without also shrinking FONTSIZE runs
+# the text off the right edge (there is no clipping to catch it).
+#
+# The z and p are stacked on two lines, which is what lets WIDTH_FRAC be this
+# small — the column only has to fit the *wider* of the two halves rather than
+# both side by side, so the whiskers keep ~3/4 of the panel instead of the ~5/8
+# they had as one 11 pt line at 0.62. The cost is vertical: two lines have to fit
+# inside one row's pitch, which is the axes height divided by the number of rows
+# (6 in the additive panel — the tighter of the two). At 9.5 pt with
+# LINESPACING 1.0 the pair occupies roughly 70% of that pitch, so rows stay
+# visually separate; raising either value eats into the neighbouring row before
+# it ever runs out of horizontal room.
+# Forest x-axis label, matching the scatter panels' x-label size so the two
+# halves of the figure read as one. Both forest labels are kept to a single
+# short line that fits inside the narrowed forest column: "95% CI" was dropped
+# from every one of them (see coefficient_axis_label) because the panel already
+# *draws* the interval as whiskers — restating it in words cost more width than
+# it bought, and width is what the label ran out of. Wrapping onto two lines was
+# tried instead and is worse: it leaves a bare "β" over a second line still
+# wider than the axes, which then overhangs into the scatter panels.
+FOREST_XLABEL_FONTSIZE: float = 12.0
+
+# Moderation forest x-axis label. Unlike the additive one it also drops the link
+# scale, which loses nothing here: the additive forest sits directly above it in
+# the same figure, on the same scale, and spells it out. Note the moderation β
+# is a product of two z-scored predictors, i.e. per SD × SD — state that in the
+# caption if this panel is ever shown without its neighbour.
+MODERATION_XLABEL: str = "onoff × moderator"
+
+FOREST_ANNOT_FONTSIZE: float = 9.5
+FOREST_ANNOT_LINESPACING: float = 1.0
+FOREST_ANNOT_WIDTH_FRAC: float = 0.30
+FOREST_ANNOT_GAP_FRAC: float = 0.03
+
 # Shared project color palette (single source of truth). Resolved path-relative
 # to this script so it works regardless of the current working directory.
 PALETTE = yaml.safe_load(
@@ -195,18 +304,15 @@ PALETTE_MOD_HIGH = "#F24236"  # red — high moderator
 PREDICTOR_COLORS: dict[str, str] = {
     "onoff":        PALETTE["dimensions"]["onoff"],       # red          — On/Off-Task
     "valence":      PALETTE["dimensions"]["valence"],     # blue         — Valence
-    "valence_sq":   PALETTE["quadratic"]["valence_sq"],   # light blue   — Valence² tint
     "selfother":    PALETTE["dimensions"]["selfother"],   # green        — Self/Other
-    "time":         PALETTE["dimensions"]["time"],        # purple       — Time (probe dim.)
-    "time_sq":      PALETTE["quadratic"]["time_sq"],      # light purple — Time² tint
+    "time":         PALETTE["dimensions"]["time"],        # purple       — Time
     "confidence":   PALETTE["dimensions"]["confidence"],  # orange       — Confidence
     "time_on_task": PALETTE["neutral"]["covariate"],      # grey         — covariate
 }
 DEFAULT_PREDICTOR_COLOR: str = PALETTE["neutral"]["covariate"]
 
 # --- Predictor sets ----------------------------------------------------------
-# Single unified model: every probe dimension (incl. the orthogonalized
-# quadratic terms time_sq / valence_sq, see orthogonalize_quadratic) in one
+# Single unified model: every probe dimension in one
 # additive model + one onoff-moderation forest. Kept as a dict (rather than a
 # bare formula) so the full plot suite (scatter grid + additive forest +
 # onoff-moderation forest + combined panel) and `plots_only(...)` /
@@ -230,6 +336,19 @@ PREDICTOR_SETS: dict[str, dict] = {
 # bimodal (e.g. onoff). This preserves the within-subject relationship that the
 # mixed model estimates.
 SCATTER_BIN_WIDTH: float = 10.0
+
+# Minimum subjects contributing to a bin for that bin's mean±SE to count
+# toward the shared y-axis range in plot_combined_panel (data itself is never
+# dropped — every bin is still plotted). A handful of bins across the 8
+# predictors are estimated from very few subjects (e.g. the sparsest end-bins
+# of `confidence`/`valence`) and carry a correspondingly huge SE; letting
+# those set the axis stretches every panel's y-range to fit noise rather than
+# signal. 12 was picked empirically on the n10/glmm track: it is at or below
+# every bin size feeding `onoff`'s own range (its sparsest bin has 13
+# subjects) so the primary, best-powered effect is never clipped, while it
+# excludes the specific noisy bins (n=4-11) that were otherwise inflating the
+# axis by 2-3x.
+AXIS_RANGE_MIN_BIN_N: int = 12
 
 # =============================================================================
 # HELPERS
@@ -277,96 +396,6 @@ def add_time_on_task(df: pd.DataFrame) -> pd.DataFrame:
     df["sart_number"] = df["task"].str.extract(r"(\d+)").astype(int)
     df["time_on_task"] = df["probe_number"] + 15 * (df["sart_number"] - 1)
     return df
-
-
-def compute_time_squared(df: pd.DataFrame) -> pd.DataFrame:
-    """Derive a quadratic `time_sq` term from `time`.
-
-    `time_sq = (time - 50)^2 / 50` lets the additive model fit a parabola
-    whose vertex can fall anywhere in [0, 100] (vertex at
-    `time = 50 - beta_time / (2 * beta_time_sq)`), capturing asymmetric
-    U-shapes that the linear `time` term alone cannot. Centring on 50 before
-    squaring reduces collinearity with the linear `time` term; the `/ 50`
-    scaling puts `time_sq` on the same 0-50 range as `valence_sq`. Call
-    `orthogonalize_quadratic(df, "time_sq", "time")` afterwards to fully
-    remove the residual correlation (global poly-2 parametrization).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Dataframe containing a `time` column.
-
-    Returns
-    -------
-    pd.DataFrame
-        Input dataframe with `time_sq` column added (0-50 scale).
-    """
-    df["time_sq"] = (df["time"] - 50) ** 2 / 50
-    return df
-
-
-def compute_valence_squared(df: pd.DataFrame) -> pd.DataFrame:
-    """Derive a quadratic `valence_sq` term from `valence`.
-
-    `valence_sq = (valence - 50)^2 / 50` tests whether `valence` has a
-    curvature (U-shaped) relationship with the markers beyond its linear
-    effect. Centring on 50 follows the same "neutral midpoint" convention as
-    `time_sq` (compute_time_squared). The `/ 50` scaling puts `valence_sq` on
-    the same 0-50 range as `time_sq`. Call
-    `orthogonalize_quadratic(df, "valence_sq", "valence")` afterwards to fully
-    remove the residual correlation (global poly-2 parametrization).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Dataframe containing a `valence` column.
-
-    Returns
-    -------
-    pd.DataFrame
-        Input dataframe with `valence_sq` column added (0-50 scale).
-    """
-    df["valence_sq"] = (df["valence"] - 50) ** 2 / 50
-    return df
-
-
-def orthogonalize_quadratic(
-    df: pd.DataFrame, quad_col: str, linear_col: str
-) -> tuple[pd.DataFrame, float, float]:
-    """Globally orthogonalize a quadratic term against its linear counterpart.
-
-    Fits a pooled OLS regression `quad_col ~ linear_col` across all rows and
-    subtracts the fitted values, leaving only the curvature component. This is
-    the poly(x, 2) parametrization used in R and the EEG/CBPT pipeline, and
-    ensures that the quadratic term's coefficient is unconfounded by the linear
-    term's range (lower VIF). By the invariance of the highest-order polynomial
-    term under invertible linear reparametrizations of the fixed-effects design
-    matrix, the quadratic term's LMM estimate, SE, t, and p are unchanged —
-    only the linear term's SE is affected (reduced collinearity).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Dataframe containing `quad_col` and `linear_col`.
-    quad_col : str
-        Name of the quadratic column to orthogonalize in-place (e.g.
-        ``"time_sq"`` or ``"valence_sq"``).
-    linear_col : str
-        Name of the linear column to regress out (e.g. ``"time"`` or
-        ``"valence"``).
-
-    Returns
-    -------
-    df : pd.DataFrame
-        Input dataframe with `quad_col` replaced by the residualised version.
-    intercept : float
-        OLS intercept of `quad_col ~ linear_col` (saved for transparency).
-    slope : float
-        OLS slope of `quad_col ~ linear_col` (saved for transparency).
-    """
-    slope, intercept, *_ = stats.linregress(df[linear_col], df[quad_col])
-    df[quad_col] = df[quad_col] - (intercept + slope * df[linear_col])
-    return df, float(intercept), float(slope)
 
 
 def standardize_predictors(
@@ -613,8 +642,8 @@ def coefficient_axis_label(link: str, standardized: bool) -> str:
     """
     scale = LINK_SCALE_LABELS[link]
     if standardized:
-        return f"β ({scale} per SD, 95% CI)" if scale else "β (SD units, 95% CI)"
-    return f"Coefficient ({scale}, 95% CI)" if scale else "Coefficient (95% CI)"
+        return f"β ({scale} per SD)" if scale else "β (SD units)"
+    return f"Coefficient ({scale})" if scale else "Coefficient"
 
 
 def _draw_forest_panel(
@@ -627,13 +656,21 @@ def _draw_forest_panel(
     ci_upper_col: str,
     xlabel: str,
     title: str,
-    yticks_right: bool = False,
 ) -> None:
     """Draw one forest panel onto *ax*.
 
     Shared by ``plot_combined_forest`` (standalone) and
     ``plot_combined_panel`` (embedded). Significance encoded by fill
     (filled = significant, hollow = not) and line style (solid / dashed).
+    Row labels sit on the left of the axis (standard forest-plot layout).
+    The z/p stat annotation is drawn *inside* the same axes, z over p on two
+    lines, in a column reserved to the right of the CI data (the x-axis is
+    widened to make room, then clipped back to the real data range for
+    ticks/gridlines) — every row's text lines up at one fixed x, rather than
+    floating at each row's own CI-upper-bound (which zig-zags row to row) or
+    living outside the axes in the figure margin. See FOREST_ANNOT_* for the
+    horizontal/vertical trade-off the two-line stacking buys, and
+    FOREST_XLABEL_FONTSIZE for why ``xlabel`` is expected to be one short line.
 
     Parameters
     ----------
@@ -643,9 +680,6 @@ def _draw_forest_panel(
         'significant_fdr', and the CI columns named by ``ci_lower_col`` /
         ``ci_upper_col``.
     labels, colors, sig_flags : pre-computed lists aligned to ``plot_df``.
-    yticks_right : bool
-        If True, place y-tick labels on the right side of the axis (used when
-        the panel is in the rightmost column of the combined figure).
     """
     dash_style = (0, (4, 2))
     for i, (_, row) in enumerate(plot_df.iterrows()):
@@ -657,34 +691,53 @@ def _draw_forest_panel(
         for x_cap in (lo, hi):
             ax.plot([x_cap, x_cap], [i - 0.12, i + 0.12],
                     color=c, linewidth=2.0, alpha=0.9, zorder=2)
-        ax.plot(est, i, marker="o", markersize=10,
+        ax.plot(est, i, marker="o", markersize=11,
                 markerfacecolor=c if sig else "white",
                 markeredgecolor=c, markeredgewidth=2.2, zorder=3)
-        p_fdr = row.get("p_fdr", np.nan)
-        p_label = f"p={p_fdr:.3f}" if pd.notna(p_fdr) else ""
-        star = "✱ " if sig else ""
-        # Wald z for both backends: statsmodels MixedLM and lme4 glmer both
-        # report a normal-approximation statistic, not a t.
-        ax.text(
-            hi, i + 0.22,
-            f"{star}z={row['t_value']:.2f}  {p_label}",
-            va="bottom", fontsize=8.5, color=c,
-            fontweight="bold" if sig else "normal",
-        )
+
     ax.axvline(0, color="black", linewidth=1.2, linestyle="--", alpha=0.7)
     ax.set_yticks(range(len(labels)))
     ax.set_yticklabels(labels, fontsize=11)
     for tick, c in zip(ax.get_yticklabels(), colors):
         tick.set_color(c)
         tick.set_fontweight("bold")
-    if yticks_right:
-        ax.yaxis.tick_right()
-        ax.yaxis.set_label_position("right")
-    ax.set_xlabel(xlabel, fontsize=11, fontweight="bold")
-    ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
-    ax.grid(True, axis="x", alpha=0.3)
+    ax.set_xlabel(xlabel, fontsize=FOREST_XLABEL_FONTSIZE, fontweight="bold")
+    ax.set_title(title, fontsize=15, fontweight="bold", pad=12)
+    ax.tick_params(axis="x", labelsize=10)
     ax.set_ylim(-0.6, len(labels) - 0.4)
     ax.spines["top"].set_visible(False)
+
+    # Fix ticks/gridlines to the real CI data range before widening xlim —
+    # otherwise matplotlib's tick locator would place a stray tick (and
+    # gridline) inside the reserved text column. nbins=4 (not the default 5)
+    # because the forest column is narrow relative to a scatter panel, and 5
+    # tick labels there crowd into each other.
+    ax.relim()
+    ax.autoscale_view()
+    data_lo, data_hi = ax.get_xlim()
+    ticks = [t for t in MaxNLocator(nbins=4).tick_values(data_lo, data_hi)
+             if data_lo - 1e-9 <= t <= data_hi + 1e-9]
+    ax.set_xticks(ticks)
+    ax.grid(True, axis="x", alpha=0.3)
+
+    text_col_x = data_hi + FOREST_ANNOT_GAP_FRAC * (data_hi - data_lo)
+    ax.set_xlim(data_lo, data_hi + FOREST_ANNOT_WIDTH_FRAC * (data_hi - data_lo))
+    ax.spines["right"].set_visible(False)
+
+    for i, (_, row) in enumerate(plot_df.iterrows()):
+        c = colors[i]
+        sig = sig_flags[i]
+        p_fdr = row.get("p_fdr", np.nan)
+        p_label = f"p={p_fdr:.3f}" if pd.notna(p_fdr) else ""
+        star = "✱ " if sig else ""
+        # Wald z for both backends: statsmodels MixedLM and lme4 glmer both
+        # report a normal-approximation statistic, not a t.
+        ax.text(
+            text_col_x, i, f"{star}z={row['t_value']:.2f}\n{p_label}",
+            va="center", ha="left", fontsize=FOREST_ANNOT_FONTSIZE, color=c,
+            linespacing=FOREST_ANNOT_LINESPACING,
+            fontweight="bold" if sig else "normal",
+        )
 
 
 def plot_combined_forest(
@@ -786,12 +839,7 @@ def plot_combined_forest(
         _draw_forest_panel(
             ax_mod, mod_plot, mod_labels, mod_colors, mod_sig,
             ci_lower_col="ci_lower", ci_upper_col="ci_upper",
-            xlabel=(
-                "onoff × moderator "
-                f"({LINK_SCALE_LABELS[link]}, 95% CI)"
-                if LINK_SCALE_LABELS[link]
-                else "onoff × moderator coefficient (95% CI)"
-            ),
+            xlabel=MODERATION_XLABEL,
             title="Moderation of onoff Effect",
         )
 
@@ -1280,12 +1328,15 @@ def plot_combined_panel(
 ) -> None:
     """Combined matplotlib figure: binscatter grid (left) + forest panels (right).
 
-    Layout: N_scatter_rows × 5 columns. Columns 1-4 hold one binscatter panel
-    per predictor (row-major order); column 5 holds the additive-effects forest
-    (row 1) and, if ``moderation_df`` is given, the onoff-moderation forest
-    (row 2). Scatter x-labels add a "(linear)" suffix when the predictor has a
-    quadratic counterpart in the model, and use a short "Dim²" label for the
-    quadratic panels (which plot |base − 50| on the x-axis).
+    Layout: N_scatter_rows × (COMBINED_PANEL_SCATTER_COLS + 1) columns. The
+    leading ``COMBINED_PANEL_SCATTER_COLS`` columns hold one binscatter panel
+    per predictor (row-major order) — with the default of 3 and the 6-entry
+    ``PREDICTORS`` list that is a 2 × 3 block with no blank cells; the last
+    column holds the additive-effects forest (row 1) and, if ``moderation_df``
+    is given, the onoff-moderation forest (row 2). Each scatter panel's title
+    is the dimension's plain PREDICTOR_LABELS name; its x-axis instead states
+    what the 0-100 scale *means* (its poles, e.g. "off-task → on-task"), via
+    ``POLE_LABELS``, so the panel doesn't repeat the same text twice.
 
     Parameters
     ----------
@@ -1309,38 +1360,55 @@ def plot_combined_panel(
     if predictors is None:
         predictors = PREDICTORS
 
-    n_scatter_cols = 4
+    n_scatter_cols = COMBINED_PANEL_SCATTER_COLS
     n_preds = len(predictors)
     n_scatter_rows = int(np.ceil(n_preds / n_scatter_cols))
     n_forest_rows = 2 if moderation_df is not None else 1
     n_total_rows = max(n_scatter_rows, n_forest_rows)
 
     # ── Figure & GridSpec ──────────────────────────────────────────────────────
-    fig_w = 4.0 * n_scatter_cols + 4.8
-    fig_h = 4.5 * n_total_rows + 1.0
+    # `layout="constrained"` (rather than manual left/right/top/bottom margins)
+    # is what actually lets the panel gutters shrink close to zero without
+    # titles/xlabels colliding into their neighbours: it measures each axes'
+    # decorations (title, tick labels, suptitle) and expands hspace/wspace
+    # past the requested minimum only where a collision would otherwise occur,
+    # instead of the fixed-fraction spacing plain GridSpec uses (which overlaps
+    # once panel fonts/text are large relative to the figure).
+    # fig_w is derived from the column ratios rather than written as its own
+    # number so that a scatter panel is SCATTER_PANEL_IN wide whatever
+    # FOREST_COL_RATIO is set to. The previous form hardcoded the forest
+    # allowance as a separate "+ 4.2" term that happened to equal
+    # 2.2 * 1.9 — changing the ratio without also editing that constant would
+    # have silently resized the scatter panels instead of the forest column.
+    fig_w = SCATTER_PANEL_IN * (n_scatter_cols + FOREST_COL_RATIO)
+    fig_h = 2.5 * n_total_rows + 0.6
     fig = plt.figure(figsize=(fig_w, fig_h))
+    # Set the engine explicitly rather than via `layout="constrained"`: the
+    # gutter sizes are engine parameters, and a GridSpec's own hspace/wspace
+    # are *ignored* once constrained layout is active — passing them there
+    # (as this function used to) silently did nothing.
+    fig.set_layout_engine(
+        "constrained",
+        w_pad=CONSTRAINED_W_PAD_IN, h_pad=CONSTRAINED_H_PAD_IN,
+        wspace=CONSTRAINED_WSPACE, hspace=CONSTRAINED_HSPACE,
+    )
 
-    gs = GridSpec(
+    gs = fig.add_gridspec(
         n_total_rows, n_scatter_cols + 1,
-        figure=fig,
-        width_ratios=[1] * n_scatter_cols + [1.3],
-        hspace=0.60, wspace=0.38,
-        left=0.06, right=0.98, top=0.92, bottom=0.08,
+        width_ratios=[1] * n_scatter_cols + [FOREST_COL_RATIO],
     )
 
     # ── x-label helper ────────────────────────────────────────────────────────
     def _scatter_xlabel(pred: str) -> str:
-        """Short, unambiguous x-axis label for scatter panels.
+        """Panel title for a scatter panel: always its PREDICTOR_LABELS entry.
 
-        Linear predictors that have a _sq counterpart → "Dim (linear)".
-        Quadratic predictors → "Dim²"  (axis is |base − 50|, 0-50 range).
-        Others → standard PREDICTOR_LABELS entry.
+        No "(linear)" suffix on the linear term of a linear/quadratic pair —
+        the quadratic panel already has its own distinct name (e.g.
+        "Neutral/Emotional" next to "Valence"), so the two are never
+        ambiguous without it. For a `_sq` predictor the axis is |base − 50|
+        (0-50 range), not the raw predictor, but the title itself is still
+        just the plain display label.
         """
-        if pred.endswith("_sq"):
-            base = pred[:-3]
-            return PREDICTOR_LABELS.get(base, base) + "²"
-        if pred + "_sq" in predictors:
-            return PREDICTOR_LABELS.get(pred, pred) + " (linear)"
         return PREDICTOR_LABELS.get(pred, pred)
 
     # ── Pre-compute |base − 50| distance columns for _sq predictors ───────────
@@ -1354,6 +1422,8 @@ def plot_combined_panel(
     marker_label = f"{MARKER_LABELS[marker]}{z_suffix}"
 
     # ── Scatter panels ─────────────────────────────────────────────────────────
+    scatter_axes: list["plt.Axes"] = []
+    agg_bounds: list[float] = []
     for ax_idx, predictor in enumerate(predictors):
         s_row = ax_idx // n_scatter_cols
         s_col = ax_idx % n_scatter_cols
@@ -1379,6 +1449,11 @@ def plot_combined_panel(
             ax.set_visible(False)
             continue
 
+        scatter_axes.append(ax)
+        reliable = agg[agg["n"] >= AXIS_RANGE_MIN_BIN_N]
+        agg_bounds.extend((reliable["y_mean"] - reliable["y_se"]).tolist())
+        agg_bounds.extend((reliable["y_mean"] + reliable["y_se"]).tolist())
+
         # Background cloud (per-subject bin means)
         ax.scatter(
             per_sub["x_real"], per_sub["y"],
@@ -1401,11 +1476,21 @@ def plot_combined_panel(
             linestyle="-" if significant else "--", zorder=3,
         )
 
-        ax.set_title(x_label, fontsize=11, color=color, fontweight="bold", pad=5)
-        ax.set_xlabel(x_label, fontsize=10, color=color, fontweight="bold")
+        # Title carries the dimension name; the x-axis carries what the 0-100
+        # scale *means* (its poles) instead of repeating that name — mirrors
+        # probe_dimension_cloud_plot.py's pole_low/pole_high axis titles.
+        pole_text = POLE_LABELS.get(predictor)
+        ax.set_title(x_label, fontsize=12.5, color=color, fontweight="bold", pad=6)
+        ax.set_xlabel(
+            pole_text if pole_text else x_label,
+            fontsize=12, color=color,
+            fontweight="normal" if pole_text else "bold",
+        )
         if s_col == 0:
-            ax.set_ylabel(marker_label, fontsize=10)
-        ax.tick_params(labelsize=9)
+            ax.set_ylabel(marker_label, fontsize=12)
+        ax.tick_params(labelsize=11)
+        if SHARE_SCATTER_Y_TICKLABELS and s_col != 0:
+            ax.tick_params(labelleft=False)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1414,6 +1499,25 @@ def plot_combined_panel(
         s_row = ax_idx // n_scatter_cols
         s_col = ax_idx % n_scatter_cols
         fig.add_subplot(gs[s_row, s_col]).set_visible(False)
+
+    # Shared y-range from the across-subject mean±SE points (not the raw
+    # per-subject cloud) applied to every scatter panel: for a bounded rate
+    # marker with a short pre-probe window (e.g. commission_rate, few no-go
+    # trials per bin), individual per-subject bins routinely land exactly at
+    # 0 or 1 — a real value, not an outlier — so even a 2nd-98th percentile
+    # of the raw cloud stays pinned at 1.0 and defeats any trimming. The
+    # aggregate (bold) points are what carries the signal; the faint cloud is
+    # background context that is fine to clip at the edges. Bins are further
+    # restricted to AXIS_RANGE_MIN_BIN_N+ subjects (see its definition) so a
+    # sparse, high-SE bin from a secondary predictor doesn't stretch the
+    # shared axis for every panel — onoff's own range is never affected, its
+    # sparsest bin already clears that threshold.
+    if agg_bounds:
+        y_lo = min(agg_bounds)
+        y_hi = max(agg_bounds)
+        pad = 0.15 * (y_hi - y_lo) if y_hi > y_lo else 0.05
+        for ax in scatter_axes:
+            ax.set_ylim(y_lo - pad, y_hi + pad)
 
     # ── Forest panels ──────────────────────────────────────────────────────────
     add_plot = (
@@ -1432,7 +1536,6 @@ def plot_combined_panel(
         ax_add, add_plot, add_labels, add_colors, add_sig,
         ci_lower_col="conf_lower", ci_upper_col="conf_upper",
         xlabel=coef_label, title="Additive Effects",
-        yticks_right=True,
     )
 
     if moderation_df is not None:
@@ -1454,18 +1557,11 @@ def plot_combined_panel(
         _draw_forest_panel(
             ax_mod, mod_plot, mod_labels, mod_colors, mod_sig,
             ci_lower_col="ci_lower", ci_upper_col="ci_upper",
-            xlabel=(
-                f"onoff × moderator ({LINK_SCALE_LABELS[link]}, 95% CI)"
-                if LINK_SCALE_LABELS[link]
-                else "onoff × moderator (95% CI)"
-            ),
+            xlabel=MODERATION_XLABEL,
             title="onoff Moderation",
-            yticks_right=True,
         )
 
-    fig.suptitle(
-        MARKER_LABELS[marker], fontsize=15, fontweight="bold", y=0.97,
-    )
+    fig.suptitle(MARKER_LABELS[marker], fontsize=19, fontweight="bold")
 
     out_base = output_dir / f"{marker}_combined_panel"
     fig.savefig(f"{out_base}.png", dpi=FIG_DPI, bbox_inches="tight")
@@ -2020,7 +2116,7 @@ def _fit_predictor_set(
     ----------
     df : pd.DataFrame
         Merged probe-level dataframe with all derived predictor columns
-        (time_on_task, time_sq⊥, valence_sq⊥).
+        (time_on_task).
     set_name : str
         Key into `PREDICTOR_SETS` (used for log messages only).
     set_cfg : dict
@@ -2215,20 +2311,6 @@ def run_pipeline_for_dataset(dataset_name: str, markers_path: str, output_base: 
 
     # --- Derived variables ---------------------------------------------------
     df = add_time_on_task(df)
-    df = compute_time_squared(df)
-    df = compute_valence_squared(df)
-    df, time_sq_intercept, time_sq_slope = orthogonalize_quadratic(df, "time_sq", "time")
-    df, valence_sq_intercept, valence_sq_slope = orthogonalize_quadratic(df, "valence_sq", "valence")
-    orth_df = pd.DataFrame([
-        {"term": "time_sq", "linear_col": "time",
-         "intercept": time_sq_intercept, "slope": time_sq_slope},
-        {"term": "valence_sq", "linear_col": "valence",
-         "intercept": valence_sq_intercept, "slope": valence_sq_slope},
-    ])
-    orth_path = output_dir / "quadratic_orthogonalization.csv"
-    orth_df.to_csv(orth_path, index=False)
-    print(f"\nQuadratic orthogonalization saved: {orth_path}")
-    print(orth_df.to_string(index=False))
 
     # --- Within-subject z-scoring (same as objective_markers_analysis.py) ----
     if APPLY_WITHIN_SUBJECT_Z:
@@ -2319,10 +2401,6 @@ def plots_only(predictor_set_names: list[str] | None = None) -> None:
         df["task"] = df["task"].apply(normalize_task_label)
         df = df[df["task"].isin(["Sart1", "Sart2", "Sart3", "Sart4"])].copy()
         df = add_time_on_task(df)
-        df = compute_time_squared(df)
-        df = compute_valence_squared(df)
-        df, _, _ = orthogonalize_quadratic(df, "time_sq", "time")
-        df, _, _ = orthogonalize_quadratic(df, "valence_sq", "valence")
         if APPLY_WITHIN_SUBJECT_Z:
             df = apply_within_subject_z_scoring(df, OBJECTIVE_MARKERS)
 

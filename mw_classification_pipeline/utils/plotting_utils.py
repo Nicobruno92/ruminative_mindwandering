@@ -267,10 +267,23 @@ def plot_feature_importances(feature_names, mean_importances, std_importances, c
         name='Importance'
     ))
 
+    # A top-N chart cannot show that many features carry importance of exactly
+    # zero — mRMR never selected them in any fold, so they are structurally
+    # absent rather than merely unimportant. State the count, or the reader
+    # takes rank N+1 to be a near miss.
+    n_nonzero = int(np.count_nonzero(mean_importances))
+    n_total = len(mean_importances)
+
     # Update layout to match modern aesthetic
     fig.update_layout(
         template='plotly_white',
-        title=dict(text=f'<b>Top {len(y_labels)} Feature Importances</b>', font=dict(size=16)),
+        title=dict(
+            text=(f'<b>Top {len(y_labels)} Feature Importances</b>'
+                  f'<br><span style="font-size:11px;color:#666">'
+                  f'{n_nonzero} of {n_total} features have non-zero importance'
+                  f'</span>'),
+            font=dict(size=16),
+        ),
         xaxis_title=dict(text='Importance', font=dict(size=14)),
         yaxis_title=dict(text='Feature', font=dict(size=14)),
         height=max(400, len(y_labels) * 30),
@@ -310,99 +323,7 @@ def plot_feature_importances(feature_names, mean_importances, std_importances, c
     importances_data_df.to_csv(f"{out_path}_data.csv", index=False)
 
 
-def plot_shap_beeswarm(shap_values, x_test, feature_names, comparison, save_dir, save_prefix, max_display=20):
-    """
-    Create a custom Plotly-based SHAP beeswarm plot.
-    Replicates the look of SHAP library but in Plotly.
-    """
-    import numpy as np
-    import pandas as pd
-    
-    # Handle SHAP values structure
-    if isinstance(shap_values, list) and len(shap_values) > 1:
-        shap_vals = shap_values[0] # Take first class for binary
-    elif hasattr(shap_values, 'ndim') and shap_values.ndim == 3:
-        shap_vals = shap_values[..., 0]
-    else:
-        shap_vals = shap_values
-
-    # Calculate mean absolute SHAP to find top features
-    mean_abs_shap = np.mean(np.abs(shap_vals), axis=0)
-    top_indices = np.argsort(mean_abs_shap)[::-1][:max_display]
-    top_indices = top_indices[::-1] # Reverse for plotting (top features at top)
-    
-    fig = go.Figure()
-    
-    # We'll create one trace per feature for better legend/control, or one trace total
-    # For a beeswarm, we need to jitter the points on the Y-axis
-    for i, idx in enumerate(top_indices):
-        f_name = feature_names[idx]
-        f_shap = shap_vals[:, idx]
-        
-        # Jitter logic
-        # We can use Plotly's box/violin with points or just manual scatter
-        # Here we do manual scatter with jitter
-        y_center = i
-        jitter = np.random.normal(0, 0.05, size=len(f_shap))
-        y_positions = y_center + jitter
-        
-        f_values = None
-        if x_test is not None:
-            f_values = np.asarray(x_test)[:, idx]
-            # Normalize for color scale
-            if np.max(f_values) != np.min(f_values):
-                norm_values = (f_values - np.min(f_values)) / (np.max(f_values) - np.min(f_values))
-            else:
-                norm_values = np.zeros_like(f_values)
-        else:
-            norm_values = np.zeros_like(f_shap)
-            
-        fig.add_trace(go.Scatter(
-            x=f_shap,
-            y=y_positions,
-            mode='markers',
-            name=f_name,
-            marker=dict(
-                size=5,
-                color=norm_values if x_test is not None else ACCENT,
-                colorscale='Viridis' if x_test is not None else None,
-                showscale=True if (i == len(top_indices)-1 and x_test is not None) else False,
-                colorbar=dict(title=dict(text="Feature Value", side="top"), tickvals=[0, 1], ticktext=["Low", "High"]) if (i == len(top_indices)-1 and x_test is not None) else None,
-                opacity=0.8
-            ),
-            hovertext=[f"Feature: {f_name}<br>SHAP: {s:.4f}<br>Value: {v:.4f}" for s, v in zip(f_shap, f_values)] if x_test is not None else None,
-            showlegend=False
-        ))
-
-    fig.update_layout(
-        template='plotly_white',
-        title=f"<b>SHAP Beeswarm: {comparison}</b>",
-        xaxis_title="SHAP Value (impact on model output)",
-        yaxis=dict(
-            tickmode='array',
-            tickvals=list(range(len(top_indices))),
-            ticktext=[feature_names[idx] for idx in top_indices],
-            showgrid=True,
-            gridcolor='#F0F0F0'
-        ),
-        xaxis=dict(showgrid=True, gridcolor='#F0F0F0', zeroline=True, zerolinecolor='black'),
-        height=max(600, len(top_indices) * 40),
-        width=900,
-        margin=dict(l=200, r=50, t=80, b=80)
-    )
-    
-    out_path = os.path.join(str(save_dir), f"{save_prefix}_shap_beeswarm")
-    try:
-        fig.write_image(f"{out_path}.png", scale=2)
-        fig.write_image(f"{out_path}.pdf")
-        fig.write_html(f"{out_path}.html")
-    except Exception as e:
-        print(f"Warning: Could not save SHAP beeswarm plot: {e}")
-        
-    return fig
-
-
-def plot_shap_feature_importance(shap_values, X, feature_names, comparison_results_path, filename_base, max_display=20):
+def plot_shap_feature_importance(shap_values, feature_names, comparison_results_path, filename_base, max_display=20):
     """
     Plot and save SHAP feature importance (bar) plot using Plotly.
     """
@@ -410,7 +331,7 @@ def plot_shap_feature_importance(shap_values, X, feature_names, comparison_resul
     if isinstance(shap_values, list) and len(shap_values) > 1:
         shap_vals = shap_values[0]
     elif hasattr(shap_values, 'ndim') and shap_values.ndim == 3:
-        shap_vals = shap_values[..., 0]
+        shap_vals = shap_values[..., 1]  # positive class, matches ml_utils.py convention
     else:
         shap_vals = shap_values
         
@@ -2676,6 +2597,84 @@ def plot_feature_importances_true_vs_perm(
 # SHAP BEESWARM  —  Official shap library (matplotlib-based)
 # =============================================================================
 
+def filter_shap_by_feature_consensus(
+    shap_values: np.ndarray,
+    x_test: np.ndarray,
+    feature_names: list,
+    min_selected_row_frac: float,
+    max_display: int,
+) -> "tuple[np.ndarray, np.ndarray, list, pd.DataFrame]":
+    """
+    Restrict a pooled SHAP matrix to features with real (non-structural-zero)
+    attribution across a minimum fraction of rows.
+
+    Necessary when SHAP values from independently feature-selected models are
+    pooled into a single matrix (e.g. within-subject: each subject's own
+    mRMR selects its own top-k features out of the full feature set, so a
+    feature not selected by a given subject is zero-padded for that
+    subject's rows).  Plotting the pooled matrix with ``shap.plots.beeswarm``
+    unfiltered is dominated by that structural zero-padding and looks like
+    "no signal", even when the underlying per-subject attributions are real
+    (Fix FIND-003).  A feature's SHAP value is treated as a genuine
+    (non-structural) attribution whenever it is nonzero; an exact-zero
+    attribution for a feature that genuinely was selected is possible but
+    vanishingly rare for a continuous tree-based SHAP value, so this is a
+    negligible simplification.
+
+    Parameters
+    ----------
+    shap_values : np.ndarray
+        SHAP values, shape (n_samples, n_features).
+    x_test : np.ndarray
+        Feature values paired with ``shap_values``, same shape.
+    feature_names : list of str
+        Names for the columns of ``shap_values``.
+    min_selected_row_frac : float
+        Minimum fraction of rows that must carry a genuine (nonzero)
+        attribution for a feature to be eligible for display.
+    max_display : int
+        Maximum number of eligible features to keep, ranked by mean(|SHAP|)
+        across all rows.
+
+    Returns
+    -------
+    tuple of (np.ndarray, np.ndarray, list, pd.DataFrame)
+        Filtered ``(shap_values, x_test, feature_names)`` restricted to the
+        surviving columns, plus a coverage DataFrame (one row per input
+        feature: ``feature_name``, ``selected_row_frac``, ``included``) for
+        transparent reporting of what was excluded and why.
+
+    Raises
+    ------
+    ValueError
+        If no feature reaches ``min_selected_row_frac``.
+    """
+    selected_row_frac = (shap_values != 0).mean(axis=0)
+
+    coverage = pd.DataFrame({
+        "feature_name": feature_names,
+        "selected_row_frac": selected_row_frac,
+    }).sort_values("selected_row_frac", ascending=False).reset_index(drop=True)
+
+    candidate_idx = np.where(selected_row_frac >= min_selected_row_frac)[0]
+    if candidate_idx.size == 0:
+        raise ValueError(
+            f"No feature reaches min_selected_row_frac={min_selected_row_frac} "
+            f"(max observed coverage: {selected_row_frac.max():.3f}); lower "
+            f"the threshold or check upstream feature-selection stability."
+        )
+
+    mean_abs_shap = np.abs(shap_values[:, candidate_idx]).mean(axis=0)
+    order = candidate_idx[np.argsort(-mean_abs_shap)][:max_display]
+
+    filtered_shap = shap_values[:, order]
+    filtered_x = x_test[:, order]
+    filtered_names = [feature_names[i] for i in order]
+
+    coverage["included"] = coverage["feature_name"].isin(filtered_names)
+    return filtered_shap, filtered_x, filtered_names, coverage
+
+
 def plot_shap_beeswarm_official(
     shap_values: np.ndarray,
     x_test: np.ndarray,
@@ -2697,8 +2696,7 @@ def plot_shap_beeswarm_official(
         2-D array of shape (n_samples, n_features).
     x_test : np.ndarray
         2-D array of shape (n_samples, n_features) holding the original feature
-        values used for colour-coding. If None or all-zero, a zero-filled array
-        is used (no colour variation).
+        values used for colour-coding. Must be row-aligned with *shap_values*.
     feature_names : list[str]
         Feature names corresponding to the columns of *shap_values*.
     save_path : str
@@ -2707,6 +2705,13 @@ def plot_shap_beeswarm_official(
         Prefix for output file names.
     max_display : int
         Maximum number of features to display (top by mean |SHAP|).
+
+    Raises
+    ------
+    ValueError
+        If *x_test* is missing or its shape does not match *shap_values*.
+        A silent zero-fill here would make a genuinely broken color axis
+        visually indistinguishable from a null result (Fix FIND-004).
     """
     import shap
     import matplotlib
@@ -2714,14 +2719,22 @@ def plot_shap_beeswarm_official(
 
     matplotlib.use("Agg")  # Non-interactive backend — required for server/cluster
 
-    # Handle multi-class SHAP output (take first class for binary)
+    # Handle multi-class SHAP output (take positive class for binary)
     sv = shap_values
     if sv.ndim == 3:
-        sv = sv[..., 0]
+        sv = sv[..., 1]
 
-    # Ensure x_test has correct shape; fall back to zeros for colour if absent
-    if x_test is None or x_test.shape != sv.shape:
-        x_test = np.zeros_like(sv)
+    if x_test is None:
+        raise ValueError(
+            f"plot_shap_beeswarm_official requires x_test to render the color "
+            f"axis; got None for '{filename_base}'."
+        )
+    if x_test.shape != sv.shape:
+        raise ValueError(
+            f"x_test shape {x_test.shape} != shap_values shape {sv.shape} "
+            f"for '{filename_base}'; the color axis and SHAP values are not "
+            f"row/column-aligned."
+        )
 
     explanation = shap.Explanation(
         values=sv,

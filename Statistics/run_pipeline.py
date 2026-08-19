@@ -44,7 +44,8 @@ from helpers import (
     load_pca_data,
     summarize_clusters,
     normalize_predictors,
-    binarize_predictors
+    binarize_predictors,
+    add_quadratic_features,
 )
 from generate_summary_report import generate_summary_report, generate_pipeline_qa_html_report
 
@@ -584,15 +585,21 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
         t_stats_df.to_csv(t_stats_path, index=False)
         print(f"✓ T-statistics saved to {t_stats_path}")
         
-        # Save model quality metrics per channel
-        if lmm_diagnostics['n_converged'] > 0:
+        # Save model quality metrics per channel.
+        # Gate on the number of per-channel diagnostic records, not on
+        # n_converged: n_converged counts only warning-free fits, so a marker
+        # whose channels all converge with a ConvergenceWarning would otherwise
+        # write no diagnostics at all.
+        if len(lmm_diagnostics['conditional_r2']) > 0:
             model_quality_df = pd.DataFrame({
                 'channel': [ch_names_final[i] for i in range(len(lmm_diagnostics['aic']))],
                 'aic': lmm_diagnostics['aic'],
                 'bic': lmm_diagnostics['bic'],
                 'log_likelihood': lmm_diagnostics['log_likelihood'],
                 'conditional_r2': lmm_diagnostics['conditional_r2'],
-                'shapiro_p_value': lmm_diagnostics['shapiro_p_values'],
+                'residual_skew': lmm_diagnostics['residual_skew'],
+                'residual_exkurt': lmm_diagnostics['residual_exkurt'],
+                'pct_residual_outliers': lmm_diagnostics['pct_residual_outliers'],
                 'breusch_pagan_p': lmm_diagnostics['breusch_pagan_p'],
                 'residual_variance': lmm_diagnostics['residual_variance'],
                 'marker_name': marker_name,
@@ -616,9 +623,14 @@ def process_single_marker(marker_spec: tuple, df_all: pd.DataFrame, config: dict
                 'log_likelihood_mean': lmm_diagnostics.get('log_likelihood_mean', np.nan),
                 'conditional_r2_mean': lmm_diagnostics.get('conditional_r2_mean', np.nan),
                 'conditional_r2_median': lmm_diagnostics.get('conditional_r2_median', np.nan),
-                'shapiro_p_mean': lmm_diagnostics.get('shapiro_p_mean', np.nan),
-                'n_normality_violations': lmm_diagnostics.get('n_normality_violations', 0),
-                'pct_normality_violations': lmm_diagnostics.get('pct_normality_violations', np.nan),
+                'residual_skew_mean': lmm_diagnostics.get('residual_skew_mean', np.nan),
+                'residual_abs_skew_max': lmm_diagnostics.get('residual_abs_skew_max', np.nan),
+                'pct_high_skew': lmm_diagnostics.get('pct_high_skew', np.nan),
+                'residual_exkurt_mean': lmm_diagnostics.get('residual_exkurt_mean', np.nan),
+                'residual_exkurt_max': lmm_diagnostics.get('residual_exkurt_max', np.nan),
+                'pct_high_kurtosis': lmm_diagnostics.get('pct_high_kurtosis', np.nan),
+                'pct_residual_outliers_mean': lmm_diagnostics.get('pct_residual_outliers_mean', np.nan),
+                'pct_residual_outliers_max': lmm_diagnostics.get('pct_residual_outliers_max', np.nan),
                 'breusch_pagan_p_mean': lmm_diagnostics.get('breusch_pagan_p_mean', np.nan),
                 'n_heteroscedasticity': lmm_diagnostics.get('n_heteroscedasticity', 0),
                 'pct_heteroscedasticity': lmm_diagnostics.get('pct_heteroscedasticity', np.nan),
@@ -873,6 +885,18 @@ def main(config_path: str = "Statistics/config.yaml",
         verbose=True
     )
     
+    # Add orthogonalized quadratic features if configured (done once on df_all
+    # before per-marker processing so validate_formula_variables finds the columns)
+    quad_config = config['preprocessing'].get('quadratic_features', {})
+    if quad_config.get('enabled', False):
+        print("\nAdding orthogonalized quadratic features to probe data...")
+        df_all = add_quadratic_features(
+            df=df_all,
+            quadratic_features=quad_config.get('features', {}),
+            verbose=True,
+        )
+        print("✓ Quadratic features added")
+
     # Step 2: Set up channel information (do this once for all markers)
     print("\n" + "-"*80)
     print("STEP 2: Setting up channel information")
@@ -1016,8 +1040,9 @@ def main(config_path: str = "Statistics/config.yaml",
             'bic_mean': lmm_diag.get('bic_mean', np.nan),
             'conditional_r2_mean': lmm_diag.get('conditional_r2_mean', np.nan),
             'conditional_r2_median': lmm_diag.get('conditional_r2_median', np.nan),
-            'shapiro_p_mean': lmm_diag.get('shapiro_p_mean', np.nan),
-            'pct_normality_violations': lmm_diag.get('pct_normality_violations', np.nan),
+            'residual_skew_mean': lmm_diag.get('residual_skew_mean', np.nan),
+            'residual_exkurt_mean': lmm_diag.get('residual_exkurt_mean', np.nan),
+            'pct_residual_outliers_mean': lmm_diag.get('pct_residual_outliers_mean', np.nan),
             'pct_heteroscedasticity': lmm_diag.get('pct_heteroscedasticity', np.nan),
             'analysis_timestamp': result.get('analysis_timestamp', 'unknown')
         })

@@ -53,14 +53,12 @@ simulation:
 
   # ---------------------------------------------------------------------------
   # Which label contrasts to evaluate for Type I error.
-  # FPR calibration is a property of the pipeline PROCEDURE (feature selection,
-  # SMOTE, within-subject scaling, LOSO), so a single representative contrast —
-  # the primary onoff — is sufficient and 5x cheaper than sweeping all.
-  # This OVERRIDES the parent config's run_contrasts for the simulation only;
-  # the main pipeline's run_contrasts is left untouched.
-  # Set to null (or remove) to fall back to the parent run_contrasts (sweep all).
+  # Requested explicitly: LOSO Type I error sweeps ALL 7 dimensions from the
+  # parent run_contrasts (WS stays restricted to the single representative
+  # onoff contrast — see within_subject_pipeline/type1_error/config_type1_error.yaml).
+  # Left unset (null) so it falls back to the parent config's run_contrasts.
   # ---------------------------------------------------------------------------
-  contrasts: ["ON_vs_OFF_within_median"]
+  contrasts: null
 
   # ---------------------------------------------------------------------------
   # Compute budget per simulation.

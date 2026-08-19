@@ -205,7 +205,8 @@ def enrich_events_with_parsed_fields(df: pd.DataFrame) -> pd.DataFrame:
     - correctness : {'correct', 'incorrect', 'unknown'}
     - probe_number : int - Probe identifier for grouping
     - trial_number : int - Global trial index (evoked only)
-    - distance_to_probe : int - Distance to probe, 0=closest (evoked only)
+    - distance_to_probe : int - Distance to probe, positive and 1-based,
+      1=closest (evoked only)
     - temporal_bin : int - Seconds before probe (state only)
     - ontask_label : {'ONTASK', 'OFFTASK', 'unknown'}
     - content : Thought content category

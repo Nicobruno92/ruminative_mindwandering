@@ -28,7 +28,6 @@ from utils.plotting_utils import (
     plot_confusion_matrix,
     plot_roc_curve,
     plot_feature_importances,
-    plot_shap_beeswarm,
     plot_shap_feature_importance,
     plot_metric_distribution_with_stats,
     empirical_mean_permutation_pvalue,
@@ -92,11 +91,25 @@ def get_permutation_run_dir(dimension_results_path: str, run_idx: int,
     return perm_dir
 
 
-def _build_filename_base(model_type: str, n_runs: int) -> str:
-    """Build base filename for results files."""
+def _build_filename_base(model_type: str, n_runs: int, pipeline_label: str = "loso") -> str:
+    """
+    Build base filename for results files.
+
+    Parameters
+    ----------
+    model_type : str
+        'rf', 'xgb', or 'lr'.
+    n_runs : int
+        Number of true runs in this job.
+    pipeline_label : str
+        'loso' or 'ws' — identifies which pipeline produced this file.
+        Previously hardcoded to 'loso' even for within-subject output, so
+        WS files were misleadingly named e.g. ``rf_loso_03_shap_values.pkl``
+        for a within-subject per-subject run (Fix FIND-007).
+    """
     if n_runs > 1:
-        return f"{model_type}_loso_{n_runs}runs"
-    return f"{model_type}_loso"
+        return f"{model_type}_{pipeline_label}_{n_runs}runs"
+    return f"{model_type}_{pipeline_label}"
 
 
 # =============================================================================
@@ -370,8 +383,9 @@ def _save_shap_values(
 
     Returns
     -------
-    np.ndarray or None
-        SHAP values array for this run, or None if computation failed.
+    tuple of (np.ndarray, np.ndarray, np.ndarray) or None
+        ``(shap_values, x_test, y_true)`` for this run, or None if computation
+        failed.
     """
     if model_type not in ("rf", "xgb", "lr"):
         return None
@@ -405,9 +419,15 @@ def _save_shap_values(
                     X_test.loc[mask, numeric_cols]
                 )
 
-        fold_shap = compute_shap_values_for_pipeline(estimator, X_test, feature_names)
+        # fold_x is the actual (scaler-applied, zero-padded) matrix the
+        # explainer used — NOT necessarily identical to X_test.values, since
+        # the estimator's own `scaler` step (e.g. within-subject pipelines)
+        # may transform it further.  Saving fold_x instead of X_test.values
+        # keeps the beeswarm color axis correctly paired with fold_shap
+        # (Fix FIND-001).
+        fold_shap, fold_x, _ = compute_shap_values_for_pipeline(estimator, X_test, feature_names)
         fold_shap_list.append(fold_shap)
-        fold_x_list.append(X_test.values)
+        fold_x_list.append(fold_x)
         if y is not None:
             fold_y_true_list.append(y.iloc[test_idx].values)
 
@@ -576,23 +596,25 @@ def _generate_plots(
         plot_loso_subject_metrics(loso_subject_df, dimension_results_path, filename_base)
         print("  ✓ LOSO per-subject metrics")
 
-    # SHAP plots
+    # SHAP feature-importance bar chart (mean|SHAP| across all true runs).
+    # The native shap.plots.beeswarm rendering (the correctly row/column-aligned
+    # SHAP-vs-feature-value plot) is produced separately by
+    # scripts/generate_pipeline_plots.py, which reads each run's own paired
+    # (shap_values, x_test) directly from its saved pkl rather than
+    # reconstructing a color axis here (Fix FIND-002: a custom Plotly
+    # beeswarm previously lived in this function and paired combined_shap
+    # with a freshly re-sliced, unpaired copy of the raw feature matrix,
+    # decorrelating color from the SHAP values it was supposed to explain).
     if shap_values_all_runs:
         valid_shap = [s for s in shap_values_all_runs if s is not None]
         if valid_shap:
             combined_shap = np.concatenate(valid_shap, axis=0)
-            combined_X_vals = np.tile(X.values, (len(valid_shap), 1))
-            plot_shap_beeswarm(
-                combined_shap, combined_X_vals, feature_names,
-                dimension, dimension_results_path, filename_base,
-                max_display=top_n_features_plot,
-            )
             plot_shap_feature_importance(
-                combined_shap, combined_X_vals, feature_names,
+                combined_shap, feature_names,
                 dimension_results_path, filename_base,
                 max_display=top_n_features_plot,
             )
-            print("  ✓ SHAP plots")
+            print("  ✓ SHAP feature-importance plot")
 
     print(f"  All plots saved to: {dimension_results_path}")
 
@@ -882,12 +904,6 @@ def run_distribution_analysis(
         print("No successful runs.")
         return pd.DataFrame()
 
-    # Save aggregated SHAP across all runs
-    if shap_values_all_runs and save_shap:
-        with open(os.path.join(dimension_results_path,
-                               f"{filename_base}_all_shap_values.pkl"), "wb") as f:
-            pickle.dump(shap_values_all_runs, f)
-
     # Consolidate sample-level predictions across true_runs/
     if save_probabilities and n_runs > 1:
         true_runs_path = os.path.join(dimension_results_path, "true_runs")
@@ -913,10 +929,20 @@ def run_distribution_analysis(
         for i, feat in enumerate(feature_names):
             results_df.loc[run_row_idx, f"importance_{feat}"] = fi[i] if i < len(fi) else np.nan
 
+    # Same shard hazard as the permutation path: under SLURM each true run is its
+    # own process with n_runs=1, so writing this here gives a one-row file that the
+    # next job overwrites — which is exactly why the top-level *_runs_summary.csv
+    # held a single run instead of an aggregate. Only a process that ran the whole
+    # set may write it; the per-run files under true_runs/ are the source of truth.
+    _is_run_shard = total_n_runs is not None and n_runs < total_n_runs
     if save_csv:
-        results_df.to_csv(
-            os.path.join(summaries_dir, f"{filename_base}_runs_summary.csv"), index=False
-        )
+        if _is_run_shard:
+            print(f"  [shard {run_idx_offset+1}/{total_n_runs}] "
+                  f"skipping consolidated runs summary — per-run files are the source of truth.")
+        else:
+            results_df.to_csv(
+                os.path.join(summaries_dir, f"{filename_base}_runs_summary.csv"), index=False
+            )
 
     # ── Per-subject metrics aggregated across ALL runs ────────────────────────
     # Each subject gets one row with metrics averaged over all n_runs passes.
@@ -1705,10 +1731,18 @@ def _run_permutation_loso_job(
     feature_importances = run_results["feature_importances"].values[0]
 
     if save_shap and cv_kwargs.get('model_type') in ("rf", "xgb", "lr"):
+        # scale_by_participant/scaler must match what run_model_pipeline_cv above
+        # was given (via cv_kwargs) — otherwise the manual per-subject scaling
+        # reconstruction that compute_shap_values_for_pipeline() depends on
+        # (when scale_by_participant='within', the pipeline has no scaler step
+        # of its own) never fires here, and SHAP gets computed on raw-scale
+        # test data against a classifier trained on per-subject-scaled data.
         _save_shap_values(
             run_results, X, feature_names, perm_run_dir,
             f"{filename_base}_{run_idx}", cv_kwargs['model_type'],
             groups=groups,
+            scale_by_participant=cv_kwargs.get("scale_by_participant", "none"),
+            scaler_type=cv_kwargs.get("scaler", "standard"),
         )
 
     if save_csv:
@@ -1811,7 +1845,7 @@ def run_within_subject_distribution_analysis(
     dimension_results_path = results_path
     Path(dimension_results_path).mkdir(parents=True, exist_ok=True)
 
-    filename_base = _build_filename_base(model_type, n_runs)
+    filename_base = _build_filename_base(model_type, n_runs, pipeline_label="ws")
     feature_names = X.columns
     unique_subjects = np.unique(subjects)
 
@@ -1828,7 +1862,7 @@ def run_within_subject_distribution_analysis(
         1, 10000, size=max(_total_runs, run_idx_offset + n_runs)
     )
 
-    filename_base_global = _build_filename_base(model_type, _total_runs)
+    filename_base_global = _build_filename_base(model_type, _total_runs, pipeline_label="ws")
 
     # Store results aggregated across runs
     all_runs_subject_metrics = []
@@ -2236,9 +2270,32 @@ def run_within_subject_permutation_analysis(
     perm_df = pd.DataFrame(all_perm_results)
     # Consolidated permutation outputs go to results_path (already the model_type root).
     perm_consolidated_dir = results_path
+
+    # Under SLURM each permutation is its own process with n_permutations=1, so a
+    # consolidated file written here would hold that single shard's row and clobber
+    # the previous job's — the last one to finish wins. That is how
+    # `*_summary_averaged.csv` came to contain one row (the final permutation)
+    # while claiming to be an average of all of them. Only the process that ran
+    # the whole set may write it.
+    _is_permutation_shard = (
+        total_n_permutations is not None and n_permutations < total_n_permutations
+    )
     if save_csv:
-        perm_df.to_csv(os.path.join(perm_consolidated_dir, f"{filename_base}_summary_averaged.csv"), index=False)
-        _consolidate_sample_predictions(perm_base_path, filename_base, output_dir=perm_consolidated_dir)
+        if _is_permutation_shard:
+            # _consolidate_sample_predictions rescans every run folder and rewrites
+            # the same two CSVs, so letting hundreds of concurrent shards call it
+            # races them against each other for a file each can only see part of.
+            print(f"  [shard {perm_idx_offset+1}/{total_n_permutations}] "
+                  f"skipping consolidated outputs — per-run files are the source of truth.")
+        else:
+            # One row per permutation, not an average: named for what it holds.
+            perm_df.to_csv(
+                os.path.join(perm_consolidated_dir, f"{filename_base}_permutation_runs_summary.csv"),
+                index=False,
+            )
+            _consolidate_sample_predictions(
+                perm_base_path, filename_base, output_dir=perm_consolidated_dir
+            )
 
     # Compute p-values against actual real data if provided
     perm_summary = {}

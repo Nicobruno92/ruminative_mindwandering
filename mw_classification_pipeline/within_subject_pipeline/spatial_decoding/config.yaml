@@ -46,12 +46,15 @@ slurm:
   mem: "16G"
   cpus_per_task: 4
   conda_env: "ML"
+  # Cluster's SLURM MaxArraySize (check: scontrol show config | grep MaxArraySize).
+  # run_cluster.sh splits true/perm arrays into chunks of at most this size.
+  max_array_size: 2000
 
 # =============================================================================
 # EXPERIMENT PARAMS
 # =============================================================================
 random_seed: 42
-n_runs: 20                      # SPATIAL: per-channel true group-AUC runs (mean stabilises fast; lighter for a 64-channel searchlight)
+n_runs: 100                     # same as within_subject_pipeline/config.yaml
 n_permutations: 500              # SPATIAL: number of max-null draws (each = one within-subject shuffle scored across all channels)
 
 # =============================================================================
@@ -106,6 +109,26 @@ run_contrasts:
   # - time_within_median_offtask
   - confidence_within_median
   # - confidence_within_median_offtask
+  # --- Quadratic contrasts disabled 2026-08-13 -----------------------------
+  # The (x-50)^2/50 construct was removed from the paper: in the LMM/CBPT and
+  # Behaviour pipelines its effects were driven by a tiny high-leverage tail
+  # and sign-flipped under a drop-test. The median split used HERE is far more
+  # robust to that tail (it only uses rank order), so these runs were not
+  # themselves invalid — they are disabled for consistency, because the
+  # construct is no longer part of the paper. One caveat if ever revived: the
+  # 'extreme' class is confounded with the raw dimension (corr +0.27 with
+  # valence, +0.15 with time), so it partly re-learns the linear dimension.
+  # - valence_sq
+  # - time_sq
+  # - valence_sq_res
+  # - time_sq_res
+  # - valence_sq_res_cross
+  # - time_sq_res_cross
+  - onoff_within_median_res
+  - valence_within_median_res
+  - selfother_within_median_res
+  - time_within_median_res
+  - confidence_within_median_res
 
 # Mapping of what each contrast actually means for data extraction.
 # The keys correspond to run_contrasts. The values are dicts specifying the
@@ -194,6 +217,126 @@ label_contrasts:
     positive_class_name: "high-confidence"
     negative_class_name: "low-confidence"
 
+  # --- Quadratic (U-shape) contrasts ----------------------------------------
+  # Derived score: (x - 50)²/50 — U-shape around scale midpoint, range 0-50
+  # (half the 0-100 range of the linear dimensions). gap=2.5 (half of the
+  # linear contrasts' gap=5) keeps the neutral zone the same *proportion* of
+  # the scale — same halving Stats_andrillon already applies for
+  # min_predictor_variability_sq relative to min_predictor_variability.
+  valence_sq:
+    column_name: "valence"
+    transform: "midpoint_sq"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq:
+    column_name: "time"
+    transform: "midpoint_sq"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  valence_sq_res:
+    column_name: "valence"
+    transform: "midpoint_sq_residual"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq_res:
+    column_name: "time"
+    transform: "midpoint_sq_residual"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  valence_sq_res_cross:
+    column_name: "valence"
+    transform: "midpoint_sq_residual_cross"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq_res_cross:
+    column_name: "time"
+    transform: "midpoint_sq_residual_cross"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  # --- Cross-dimension residualized contrasts -------------------------------
+  onoff_within_median_res:
+    column_name: "onoff"
+    transform: "linear_residual"
+    residualize_against: ["valence", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+  valence_within_median_res:
+    column_name: "valence"
+    transform: "linear_residual"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  selfother_within_median_res:
+    column_name: "selfother"
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  time_within_median_res:
+    column_name: "time"
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  confidence_within_median_res:
+    column_name: "confidence"
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+
   # confidence_within_median_offtask:
   #   column_name: "confidence"
   #   split_method: "within_subject_median"
@@ -215,9 +358,29 @@ label_contrasts:
 
 feature_families:
 
+  # Same 23-marker set as Stats_andrillon/config_andrillon.yaml.
   all:
-    epoch_types: [sleep, state, evoked]   # load both sleep and evoked files
-    prefixes: null                  # keep all columns
+    epoch_types: [sleep, evoked]
+    prefixes:
+      - "N1"
+      - "P1"
+      - "P3a"
+      - "P3b"
+      - "PE_theta"
+      - "PE_alpha"
+      - "PE_beta"
+      - "PE_gamma"
+      - "kolmogorov_complexity"
+      - "psd_relative_delta"
+      - "psd_relative_theta"
+      - "psd_relative_alpha"
+      - "psd_relative_beta"
+      - "psd_relative_gamma"
+      - "wsmi_theta"
+      - "wsmi_alpha"
+      - "wsmi_beta"
+      - "wsmi_gamma"
+      - "slowwaves"
 
   erp:
     epoch_types: [evoked]          # only load evoked (go-stimulus locked) files
@@ -235,7 +398,7 @@ feature_families:
       - "spindles"
 
   spectral:
-    epoch_types: [state]
+    epoch_types: [sleep]
     prefixes:
       - "power_delta"
       - "power_theta"
@@ -245,7 +408,7 @@ feature_families:
       - "power_normalized"
 
   connectivity:
-    epoch_types: [state]
+    epoch_types: [sleep]
     prefixes:
       - "wsmi_theta"
       - "wsmi_alpha"
@@ -253,7 +416,7 @@ feature_families:
       - "wsmi_gamma"
 
   information_theory:
-    epoch_types: [state]
+    epoch_types: [sleep]
     prefixes:
       - "PE_theta"
       - "PE_alpha"
@@ -278,6 +441,12 @@ run_families:
 data_format: "per_channel"   # SPATIAL DECODING: searchlight needs channel-level columns
 # Whether to include pair-wise connectivity features.
 include_connectivity_pairs: false
+
+# Drop feature columns ending with any of these suffixes before classification.
+# Keeps only _trimmean aggregation and removes _std (within-probe variability
+# is redundant given the trimmean already captures the central tendency).
+exclude_column_suffixes:
+  - "_std"
 
 # SPATIAL DECODING: single model per electrode (searchlight runs one per channel).
 model_type: rf
@@ -359,13 +528,25 @@ feature_selection:
   #   lmm_encoding  → Feature ~ Label + (1|Task) — better convergence, continuous outcome.
   #   lmm_decoding  → Label   ~ Feature + (1|Task) — binary outcome, use linear probability approx.
   # Keep lmm_n_jobs=-1 when n_subject_jobs=1 (fine). Set lmm_n_jobs=1 when n_subject_jobs>1.
-  method: "mrmr"
+  #
+  # DISABLED, matching within_subject_pipeline/config.yaml and the LOSO
+  # searchlight, so no stage of the analysis runs a different procedure.
+  # The forest still selects internally (max_features='sqrt' → ~6 of the ~35
+  # per-channel columns per split), making mRMR k=10 a redundant second stage.
+  #
+  # This is the thinnest-evidence cell in the whole change, and worth watching:
+  # it combines the per-channel pool (~35 columns, never measured in the
+  # 2026-07-28 ablation) with the within-subject sample budget (~32 training
+  # samples per subject), which is the regime where a filter is most likely to
+  # be buying real regularisation. Applied for procedural consistency only.
+  # Re-run the permutation nulls before trusting any topomap from this config.
+  method: "none"
 
   # Number of features to select. (Use "all" to skip selection completely).
   # For within subject, 'k' may need to be strictly restricted
   # (e.g. k=10) due to low n_samples per subject
-  # SPATIAL DECODING: k=10 — smaller per-channel feature pool.
-  k: 10
+  # Inert while method is "none"; kept so the previous setting is recoverable.
+  k: 20
 
   # lmm_n_jobs: CPUs per subject for LMM fitting.
   # With n_subject_jobs=8: lmm_n_jobs=4 → 8×4=32 CPUs total.
@@ -413,6 +594,15 @@ outputs:
   # Run SHAP explainer
   save_shap: true
 
+# Number of top features shown in importance / SHAP plots.
+top_n_features_plot: 20
+
+# Within-subject SHAP beeswarm: a feature is only displayed if at least this
+# fraction of pooled rows carry a genuine (nonzero) attribution.
+# Same rationale as within_subject_pipeline/config.yaml — inert under
+# feature_selection.method: "none" (current setting).
+min_shap_feature_row_frac: 0.15
+
 # =============================================================================
 # SPATIAL DECODING (per-electrode searchlight)
 # =============================================================================
@@ -422,6 +612,11 @@ outputs:
 # from that AUC + FDR-corrected permutation significance.
 spatial_decoding:
   channels: "all"                 # or an explicit list to subset electrodes
+  save_shap: false                # TRUE mode only (never for --perm_idx draws). Per-electrode
+                                   # SHAP is expensive (one extra explainer pass per channel per
+                                   # subject per run) — leave false for the full 64-channel
+                                   # searchlight and use scripts/extract_cluster_shap.py for a
+                                   # post-hoc, cluster-only run.
   montage: "data_harmonization/utils/CACS-64_REF.bvef"
   multiple_comparisons:
     method: "maxstat"            # max-statistic permutation (FWER) across channels; CBPT-consistent. ("fdr_bh" available as secondary)
@@ -429,9 +624,20 @@ spatial_decoding:
   topomap:
     cmap: "viridis"
     vlim: [0.5, null]            # vmin=0.5 fixed, vmax=per-map max; <0.5 clamps to bottom colour
-  contrasts:                      # the 5 dimensions to map (WS contrast names)
+  contrasts:                      # same dimensions as within_subject_pipeline/config.yaml run_contrasts (WS contrast names)
     - on_vs_off_within_median
     - valence_within_median
     - selfother_within_median
     - time_within_median
     - confidence_within_median
+    # valence_sq/time_sq: no longer in run_contrasts (quadratic construct
+    # dropped from the paper 2026-08-13, see run_contrasts above) — already
+    # computed/merged here from before that decision; left in place rather
+    # than deleted, pending a call on whether to drop them from this panel too.
+    - valence_sq
+    - time_sq
+    - onoff_within_median_res
+    - valence_within_median_res
+    - selfother_within_median_res
+    - time_within_median_res
+    - confidence_within_median_res

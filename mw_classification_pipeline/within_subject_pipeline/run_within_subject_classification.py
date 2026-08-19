@@ -38,6 +38,7 @@ from utils.data_utils import (
 from utils.analysis_utils import (
     run_within_subject_distribution_analysis,
     run_within_subject_permutation_analysis,
+    _build_filename_base,
 )
 from utils.logging_utils import AnalysisLogger
 from utils.plotting_utils import (
@@ -265,6 +266,30 @@ def main():
         y = _cached["y"]
         groups = _cached["groups"]
         feature_cols = _cached["feature_cols"]
+
+        # `epoch_types` decides which marker files were read at all, so a cache
+        # built under different ones is simply the wrong data — unlike prefixes,
+        # it cannot be corrected after the fact. Fail instead of running on it.
+        _cached_epochs = _cached.get("epoch_types")
+        if _cached_epochs != family_epoch_types:
+            raise ValueError(
+                f"Cache {_cache_path} was built with epoch_types={_cached_epochs}, "
+                f"but family '{family_name}' now declares {family_epoch_types}. "
+                f"Delete the cache and re-run precompute_data_cache.py."
+            )
+
+        # Subject-exclusion provenance is computed inside prepare_data_for_contrast(),
+        # which this path skips, so it has to come from the cache. Older caches
+        # predate it; fail loudly rather than silently writing a used_config.yaml
+        # with no record of who was excluded and why.
+        _provenance = _cached.get("data_provenance")
+        if _provenance is None:
+            raise ValueError(
+                f"Cache {_cache_path} carries no subject-exclusion provenance "
+                f"(built before it was recorded). Delete it and re-run "
+                f"precompute_data_cache.py so exclusions are documented."
+            )
+        config["_data_provenance"] = _provenance
         # Apply suffix exclusions declared in config (e.g. ["_std"]) so that
         # the cache path and the slow path produce identical feature spaces.
         _excl = config.get("exclude_column_suffixes", [])
@@ -279,8 +304,15 @@ def main():
         df_prepared, X, y, groups, feature_cols = prepare_data_for_contrast(
             config, contrast_name, verbose=verbose
         )
-        X = filter_features_by_family(X, family_name, family_prefixes)
-        feature_cols = X.columns.tolist()
+
+    # Family filtering is a pure column subset governed by config, so it must run
+    # on BOTH paths. Applying it only on the slow path let a cached pickle pin the
+    # feature space to whichever config was current when the cache was built: the
+    # caches predate the switch to the 23-marker Andrillon set, so every cached run
+    # silently trained on the old 304-column space while LOSO (which has no cache)
+    # used the 177 the config actually declares.
+    X = filter_features_by_family(X, family_name, family_prefixes)
+    feature_cols = X.columns.tolist()
     # ──────────────────────────────────────────────────────────────────────────
 
     if args.dry_run:
@@ -375,7 +407,7 @@ def main():
             .reset_index()
         )
         _dim_path = results_path
-        _fname_base = f"{model_type}_loso_{total_n_runs_for_seeds}runs" if total_n_runs_for_seeds > 1 else f"{model_type}_loso"
+        _fname_base = _build_filename_base(model_type, total_n_runs_for_seeds, pipeline_label="ws")
         _label_col = config.get("label_contrasts", {}).get(contrast_name, {}).get("column_name", "onoff")
         plot_auc_vs_onoff_dispersion(
             _ws_subject_auc_df, df_prepared, _dim_path, _fname_base, "WithinSubject",
@@ -464,12 +496,19 @@ def main():
             _miniforge = Path(os.path.expanduser("~")) / "miniforge3"
             _ml_python = _miniforge / "envs" / _conda_env / "bin" / "python"
             _python = str(_ml_python) if _ml_python.exists() else sys.executable
-            subprocess.run(
+            _plot_result = subprocess.run(
                 [_python, str(_plot_script),
                  "--results_dir", results_path,
-                 "--top_n_features", str(config.get("top_n_features_plot", 20))],
+                 "--top_n_features", str(config.get("top_n_features_plot", 20)),
+                 "--min_shap_feature_row_frac", str(config.get("min_shap_feature_row_frac", 0.5))],
                 check=False,
             )
+            if _plot_result.returncode != 0:
+                raise RuntimeError(
+                    f"generate_pipeline_plots.py failed (exit code "
+                    f"{_plot_result.returncode}) for results_dir={results_path}; "
+                    f"see the subprocess output above for the root cause."
+                )
 
     print(f"\n{'='*60}")
     print(f"Done. Results → {results_path}")

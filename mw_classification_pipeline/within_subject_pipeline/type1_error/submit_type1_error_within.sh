@@ -31,11 +31,15 @@ CONDA_ENV=$(python3 -c "import yaml; c=yaml.safe_load(open('${PARENT_CONFIG}'));
 N_SIMULATIONS=$(python3 -c "import yaml; c=yaml.safe_load(open('${SIM_CONFIG}')); print(c['simulation']['n_simulations'])")
 ARRAY_END=$((N_SIMULATIONS - 1))
 
-# Read contrasts from within-subject parent config (uses run_contrasts key)
+# Contrasts to evaluate for Type I error: prefer the simulation config's
+# 'simulation.contrasts' override (a single representative contrast is enough
+# for FPR calibration); fall back to the parent config's run_contrasts (sweep
+# all) when the override is absent/null. Families and models come from parent.
 CONTRASTS=$(python3 -c "
 import yaml
-c = yaml.safe_load(open('${PARENT_CONFIG}'))
-v = c.get('run_contrasts', ['on_vs_off_within_median'])
+sim = yaml.safe_load(open('${SIM_CONFIG}')).get('simulation', {})
+parent = yaml.safe_load(open('${PARENT_CONFIG}'))
+v = sim.get('contrasts') or parent.get('run_contrasts', ['on_vs_off_within_median'])
 print(' '.join(v if isinstance(v, list) else [v]))
 ")
 
@@ -53,8 +57,17 @@ v = c.get('classifiers', {}).get('run_models', ['rf'])
 print(' '.join(v if isinstance(v, list) else [v]))
 ")
 
-# SLURM resource settings (within-subject is lighter than LOSO)
-SLURM_TIME=$(python3 -c "import yaml; c=yaml.safe_load(open('${PARENT_CONFIG}')); print(c.get('slurm',{}).get('time','06:00:00'))")
+# SLURM resource settings (within-subject is lighter than LOSO).
+# Walltime prefers the simulation config's 'slurm_time' override (this array's
+# per-task cost, dominated by per-participant covariance fitting, differs from
+# the main pipeline's own array granularity); falls back to the parent
+# config's slurm.time when unset.
+SLURM_TIME=$(python3 -c "
+import yaml
+sim = yaml.safe_load(open('${SIM_CONFIG}')).get('simulation', {})
+parent = yaml.safe_load(open('${PARENT_CONFIG}'))
+print(sim.get('slurm_time') or parent.get('slurm', {}).get('time', '06:00:00'))
+")
 SLURM_MEM=$(python3 -c "import yaml; c=yaml.safe_load(open('${PARENT_CONFIG}')); print(c.get('slurm',{}).get('mem','32G'))")
 SLURM_CPUS=$(python3 -c "import yaml; c=yaml.safe_load(open('${PARENT_CONFIG}')); print(c.get('slurm',{}).get('cpus_per_task','16'))")
 

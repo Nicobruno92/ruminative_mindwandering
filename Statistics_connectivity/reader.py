@@ -668,6 +668,88 @@ def normalize_wsmi_by_subject(
     return df
 
 
+def add_quadratic_features(
+    df: pd.DataFrame,
+    quadratic_features: dict,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Add orthogonalized quadratic features as new columns in the DataFrame.
+
+    For each ``base_col → derived_col`` pair:
+
+    1. Compute ``raw_sq = (base_col - 50)^2 / 50`` on unique probe rows.
+    2. Fit OLS: ``raw_sq ~ base_col`` to capture the marginal linear component.
+    3. ``derived_col = raw_sq - (intercept + slope * base_col)`` — residual is
+       orthogonal to the linear predictor at the population level.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Probe-level DataFrame (one row per probe, not long-format).
+        Must contain the base predictor columns (e.g. ``valence``, ``time``).
+    quadratic_features : dict
+        Mapping ``{base_col: derived_col}``,
+        e.g. ``{"valence": "valence_sq", "time": "time_sq"}``.
+    verbose : bool
+        Whether to print OLS fit statistics and residual correlations.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of ``df`` with the derived quadratic columns appended.
+    """
+    from scipy import stats as scipy_stats
+
+    df_out = df.copy()
+
+    # For connectivity data, rows may already be unique probes per connection;
+    # use subject/task/probe_number to deduplicate for OLS fitting when present.
+    key_cols = [c for c in ('subject', 'task', 'probe_number') if c in df_out.columns]
+    df_unique = df_out.drop_duplicates(subset=key_cols) if key_cols else df_out
+
+    ols_fits: dict = {}
+
+    for base_col, sq_col in quadratic_features.items():
+        if base_col not in df_out.columns:
+            raise ValueError(
+                f"Base column '{base_col}' not found in DataFrame. "
+                f"Available columns: {list(df_out.columns)}"
+            )
+
+        base_vals = df_unique[base_col].values.astype(float)
+        valid_mask = ~np.isnan(base_vals)
+        raw_sq = (base_vals - 50.0) ** 2 / 50.0
+
+        slope, intercept, r_val, _, _ = scipy_stats.linregress(
+            base_vals[valid_mask], raw_sq[valid_mask]
+        )
+        ols_fits[base_col] = (slope, intercept)
+
+        if verbose:
+            print(
+                f"  {sq_col}: OLS slope={slope:.4f}, intercept={intercept:.4f}, "
+                f"r={r_val:.4f} with {base_col} (n={int(valid_mask.sum())} unique probes)"
+            )
+
+    for base_col, sq_col in quadratic_features.items():
+        if base_col not in df_out.columns:
+            continue
+        slope, intercept = ols_fits[base_col]
+        base_all = df_out[base_col].values.astype(float)
+        raw_sq_all = (base_all - 50.0) ** 2 / 50.0
+        residual = raw_sq_all - (intercept + slope * base_all)
+        residual[np.isnan(base_all)] = np.nan
+        df_out[sq_col] = residual
+
+        if verbose:
+            valid = ~np.isnan(base_all)
+            r_check = float(np.corrcoef(base_all[valid], residual[valid])[0, 1])
+            print(f"  {sq_col}: residual r with {base_col} = {r_check:.6f} (expected ~0)")
+
+    return df_out
+
+
 def normalize_predictors(
     df: pd.DataFrame,
     predictors: List[str],

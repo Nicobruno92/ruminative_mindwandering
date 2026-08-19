@@ -50,8 +50,12 @@ def _results_dir(config: dict, contrast: str, family: str, model: str) -> Path:
 def _read_per_run_summaries(model_dir: Path, model: str, n_runs: int) -> pd.DataFrame:
     """Stack one-row CSVs from true_runs/run_*/ into a single DataFrame."""
     rows = []
+    # The run jobs name this file from filename_base = f"{model}_loso_{n_runs}runs",
+    # i.e. "rf_loso_100runs_summary.csv". Looking for "rf_loso_summary.csv" matched
+    # nothing, so the merge silently found zero true runs on every invocation and no
+    # *_pvalues.csv was ever produced.
     for run_idx in range(n_runs):
-        f = model_dir / "true_runs" / f"run_{run_idx}" / f"{model}_loso_summary.csv"
+        f = model_dir / "true_runs" / f"run_{run_idx}" / f"{model}_loso_{n_runs}runs_summary.csv"
         if not f.exists():
             print(f"  WARNING: missing true run {run_idx}: {f}")
             continue

@@ -109,6 +109,31 @@ run_contrasts:
   # - time_within_median_offtask
   - confidence_within_median
   # - confidence_within_median_offtask
+  # --- Quadratic contrasts disabled 2026-08-13 -----------------------------
+  # The (x-50)^2/50 construct was removed from the paper: in the LMM/CBPT and
+  # Behaviour pipelines its effects were driven by a tiny high-leverage tail
+  # and sign-flipped under a drop-test. The median split used HERE is far more
+  # robust to that tail (it only uses rank order), so these runs were not
+  # themselves invalid — they are disabled for consistency, because the
+  # construct is no longer part of the paper. One caveat if ever revived: the
+  # 'extreme' class is confounded with the raw dimension (corr +0.27 with
+  # valence, +0.15 with time), so it partly re-learns the linear dimension.
+  # - valence_sq
+  # - time_sq
+  # - valence_sq_res
+  # - time_sq_res
+  # - valence_sq_res_cross
+  # - time_sq_res_cross
+  # --- Cross-dimension residualized contrasts (exploratory) -----------------
+  # confidence_within_median_res: not used as a predictor for the other 4
+  # (mediator concern, see design doc), but still run as its own target —
+  # decoding confidence net of the other 4 is a valid question on its own,
+  # just not symmetric with how confidence itself gets residualized.
+  - onoff_within_median_res
+  - valence_within_median_res
+  - selfother_within_median_res
+  - time_within_median_res
+  - confidence_within_median_res
 
 # Mapping of what each contrast actually means for data extraction.
 # The keys correspond to run_contrasts. The values are dicts specifying the
@@ -197,6 +222,159 @@ label_contrasts:
     positive_class_name: "high-confidence"
     negative_class_name: "low-confidence"
 
+  # --- Quadratic (U-shape) contrasts ----------------------------------------
+  # Derived score: (x - 50)²/50 — U-shape around scale midpoint, range 0-50
+  # (half the 0-100 range of the linear dimensions). gap=2.5 (half of the
+  # linear contrasts' gap=5) keeps the neutral zone the same *proportion* of
+  # the scale — same halving Stats_andrillon already applies for
+  # min_predictor_variability_sq relative to min_predictor_variability.
+  valence_sq:
+    column_name: "valence"
+    transform: "midpoint_sq"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq:
+    column_name: "time"
+    transform: "midpoint_sq"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  valence_sq_res:
+    column_name: "valence"
+    transform: "midpoint_sq_residual"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq_res:
+    column_name: "time"
+    transform: "midpoint_sq_residual"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  # valence_sq/time_sq residualized against BOTH their own linear dimension
+  # (automatic) AND the other 3 content dimensions (onoff/selfother/the
+  # other linear) in one joint regression — extends the cross-dimension
+  # residualization below to the quadratic terms, "completing the set" per
+  # 2026-07-30 follow-up. confidence excluded as predictor for the same
+  # mediator reason as the linear contrasts below. min_valid_for_residual=15
+  # matches confidence_within_median_res (4 predictors, 5 params w/
+  # intercept, ~3x params).
+  valence_sq_res_cross:
+    column_name: "valence"
+    transform: "midpoint_sq_residual_cross"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq_res_cross:
+    column_name: "time"
+    transform: "midpoint_sq_residual_cross"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  # --- Cross-dimension residualized contrasts -------------------------------
+  # Each dimension residualized (within-subject OLS) against the other 4
+  # before the usual median split. Tests whether decoding of a dimension
+  # survives once its correlation with the rest is removed — a different,
+  # more conservative question than the raw contrast above (expect lower
+  # AUC). See docs/superpowers/specs/2026-07-30-cross-dimension-residualized-
+  # contrasts-design.md. Additive only: does not replace the raw contrasts.
+  #
+  # confidence is deliberately NOT a predictor for onoff/valence/selfother/
+  # time: unlike those 3 (independent content dimensions), confidence is a
+  # metacognitive judgment plausibly downstream of onoff (mind-wandering
+  # reduces introspective accuracy — see the commented-out confidence_weight
+  # mechanism above). Using it as a predictor there would risk removing
+  # genuine signal (adjusting for a mediator), not a confound. Residualizing
+  # confidence itself against the other 4 has no such issue (right causal
+  # direction). See design doc addendum "confidence is not a predictor"
+  # (2026-07-30).
+  #
+  # min_valid_for_residual: minimum non-NaN probes (target + all predictors)
+  # a subject needs for the within-subject OLS to be stable. 12 for the
+  # 3-predictor contrasts (4 params incl. intercept, ~3x params -> ~8
+  # residual df); 15 for confidence_within_median_res (4 predictors, 5
+  # params, ~10 residual df) — same samples-per-param ratio throughout,
+  # matching the existing midpoint_sq_residual guard (2 params, threshold 3).
+  # Subjects below this are excluded from the contrast, not left
+  # unresidualized (see design doc).
+  onoff_within_median_res:
+    column_name: "onoff"
+    transform: "linear_residual"
+    residualize_against: ["valence", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+  valence_within_median_res:
+    column_name: "valence"
+    transform: "linear_residual"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  selfother_within_median_res:
+    column_name: "selfother"
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  time_within_median_res:
+    column_name: "time"
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  confidence_within_median_res:
+    column_name: "confidence"
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+
   # confidence_within_median_offtask:
   #   column_name: "confidence"
   #   split_method: "within_subject_median"
@@ -218,16 +396,36 @@ label_contrasts:
 
 feature_families:
 
+  # Same 23-marker set as Stats_andrillon/config_andrillon.yaml.
   all:
-    epoch_types: [sleep, state, evoked]   # load both sleep and evoked files
-    prefixes: null                  # keep all columns
+    epoch_types: [sleep, evoked]
+    prefixes:
+      - "N1"
+      - "P1"
+      - "P3a"
+      - "P3b"
+      - "PE_theta"
+      - "PE_alpha"
+      - "PE_beta"
+      - "PE_gamma"
+      - "kolmogorov_complexity"
+      - "psd_relative_delta"
+      - "psd_relative_theta"
+      - "psd_relative_alpha"
+      - "psd_relative_beta"
+      - "psd_relative_gamma"
+      - "wsmi_theta"
+      - "wsmi_alpha"
+      - "wsmi_beta"
+      - "wsmi_gamma"
+      - "slowwaves"
 
   erp:
     epoch_types: [evoked]          # only load evoked (go-stimulus locked) files
     prefixes:
       - "P1"
       - "N1"
-      - "P2"
+      # - "P2"
       - "P3a"
       - "P3b"
 
@@ -238,17 +436,17 @@ feature_families:
       - "spindles"
 
   spectral:
-    epoch_types: [state]
+    epoch_types: [sleep]
     prefixes:
-      - "power_delta"
-      - "power_theta"
-      - "power_alpha"
-      - "power_beta"
-      - "power_gamma"
+      # - "power_delta"
+      # - "power_theta"
+      # - "power_alpha"
+      # - "power_beta"
+      # - "power_gamma"
       - "power_normalized"
 
   connectivity:
-    epoch_types: [state]
+    epoch_types: [sleep]
     prefixes:
       - "wsmi_theta"
       - "wsmi_alpha"
@@ -256,7 +454,7 @@ feature_families:
       - "wsmi_gamma"
 
   information_theory:
-    epoch_types: [state]
+    epoch_types: [sleep]
     prefixes:
       - "PE_theta"
       - "PE_alpha"
@@ -365,11 +563,26 @@ feature_selection:
   #   lmm_encoding  → Feature ~ Label + (1|Task) — better convergence, continuous outcome.
   #   lmm_decoding  → Label   ~ Feature + (1|Task) — binary outcome, use linear probability approx.
   # Keep lmm_n_jobs=-1 when n_subject_jobs=1 (fine). Set lmm_n_jobs=1 when n_subject_jobs>1.
-  method: "mrmr"
+  #
+  # DISABLED, matching loso_pipeline/config.yaml so both pipelines train on the
+  # same 177-feature space through the same procedure — the comparison between
+  # them is the point of the analysis, so they must not diverge here.
+  # Rationale: the random forest already selects internally
+  # (max_features='sqrt' → ~13 of 177 per split), so mRMR k=20 is a redundant
+  # second stage that drops correlated-but-complementary markers.
+  #
+  # The within-subject case is the weaker one of the two: each subject trains on
+  # ~32 samples, where a filter could plausibly buy regularisation. The ablation
+  # of 2026-07-28 (results/FS_Ablation/fs_ablation_summary.csv) found it does
+  # not — on/off rose 0.703 → 0.723 (23/29 subjects), and every other dimension
+  # moved <=0.011 with per-subject counts at chance (i.e. group-level drift, not
+  # a real shift). No permutations were run, so none of that carries a p-value.
+  method: "none"
 
   # Number of features to select. (Use "all" to skip selection completely).
   # For within subject, 'k' may need to be strictly restricted
   # (e.g. k=10) due to low n_samples per subject
+  # Inert while method is "none"; kept so the previous setting is recoverable.
   k: 20
 
   # lmm_n_jobs: CPUs per subject for LMM fitting.
@@ -417,3 +630,26 @@ outputs:
 
   # Run SHAP explainer
   save_shap: true
+
+# Number of top features shown in importance / SHAP plots.
+top_n_features_plot: 20
+
+# Within-subject SHAP beeswarm: a feature is only displayed if at least this
+# fraction of pooled rows carry a genuine (nonzero) attribution.
+#
+# INERT under feature_selection.method: "none" (current setting). The threshold
+# exists solely to undo an artefact of per-subject selection: when each subject
+# mRMR-selected its own k=20, every feature the subject did NOT select entered
+# the pool as a structural zero, so pooling across subjects was dominated by
+# zero-padding. With selection off, every subject contributes a real attribution
+# for all 177 features, coverage is ~100% everywhere, and this filter drops
+# nothing — the beeswarm is then governed by top_n_features_plot alone.
+#
+# Original calibration, kept for the case where selection is re-enabled
+# (run 0, on_vs_off_within_median/all/rf): with k=20 of 304 features,
+# chance-level row coverage is ~20/304=6.6% and observed coverage topped out at
+# 23.8%, so 0.15 (~2.3x chance) kept ~33 candidates. Note that calibration was
+# done on the old 304-column space, not the current 177 — it would need
+# redoing, not just reusing, if selection comes back.
+# Exploratory/descriptive threshold — not used by any confirmatory statistic.
+min_shap_feature_row_frac: 0.15
