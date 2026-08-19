@@ -129,55 +129,106 @@ CONTRAST_KEY = {d["key"]: d["contrast"] for d in DIMENSIONS}
 # axes read "negative = low pole, positive = high pole" with no per-axis
 # exception.
 PANEL_KINDS = {
-    "full": dict(y_col="shap_full", y_signed=True, y_title="Relative SHAP importance (signed)"),
-    "residualized": dict(y_col="shap_residual", y_signed=False,
-                          y_title="Relative SHAP importance<br>(residualized, unsigned)"),
+    "full":         dict(y_col="shap_full",     y_signed=True,  y_title_key="y_title_full"),
+    "residualized": dict(y_col="shap_residual", y_signed=False, y_title_key="y_title_residual"),
 }
 
 # Not a single t-value — the cluster-mass statistic (sum of per-electrode
 # t-values within a spatially contiguous cluster; CLAUDE.md e.g. "PE-beta
 # cluster stat -75.6 over 22 electrodes"), which is why it reaches +-100-150
-# rather than +-2..6.
-X_QUANTITY = "CBPT cluster-mass T-value (signed)"
-
-LABEL_N = 3  # union of top-N-by-|x| and top-N-by-|y|; kept at 3 — at large
-# type sizes (16 pt marker labels) more than 3 labels per panel collide.
+# rather than +-2..6.  The display string is in LAYOUT["shared_x_label"].
 
 # =============================================================================
-# Physical size. Almost double the previous 280mm — user-requested wider
-# layout so the five dimension panels sit comfortably side-by-side. Each
-# panel is now ~100mm of usable inner width (after margins and gutters),
-# vs the previous ~50mm, which gives the larger type and extra marker labels
-# room to breathe. Treated as a supplementary / landscape figure.
+# Layout & appearance — every tunable in one place.
+# Units: mm for physical lengths, pt for font sizes, Plotly px for markers.
 # =============================================================================
-WIDTH_MM = 590.0
-HEIGHT_MM = 300.0
-SPACING_MM = 4.0
+LAYOUT = dict(
 
-# Explicit physical margins (mm) rather than plotly's automargin for the
-# bottom/right edges: automargin only grows a figure's *outer* edge to fit
-# content and does nothing for a fixed amount reserved in advance, so with it
-# the gap below the plots grew or shrank unpredictably every time a font size
-# or panel height changed elsewhere — the fix that produced 60mm of dead
-# space one way and a clipped right edge the other way. A margin sized once,
-# by hand, for what actually has to fit in it is the same amount every render.
-MARGIN_MM = dict(l=44, r=24, t=18, b=72)
-# The tick labels + pole title fill roughly BOTTOM_STACK_MM below the axis.
-# The shared x label and legend sit in the clear_mm gap below that.
-# NOTE: legend/label y-positions must be divided by the PLOT-AREA height
-# (HEIGHT_MM - top_margin - bottom_margin), not by HEIGHT_MM — paper y=0 is
-# the axis bottom and one unit equals the plot area height, so dividing by
-# HEIGHT_MM placed the legend far too high (see dead-space fix 2026-08-19).
-BOTTOM_STACK_MM = 46.0
+    # ── Figure canvas (mm) ────────────────────────────────────────────────
+    # Total printed dimensions including all margins.
+    width_mm  = 590.0,
+    height_mm = 215.0,
 
-PT = dict(
-    panel_title=26.0,
-    axis_title=20.0,
-    tick=13.0,
-    marker_label=16.0,
-    annotation=18.0,
-    legend=15.0,
-    shared_x_label=20.0,
+    # ── Outer margins (mm) ────────────────────────────────────────────────
+    # Space between the canvas edge and the axes.
+    # margin_b must fit: tick labels + x-axis pole title + shared x-label +
+    #   legend.  margin_l must fit the y-axis quantity title.
+    margin_l = 44.0,
+    margin_r = 24.0,
+    margin_t = 18.0,   # top margin (holds panel title overhang)
+    margin_b = 72.0,   # bottom margin (tick labels + x-titles + legend row)
+
+    # ── Panel gap ────────────────────────────────────────────────────────
+    # Fraction of total axis-area width reserved as gutter between subplot
+    # columns.  Increase to give rotated y-axis pole labels more room.
+    panel_gap = 0.075,
+
+    # ── Bottom annotation stack (mm below the axis baseline) ─────────────
+    # Tick labels + x-axis pole title reach this far below the axis.
+    # The shared x-label and legend are placed just below it.
+    # Must be < margin_b, otherwise labels overflow into the plot area.
+    bottom_stack_mm = 46.0,
+
+    # ── X-axis data padding ───────────────────────────────────────────────
+    # Fraction of the data x-range added as padding on each side of the axis.
+    # Wider = more room for extreme-value labels; narrower = more plot density.
+    x_pad_frac = 0.60,
+
+    # ── Y-axis headroom bands (fraction of data y-range) ─────────────────
+    # label_band_frac : space above the highest point for "top"-anchored
+    #   marker name labels.  Increase if top labels collide with the rho/p text.
+    # annot_band_frac : space above label_band for the rho/p annotation.
+    # y_bottom_frac   : fraction added below the lowest point.
+    label_band_frac = 0.38,
+    annot_band_frac = 0.28,
+    y_bottom_frac   = 0.18,
+
+    # ── Number of labelled markers per panel ─────────────────────────────
+    # Union of top-N by |cluster_stat| and top-N by |SHAP importance|.
+    # Fewer labels → less overlap; more labels → more context.
+    n_labels = 3,
+
+    # ── Scatter marker sizes (Plotly px, ~screen px at 96 dpi) ───────────
+    marker_size_bg    = 10.0,   # unlabelled (background) markers
+    marker_size_label = 12.0,  # labelled (foreground) markers
+    marker_edge_bg    = 0.8,   # edge line width — background markers
+    marker_edge_label = 1.1,   # edge line width — labelled markers
+    legend_marker_size = 10.0, # markers in the fill-encoding legend row
+
+    # ── Line widths (Plotly px) ───────────────────────────────────────────
+    trendline_width = 1.6,   # fitted OLS trend line
+    refline_width   = 0.9,   # zero-crossing dashed/dotted guide lines
+
+    # ── Font sizes (typographic points, converted to px via sp.pt2px) ────
+    # pt_panel_title   : bold dimension name above each subplot panel
+    # pt_axis_title    : x-axis pole direction ("off-task ← → on-task") and
+    #                    y-axis quantity + pole label (column 1 only)
+    # pt_pole_annot    : rotated y-axis pole text for interior columns (2–5)
+    # pt_tick          : axis tick-number labels
+    # pt_marker_label  : text next to each labelled scatter point
+    # pt_annotation    : in-panel Spearman ρ / p-value text
+    # pt_shared_x_label: shared x-axis label centred below all panels
+    # pt_legend        : fill-encoding legend at the very bottom
+    pt_panel_title    = 26.0,
+    pt_axis_title     = 20.0,
+    pt_pole_annot     = 20.0,
+    pt_tick           = 13.0,
+    pt_marker_label   = 16.0,
+    pt_annotation     = 18.0,
+    pt_shared_x_label = 20.0,
+    pt_legend         = 15.0,
+
+    # ── Text labels that appear in the figure ────────────────────────────
+    # shared_x_label   : label centred below all 5 panels (the x-axis quantity)
+    # y_title_full     : y-axis quantity name for the signed / full panel kind
+    # y_title_residual : y-axis quantity name for the residualized panel kind
+    # legend_sig       : legend entry for CBPT BH-significant markers (filled)
+    # legend_nonsig    : legend entry for non-significant markers (hollow)
+    shared_x_label   = "CBPT cluster-mass T-value (signed)",
+    y_title_full     = "Relative SHAP importance (signed)",
+    y_title_residual = "Relative SHAP importance<br>(residualized, unsigned)",
+    legend_sig       = "CBPT BH-significant",
+    legend_nonsig    = "not significant",
 )
 
 
@@ -327,20 +378,21 @@ def _add_panel(fig: go.Figure, col: int, block: pd.DataFrame, color: str,
     names = [_pretty_marker_name(m) for m in block["marker"]]
     sig = block["cbpt_significant"].to_numpy()
 
-    top_x = block.iloc[block["cluster_stat"].abs().to_numpy().argsort()[::-1][:LABEL_N]]["marker"]
-    top_y = block.iloc[block[y_col].abs().to_numpy().argsort()[::-1][:LABEL_N]]["marker"]
+    n_lab = LAYOUT["n_labels"]
+    top_x = block.iloc[block["cluster_stat"].abs().to_numpy().argsort()[::-1][:n_lab]]["marker"]
+    top_y = block.iloc[block[y_col].abs().to_numpy().argsort()[::-1][:n_lab]]["marker"]
     named = set(top_x) | set(top_y)
     mask = block["marker"].isin(named).to_numpy()
 
     x_lo, x_hi = float(x.min()), float(x.max())
-    x_pad = 0.60 * (x_hi - x_lo)   # wider so labels near the extremes don't clip
+    x_pad = LAYOUT["x_pad_frac"] * (x_hi - x_lo)
     x_range = [x_lo - x_pad, x_hi + x_pad]
 
     y_lo, y_hi = float(y.min()), float(y.max())
     y_span = y_hi - y_lo
-    label_band = 0.38 * y_span    # more headroom so "top" labels don't collide
-    annot_band = 0.28 * y_span    # separate headroom for the rho/p text above that
-    y_bottom = y_lo - 0.18 * y_span
+    label_band = LAYOUT["label_band_frac"] * y_span
+    annot_band = LAYOUT["annot_band_frac"] * y_span
+    y_bottom = y_lo - LAYOUT["y_bottom_frac"] * y_span
     y_top = y_hi + label_band + annot_band
     annot_y = y_hi + label_band + annot_band * 0.5
 
@@ -349,17 +401,19 @@ def _add_panel(fig: go.Figure, col: int, block: pd.DataFrame, color: str,
 
     if y_signed:
         fig.add_shape(type="line", x0=x_range[0], x1=x_range[1], y0=0, y1=0,
-                      xref=x_ref, yref=y_ref, line=dict(color=PERM_COLOR, dash="dash", width=0.9))
+                      xref=x_ref, yref=y_ref,
+                      line=dict(color=PERM_COLOR, dash="dash", width=LAYOUT["refline_width"]))
     fig.add_shape(type="line", x0=0, x1=0, y0=y_bottom, y1=y_top,
-                  xref=x_ref, yref=y_ref, line=dict(color=PERM_COLOR, dash="dot", width=0.9))
+                  xref=x_ref, yref=y_ref,
+                  line=dict(color=PERM_COLOR, dash="dot", width=LAYOUT["refline_width"]))
 
     face = np.where(sig, color, "white")
 
     # Background: markers not singled out for labelling.
     fig.add_trace(go.Scatter(
         x=x[~mask], y=y[~mask], mode="markers",
-        marker=dict(color=list(face[~mask]), size=8.0, opacity=0.6,
-                    line=dict(color=color, width=0.8)),
+        marker=dict(color=list(face[~mask]), size=LAYOUT["marker_size_bg"], opacity=0.6,
+                    line=dict(color=color, width=LAYOUT["marker_edge_bg"])),
         customdata=[n for n, m in zip(names, mask) if not m],
         hovertemplate="%{customdata}<br>CBPT %{x:.1f}<br>SHAP %{y:.4f}<extra></extra>",
         showlegend=False,
@@ -384,9 +438,11 @@ def _add_panel(fig: go.Figure, col: int, block: pd.DataFrame, color: str,
 
     fig.add_trace(go.Scatter(
         x=x[mask], y=y[mask], mode="markers+text",
-        marker=dict(color=list(face[mask]), size=11.0, line=dict(color=color, width=1.1)),
+        marker=dict(color=list(face[mask]), size=LAYOUT["marker_size_label"],
+                    line=dict(color=color, width=LAYOUT["marker_edge_label"])),
         text=[n for n, m in zip(names, mask) if m],
-        textposition=positions, textfont=dict(size=sp.pt2px(PT["marker_label"]), color="#222222"),
+        textposition=positions,
+        textfont=dict(size=sp.pt2px(LAYOUT["pt_marker_label"]), color="#222222"),
         # Unclipped: at this panel width (~30 mm), the padding needed to keep
         # every left-side label from touching the axis edge would eat too
         # much of the already-scarce plot width. The gutter (where the
@@ -404,7 +460,7 @@ def _add_panel(fig: go.Figure, col: int, block: pd.DataFrame, color: str,
     x_reg = np.array(x_range)
     fig.add_trace(go.Scatter(
         x=x_reg, y=m * x_reg + b, mode="lines",
-        line=dict(color=color, width=1.6, dash="solid"), showlegend=False,
+        line=dict(color=color, width=LAYOUT["trendline_width"], dash="solid"), showlegend=False,
     ), row=1, col=col)
 
     rho, p = spearmanr(x, y)
@@ -412,12 +468,12 @@ def _add_panel(fig: go.Figure, col: int, block: pd.DataFrame, color: str,
         text=f"ρ = {rho:.2f}, {format_pval(p)}",
         xref=f"{x_ref} domain", yref=y_ref,
         x=0.05, y=annot_y, xanchor="left", yanchor="middle", showarrow=False,
-        font=dict(size=sp.pt2px(PT["annotation"]), color=color),
+        font=dict(size=sp.pt2px(LAYOUT["pt_annotation"]), color=color),
     )
 
-    fig.update_xaxes(range=x_range, tickfont=dict(size=sp.pt2px(PT["tick"])), nticks=4,
+    fig.update_xaxes(range=x_range, tickfont=dict(size=sp.pt2px(LAYOUT["pt_tick"])), nticks=4,
                      showgrid=True, gridcolor="#EEEEEE", zeroline=False, row=1, col=col)
-    fig.update_yaxes(range=[y_bottom, y_top], tickfont=dict(size=sp.pt2px(PT["tick"])),
+    fig.update_yaxes(range=[y_bottom, y_top], tickfont=dict(size=sp.pt2px(LAYOUT["pt_tick"])),
                      showgrid=True, gridcolor="#EEEEEE", zeroline=False, row=1, col=col)
     return float(rho)
 
@@ -438,6 +494,7 @@ def build_dimension_row_figure(table: pd.DataFrame, panel_kind: str) -> tuple[go
         plotted statistic needs its own row in the backing data).
     """
     kind = PANEL_KINDS[panel_kind]
+    y_title = LAYOUT[kind["y_title_key"]]
     n_dims = len(DIMENSIONS)
 
     # Plain make_subplots, not sciplot's facet_subplots: that helper's tight
@@ -449,13 +506,13 @@ def build_dimension_row_figure(table: pd.DataFrame, panel_kind: str) -> tuple[go
     # each one without it landing on top of the data.
     from plotly.subplots import make_subplots
     fig = make_subplots(
-        rows=1, cols=n_dims, horizontal_spacing=0.075,
+        rows=1, cols=n_dims, horizontal_spacing=LAYOUT["panel_gap"],
         subplot_titles=[d["label"] for d in DIMENSIONS],
     )
     for i, dim in enumerate(DIMENSIONS):
         fig.layout.annotations[i].text = f"<b>{dim['label']}</b>"
         fig.layout.annotations[i].font.color = DIM_COLORS[dim["key"]]
-        fig.layout.annotations[i].font.size = sp.pt2px(PT["panel_title"])
+        fig.layout.annotations[i].font.size = sp.pt2px(LAYOUT["pt_panel_title"])
 
     stats_rows = []
     for col, dim in enumerate(DIMENSIONS, start=1):
@@ -476,38 +533,29 @@ def build_dimension_row_figure(table: pd.DataFrame, panel_kind: str) -> tuple[go
         # line; the <br> that was here was a workaround for the old ~30 mm
         # columns and now just breaks the arrows into two separate lines.
         pole_pair_x = f'{dim["pole_low"]} ← → {dim["pole_high"]}'
-        fig.update_xaxes(title=dict(text=pole_pair_x, font=dict(size=sp.pt2px(PT["axis_title"]), color=color)),
-                         row=1, col=col)
+        fig.update_xaxes(
+            title=dict(text=pole_pair_x,
+                       font=dict(size=sp.pt2px(LAYOUT["pt_axis_title"]), color=color)),
+            row=1, col=col)
 
         if col == 1:
-            # Colour mixing: the quantity name ("Relative SHAP importance...")
-            # is not dimension-specific, so it stays black; the pole pair is
-            # dimension-coloured, same as every other column's. A plotly axis
-            # title only takes one font.color, so this needs an explicit
-            # <span> per half rather than a single font dict (which is what
-            # regressed silently to an unstyled default when this was last
-            # rewritten — the font dict here has no color, only the spans do).
-            axis_pt = sp.pt2px(PT["axis_title"])
+            # Colour mixing: the quantity name is not dimension-specific (black);
+            # the pole pair is dimension-coloured.  A plotly axis title only takes
+            # one font.color, so each half gets its own <span>.
+            axis_pt = sp.pt2px(LAYOUT["pt_axis_title"])
             if kind["y_signed"]:
-                y_title = (f'<span style="color:#000000;font-size:{axis_pt:.1f}px">{kind["y_title"]}</span>'
-                          f'<br><span style="color:{color};font-size:{axis_pt:.1f}px">{pole_pair}</span>')
+                y_axis_text = (f'<span style="color:#000000;font-size:{axis_pt:.1f}px">{y_title}</span>'
+                               f'<br><span style="color:{color};font-size:{axis_pt:.1f}px">{pole_pair}</span>')
             else:
-                y_title = f'<span style="color:#000000;font-size:{axis_pt:.1f}px">{kind["y_title"]}</span>'
-            fig.update_yaxes(title=dict(text=y_title, font=dict(size=axis_pt)), row=1, col=col)
+                y_axis_text = f'<span style="color:#000000;font-size:{axis_pt:.1f}px">{y_title}</span>'
+            fig.update_yaxes(title=dict(text=y_axis_text, font=dict(size=axis_pt)), row=1, col=col)
         elif kind["y_signed"]:
-            # A title on yaxis2..yaxis5 has no outer edge to push into —
-            # automargin cannot widen an *interior* gutter between two fixed
-            # subplot columns, only the figure's outer margins — so it either
-            # renders on top of the neighbouring data or (if the gutter is
-            # widened enough to hold it) eats so much width the panels
-            # themselves clip their own marker labels. A manual, precisely
-            # positioned annotation in the gutter sidesteps both failure
-            # modes: it takes only the room it actually needs and never
-            # asks the subplot grid to change shape.
+            # Interior y-axis pole labels sit in the panel gutter as manual
+            # annotations (automargin cannot widen an interior gutter).
             fig.add_annotation(
                 text=pole_pair, xref=f"x{col} domain", yref=f"y{col} domain",
                 x=-0.24, y=0.5, xanchor="center", yanchor="middle", textangle=-90,
-                showarrow=False, font=dict(size=sp.pt2px(PT["axis_title"]), color=color),
+                showarrow=False, font=dict(size=sp.pt2px(LAYOUT["pt_pole_annot"]), color=color),
             )
 
     # One shared x-axis label (every panel's x is the same quantity) and the
@@ -527,31 +575,32 @@ def build_dimension_row_figure(table: pd.DataFrame, panel_kind: str) -> tuple[go
     # Plot-area height in mm (the denominator for paper-coord fractions below).
     # paper y=0 is the axis bottom; one unit = one plot_h. Dividing by HEIGHT_MM
     # here was the bug that left 20+ mm of dead space below the legend.
-    _plot_h = HEIGHT_MM - MARGIN_MM["t"] - MARGIN_MM["b"]
-    shared_label_y = -(BOTTOM_STACK_MM + 7.0) / _plot_h
-    legend_y = -(BOTTOM_STACK_MM + 17.0) / _plot_h
+    _plot_h = LAYOUT["height_mm"] - LAYOUT["margin_t"] - LAYOUT["margin_b"]
+    shared_label_y = -(LAYOUT["bottom_stack_mm"] + 7.0)  / _plot_h
+    legend_y       = -(LAYOUT["bottom_stack_mm"] + 17.0) / _plot_h
     fig.add_annotation(
-        text=f'<span style="color:#000000">{X_QUANTITY}</span>',
+        text=f'<span style="color:#000000">{LAYOUT["shared_x_label"]}</span>',
         xref="paper", yref="paper", x=0.5, y=shared_label_y,
         xanchor="center", yanchor="middle", showarrow=False,
-        font=dict(size=sp.pt2px(PT["shared_x_label"])),
+        font=dict(size=sp.pt2px(LAYOUT["pt_shared_x_label"])),
     )
 
-    for face, label in (("filled", "CBPT BH-significant"), ("hollow", "not significant")):
+    for face, label in (("filled", LAYOUT["legend_sig"]), ("hollow", LAYOUT["legend_nonsig"])):
         fig.add_trace(go.Scatter(
             x=[None], y=[None], mode="markers",
-            marker=dict(size=8, color=PERM_COLOR if face == "filled" else "white",
+            marker=dict(size=LAYOUT["legend_marker_size"],
+                        color=PERM_COLOR if face == "filled" else "white",
                         line=dict(color=PERM_COLOR, width=1.5)),
             name=label, showlegend=True, hoverinfo="skip",
         ))
 
     fig.update_layout(
         template="plotly_white",
-        font=dict(family="Times New Roman", size=sp.pt2px(PT["tick"])),
-        margin=dict(l=sp.mm2px(MARGIN_MM["l"]), r=sp.mm2px(MARGIN_MM["r"]),
-                   t=sp.mm2px(MARGIN_MM["t"]), b=sp.mm2px(MARGIN_MM["b"])),
+        font=dict(family="Times New Roman", size=sp.pt2px(LAYOUT["pt_tick"])),
+        margin=dict(l=sp.mm2px(LAYOUT["margin_l"]), r=sp.mm2px(LAYOUT["margin_r"]),
+                    t=sp.mm2px(LAYOUT["margin_t"]), b=sp.mm2px(LAYOUT["margin_b"])),
         legend=dict(orientation="h", x=0.5, xanchor="center", y=legend_y, yanchor="middle",
-                    font=dict(size=sp.pt2px(PT["legend"]))),
+                    font=dict(size=sp.pt2px(LAYOUT["pt_legend"]))),
     )
     return fig, pd.DataFrame(stats_rows)
 
@@ -600,7 +649,8 @@ def main() -> None:
 
             points = table[["dimension", "marker", "family", "cluster_stat", "cbpt_significant",
                             kind["y_col"]]].rename(columns={kind["y_col"]: "y_value"})
-            _save(fig, OUT_DIR, out_stem, width_mm=WIDTH_MM, height_mm=HEIGHT_MM, dpi=dpi,
+            _save(fig, OUT_DIR, out_stem,
+                  width_mm=LAYOUT["width_mm"], height_mm=LAYOUT["height_mm"], dpi=dpi,
                   data={"points": points, "stats": stats})
 
 

@@ -169,6 +169,23 @@ results/*
 !results/Behavior/
 !results/demographics/
 
+# CBPT (andrillon) curated results — current-formula CSVs + paper figures only.
+# Quadratic-spec model dirs (onoff_valence_valence_sq_..._time_sq_...) and
+# per-marker diagnostic PDFs/PNGs/SVGs/pkl stay ignored (regenerable from the
+# pipeline); only the two oversized combined SVGs (non-LFS, >10MB) are excluded.
+!results/andrillon_cluster/
+results/andrillon_cluster/**
+!results/andrillon_cluster/*.csv
+results/andrillon_cluster/omnibus_test_QUADRATIC_SUPERSEDED.csv
+!results/andrillon_cluster/paper_figures/
+!results/andrillon_cluster/paper_figures/**
+results/andrillon_cluster/paper_figures/figure_combined.svg
+results/andrillon_cluster/paper_figures/figure_combined_edited.svg
+!results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence__target_*/
+!results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence__target_*/**/
+!results/andrillon_cluster/onoff_valence_selfother_time_time_on_task_confidence__target_*/**/*.csv
+
+
 # Ignorar el archivo all_extracted_event_components.csv de la carpeta probe_data pesa 15gb
 results/Behavior/probe_data/all_extracted_event_components.csv
 
@@ -179,4 +196,51 @@ Statistics/tests/test_results/
 
 .DS_Store
 mw_classification_pipeline/results
+# Classification curated results — headline WS/LOSO/cross-decoding
+# aggregates + combined_figures/feature_consistency. true_runs/ and
+# permuted_runs/ (raw per-fold/per-permutation dumps incl. pkl), pkl caches,
+# HTML exports, SpatialDecoding/, Type1Error/, data_cache*/, and backup dirs
+# stay ignored (regenerable / not part of the paper headline).
+!mw_classification_pipeline/results/
+mw_classification_pipeline/results/**
+!mw_classification_pipeline/results/combined_figures/
+!mw_classification_pipeline/results/combined_figures/**
+mw_classification_pipeline/results/combined_figures/**/*.html
+mw_classification_pipeline/results/combined_figures/**/*.pkl
+!mw_classification_pipeline/results/feature_consistency/
+!mw_classification_pipeline/results/feature_consistency/**
+mw_classification_pipeline/results/feature_consistency/**/*.html
+mw_classification_pipeline/results/feature_consistency/**/*.pkl
+!mw_classification_pipeline/results/figures/
+!mw_classification_pipeline/results/figures/**
+mw_classification_pipeline/results/figures/**/*.html
+mw_classification_pipeline/results/figures/**/*.pkl
+!mw_classification_pipeline/results/MW_Classification/
+!mw_classification_pipeline/results/MW_Classification/LOSO/
+!mw_classification_pipeline/results/MW_Classification/LOSO/**/
+!mw_classification_pipeline/results/MW_Classification/WithinSubject/
+!mw_classification_pipeline/results/MW_Classification/WithinSubject/**/
+!mw_classification_pipeline/results/MW_Classification/cross_decoding/
+!mw_classification_pipeline/results/MW_Classification/cross_decoding/**/
+mw_classification_pipeline/results/MW_Classification/LOSO/**/true_runs/
+mw_classification_pipeline/results/MW_Classification/LOSO/**/permuted_runs/
+mw_classification_pipeline/results/MW_Classification/WithinSubject/**/true_runs/
+mw_classification_pipeline/results/MW_Classification/WithinSubject/**/permuted_runs/
+mw_classification_pipeline/results/MW_Classification/cross_decoding/**/true_runs/
+mw_classification_pipeline/results/MW_Classification/cross_decoding/**/permuted_runs/
+!mw_classification_pipeline/results/MW_Classification/LOSO/**/*.csv
+!mw_classification_pipeline/results/MW_Classification/LOSO/**/*.png
+!mw_classification_pipeline/results/MW_Classification/LOSO/**/*.pdf
+!mw_classification_pipeline/results/MW_Classification/LOSO/**/*.svg
+!mw_classification_pipeline/results/MW_Classification/LOSO/**/*.yaml
+!mw_classification_pipeline/results/MW_Classification/WithinSubject/**/*.csv
+!mw_classification_pipeline/results/MW_Classification/WithinSubject/**/*.png
+!mw_classification_pipeline/results/MW_Classification/WithinSubject/**/*.pdf
+!mw_classification_pipeline/results/MW_Classification/WithinSubject/**/*.svg
+!mw_classification_pipeline/results/MW_Classification/WithinSubject/**/*.yaml
+!mw_classification_pipeline/results/MW_Classification/cross_decoding/**/*.csv
+!mw_classification_pipeline/results/MW_Classification/cross_decoding/**/*.png
+!mw_classification_pipeline/results/MW_Classification/cross_decoding/**/*.pdf
+!mw_classification_pipeline/results/MW_Classification/cross_decoding/**/*.svg
+!mw_classification_pipeline/results/MW_Classification/cross_decoding/**/*.yaml
 logs_connectivity/
