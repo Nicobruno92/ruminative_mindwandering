@@ -1,0 +1,11 @@
+row_label,col_label,xref,yref,x,y,text
+,On/Off-Task,x domain,y,0.05,1.09,"r = 0.04, p = 0.847"
+,Valence,x2 domain,y2,0.05,1.09,"r = -0.37, p = 0.145"
+,Self/Other,x3 domain,y3,0.05,1.09,"r = -0.07, p = 0.730"
+,Time,x4 domain,y4,0.05,1.09,"r = -0.08, p = 0.740"
+,Confidence,x5 domain,y5,0.05,1.09,"r = -0.00, p = 0.995"
+,On/Off-Task,x6 domain,y6,0.05,1.09,"r = 0.22, p = 0.289"
+,Valence,x7 domain,y7,0.05,1.09,"r = 0.18, p = 0.431"
+,Self/Other,x8 domain,y8,0.05,1.09,"r = 0.15, p = 0.452"
+,Time,x9 domain,y9,0.05,1.09,"r = -0.13, p = 0.575"
+,Confidence,x10 domain,y10,0.05,1.09,"r = 0.36, p = 0.119"

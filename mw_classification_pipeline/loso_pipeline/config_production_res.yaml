@@ -1,0 +1,597 @@
+# =============================================================================
+# MIND-WANDERING CLASSIFICATION PIPELINE - CONFIG
+# =============================================================================
+#
+# ALL run parameters live here. Bash scripts read from this file.
+# No redundant configuration in run_local.sh or run_cluster.sh.
+#
+# USAGE:
+#   Local:   bash run_local.sh [config.yaml]
+#   Cluster: bash run_cluster.sh [config.yaml]   (then sbatch run_cluster_worker.sh)
+#   Direct:  python run_mw_classification.py --config config.yaml
+#
+# Cross-validation: Leave-One-Subject-Out (LOSO) only.
+# =============================================================================
+
+
+# =============================================================================
+# DATA PATHS
+# =============================================================================
+
+data_paths:
+  features_root: "<PATH_TO_YOUR_BIDS_FEATURES_ROOT>"
+  results_root: "results/MW_Classification"
+
+
+# =============================================================================
+# SUBJECTS AND TASKS
+# =============================================================================
+
+subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+           "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+           "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34",
+           "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+
+tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+
+# Subject filters
+min_samples: 10           # Min samples per subject
+min_minority_ratio: 0.2   # Min minority class fraction per subject (0 = disabled)
+
+# =============================================================================
+# LABEL CONTRASTS
+# =============================================================================
+
+label_source: onoff
+
+label_contrasts:
+  ON_vs_OFF:
+    label_source: onoff
+    split_method: "threshold"
+    threshold: 50
+    positive_above: true
+
+  ON_vs_OFF_within_median:
+    label_source: onoff
+    split_method: "within_subject_median"
+    gap: 5           # ±points around subject median to exclude (0 = no neutral zone)
+    positive_above: true
+    # Optional: weight training samples by probe confidence (label-reliability
+    # proxy). Absent or enabled:false => no change. Requires oversampling_scope
+    # != 'global' and a supervised model (rf/xgb/lr). Most justified for ON/OFF
+    # (confidence pertains chiefly to the on/off judgement); exploratory on
+    # content dimensions. Test runs WITH and WITHOUT and report sensitivity.
+    confidence_weight:
+      enabled: false
+      normalization: within_subject   # min-max within subject -> [w_min, 1]
+      w_min: 0.1                       # floor weight for lowest-confidence trial
+
+  # ON_vs_OFF_global_median:
+  #   label_source: onoff
+  #   split_method: "global_median"
+  #   positive_above: true
+
+  # ON_vs_OFF_extreme:
+  #   label_source: onoff
+  #   split_method: "extreme_groups"
+  #   threshold_low: 30
+  #   threshold_high: 70
+
+  # --- Content dimensions ---------------------------------------------------
+  # "_offtask" variants classify the dimension only within mind-wandering
+  # probes (onoff below the within-subject median) via restrict_to.
+  valence_within_median:
+    label_source: valence
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  # valence_within_median_offtask:
+  #   label_source: valence
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "positive"
+  #   negative_class_name: "negative"
+  #   restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
+  selfother_within_median:
+    label_source: selfother
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  # selfother_within_median_offtask:
+  #   label_source: selfother
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "self"
+    # negative_class_name: "other"
+    # restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
+  time_within_median:
+    label_source: time
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  # time_within_median_offtask:
+  #   label_source: time
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "future"
+  #   negative_class_name: "past"
+  #   restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
+  confidence_within_median:
+    label_source: confidence
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+
+  # --- Quadratic (U-shape) contrasts ----------------------------------------
+  # Classify extreme vs. moderate emotional/temporal content.
+  # Derived score: (x - 50)²/50 — U-shape around scale midpoint, range 0-50
+  # (half the 0-100 range of the linear dimensions). gap=2.5 (half of the
+  # linear contrasts' gap=5) keeps the neutral zone the same *proportion* of
+  # the scale — same halving Stats_andrillon already applies for
+  # min_predictor_variability_sq relative to min_predictor_variability.
+  valence_sq:
+    label_source: valence
+    transform: "midpoint_sq"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq:
+    label_source: time
+    transform: "midpoint_sq"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  valence_sq_res:
+    label_source: valence
+    transform: "midpoint_sq_residual"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  time_sq_res:
+    label_source: time
+    transform: "midpoint_sq_residual"
+    split_method: "within_subject_median"
+    gap: 2.5
+    positive_above: true
+    positive_class_name: "extreme"
+    negative_class_name: "moderate"
+
+  # confidence_within_median_offtask:
+  #   label_source: confidence
+  #   split_method: "within_subject_median"
+  #   gap: 5
+  #   positive_above: true
+  #   positive_class_name: "high-confidence"
+  #   negative_class_name: "low-confidence"
+  #   restrict_to: {label_source: onoff, split_method: "within_subject_median", keep: "negative"}
+
+  # --- Cross-dimension residualized contrasts -------------------------------
+  # Each dimension residualized (within-subject OLS) against the other 4
+  # before the usual median split. Tests whether decoding of a dimension
+  # survives once its correlation with the rest is removed — a different,
+  # more conservative question than the raw contrast above (expect lower
+  # AUC). See docs/superpowers/specs/2026-07-30-cross-dimension-residualized-
+  # contrasts-design.md. Additive only: does not replace the raw contrasts.
+  #
+  # confidence is deliberately NOT a predictor for onoff/valence/selfother/
+  # time: unlike those 3 (independent content dimensions), confidence is a
+  # metacognitive judgment plausibly downstream of onoff (mind-wandering
+  # reduces introspective accuracy — see the commented-out confidence_weight
+  # mechanism above). Using it as a predictor there would risk removing
+  # genuine signal (adjusting for a mediator), not a confound. Residualizing
+  # confidence itself against the other 4 has no such issue (right causal
+  # direction). See design doc addendum "confidence is not a predictor"
+  # (2026-07-30).
+  #
+  # min_valid_for_residual: minimum non-NaN probes (target + all predictors)
+  # a subject needs for the within-subject OLS to be stable. 12 for the
+  # 3-predictor contrasts (4 params incl. intercept, ~3x params -> ~8
+  # residual df); 15 for confidence_within_median_res (4 predictors, 5
+  # params, ~10 residual df) — same samples-per-param ratio throughout,
+  # matching the existing midpoint_sq_residual guard (2 params, threshold 3).
+  # Subjects below this are excluded from the contrast, not left
+  # unresidualized (see design doc).
+  onoff_within_median_res:
+    label_source: onoff
+    transform: "linear_residual"
+    residualize_against: ["valence", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "ON-task"
+    negative_class_name: "OFF-task"
+
+  valence_within_median_res:
+    label_source: valence
+    transform: "linear_residual"
+    residualize_against: ["onoff", "selfother", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "positive"
+    negative_class_name: "negative"
+
+  selfother_within_median_res:
+    label_source: selfother
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "time"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "self"
+    negative_class_name: "other"
+
+  time_within_median_res:
+    label_source: time
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother"]
+    min_valid_for_residual: 12
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "future"
+    negative_class_name: "past"
+
+  confidence_within_median_res:
+    label_source: confidence
+    transform: "linear_residual"
+    residualize_against: ["onoff", "valence", "selfother", "time"]
+    min_valid_for_residual: 15
+    split_method: "within_subject_median"
+    gap: 5
+    positive_above: true
+    positive_class_name: "high-confidence"
+    negative_class_name: "low-confidence"
+
+# Which contrasts to submit as jobs via run_local.sh / run_cluster.sh.
+# Must be keys defined in label_contrasts above.
+run_contrasts:
+  # PRODUCTION config for the cross-dimension residualized contrasts ONLY —
+  # a copy of config.yaml with everything else disabled so this never
+  # resubmits the existing (already-run) contrasts. config.yaml (untouched)
+  # still owns those. n_runs/permutation_runs below are full production
+  # values (100/500), unlike config_smoketest_res.yaml (3/0, not built for
+  # LOSO yet).
+  # - ON_vs_OFF_within_median
+  # - ON_vs_OFF
+  # - valence_within_median
+  # - valence_within_median_offtask
+  # - selfother_within_median
+  # - selfother_within_median_offtask
+  # - time_within_median
+  # - time_within_median_offtask
+  # - confidence_within_median
+  # - confidence_within_median_offtask
+  # - valence_sq
+  # - time_sq
+  # --- Cross-dimension residualized contrasts (exploratory) -----------------
+  # confidence_within_median_res deliberately not run: confidence isn't a
+  # peer content dimension (see design doc), so "decode confidence net of
+  # the other 4" doesn't answer the same question as the 4 below. Left
+  # defined in label_contrasts in case it's wanted standalone later.
+  - onoff_within_median_res
+  - valence_within_median_res
+  - selfother_within_median_res
+  - time_within_median_res
+  # - confidence_within_median_res
+
+# =============================================================================
+# DATA FORMAT
+# =============================================================================
+# per_channel → one column per channel (power_alpha_Fz, wsmi_theta_Fz-Cz)
+# per_roi     → channels collapsed into ROI averages (power_alpha_frontal_left)
+data_format: per_roi
+include_connectivity_pairs: false
+
+# Drop feature columns ending with any of these suffixes before classification.
+exclude_column_suffixes:
+  - "_std"
+
+# =============================================================================
+# FEATURE FAMILIES
+# =============================================================================
+# Each family declares TWO things:
+#   epoch_types — which files to load from disk (sleep / evoked / state)
+#   prefixes    — which column subsets to keep after loading (null = all)
+#
+# When you add a family to run_families, the pipeline automatically loads
+# only the relevant epoch files and filters to the declared columns.
+# No separate top-level epoch_types needed.
+
+feature_families:
+
+  # Same 23-marker set as Stats_andrillon/config_andrillon.yaml.
+  all:
+    epoch_types: [sleep, evoked]
+    prefixes:
+      - "N1"
+      - "P1"
+      - "P3a"
+      - "P3b"
+      - "PE_theta"
+      - "PE_alpha"
+      - "PE_beta"
+      - "PE_gamma"
+      - "kolmogorov_complexity"
+      - "psd_relative_delta"
+      - "psd_relative_theta"
+      - "psd_relative_alpha"
+      - "psd_relative_beta"
+      - "psd_relative_gamma"
+      - "wsmi_theta"
+      - "wsmi_alpha"
+      - "wsmi_beta"
+      - "wsmi_gamma"
+      - "slowwaves"
+
+  erp:
+    epoch_types: [evoked]          # only load evoked (go-stimulus locked) files
+    prefixes:
+      - "P1"
+      - "N1"
+      # - "P2"
+      - "P3a"
+      - "P3b"
+
+  sleep:
+    epoch_types: [sleep]           # only load sleep-epoch files
+    prefixes:
+      - "slowwaves"
+      - "spindles"
+
+  spectral:
+    epoch_types: [sleep]           # only load pre-probe state bins
+    prefixes:
+      # - "power_delta"
+      # - "power_theta"
+      # - "power_alpha"
+      # - "power_beta"
+      # - "power_gamma"
+      - "power_normalized"
+
+  connectivity:
+    epoch_types: [sleep]
+    prefixes:
+      - "wsmi_theta"
+      - "wsmi_alpha"
+      - "wsmi_beta"
+      - "wsmi_gamma"
+
+  information_theory:
+    epoch_types: [sleep]
+    prefixes:
+      - "PE_theta"
+      - "PE_alpha"
+      - "PE_beta"
+      - "PE_gamma"
+      - "kolmogorov_complexity"
+
+# Which families to submit as separate jobs via run_local.sh / run_cluster.sh.
+run_families: ["all"]
+
+
+# =============================================================================
+# EXPERIMENT SETUP
+# =============================================================================
+
+model_type: ["rf"]            # rf, xgb, lr, ocsvm, iforest
+
+n_runs: 100                # LOSO runs with different seeds
+permutation_runs: 500     # Label permutations for null distribution
+
+random_seed: 42
+
+# =============================================================================
+# PREPROCESSING
+# =============================================================================
+
+# Feature selection is DISABLED. The random forest is already an embedded
+# selector — max_features='sqrt' samples ~13 of the 177 features at every split
+# — so a hard mRMR pre-filter to k=20 is a redundant second selection stage.
+# Worse, mRMR's criterion penalises *redundancy*, which is not the same as
+# penalising uselessness: correlated-but-complementary markers get dropped
+# before the forest ever sees them. With ~1170 training samples per LOSO fold
+# there is no dimensionality problem that would justify the filter.
+#
+# Confirmed empirically by the ablation of 2026-07-28 (see
+# results/FS_Ablation/fs_ablation_summary.csv): removing the filter raised LOSO
+# on/off AUC from 0.590 to 0.629, consistently in 26/29 subjects. Other
+# dimensions moved by <=0.01 with per-subject counts at chance. NOTE the one
+# exception — LOSO time_sq DEGRADED (0.542 -> 0.485, below chance, 3/13
+# subjects), so that cell is unstable without the filter and its results should
+# not be read as reliable either way.
+#
+# 'k' below is inert while the method is 'none'; kept so the previous setting is
+# recoverable. The ablation had no permutations, so it carries no p-values:
+# significance for any dimension must be re-derived by re-running the
+# permutation nulls under this configuration.
+k: 20
+feature_selection_method: none   # mrmr, lmm_encoding, lmm_decoding, f_classif, none
+
+# Missing-value handling (handle_missing_features). Defaults are now explicit
+# instead of relying on the function signature.
+preprocessing:
+  max_feature_nan_frac: 0.25       # drop a feature column if > this fraction is NaN
+  imputation: median               # fill residual NaN with per-subject median (synced with within_subject_pipeline/config.yaml)
+  zero_fill_patterns: ["density"]  # event-rate markers: NaN = no event = true 0 (filled BEFORE the NaN-frac drop)
+
+scaler: standard
+scale_by_participant: within     # 'none', 'global', or 'within'
+permutation_scope: within        # 'global' or 'within_subject'
+
+use_smote: true
+oversampling_method: SMOTE        # SMOTE, SVMSMOTE, ADASYN, SMOTETomek
+oversampling_scope: within       # 'global' or 'within'
+smote_k_neighbors: 5             # k_neighbors for SMOTE-based oversamplers
+
+use_pca: false
+pca_n_components: 20
+pca_type: standard
+pca_kernel: rbf
+
+
+# =============================================================================
+# MODEL PARAMETERS — RANDOM FOREST
+# =============================================================================
+
+rf_n_estimators: 200
+rf_max_depth: 8
+rf_min_samples_split: 10
+rf_min_samples_leaf: 5
+rf_max_features: sqrt
+rf_bootstrap: true
+rf_n_jobs: 1
+rf_class_weight: balanced_subsample
+
+
+# =============================================================================
+# MODEL PARAMETERS — XGBOOST
+# =============================================================================
+
+xgb_n_estimators: 200
+xgb_max_depth: 6
+xgb_learning_rate: 0.1
+xgb_objective: binary:logistic
+xgb_seed: 42
+xgb_n_jobs: -1
+xgb_subsample: 0.8
+xgb_colsample_bytree: 0.8
+xgb_min_child_weight: 1
+xgb_gamma: 0
+xgb_scale_pos_weight: auto
+
+
+# =============================================================================
+# MODEL PARAMETERS — LOGISTIC REGRESSION
+# =============================================================================
+
+lr_penalty: elasticnet
+lr_solver: saga
+lr_class_weight: balanced
+lr_C: 0.5
+lr_l1_ratio: 0.1
+lr_max_iter: 2000
+
+
+# =============================================================================
+# MODEL PARAMETERS — ONE-CLASS (OUTLIER DETECTION)
+# =============================================================================
+# One-class SVM (counterpart of 'lr'/'svm')
+ocsvm_nu: 0.1
+ocsvm_kernel: rbf
+ocsvm_gamma: scale
+
+# Isolation Forest (counterpart of 'rf')
+iforest_n_estimators: 100
+iforest_contamination: auto   # Expected fraction of outliers
+
+# Which class to use as training set for one-class models:
+# "minority" → train on minority class; inlier = minority.
+# "majority" → train on majority class; outlier = minority.
+oneclass_target: minority
+
+
+# =============================================================================
+# SCORING METRICS
+# =============================================================================
+# Metrics to report and save. Options: auc, balanced_accuracy, auprc, mcc, etc.
+# Set to null or leave empty to use all metrics: [auc, balanced_accuracy, auprc, mcc]
+scoring_metrics: ["auc", "balanced_accuracy", "auprc", "mcc"]
+
+
+# =============================================================================
+# OUTPUT
+# =============================================================================
+
+save_csv: true
+save_probabilities: true
+save_pickle: false
+save_plots: true
+save_shap: true
+
+verbose: true
+
+# =============================================================================
+# PLOTTING
+# =============================================================================
+
+top_n_features_plot: 20
+plot_style: seaborn-v0_8
+
+
+# =============================================================================
+# SLURM CLUSTER SETTINGS
+# =============================================================================
+# Used by run_cluster.sh to configure the SLURM submission.
+# No need to edit run_cluster.sh — change these values instead.
+
+# =============================================================================
+# PARALLELISM
+# =============================================================================
+# lmm_n_jobs controls parallelism *within* each LOSO fold (over features).
+# perm_cv_n_jobs controls how many LOSO folds run in parallel per permutation.
+# Total threads per perm ≈ perm_cv_n_jobs × lmm_n_jobs — keep ≤ cpus_per_task.
+# With cpus_per_task=32: lmm_n_jobs=4, perm_cv_n_jobs=8 → 32 threads per perm.
+# True runs use perm_cv_n_jobs for folds as well (cv_n_jobs defaults to -1
+# for the true-run path; set explicitly below via a future parameter if needed).
+# LMM feature selection tuning
+# ─────────────────────────────────────────────────────────────────────────────
+# lmm_n_jobs: CPUs per fold for LMM (each fold fits lmm_n_jobs LMMs in parallel)
+# lmm_prefilter_factor: if > 0, run f_classif first and pass only
+#   (lmm_prefilter_factor × k) candidate features to LMM. This is the SINGLE
+#   biggest speedup: with 300 features, k=50, factor=3 → LMM sees 150 features
+#   instead of 300, a 2× speedup ON TOP of the optimizer change.
+#   Scientifically sound: f_classif removes obviously irrelevant features first.
+# Optimizer already changed to lbfgs (5-10× faster than the old powell).
+lmm_n_jobs: 2          # 2 × cv_n_jobs=4 = 8 CPUs total (= cpus_per_task)
+lmm_prefilter_factor: 3   # 0 = disabled; 3 = run LMM on top 3*k=150 features only
+
+# feature_selection_method options:
+#   lmm_encoding  — mixed model (rigorous, recommended)
+#   f_classif     — ANOVA F-stat (fastest; with scale_by_participant:within already
+#                   applied, data is already z-scored per subject so this is a
+#                   good approximation when speed is critical)
+
+parallelism:
+  n_perm_jobs: 1       # 1 perm per SLURM job
+  perm_cv_n_jobs: 4    # parallel folds per perm; lmm_n_jobs=2 × 4 = 8 CPUs
+  true_cv_n_jobs: 4    # parallel folds per true run; same balance
+
+slurm:
+  time: "02:00:00"
+  mem: "32G"
+  cpus_per_task: 8
+  job_name: "mw_class"
+  conda_env: "ML"
+  # Cluster's SLURM MaxArraySize (check: scontrol show config | grep MaxArraySize).
+  # run_cluster.sh splits true/perm arrays into chunks of at most this size.
+  max_array_size: 2000

@@ -1,0 +1,288 @@
+"""Unit and smoke tests for utils/spatial_decoding_utils.py."""
+import os
+import sys
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from utils.spatial_decoding_utils import (
+    parse_channels_from_columns,
+    select_channel_columns,
+)
+
+
+def test_parse_channels_recovers_ordered_unique_set(per_channel_X):
+    channels = parse_channels_from_columns(per_channel_X.columns.tolist())
+    assert channels == ["Fz", "P1", "P10", "Pz"]  # sorted, unique
+
+
+def test_parse_channels_does_not_confuse_P1_and_P10(per_channel_X):
+    channels = parse_channels_from_columns(per_channel_X.columns.tolist())
+    assert "P1" in channels and "P10" in channels
+
+
+def test_select_channel_columns_returns_only_that_channel(per_channel_X):
+    X_p1 = select_channel_columns(per_channel_X, "P1")
+    assert all(c.startswith("P1_") for c in X_p1.columns)
+    # P10 columns must NOT leak into P1
+    assert not any(c.startswith("P10_") for c in X_p1.columns)
+    assert X_p1.shape[1] == 3  # 3 markers
+
+
+def test_select_channel_columns_raises_on_unknown_channel(per_channel_X):
+    with pytest.raises(ValueError, match="no columns"):
+        select_channel_columns(per_channel_X, "Cz")
+
+
+from utils.spatial_decoding_utils import fdr_correct
+
+
+def test_fdr_correct_matches_benjamini_hochberg_reference():
+    # Known BH example: p = [0.01, 0.02, 0.03, 0.04, 0.05], n=5
+    p = np.array([0.01, 0.02, 0.03, 0.04, 0.05])
+    p_adj, reject = fdr_correct(p, alpha=0.05)
+    # BH adjusted: each p*(n/rank); monotone-enforced
+    expected_adj = np.array([0.05, 0.05, 0.05, 0.05, 0.05])
+    np.testing.assert_allclose(p_adj, expected_adj, rtol=1e-9)
+    assert reject.tolist() == [True, True, True, True, True]
+
+
+def test_fdr_correct_rejects_nothing_when_all_large():
+    p = np.array([0.4, 0.6, 0.8])
+    p_adj, reject = fdr_correct(p, alpha=0.05)
+    assert reject.tolist() == [False, False, False]
+
+
+from utils.spatial_decoding_utils import permutation_pvalue
+
+
+def test_permutation_pvalue_plus_one_convention():
+    # true=0.70, null has 9 values; 1 of them >= 0.70 -> p = (1+1)/(1+9) = 0.2
+    null = [0.50, 0.55, 0.60, 0.45, 0.52, 0.58, 0.49, 0.71, 0.40]
+    p = permutation_pvalue(true_value=0.70, null_values=null)
+    assert p == pytest.approx((1 + 1) / (1 + 9))
+
+
+def test_permutation_pvalue_floor_with_empty_null():
+    # No null -> p = (1+0)/(1+0) = 1.0
+    assert permutation_pvalue(0.7, []) == pytest.approx(1.0)
+
+
+from utils.spatial_decoding_utils import run_spatial_searchlight
+
+
+def _stub_channel_eval(X_ch, channel, **kwargs):
+    """Deterministic stub: AUC scales with number of features; null centered at 0.5."""
+    rng = np.random.default_rng(abs(hash(channel)) % (2**32))
+    mean_auc = 0.5 + 0.01 * X_ch.shape[1]
+    null = (0.5 + 0.02 * rng.standard_normal(20)).tolist()
+    return {
+        "channel": channel,
+        "n_features": X_ch.shape[1],
+        "mean_auc": mean_auc,
+        "std_auc": 0.01,
+        "null_aucs": null,
+        "subject_auc": None,
+    }
+
+
+def test_run_spatial_searchlight_returns_one_row_per_channel(per_channel_X, tmp_path):
+    df = run_spatial_searchlight(
+        X=per_channel_X,
+        channel_eval=_stub_channel_eval,
+        alpha=0.05,
+        results_path=str(tmp_path),
+    )
+    assert sorted(df["channel"].tolist()) == ["Fz", "P1", "P10", "Pz"]
+    for col in ["mean_auc", "std_auc", "perm_p", "perm_p_fdr", "sig", "n_features"]:
+        assert col in df.columns
+    # FDR p >= raw p elementwise
+    assert (df["perm_p_fdr"] >= df["perm_p"] - 1e-9).all()
+    # CSV persisted
+    assert (tmp_path / "per_channel_metrics.csv").exists()
+
+
+from utils.spatial_decoding_utils import build_info_from_channels, plot_channel_topomap
+
+
+def test_build_info_positions_known_1020_channels():
+    info = build_info_from_channels(["Fz", "Cz", "Pz", "Oz"], montage="standard_1020")
+    assert info["nchan"] == 4
+    assert info["ch_names"] == ["Fz", "Cz", "Pz", "Oz"]
+
+
+def test_plot_channel_topomap_writes_png(tmp_path):
+    metrics = pd.DataFrame({
+        "channel": ["Fz", "Cz", "Pz", "Oz"],
+        "mean_auc": [0.55, 0.60, 0.70, 0.52],
+        "perm_p_fdr": [0.20, 0.04, 0.01, 0.50],
+        "sig": [False, True, True, False],
+    })
+    out = tmp_path / "topomap_auc.png"
+    plot_channel_topomap(
+        metrics, value_col="mean_auc", montage="standard_1020",
+        out_path=str(out), mask_col=None, title="AUC",
+    )
+    assert out.exists() and out.stat().st_size > 0
+
+
+from utils.spatial_decoding_utils import plot_combined_topomap_panel
+
+
+def test_plot_combined_panel_writes_png(tmp_path):
+    chans = ["Fz", "Cz", "Pz", "Oz"]
+    per_dim = {
+        d: pd.DataFrame({"channel": chans,
+                         "mean_auc": [0.55, 0.6, 0.7, 0.52],
+                         "sig": [False, True, True, False]})
+        for d in ["onoff", "valence", "selfother", "time", "confidence"]
+    }
+    out = tmp_path / "panel.png"
+    plot_combined_topomap_panel(per_dim, value_col="mean_auc", mask_col="sig",
+                                out_path=str(out), montage="standard_1020")
+    assert out.exists() and out.stat().st_size > 0
+
+
+from utils.spatial_decoding_utils import spatial_cache_path
+
+
+def test_spatial_cache_path_includes_data_format_and_is_collision_safe(tmp_path):
+    p_roi = spatial_cache_path(str(tmp_path), "ON_vs_OFF_within_median", "all", "per_roi")
+    p_ch = spatial_cache_path(str(tmp_path), "ON_vs_OFF_within_median", "all", "per_channel")
+    # per_roi and per_channel caches must NOT collide
+    assert p_roi != p_ch
+    assert p_ch.endswith("ON_vs_OFF_within_median__all__per_channel.pkl")
+    # slashes in contrast names are sanitised
+    p_slash = spatial_cache_path(str(tmp_path), "a/b", "all", "per_channel")
+    assert "/a_b__" in p_slash or p_slash.endswith("a_b__all__per_channel.pkl")
+
+
+from utils.spatial_decoding_utils import permute_labels_within_subject, maxstat_pvalues
+
+
+def test_permute_within_subject_preserves_per_subject_class_counts():
+    y = pd.Series([0, 0, 1, 1, 0, 1, 1, 1])
+    groups = pd.Series(["02", "02", "02", "02", "03", "03", "03", "03"])
+    y_perm = permute_labels_within_subject(y, groups, seed=0)
+    # Per-subject class composition is preserved (it is a within-subject permutation)
+    for s in ["02", "03"]:
+        orig = sorted(y[groups == s].tolist())
+        perm = sorted(y_perm[groups == s].tolist())
+        assert orig == perm
+    # Index/order preserved
+    assert list(y_perm.index) == list(y.index)
+
+
+def test_permute_within_subject_is_deterministic_by_seed():
+    y = pd.Series([0, 1, 0, 1, 1, 0, 0, 1])
+    groups = pd.Series(["02"] * 4 + ["03"] * 4)
+    a = permute_labels_within_subject(y, groups, seed=7)
+    b = permute_labels_within_subject(y, groups, seed=7)
+    c = permute_labels_within_subject(y, groups, seed=8)
+    assert a.tolist() == b.tolist()
+    # Different seed generally yields a different arrangement
+    assert a.tolist() != c.tolist()
+
+
+def test_maxstat_pvalues_fwer_and_threshold():
+    true_auc = {"Fz": 0.55, "Cz": 0.62, "Pz": 0.70, "Oz": 0.51}
+    # Max-null draws (e.g. from 9 permutations)
+    max_null = np.array([0.58, 0.60, 0.57, 0.63, 0.59, 0.61, 0.56, 0.64, 0.55])
+    # alpha=0.15 so the smallest achievable p (1/10=0.1) can clear the threshold
+    df = maxstat_pvalues(true_auc, max_null, alpha=0.15)
+    row = df.set_index("channel")
+    # Pz=0.70: no null >= 0.70 -> p = 1/10
+    assert row.loc["Pz", "perm_p"] == pytest.approx((1 + 0) / (1 + 9))
+    # Cz=0.62: nulls >= 0.62 are {0.63,0.64} = 2 -> p = 3/10
+    assert row.loc["Cz", "perm_p"] == pytest.approx((1 + 2) / (1 + 9))
+    # sig flag uses alpha: Pz (p=0.1<0.15) sig, Cz (p=0.3) not
+    assert bool(row.loc["Pz", "sig"]) is True
+    assert bool(row.loc["Cz", "sig"]) is False
+    # threshold = (1-alpha) quantile of the max-null
+    assert df["fwer_threshold"].iloc[0] == pytest.approx(float(np.quantile(max_null, 0.85)))
+
+
+# --- Integration: full 64-channel merge (max-stat) on synthetic true/perm shards -----
+
+from utils.spatial_decoding_utils import (
+    build_max_null_from_perms,
+    load_true_per_channel,
+    merge_spatial_maxstat,
+)
+
+# The 64 electrodes of this dataset (standard 10-20 names).
+DATASET_CHANNELS = [
+    'AF3','AF4','AF7','AF8','AFz','C1','C2','C3','C4','C5','C6','CP1','CP2','CP3','CP4',
+    'CP5','CP6','CPz','Cz','F1','F2','F3','F4','F5','F6','F7','F8','FC1','FC2','FC3','FC4',
+    'FC5','FC6','FT10','FT7','FT8','FT9','Fp1','Fp2','Fz','Iz','O1','O2','Oz','P1','P2','P3',
+    'P4','P5','P6','P7','P8','PO3','PO4','PO7','PO8','POz','Pz','T7','T8','TP10','TP7','TP8','TP9',
+]
+
+
+def _write_synthetic_run(results_dir, n_perms=200, seed=0):
+    """Write true/ and perms/ CSVs for 64 channels with one planted signal at Pz."""
+    rng = np.random.default_rng(seed)
+    os.makedirs(os.path.join(results_dir, "true"), exist_ok=True)
+    os.makedirs(os.path.join(results_dir, "perms"), exist_ok=True)
+
+    # True AUCs: chance everywhere except a strong Pz (both estimators high).
+    # 'Oz' is a DECOY: high averaged mean_auc but chance single-pass auc_single — it must
+    # NOT be FWER-significant, proving the test uses auc_single, not the displayed mean_auc.
+    true_rows = []
+    for ch in DATASET_CHANNELS:
+        base = 0.50 + rng.normal(0, 0.01)
+        mean_auc, auc_single = base, base
+        if ch == "Pz":
+            mean_auc, auc_single = 0.72, 0.71
+        elif ch == "Oz":
+            mean_auc, auc_single = 0.71, 0.505   # high display, chance test stat
+        true_rows.append({"channel": ch, "n_features": 34, "mean_auc": mean_auc,
+                          "std_auc": 0.01, "auc_single": auc_single})
+    pd.DataFrame(true_rows).to_csv(
+        os.path.join(results_dir, "true", "true_per_channel_auc.csv"), index=False)
+
+    # Permutation draws: every channel ~ chance under H0.
+    for p in range(n_perms):
+        rows = [{"perm_idx": p, "channel": ch, "auc": 0.50 + rng.normal(0, 0.02)}
+                for ch in DATASET_CHANNELS]
+        pd.DataFrame(rows).to_csv(
+            os.path.join(results_dir, "perms", f"perm-{p}.csv"), index=False)
+
+
+def test_build_max_null_takes_max_over_channels_per_perm(tmp_path):
+    import os
+    _write_synthetic_run(str(tmp_path), n_perms=50, seed=1)
+    max_null = build_max_null_from_perms(str(tmp_path))
+    assert max_null.shape == (50,)
+    # Each draw is a max of ~chance values: comfortably between 0.5 and ~0.6
+    assert (max_null >= 0.5).all() and (max_null < 0.65).all()
+
+
+def test_full_merge_maxstat_64_channels(tmp_path):
+    import os
+    _write_synthetic_run(str(tmp_path), n_perms=200, seed=2)
+    metrics = merge_spatial_maxstat(str(tmp_path), alpha=0.05, montage="standard_1020",
+                                    title="test")
+    assert len(metrics) == 64
+    row = metrics.set_index("channel")
+    # Planted strong signal at Pz (both estimators high) must clear the FWER threshold.
+    assert bool(row.loc["Pz", "sig"]) is True
+    assert bool(row.loc["AF3", "sig"]) is False
+    # Oz is a decoy: high DISPLAYED mean_auc but chance single-pass test stat -> NOT sig.
+    # This proves the FWER test uses auc_single, while the topomap colours by mean_auc.
+    assert row.loc["Oz", "mean_auc"] > 0.70
+    assert bool(row.loc["Oz", "sig"]) is False
+    # Outputs persisted with the expected columns (display mean_auc + test stat auc_single).
+    out = pd.read_csv(tmp_path / "per_channel_metrics.csv")
+    assert set(["channel", "mean_auc", "auc_single", "perm_p", "sig",
+                "fwer_threshold", "n_features"]).issubset(out.columns)
+    assert (tmp_path / "topomap_auc.png").stat().st_size > 0
+    assert (tmp_path / "topomap_sig.png").stat().st_size > 0
+
+
+def test_merge_raises_when_no_shards(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_true_per_channel(str(tmp_path))

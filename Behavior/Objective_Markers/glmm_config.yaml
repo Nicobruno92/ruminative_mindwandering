@@ -1,0 +1,53 @@
+# Configuration for the GLMM re-specification of objective behavioural markers.
+# See docs/superpowers/specs/2026-07-22-glmm-objective-markers-design.md
+
+r:
+  # Absolute path: verified to work without `module load` (R 4.6.0, lme4 2.0.1).
+  rscript_path: <PATH_TO_YOUR_RSCRIPT_BINARY>
+  script: glmm_fit.R
+  optimizer: bobyqa
+  maxfun: 100000
+
+markers:
+  omission_rate:
+    family: binomial
+    success_col: n_omissions
+    total_col: n_go
+    olre: true
+  commission_rate:
+    family: binomial
+    success_col: n_commissions
+    total_col: n_nogo
+    olre: true
+  total_errors:
+    family: binomial
+    success_col: _total_error_count
+    total_col: n_trials_window
+    olre: true
+  rtcv:
+    family: Gamma
+    link: log
+    response_col: rtcv
+    olre: false
+
+# Sensitivity track: transformed response fitted with statsmodels.mixedlm
+transforms:
+  omission_rate:   {type: empirical_logit, success_col: n_omissions,        total_col: n_go}
+  commission_rate: {type: empirical_logit, success_col: n_commissions,      total_col: n_nogo}
+  total_errors:    {type: empirical_logit, success_col: _total_error_count, total_col: n_trials_window}
+  rtcv:            {type: log,             response_col: rtcv}
+
+# Haldane correction constant for the empirical logit
+empirical_logit_correction: 0.5
+
+tracks:
+  glmm:                    {output_subdir: glmm,                    primary: true}
+  sensitivity_gaussian:    {output_subdir: sensitivity_gaussian,    primary: false}
+  sensitivity_transformed: {output_subdir: sensitivity_transformed, primary: false}
+  sensitivity_olre:        {output_subdir: sensitivity_olre,        primary: false}
+
+diagnostics:
+  output_subdir: diagnostics
+  n_residual_bins: 40
+
+random_state: 42

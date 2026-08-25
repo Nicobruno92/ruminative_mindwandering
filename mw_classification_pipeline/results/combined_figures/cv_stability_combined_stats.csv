@@ -1,0 +1,11 @@
+row_label,col_label,xref,yref,x,y,text
+,,x domain,y domain,0.05,0.96,r=0.45 | p=.014
+,,x2 domain,y2 domain,0.05,0.96,r=0.45 | p=.031
+,,x3 domain,y3 domain,0.05,0.96,r=0.10 | p=.577
+,,x4 domain,y4 domain,0.05,0.96,r=-0.51 | p=.006
+,,x5 domain,y5 domain,0.05,0.96,r=0.61 | p=.002
+,,x6 domain,y6 domain,0.05,0.96,r=0.40 | p<.001
+,,x7 domain,y7 domain,0.05,0.96,r=0.20 | p<.001
+,,x8 domain,y8 domain,0.05,0.96,r=0.14 | p<.001
+,,x9 domain,y9 domain,0.05,0.96,r=0.02 | p=.487
+,,x10 domain,y10 domain,0.05,0.96,r=0.38 | p<.001

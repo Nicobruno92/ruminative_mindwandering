@@ -1,0 +1,11 @@
+row_label,col_label,xref,yref,x,y,text
+On/Off-Task,Within-Subject,x domain,y domain,1.03,0.5,<b>*** p < .001</b> | (FDR: p < .001)
+,LOSO,x2 domain,y2 domain,1.03,0.5,<b>*** p < .001</b> | (FDR: p < .001)
+Valence,Within-Subject,x3 domain,y3 domain,1.03,0.5,<b>*** p < .001</b> | (FDR: p < .001)
+,LOSO,x4 domain,y4 domain,1.03,0.5,<b>p = 0.102</b> | (FDR: p = 0.127)
+Self/Other,Within-Subject,x5 domain,y5 domain,1.03,0.5,<b>*** p < .001</b> | (FDR: p < .001)
+,LOSO,x6 domain,y6 domain,1.03,0.5,<b>p = 0.266</b> | (FDR: p = 0.266)
+Time,Within-Subject,x7 domain,y7 domain,1.03,0.5,<b>* p = 0.028</b> | (FDR: p = 0.028)
+,LOSO,x8 domain,y8 domain,1.03,0.5,<b>p = 0.080</b> | (FDR: p = 0.127)
+Confidence,Within-Subject,x9 domain,y9 domain,1.03,0.5,<b>*** p < .001</b> | (FDR: p < .001)
+,LOSO,x10 domain,y10 domain,1.03,0.5,<b>*** p < .001</b> | (FDR: p < .001)

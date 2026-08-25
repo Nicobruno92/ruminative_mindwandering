@@ -1,0 +1,46 @@
+# =============================================================================
+# Depressed Mind-Wandering / CYBERSART Pipeline Configuration
+# =============================================================================
+# This file configures the automatic element discovery for the Junifer pipeline.
+# Elements are discovered by scanning the datadir for files matching the pattern.
+
+# Data directory containing preprocessed epoch files (CYBERSART derivatives)
+datadir: <PATH_TO_YOUR_BIDS_DERIVATIVES_ROOT>
+
+# File pattern to match (BIDS-style with placeholders)
+# Available placeholders: {subject}, {task}, {desc}
+# This project does NOT use sessions.
+pattern: "{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif"
+
+# =============================================================================
+# Element Filters
+# =============================================================================
+# Leave empty [] to auto-discover all available values from the data directory.
+# Or specify exact values to process only those.
+
+# Subjects to process (empty = all available)
+# Example: ["sub-02", "sub-03", "sub-04"]
+subjects: []
+
+# Sessions to process (not used in this project)
+sessions: []
+
+# Tasks to process (empty = all available)
+# Example: ["Sart1", "Sart2", "Sart3", "Sart4"]
+tasks: []
+
+# Description/epoch types to process (required)
+# These determine which config_*.yaml files are used
+descriptions:
+  - evoked
+  - state
+  - sleep
+
+# =============================================================================
+# SLURM Settings
+# =============================================================================
+slurm:
+  max_concurrent: 20
+  time: "08:00:00"
+  memory: "8G"
+  cpus: 4

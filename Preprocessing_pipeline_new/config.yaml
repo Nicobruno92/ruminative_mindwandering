@@ -1,0 +1,237 @@
+# =============================================================================
+# DETERMINISTIC EEG PREPROCESSING PIPELINE CONFIGURATION
+# =============================================================================
+# This pipeline is designed for scientific replicability - no fallback methods.
+# All operations use exactly one specified method with fixed random seeds.
+# Changes to parameters will affect reproducibility.
+# =============================================================================
+
+# =============================================================================
+# 1. PROJECT CONFIGURATION AND DATA PATHS
+# =============================================================================
+project:
+  dataset_name: "EEG Multicenter Harmonized Dataset"
+  data_root: "<PATH_TO_YOUR_RAW_DATA_ROOT>"  # input location
+  bids_root: "<PATH_TO_YOUR_BIDS_ROOT>"         # BIDS raw output root
+  raw_root: "<PATH_TO_YOUR_BIDS_RAW_ROOT>"         # BIDS raw output root
+  # raw_root: "/Volumes/cenir/analyse/meeg/CYBERSART/BIDS/raw" #if running on local machine
+  derivatives_root: "<PATH_TO_YOUR_BIDS_DERIVATIVES_ROOT>"  # derivatives output root
+  brainvision_pattern: "CYBERSART_*_{task}.vhdr"
+  montage: "CACS-64_REF.bvef"  # Use CACS-64_REF.bvef montage
+  line_freq_hz: 50
+  overwrite: true
+  metadata_csv: "<PATH_TO_YOUR_RAW_DATA_ROOT>/metadata_experiment.csv"
+
+# Subjects and tasks to process
+subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+tasks: ["Sart1", "Sart2", "Sart3", 'Sart4']
+
+# =============================================================================
+# 2. INITIAL PROCESSING PARAMETERS
+# =============================================================================
+# Target resampling rate and basic filtering
+sr_target: 250  # target resampling rate for the pipeline
+notch_freqs: [50, 100]  # line noise removal frequencies
+avg_ref_projector: true  # apply average reference
+
+# =============================================================================
+# 3. ARTIFACT SUBSPACE RECONSTRUCTION (ASR)
+# =============================================================================
+# Optional ASR step applied before PyPREP bad channel detection
+# Helps reduce high-amplitude artifacts in the data
+asr:
+  apply: true              # set true to enable ASR
+  cutoff: 3.0              # SD cutoff for artifact detection (lower=stricter)
+  blocksize: null          # block size in samples (null=auto: 0.5s worth)
+  win_len: 0.5             # calibration window length in seconds
+  win_overlap: 0.66        # calibration window overlap fraction
+  max_dropout_fraction: 0.1  # max fraction of channels to drop per window
+  method: euclid           # ASR method: 'euclid' or 'riemann'
+
+# =============================================================================
+# 4. BAD CHANNEL DETECTION (PYPREP)
+# =============================================================================
+pyprep:
+  ransac: true      # use RANSAC for bad channel detection
+  channel_wise: true # channel-wise detection
+  do_detrend: true  # detrend before detection
+
+# Optional light prefilter applied ONLY for bad-channel detection (PyPREP)
+# This helps avoid over-flagging frontal channels dominated by slow drifts
+# and strong blinks. The original Raw remains unfiltered for downstream steps.
+pyprep_prefilter:
+  apply: true     # set true to enable
+  l_freq: 1      # e.g., 0.5–40 Hz
+  h_freq: 30
+
+# Optional quick ICA on a copy before bad-channel detection
+# Helps reduce frontal over-flagging by removing ocular/muscle on the fly
+pyprep_pre_ica:
+  apply: true
+  method: fastica          # fast and deterministic
+  n_components: 0.95       # proportion of variance
+  max_iter: 200            # fewer iterations for speed
+  filters: { l_freq: 1.0, h_freq: 40 }
+  eog_channels: [VEOG, HEOG]  # set to your EOG channel names if available
+  muscle_threshold: 0.7
+
+# =============================================================================
+# 5. FILTERING PARAMETERS
+# =============================================================================
+filters:
+  ica: {l_freq: 1, h_freq: 30}      # Filter for ICA fitting (same as analysis)
+  analysis: {l_freq: 0.1, h_freq: 35}   # Filter for evoked analysis
+
+# =============================================================================
+# 6. ICA PARAMETERS
+# =============================================================================
+ica:
+  method: picard        # Single deterministic method: 'picard', 'infomax', or 'fastica'
+  n_components: null    # Number of components (proportion of variance) if null all PCA components up to the data rank
+  max_iter: 1000        # Explicit iteration limit for reproducibility
+  random_state: 42      # Random seed for reproducibility
+
+# ICA component classification and exclusion (variance-based system)
+ica_selection:
+  # Base probability thresholds (adjusted upward by component variance)
+  iclabel_prob_min: 0.60          # Base minimum probability for ICLabel artifacts
+  muscle_threshold: 0.85          # Base threshold for muscle/ICM detection
+
+  # Pattern matching bonus (added to ICLabel score if detected by EOG/muscle)
+  pattern_bonus: 0.30              # +10% score bonus for pattern matching confirmation
+                                   # Makes detection more confident when multiple methods agree
+  
+  # Variance-based penalty system
+  variance_penalty_factor: 0.5     # Threshold increase per unit of variance
+                                   # Example: 10% variance → +0.05 to threshold
+
+  # Maximum threshold cap (prevents impossible thresholds for high-variance ICs)
+  max_threshold_cap: 0.95          # Adjusted threshold cannot exceed this value
+  
+  # Maximum variance budget (absolute excluded variance fraction of total)
+  max_excluded_variance_ratio: 0.90  # Fraction of total variance allowed to be excluded
+                                     # Example: 0.40 means up to 40% of total variance may be excluded
+
+  
+# =============================================================================
+# 7. EPOCHING PARAMETERS
+# =============================================================================
+# Evoked epochs (event-related)
+epochs_evoked:
+  tmin: -0.2           # Start time relative to event (seconds)
+  tmax: 1            # End time relative to event (seconds)
+  baseline: [-0.2, 0]  #[-0.2, 0]  # Baseline correction window
+
+evoked_filter_go_nogo_only: true  # Only include go/nogo events for evoked analysis
+
+# Coarse epoch rejection threshold (applied before AutoReject)
+# This catches extremely noisy epochs; fine-tuning is done by AutoReject
+# Set high thresholds to only reject the worst artifacts
+epoch_reject_threshold:
+  eeg: 0.0005  # 500 µV (500e-6 V) peak-to-peak for EEG channels (very permissive)
+
+# State windows (pre-probe analysis)
+state_windows:
+  pre_probe_s: 10                    # Duration before probe (seconds)
+  mini_epoch_s: 3                    # Mini-epoch duration (seconds)
+  exclude_last_s_before_resp: 0    # Exclude period before response
+
+state_windows_overlap_s: 2.0  # Overlap between state windows (seconds)
+
+# Sleep windows (long pre-probe epochs)
+sleep_windows:
+  pre_probe_s: 20                    # Duration before probe for sleep epochs (seconds)
+  reject_by_annotation: false        # Whether to reject epochs overlapping with bad annotations
+
+# Additional processing
+use_csd: false        # Compute current source density
+                      # CSD is computed after ICA cleaning on artifact-removed data
+                      # and saved as a separate derivative for spatial analysis.
+                      # This follows MNE best practices for CSD on clean data.
+
+# =============================================================================
+# 8. ARTIFACT REJECTION (AUTOREJECT)
+# =============================================================================
+autoreject:
+  cv: 10           # Cross-validation folds
+  random_state: 42 # Random seed for reproducibility
+  n_jobs: -1        # Parallel jobs
+  # Parámetros menos estrictos para AutoReject
+  thresh_method: bayesian_optimization   # opciones: 'bayesian_optimization', 'random_search'
+  n_interpolate: [1,2,4,8,16]
+  n_consensus: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]  # Higher consensus = more permissive (0.7 selected is reasonable)
+  picks: null  # picks_eeg will be used from pipeline (excludes REF/EXG/EOG)
+
+reject_threshold_uv: 150  # Manual rejection threshold (microvolts)
+
+# =============================================================================
+# 9. THOUGHT PROBE ANALYSIS PARAMETERS
+# =============================================================================
+# Thresholds for binarizing thought probe dimensions
+thought_thresholds:
+  onoff: 50       # On-task vs off-task threshold
+  selfother: 50   # Self vs other threshold
+  valence: 50     # Valence threshold
+  time: 50        # Temporal focus threshold
+  confidence: 50  # Confidence threshold
+  average: 50     # Average threshold
+
+# =============================================================================
+# 9. QUALITY ASSESSMENT (QA) PARAMETERS
+# =============================================================================
+# Frequency bands for QA analysis
+qa_bands:
+  line: [48, 52]      # Line noise band
+  emg: [30, 80]       # EMG/muscle activity band
+  blink_low: [1, 4]   # Low-frequency blink artifacts
+
+# QA thresholds for pass/fail criteria
+qa_thresholds:
+  max_bad_epochs_ratio: 0.35           # Maximum ratio of rejected epochs
+  min_line_noise_db_improvement: 3.0   # Minimum line noise reduction (dB)
+  max_bad_channels_ratio: 0.20         # Maximum ratio of bad channels
+  max_annot_dropped_epochs_ratio: 0.50 # Maximum ratio of annotation-dropped epochs
+
+# =============================================================================
+# 10. PASS/FAIL CRITERIA
+# =============================================================================
+# Pass/Fail criteria for preprocessing (controls inclusion in next steps)
+# A subject-task will be marked as failed if ANY flag in `fail_on_flags` is present.
+# If `require_all_flags_absent` is true, then the presence of ANY flag causes failure
+# regardless of `fail_on_flags` content.
+pass_criteria:
+  fail_on_flags: [
+    "max_bad_channels_ratio",
+    "max_bad_epochs_ratio",Holahola4
+    
+    "max_annot_dropped_epochs_ratio",
+    "variance_budget_exceeded",  # New flag: ICA variance budget was exceeded
+    "ocular_ic_required"
+  ]
+  require_all_flags_absent: false
+
+# =============================================================================
+# 11. ANNOTATION HARMONIZATION
+# =============================================================================
+# Harmonizes event annotations to standardized format while preserving original content
+annotation_harmonization:
+  enabled: true
+  # ONTASK/OFFTASK classification based on onoff dimension
+  # ONTASK = onoff >= ontask_threshold, OFFTASK = onoff < ontask_threshold
+  ontask_threshold: 50
+  # Dimension used for ONTASK/OFFTASK classification
+  ontask_dimension: "onoff"
+
+# =============================================================================
+# 12. OUTPUT FILE NAMING
+# =============================================================================
+# Derivative description names for BIDS compliance
+names:
+  raw_clean_desc: icaClean  # Clean raw data after ICA
+  csd_desc: csd            # Current source density data
+  ica_desc: ica            # ICA decomposition
+  evoked_desc: evoked      # Evoked epochs
+  state_desc: state        # State epochs
+  sleep_desc: sleep        # Sleep (long pre-probe) epochs
+
+

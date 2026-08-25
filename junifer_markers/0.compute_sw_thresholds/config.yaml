@@ -1,0 +1,72 @@
+# =============================================================================
+# Step 0 — Per-subject PTP thresholds for slow-wave detection
+# =============================================================================
+# Computes a per-subject, per-channel peak-to-peak amplitude threshold by
+# pooling waves detected across ALL four task blocks (Sart1..Sart4) of the
+# subject's single session. Output CSV is consumed by the SlowWavesDetection
+# marker in step 1 via `ptp_thresholds_path`.
+#
+# Design rationale (vs Andrillon 2021 / Pinggal 2022)
+# ---------------------------------------------------
+# In the absence of a pharmacologically-defined reference condition (no
+# placebo arm in this study), the threshold pool is taken from the union of
+# all four pre-probe windows of every block. The pool is therefore
+# condition-blind by construction: it does NOT preferentially sample on-task
+# or mind-wandering probes, so the within-subject contrast on slow-wave
+# density between conditions remains valid (Bernardi 2015; Hung 2013;
+# Vyazovskiy 2011).
+#
+# Paths are relative to the repo root resolved via `git rev-parse --show-toplevel`.
+
+project:
+  derivatives_dir: "<PATH_TO_YOUR_BIDS_DERIVATIVES_ROOT>"
+  output_csv: "<PATH_TO_YOUR_BIDS_FEATURES_ROOT>/sw_thresholds/pooled_sw_thresholds.csv"
+
+# Tasks to pool waves from when computing the per-subject distribution.
+# Pooling all four blocks ensures the threshold is condition-blind and
+# maximises N for stable percentile estimation.
+tasks:
+  - "Sart1"
+  - "Sart2"
+  - "Sart3"
+  - "Sart4"
+
+# BIDS desc for the pre-probe window epochs (Junifer step 1 uses the same).
+epoch_desc: "sleep"
+
+# =============================================================================
+# Detection parameters — MUST match those in step 1 (config_sleep.yaml)
+# =============================================================================
+detection:
+  method: "custom"           # zero-crossing + Chebyshev II, Andrillon-style
+  freq_sw: [1.0, 10.0]       # bandpass [1, 10] Hz (Andrillon 2021)
+  amp_ptp_initial: 15.0      # initial PTP cutoff during detection (µV)
+  reference_channels: ["TP9", "TP10"]
+
+# =============================================================================
+# Post-detection filters — MUST match step 1 too
+# =============================================================================
+filters:
+  freq_threshold: 7.0          # discard waves with frequency > 7 Hz
+  artifact_threshold: 75.0     # discard waves with positive peak >= 75 µV
+  # Pinggal / Andrillon do NOT define an absolute PTP cap on the wave itself.
+  # Their rejection rules are (a) pos-peak >75 µV, (b) freq >7 Hz / dur <143 ms,
+  # (c) proximity to a |amp|>150 µV artifact within ±1 s. A wave whose PTP is
+  # large but whose individual peaks are <75 µV AND that has no nearby
+  # artifact should be kept. Junifer accepts only float, not None, so we
+  # effectively disable the cap with a huge value.
+  max_ptp_amplitude: 100000.0
+  # Pinggal 2022 / Andrillon 2021 proximity rule: drop waves whose center
+  # falls within ± proximity_window seconds of any sample where the
+  # bandpassed, re-referenced signal exceeds proximity_amplitude (µV).
+  proximity_amplitude: 150.0
+  proximity_window: 1.0
+
+# Percentile of PTP used to define the high-amplitude cutoff (paper: 90).
+percentile: 90.0
+
+# =============================================================================
+# Subject filter (null = auto-discover all subjects with at least one matching
+# desc-{epoch_desc} .fif under derivatives_dir).
+# =============================================================================
+subjects: null

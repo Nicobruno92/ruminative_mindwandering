@@ -1,0 +1,886 @@
+trace_index,trace_type,trace_name,row_label,col_label,x,y,subject
+0,scatter,On/Off-Task (other),,On/Off-Task,-0.07208203432214173,0.06054101456372969,N1_mean_occipitoparietal_lateral_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.024239039068302215,0.10008106713646926,P1_mean_occipitoparietal_lateral_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.15249892130680587,-0.026970331469846776,P3a_mean_frontocentral_midline_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3688059092956471,0.0851502015166922,P3b_mean_centroparietal_midline_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.15808719433046034,0.5693422308688907,PE_alpha_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.16087434030477307,0.5462304974929358,PE_alpha_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2610322794609222,-0.031258197189919415,PE_alpha_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.12942480263203449,-0.04193721826505134,PE_alpha_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.09052017710278584,-0.0181973050189773,PE_alpha_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.12391082135746682,0.254518530890145,PE_alpha_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.1654619045418352,0.5419515466282651,PE_alpha_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5361069801370436,0.012542947422588846,PE_beta_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5898612782229183,0.0225673713453212,PE_beta_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5262929662676419,-0.008803055431559924,PE_beta_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.6253784393630806,0.18215294744864505,PE_beta_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5089948732217738,0.01800371965041718,PE_beta_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5427850005432839,0.0953777269517438,PE_beta_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3637950327061874,0.11446723665444128,PE_beta_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5885314077773325,-0.0076133084037326776,PE_gamma_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5764742204989723,0.0689696931045662,PE_gamma_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5389287261725784,0.005760666309834465,PE_gamma_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.6436279824916129,0.16546747755184718,PE_gamma_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5048562869087595,0.01303456721330359,PE_gamma_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5541024146217425,0.03652290242670869,PE_gamma_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.33259319988949665,0.12502210080730347,PE_gamma_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.37974057783711723,-0.02312120284559445,PE_theta_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5194584695594107,0.04066999360397255,PE_theta_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3733159885402736,0.03126214699833359,PE_theta_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.4814198639269089,-0.0072080999209716955,PE_theta_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.38507744241431074,0.03203731766735709,kolmogorov_complexity_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.28132182013696344,-0.015080831661565429,kolmogorov_complexity_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5186973752856153,0.17270968145303414,kolmogorov_complexity_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.23180264366004563,0.026264891970700827,kolmogorov_complexity_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3160501278842276,0.1143033957662217,kolmogorov_complexity_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.22555322363547173,-0.02213013795838755,kolmogorov_complexity_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5505173502388092,0.04859820303062272,kolmogorov_complexity_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.4644267191981686,0.4013058034090476,kolmogorov_complexity_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5247094523383699,0.18713950575691762,kolmogorov_complexity_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.24639430856266692,0.4013328317578828,psd_relative_alpha_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3321188324792845,0.27496413544054915,psd_relative_alpha_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3030247863161771,0.26937940135462857,psd_relative_alpha_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.32953985063431024,0.21114951409431212,psd_relative_alpha_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.39323674296195804,0.48035731449866476,psd_relative_alpha_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.17037766775036914,0.06393128953169451,psd_relative_alpha_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3437117853540381,0.5335821487636538,psd_relative_alpha_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5149539439677634,0.24453077201918305,psd_relative_alpha_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.29311185619734637,0.5736756571330673,psd_relative_alpha_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3421471891831857,0.10736602832732152,psd_relative_beta_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.25077864038644143,0.12122498259228964,psd_relative_beta_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2183132518072804,0.00924783917846641,psd_relative_beta_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.23825663301641856,-0.008320317148919119,psd_relative_beta_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.07766329014214225,-0.04283511758408339,psd_relative_beta_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.07801681775009271,0.22813613528214224,psd_relative_beta_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.287035584472488,0.1092125698804967,psd_relative_beta_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3098053557220983,0.19848075587702077,psd_relative_beta_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.4168984724473652,0.06206143359919558,psd_relative_delta_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.4862879791950694,0.3087011673151516,psd_relative_delta_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.14381754865275037,0.03759752303803075,psd_relative_delta_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.33867595120007155,0.17382388296116635,psd_relative_delta_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.13650871706545256,0.0801589245442667,psd_relative_delta_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5493723000825792,0.11003180776572656,psd_relative_delta_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3826934168467238,0.03208022122737429,psd_relative_delta_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3527040795389386,0.018105736246588594,psd_relative_delta_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3893213965249546,0.0023705501634694996,psd_relative_gamma_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.29288221867939424,0.11395658612218848,psd_relative_gamma_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.29481360367710946,-0.031108688082243024,psd_relative_gamma_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.31266701950329445,0.2518662051259209,psd_relative_gamma_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2933624515597152,-0.0015486443915750674,psd_relative_gamma_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2844930354406293,0.028549074379422626,psd_relative_gamma_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.17552497847634774,0.034227273313496905,psd_relative_gamma_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.1437397901389883,-0.025700401927331498,psd_relative_theta_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.15669193794789513,-0.020191853741458873,psd_relative_theta_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2165114273065427,-0.058896478855060434,psd_relative_theta_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.4118185735475524,0.2927784987670496,psd_relative_theta_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.17780390876128968,-0.018428963534512153,psd_relative_theta_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.22887495226517027,-0.027922403144382404,psd_relative_theta_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.23742707778610564,0.04156580679466349,psd_relative_theta_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2799208050825041,0.04582061249212087,slowwaves_Density_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.37660617157350207,0.2736025227883587,slowwaves_Density_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.5521134334454413,0.04174397943353811,slowwaves_Density_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.3774176817006559,0.44054780763781703,slowwaves_Density_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.4834275807562174,0.13758174882293156,slowwaves_Density_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.19258195802848452,0.1404716652551816,slowwaves_Density_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.65716644784887,0.405540183202625,slowwaves_Density_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.18569476025010248,0.005362543153721566,slowwaves_Duration_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.03212389642243219,0.043185808946117586,slowwaves_Duration_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.09214796127096857,0.007475573235679143,slowwaves_Duration_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.03799359168208438,-0.0007236580867831478,slowwaves_Duration_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,-0.017197736691580142,0.1415688051266279,slowwaves_Duration_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.052216041859448975,-0.018844151119146235,slowwaves_Duration_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,-0.04364252678319666,0.026446550927937164,slowwaves_Duration_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,-0.029710802904537852,0.0076915787496491484,slowwaves_Duration_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.01716684637751613,0.06591888958705523,slowwaves_Duration_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.25666854043115284,0.01874571848612395,slowwaves_Frequency_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.059243437807071406,0.0024686522474919215,slowwaves_Frequency_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.20516679993056008,0.04254602139905649,slowwaves_Frequency_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.09431616253266899,-0.00231561000245698,slowwaves_Frequency_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.015820051103254785,0.01731924565473129,slowwaves_Frequency_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.0796707155092349,-0.0380045924358036,slowwaves_Frequency_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,-0.02561203938486166,0.007288899465885301,slowwaves_Frequency_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.03418029765250628,0.0028070404044038748,slowwaves_Frequency_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.028597908012140513,0.19469212389622748,slowwaves_Frequency_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.37569632486110055,-0.015069757076653843,slowwaves_PTP_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.14475408752864605,0.03468376468242296,slowwaves_PTP_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.061131464234919775,0.23419374503908105,slowwaves_PTP_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.07833375331440652,-0.0390819700036736,slowwaves_PTP_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2505767076216578,0.17248042176339407,slowwaves_PTP_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2819166245293341,0.12640449010077734,slowwaves_PTP_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.11315459666165398,-0.02973260014981296,slowwaves_PTP_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.03259082861147677,-0.005411614436787235,slowwaves_PTP_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,-0.032348883802423054,-0.04148996129290506,slowwaves_PTP_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.12275446406336085,0.03984143418798239,slowwaves_Slope_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.11932026406248394,-0.014464318770202251,slowwaves_Slope_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.06443570456938193,0.24348762969622315,slowwaves_Slope_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.042530077654877194,0.05707228681653928,slowwaves_Slope_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.10364035998437335,-0.035109368437940824,slowwaves_Slope_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.19138565407751817,-0.0015597093025022483,slowwaves_Slope_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.0625806782588854,0.048703087788007436,slowwaves_Slope_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.025640544024488173,-0.033155060191336475,slowwaves_Slope_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,-0.014547117534961164,0.015925199587078054,slowwaves_Slope_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,-0.04719248224323228,0.07239245176083806,wsmi_alpha_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.039280209451917326,-0.012223392756704277,wsmi_alpha_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.021749401940234295,0.003751655465943102,wsmi_alpha_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.13345080261341577,-0.03208595417715593,wsmi_alpha_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.033515510083451557,-0.04228200152930505,wsmi_alpha_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.21132732577899657,-0.03984875280487311,wsmi_alpha_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.16599628761049745,0.00035309620363167544,wsmi_alpha_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.09261412271232172,-0.0195523866692381,wsmi_alpha_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.10335017355404102,0.040424218463961784,wsmi_alpha_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.26986353558261783,0.07841766358672672,wsmi_beta_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.16899110676499365,-0.0068581200850708224,wsmi_beta_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.006111965016571092,0.004943650401214782,wsmi_beta_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.2875146030520981,0.1700080427771237,wsmi_beta_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.07194554615879437,-0.02930971717445243,wsmi_beta_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.1241968073054893,-0.004703997822066468,wsmi_beta_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.27871615758748325,0.036228854147243826,wsmi_beta_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.0579468806627974,0.1072706531437718,wsmi_beta_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.17166494313542335,-0.05475983639065635,wsmi_beta_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.07841790007078936,0.077544495663493,wsmi_gamma_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.17190250129767842,0.030531363611613557,wsmi_gamma_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.05633178460459548,0.0346087449490341,wsmi_gamma_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.12969461276711958,0.16294644094059263,wsmi_gamma_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.08313956405033182,0.03274350933338396,wsmi_gamma_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.33566020921221273,0.0514449588455749,wsmi_gamma_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.28257989553771573,0.1332938863758524,wsmi_gamma_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.045363872487727094,0.3191383841396952,wsmi_gamma_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.42852828048999525,-0.07817712147033444,wsmi_gamma_mean_posterior_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.17422552365981508,0.24057770228549114,wsmi_theta_mean_central_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.06021995772060662,0.1004472235367294,wsmi_theta_mean_central_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.11274174960803428,0.009302864346268805,wsmi_theta_mean_central_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.28386443661528254,0.26088848338243636,wsmi_theta_mean_frontal_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.03094450538280376,0.029483021736900705,wsmi_theta_mean_frontal_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.275682633027959,0.19100641067423493,wsmi_theta_mean_frontal_right_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.06903056840122164,-0.053975603546897455,wsmi_theta_mean_posterior_left_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.19632372469752898,0.12473286318489644,wsmi_theta_mean_posterior_mid_trimmean
+0,scatter,On/Off-Task (other),,On/Off-Task,0.003705178601996667,0.3001124872576553,wsmi_theta_mean_posterior_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.6388793813130114,0.6355639693049718,PE_alpha_mean_central_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.2790784685678404,0.6385957684099697,PE_alpha_mean_posterior_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.946495123768239,0.11405520487025843,PE_beta_mean_frontal_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.32741931001628,0.49073880570987655,PE_beta_mean_frontal_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.8836541245944588,0.1758080310882723,PE_gamma_mean_frontal_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.40754722557730527,0.8525858257561222,PE_gamma_mean_frontal_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.6874364474340185,0.12078490061614398,PE_theta_mean_central_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,1.0,0.28442635644622993,PE_theta_mean_central_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.5396682522446085,0.10782886892813699,PE_theta_mean_frontal_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.6403770890923821,0.204415944249579,PE_theta_mean_posterior_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.7655562851069841,0.009550892562192062,PE_theta_mean_posterior_mid_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.4142292358073896,0.8472307422977061,psd_relative_beta_mean_central_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.5982905894319743,0.09551820194940804,psd_relative_delta_mean_posterior_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.6340068523813571,0.12783622148224583,psd_relative_gamma_mean_frontal_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.2346333017175972,1.0,psd_relative_gamma_mean_frontal_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.8148743842537146,0.40008874257867644,psd_relative_theta_mean_frontal_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.4335737179916847,0.4461325406889322,psd_relative_theta_mean_frontal_right_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.3352198402478112,0.8189594912565576,slowwaves_Density_mean_frontal_left_trimmean
+1,scatter,On/Off-Task,,On/Off-Task,0.41582291689876183,0.5821897492245895,slowwaves_Density_mean_frontal_right_trimmean
+2,scatter,,,On/Off-Task,-1.05,-0.17488900629219395,
+2,scatter,,,On/Off-Task,1.05,0.3030500883177138,
+3,scatter,Valence (other),,Valence,0.0026539093995523776,-0.019597997004528127,N1_mean_occipitoparietal_lateral_trimmean
+3,scatter,Valence (other),,Valence,0.08041098757016432,-0.015161217798914606,P1_mean_occipitoparietal_lateral_trimmean
+3,scatter,Valence (other),,Valence,0.07044587480138306,0.05653088780347407,P3a_mean_frontocentral_midline_trimmean
+3,scatter,Valence (other),,Valence,0.026964046849092933,-0.02852335667997378,P3b_mean_centroparietal_midline_trimmean
+3,scatter,Valence (other),,Valence,0.24085057609944388,-0.018102207692176395,PE_alpha_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.3461466474765345,-0.004370512932568653,PE_alpha_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.014589099763870402,-0.011166222711544101,PE_alpha_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.12464565232758558,0.00023829327142568785,PE_alpha_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,-0.034788480655852425,-0.007188745198081124,PE_alpha_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.2473935360381095,0.007243085453979063,PE_alpha_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.23802789710906405,-0.008195396679707102,PE_alpha_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.04053153946501561,0.08182918815364149,PE_alpha_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.014268369675526775,0.0617165962794979,PE_alpha_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.4266712936713955,-0.04781324401943465,PE_beta_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.030834534975139716,-0.018036717463530607,PE_beta_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.23674769057012077,-0.005999456893012363,PE_beta_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.25048907881372195,-0.035277745208848736,PE_beta_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.1834423208106377,-0.029199114538260997,PE_beta_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.04216977950916891,-0.001886629885860463,PE_beta_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.4098768037467096,-0.0010057524943326943,PE_beta_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.29755496419044036,0.0801835224563209,PE_beta_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.21442457017162325,0.0301721535548106,PE_beta_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.461715522233139,-0.05379972505549161,PE_gamma_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.04885666687764953,0.04198253576669165,PE_gamma_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.220490643198369,-0.020410626065064885,PE_gamma_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.3019357770905799,-0.04294223579304,PE_gamma_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.19744216753060406,-0.030959071384806088,PE_gamma_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.08971719332546185,-0.02192692490184571,PE_gamma_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.40358108974394336,-0.012097326758614482,PE_gamma_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.4888052866355719,0.01678985962975557,PE_gamma_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.27060889265999094,0.05258158889159087,PE_gamma_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.1717476412046483,-0.027276691167185084,PE_theta_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.1104178657794923,0.10719365376200785,PE_theta_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.04176596061615843,0.062813150587366,PE_theta_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.13730225746387445,-0.02127006410847345,PE_theta_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.36491320848265196,0.13404226051703796,PE_theta_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.20378358045764877,0.16539755182968974,PE_theta_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.16489790622203,0.04122956112950784,PE_theta_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.519909428506218,-0.03090278156058605,PE_theta_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.12267041563076522,-0.010044169737350268,PE_theta_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.512705380244969,-0.060020267880655204,kolmogorov_complexity_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.4000958983618008,0.08562056364219772,kolmogorov_complexity_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.1474936768261717,0.00773048665069778,kolmogorov_complexity_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.33102424726063173,0.0866484776033447,kolmogorov_complexity_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.18233967853764646,0.013954273255198121,psd_relative_alpha_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,-0.0442523270262667,-0.01873334985462056,psd_relative_alpha_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.048995356480023185,0.008764147201551869,psd_relative_alpha_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.047530940658022575,0.1826457460320939,psd_relative_alpha_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.04830239313997245,0.02892360206297072,psd_relative_alpha_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.08380719701249212,0.0023315289305581082,psd_relative_alpha_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.14537517653003706,0.03822046399264957,psd_relative_alpha_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.47580646962541634,-0.02580912669688318,psd_relative_beta_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,-0.025272530144862113,-0.016477146191677745,psd_relative_beta_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.10687849354720871,0.034029784402322565,psd_relative_beta_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.2994005499225388,0.06683741648954089,psd_relative_beta_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.04224523257603869,-0.023968462731538714,psd_relative_beta_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,-0.057176998884928755,-0.009734337902094985,psd_relative_beta_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.005692489978143725,0.0012144070649689359,psd_relative_beta_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.12274061264102126,0.13142189457865608,psd_relative_delta_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.13182430480085053,0.12461702858853647,psd_relative_delta_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.13104626071316203,-0.006730837544412709,psd_relative_delta_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,-0.009049575681887169,0.09486596567913966,psd_relative_delta_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.15978260386122972,0.09142262294656621,psd_relative_delta_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.4751993811306545,0.19191118111663574,psd_relative_delta_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.06643627132963416,-0.031016496115594278,psd_relative_gamma_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.12805861787619155,0.0028479022125772048,psd_relative_gamma_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.16251393054814975,-0.04317125171954865,psd_relative_gamma_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.11838059692138629,-0.009256476166319213,psd_relative_gamma_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.1471680891478731,0.022158621814102455,psd_relative_gamma_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.12239238840306108,0.003207158562803165,psd_relative_gamma_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.016339128697226972,-0.008168732774693974,psd_relative_theta_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,-0.07958245646632067,-0.021689840569245753,psd_relative_theta_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.12500344897376137,0.03778690011170761,psd_relative_theta_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.11787171390834636,0.04011879368854763,psd_relative_theta_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.157639091281792,0.098086987081473,psd_relative_theta_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.29696177840264515,-0.015574175689109446,psd_relative_theta_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.10418609638632045,-0.03810210096936124,psd_relative_theta_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.408089164051725,-0.04240514897885544,psd_relative_theta_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.282933414619508,-0.007113071939352276,psd_relative_theta_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.20188273482998925,0.014096696961010168,slowwaves_Density_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.03222712259432447,-0.01880049152958068,slowwaves_Density_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.1923987184277917,-0.0300920781184958,slowwaves_Density_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.19663616680648976,-0.013505624202647906,slowwaves_Density_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.14669133876983476,-0.01855632339504469,slowwaves_Density_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.27797400419270374,0.002990669939628706,slowwaves_Density_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.017670961391572107,0.0295927966446187,slowwaves_Density_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.08563063158214972,-0.03298882111329402,slowwaves_Density_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.08443978099612609,0.00010746822955269595,slowwaves_Density_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,-0.01799061681005038,-0.019890587647514484,slowwaves_Duration_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.13579573720488483,-0.01914833864284977,slowwaves_Duration_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.04220015451337617,-0.01015313489852465,slowwaves_Duration_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.07900007169603003,-0.010637805196415709,slowwaves_Duration_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,-0.06421984766650905,-0.023074945490459894,slowwaves_Duration_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.10156297796262864,-0.02479490420376811,slowwaves_Duration_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,-0.012755454664285681,-0.026642758132656204,slowwaves_Duration_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.1037887858995243,-0.010964574639495336,slowwaves_Duration_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.059338956507369964,-0.017977334472876878,slowwaves_Duration_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,-0.004457402427987697,-0.02679175430546152,slowwaves_Frequency_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.0722006531181461,-0.015301192103896319,slowwaves_Frequency_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.04820283078143682,-0.005774129111294076,slowwaves_Frequency_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.024544885349067264,-0.023152703787990576,slowwaves_Frequency_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,-0.07392141361706857,-0.01833342521820074,slowwaves_Frequency_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.060392741978070416,-0.024387187168951694,slowwaves_Frequency_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,-0.03339152815069665,-0.01523109330739644,slowwaves_Frequency_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.14410544256978744,-0.028053382977042452,slowwaves_Frequency_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.0552585767748717,-0.024541234322654013,slowwaves_Frequency_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.10710924471036395,-0.039947124013897425,slowwaves_PTP_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,-0.062362078988270085,-0.02751163640521791,slowwaves_PTP_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.05069164135713641,-0.03029480189780155,slowwaves_PTP_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.05546715498369822,0.11675600977381746,slowwaves_PTP_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.22018616866738872,0.028598390215924648,slowwaves_PTP_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.14955561422554584,0.029548750678190034,slowwaves_PTP_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.045276962840814804,0.01839584836660618,slowwaves_PTP_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,-0.035346780232044996,-0.011586086749083738,slowwaves_PTP_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.008623924121835266,-0.033939492138085406,slowwaves_PTP_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,-0.020299810232691548,-0.03246441286565951,slowwaves_Slope_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,-0.04800112616121083,0.02442153912751966,slowwaves_Slope_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.041339001398312945,-0.014521354825982453,slowwaves_Slope_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.08283693935630598,-0.0203032677458946,slowwaves_Slope_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,-0.0189353489755352,-0.009873221100321765,slowwaves_Slope_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.00620719394995665,-0.02731793364591516,slowwaves_Slope_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,-0.022921500390169647,-0.01334903566664557,slowwaves_Slope_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.023777341350114688,-0.007243947381524247,slowwaves_Slope_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.03833882466177303,0.006416287025933003,wsmi_alpha_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,0.0793810809612452,0.005821634047621886,wsmi_alpha_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.030569666880268867,-0.004965652019548855,wsmi_alpha_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.101862477705149,-0.00441528039104166,wsmi_alpha_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,-0.010139310752985166,-0.010124274164303643,wsmi_alpha_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.009128197062193975,-0.001112110668759925,wsmi_alpha_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.008090415621582817,-0.016356430731391827,wsmi_alpha_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.13602731779563787,0.08279877595138588,wsmi_alpha_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.06764029483357738,-0.020128550880518462,wsmi_beta_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,-0.06782518755204056,0.0068787592286008335,wsmi_beta_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.12340725692906412,-0.017785170810514346,wsmi_beta_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,-0.0022188587824905613,-0.030972023406724048,wsmi_beta_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,-0.03321507780404121,-0.022962831058614117,wsmi_beta_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.002362488985186871,-0.03104423874892803,wsmi_beta_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.04637136307285531,-0.04122861862990547,wsmi_beta_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.059755206153693695,0.15240735316383766,wsmi_beta_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,0.053578059451807096,0.0009204443783386075,wsmi_beta_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,0.16122004861141373,-0.0066736658504859304,wsmi_gamma_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,-0.054552407166631726,-0.008303803157164133,wsmi_gamma_mean_central_mid_trimmean
+3,scatter,Valence (other),,Valence,0.12783981063923244,-0.03138338514738957,wsmi_gamma_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.05198770456248253,-0.028376338972557688,wsmi_gamma_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.05261355907574052,-0.032405622375340684,wsmi_gamma_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.06384375284223459,-0.03868934785626901,wsmi_gamma_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,0.21080203218590793,-0.029334069225384875,wsmi_gamma_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,-0.03963783419919453,-0.002495116706799888,wsmi_gamma_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.0074400512122841655,0.030194567957382738,wsmi_gamma_mean_posterior_right_trimmean
+3,scatter,Valence (other),,Valence,-0.014351221391977382,-0.009956472020037091,wsmi_theta_mean_central_left_trimmean
+3,scatter,Valence (other),,Valence,-0.057635743611167196,-0.0054562964069084985,wsmi_theta_mean_central_right_trimmean
+3,scatter,Valence (other),,Valence,0.06927748233060338,0.016359817263390128,wsmi_theta_mean_frontal_left_trimmean
+3,scatter,Valence (other),,Valence,0.02969628844262305,-0.03180480183655974,wsmi_theta_mean_frontal_mid_trimmean
+3,scatter,Valence (other),,Valence,0.062136632162508226,-0.005498791884574247,wsmi_theta_mean_frontal_right_trimmean
+3,scatter,Valence (other),,Valence,-0.03525058146879939,-0.034246540865088826,wsmi_theta_mean_posterior_left_trimmean
+3,scatter,Valence (other),,Valence,0.11952384876780998,-0.010597257110545441,wsmi_theta_mean_posterior_mid_trimmean
+3,scatter,Valence (other),,Valence,-0.04631430661449356,0.006761556262213079,wsmi_theta_mean_posterior_right_trimmean
+4,scatter,Valence,,Valence,0.515384816088522,-0.011674797452319469,kolmogorov_complexity_mean_central_left_trimmean
+4,scatter,Valence,,Valence,0.5170735844766826,-0.04920980616298291,kolmogorov_complexity_mean_central_mid_trimmean
+4,scatter,Valence,,Valence,0.4789626808964296,0.26868636090033693,kolmogorov_complexity_mean_frontal_left_trimmean
+4,scatter,Valence,,Valence,0.3247727953542718,0.15907034153966268,kolmogorov_complexity_mean_frontal_mid_trimmean
+4,scatter,Valence,,Valence,0.40306302032553526,0.10515334484536348,kolmogorov_complexity_mean_posterior_mid_trimmean
+4,scatter,Valence,,Valence,0.10428175954321559,0.2897759211294175,psd_relative_alpha_mean_central_mid_trimmean
+4,scatter,Valence,,Valence,0.20524611842571291,0.46314503121100875,psd_relative_alpha_mean_posterior_right_trimmean
+4,scatter,Valence,,Valence,0.5309483667444777,-0.04705952459665015,psd_relative_beta_mean_central_mid_trimmean
+4,scatter,Valence,,Valence,0.48196608295212157,-0.015601606295589359,psd_relative_beta_mean_frontal_right_trimmean
+4,scatter,Valence,,Valence,1.0,1.0,psd_relative_delta_mean_central_mid_trimmean
+4,scatter,Valence,,Valence,0.07655983711915718,0.38561886607944085,psd_relative_delta_mean_frontal_right_trimmean
+4,scatter,Valence,,Valence,0.35920472542773696,0.3025034960821307,psd_relative_delta_mean_posterior_left_trimmean
+4,scatter,Valence,,Valence,0.8038689620480524,-0.07020235337765673,psd_relative_gamma_mean_central_left_trimmean
+4,scatter,Valence,,Valence,0.48495871019208836,0.06692206707508595,psd_relative_gamma_mean_central_right_trimmean
+4,scatter,Valence,,Valence,0.46347107620137484,0.060546484968140635,psd_relative_gamma_mean_frontal_left_trimmean
+4,scatter,Valence,,Valence,0.4011015433827563,-0.02388404636826639,slowwaves_Slope_mean_frontal_right_trimmean
+4,scatter,Valence,,Valence,0.22080645786543096,-0.044470721961072796,wsmi_alpha_mean_posterior_left_trimmean
+4,scatter,Valence,,Valence,0.2537273221504603,0.09788806970659107,wsmi_theta_mean_central_mid_trimmean
+5,scatter,,,Valence,-1.05,-0.22606836335269914,
+5,scatter,,,Valence,1.05,0.2107740502915207,
+6,scatter,Self/Other (other),,Self/Other,0.1095901878619684,-0.12319118463830184,N1_mean_occipitoparietal_lateral_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.06127259323276074,-0.15164297507224636,P1_mean_occipitoparietal_lateral_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.06634767913241288,-0.006202796625832647,P3a_mean_frontocentral_midline_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1562552060378428,0.2343552302760898,P3b_mean_centroparietal_midline_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.29976180294682875,0.14088958031442558,PE_alpha_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.14343907926592736,-0.1586328807852959,PE_alpha_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2188176150779193,0.1046615317279831,PE_alpha_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.052265412692633725,-0.14757812670711437,PE_alpha_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.06397672457130996,-0.07380964984510884,PE_alpha_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.11696340814175084,-0.055740135869779946,PE_alpha_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.042619131608041594,-0.017307002110658325,PE_alpha_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.12133523548568287,0.6793236718251032,PE_alpha_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.036465459289829236,0.33326162446337715,PE_alpha_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.10497064566561691,0.03971976095859296,PE_beta_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1039664934395488,0.058166363777993293,PE_beta_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1962541291626235,0.2104770254079308,PE_beta_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.3368075012676735,-0.16057989642126058,PE_beta_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.32915503308030253,-0.18246271676363487,PE_beta_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.47265829789077374,0.10585545961161437,PE_beta_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.10908757022630122,0.591108204525587,PE_beta_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2189827120715809,0.06832811481150305,PE_gamma_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.01175462064746422,0.15309764693650024,PE_gamma_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.20469260365079125,-0.016590581399252187,PE_gamma_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.39993274658819566,-0.07773144257202223,PE_gamma_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.6288389368257035,-0.1964805081200249,PE_gamma_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.49465842266883464,-0.054440758692392344,PE_gamma_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.04873625431993467,0.13145185161537598,PE_gamma_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1473087746926131,-0.11767708504793839,PE_theta_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.19620423834610715,-0.06652347621332566,PE_theta_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.0252982665713679,-0.1383359499301343,PE_theta_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.10851917996603255,-0.053897893069505085,PE_theta_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.37601405851866887,-0.10571435084332344,PE_theta_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.013394206912291557,-0.16222403570231494,PE_theta_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.022179818271377855,-0.09203109193890556,PE_theta_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.11602731006276881,-0.15018504589583345,PE_theta_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.40286256948216637,0.08675892892297059,kolmogorov_complexity_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.4925801797850572,0.2992656688623197,kolmogorov_complexity_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2694040662474214,-0.09762623842757753,kolmogorov_complexity_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.11219822186261223,-0.0983903269656167,kolmogorov_complexity_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.25157394713926445,-0.11255854792488992,kolmogorov_complexity_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.19322419287082723,-0.11604195807270491,kolmogorov_complexity_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2663166578897982,0.014149628606373418,kolmogorov_complexity_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1035994872384504,-0.15893087857133179,psd_relative_alpha_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.004618559053430945,-0.053927381446447493,psd_relative_alpha_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.08900175008530545,-0.10425955819555535,psd_relative_alpha_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2052692214958312,-0.08084775197270615,psd_relative_alpha_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.22045961120191393,-0.039089623051229344,psd_relative_alpha_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1478863953428214,-0.04729680986716431,psd_relative_alpha_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.42853297531559054,-0.0883428234511659,psd_relative_alpha_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2669034961980306,0.05765215121052385,psd_relative_alpha_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.09953960233790636,-0.033303803290972774,psd_relative_beta_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.037266509135558054,-0.16299854989573112,psd_relative_beta_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.1471531250959481,-0.08244769409792051,psd_relative_beta_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.06161607938356607,-0.017840366728087555,psd_relative_beta_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.07073571973801503,0.23231869590747323,psd_relative_beta_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.000921195401196381,0.0810981996909102,psd_relative_beta_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.16700701600363735,0.7792175830512634,psd_relative_beta_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.03856519771957655,0.2541909056260496,psd_relative_beta_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.18504339435970144,0.2753391439648236,psd_relative_beta_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.34056232367753464,-0.17240134193865617,psd_relative_delta_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2294647217461714,-0.13617159321410793,psd_relative_delta_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.3587914557702837,-0.09351960964216781,psd_relative_delta_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.07538358391594481,-0.00863946536531489,psd_relative_delta_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.22366517530644975,-0.0733887038051908,psd_relative_delta_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1735765622981036,0.2852859367661096,psd_relative_delta_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.13480047378034443,-0.0010203244239942741,psd_relative_delta_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.09538073438929935,-0.0288230378161908,psd_relative_gamma_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.41503164101212414,-0.19767132993559508,psd_relative_gamma_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.433771184097621,-0.09348480062073618,psd_relative_gamma_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.15345838352094815,-0.15748632797950093,psd_relative_gamma_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.23427892360493313,-0.01379149673698577,psd_relative_gamma_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.11487087066526486,0.06521099818309732,psd_relative_gamma_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.19837576039674643,-0.06328556319650562,psd_relative_theta_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.057121802042112674,-0.13317509023417093,psd_relative_theta_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.16952820941394828,-0.08389137344504574,psd_relative_theta_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.04985784798176645,-0.07959825447524461,psd_relative_theta_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.3163819265038757,-0.10180232147301625,psd_relative_theta_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.09960784360473708,-0.04948856773567083,psd_relative_theta_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.08810382837352439,-0.13060161366672607,psd_relative_theta_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.4500478296310069,-0.14759331019975053,psd_relative_theta_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.7711458964421944,-0.06426278708256185,slowwaves_Density_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.132254524168682,-0.1737543337518382,slowwaves_Density_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.4481995714447571,-0.14108617062155263,slowwaves_Density_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.15858566119888065,0.07365790546441398,slowwaves_Density_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.30409658483407626,0.028655035091933758,slowwaves_Density_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.49268184435455264,0.055125673360908706,slowwaves_Density_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.02324216986663107,-0.15179794297747026,slowwaves_Density_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.45419718568919343,0.1009832440131423,slowwaves_Density_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.017967399563428885,0.07579856071353815,slowwaves_Duration_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.0660929292072031,-0.0774587565981351,slowwaves_Duration_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.03716979526845988,-0.15013402174071946,slowwaves_Duration_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.0049540054876214355,-0.021800609743545304,slowwaves_Duration_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.10319202643920458,-0.08082961078537204,slowwaves_Duration_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.09774308411729758,0.05701290035870086,slowwaves_Duration_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.010855603865260102,0.012170773325554132,slowwaves_Duration_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.04254954132356692,-0.07057365569451374,slowwaves_Duration_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.04660061791460341,-0.1621982969546992,slowwaves_Duration_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.015254507946867222,-0.007496202802457133,slowwaves_Frequency_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.06851991103308634,-0.08614807388548236,slowwaves_Frequency_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.014708711613685537,-0.11553027580982217,slowwaves_Frequency_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.029194076681232414,-0.08345293135789943,slowwaves_Frequency_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.1424621805084401,-0.04084880535389154,slowwaves_Frequency_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.03354558317267612,-0.002539060025247544,slowwaves_Frequency_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.0054552651722496615,0.06007225593291762,slowwaves_Frequency_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.008545901103519094,-0.07430152382910579,slowwaves_Frequency_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.0777468067314289,-0.13163970560683272,slowwaves_Frequency_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.5068707982954043,-0.08415680881568034,slowwaves_PTP_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.4166537002728949,-0.08868100352204186,slowwaves_PTP_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.01739295045799121,-0.08004442925531653,slowwaves_PTP_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.19332496123109458,0.05099618502741797,slowwaves_PTP_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.19270341247006326,0.6605277402341957,slowwaves_PTP_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.11383766802434803,0.04928441543820605,slowwaves_PTP_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.0988310144951813,-0.014411051283077672,slowwaves_PTP_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.24469492381268895,-0.04506584443910546,slowwaves_Slope_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.31228683847380934,0.04180925836376847,slowwaves_Slope_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.01928358849482899,-0.057723782543792256,slowwaves_Slope_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.004273261286849843,0.4878839778201304,slowwaves_Slope_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.004809560603238887,-0.04454389987132796,slowwaves_Slope_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2557381038566221,0.04398149311997919,slowwaves_Slope_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.11124464234688343,0.22264885868611137,slowwaves_Slope_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.020979811696303814,-0.04559320576552258,slowwaves_Slope_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.10705483859093254,-0.1415644631863047,slowwaves_Slope_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.06488541109628826,-0.00714085823747723,wsmi_alpha_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.1352129658213426,0.032753039328832625,wsmi_alpha_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.1895022281622472,-0.018128904111685152,wsmi_alpha_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.1427761992838956,-0.007463306575314722,wsmi_alpha_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.06976156449686167,-0.12241427408464167,wsmi_alpha_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.17275472021575358,-0.0740412011854559,wsmi_alpha_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2083374467683137,0.14936545974353493,wsmi_alpha_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.12645696604129997,-0.17390039069802338,wsmi_alpha_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.3106968313384056,-0.05807451556147004,wsmi_alpha_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.05917474990919029,-0.166749955315661,wsmi_beta_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1890621233296298,-0.17044340538638486,wsmi_beta_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.21050007524788453,-0.10539076622042741,wsmi_beta_mean_central_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.0845528502538027,-0.02510283100921915,wsmi_beta_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.37004040588896325,0.18486666859354958,wsmi_beta_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.07095945332815089,-0.023490169589354036,wsmi_beta_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1294632087350233,-0.09634230859885304,wsmi_beta_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.06848244779912883,-0.0512502452208032,wsmi_beta_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.1283736940252538,-0.11250129007984444,wsmi_beta_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.34806743351634417,-0.1456570340847777,wsmi_gamma_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.34790555379640586,-0.14754414555121936,wsmi_gamma_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.18960501403411134,0.06311526205496941,wsmi_gamma_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.16583706723514324,-0.13217200555198702,wsmi_gamma_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.17979788171650113,-0.1046846063813583,wsmi_gamma_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.29962342553693727,0.1808484469607671,wsmi_gamma_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.04488855955262866,-0.052651207490710915,wsmi_gamma_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.13688089137923787,-0.146712289726061,wsmi_gamma_mean_posterior_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.2413742325414543,-0.08484682243019809,wsmi_theta_mean_central_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.1429726121328373,-0.02773334637112633,wsmi_theta_mean_central_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.053915126516675835,-0.0575229507369115,wsmi_theta_mean_frontal_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.12401254017345631,0.013255286601060842,wsmi_theta_mean_frontal_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.20756925053527012,-0.03316633918459287,wsmi_theta_mean_frontal_right_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.1602799191970046,-0.11379150532508435,wsmi_theta_mean_posterior_left_trimmean
+6,scatter,Self/Other (other),,Self/Other,0.056223005838671174,-0.13232879688211238,wsmi_theta_mean_posterior_mid_trimmean
+6,scatter,Self/Other (other),,Self/Other,-0.13090170579643687,0.0860716088144736,wsmi_theta_mean_posterior_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.19679746504373063,0.22594110324524486,PE_beta_mean_frontal_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.3029844749103767,0.4307105529588598,PE_beta_mean_posterior_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.2145929003094856,0.2021833691990609,PE_gamma_mean_frontal_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.3346204659588956,0.5302791321552239,PE_gamma_mean_posterior_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.6872341358874953,-0.10337603682859153,PE_theta_mean_central_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.2558647457255295,0.630948448100331,kolmogorov_complexity_mean_central_mid_trimmean
+7,scatter,Self/Other,,Self/Other,0.5825413504377847,-0.1091542757757695,kolmogorov_complexity_mean_frontal_mid_trimmean
+7,scatter,Self/Other,,Self/Other,0.7211805421632004,-0.13100636052608175,psd_relative_alpha_mean_posterior_left_trimmean
+7,scatter,Self/Other,,Self/Other,1.0,-0.0651878660030966,psd_relative_delta_mean_central_mid_trimmean
+7,scatter,Self/Other,,Self/Other,0.09066966512279477,0.5329991474348711,psd_relative_delta_mean_posterior_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.5087414758172489,-0.11777710184105573,psd_relative_gamma_mean_central_left_trimmean
+7,scatter,Self/Other,,Self/Other,0.15651138356641173,1.0,psd_relative_gamma_mean_posterior_mid_trimmean
+7,scatter,Self/Other,,Self/Other,0.800318284883904,0.5080276560481721,psd_relative_gamma_mean_posterior_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.3415030615754549,-0.1485966769334178,psd_relative_theta_mean_central_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.5670557561462587,0.62319081209237,slowwaves_Density_mean_frontal_left_trimmean
+7,scatter,Self/Other,,Self/Other,0.5642287141035381,0.21965072265951932,slowwaves_PTP_mean_frontal_left_trimmean
+7,scatter,Self/Other,,Self/Other,0.573484150843182,0.10395186962385991,slowwaves_PTP_mean_frontal_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.2460022581966852,0.4638079956958467,wsmi_gamma_mean_central_right_trimmean
+7,scatter,Self/Other,,Self/Other,0.398702730354649,0.3504747433106053,wsmi_theta_mean_central_right_trimmean
+8,scatter,,,Self/Other,-1.05,-0.043897549289026117,
+8,scatter,,,Self/Other,1.05,0.06389139156071777,
+9,scatter,Time (other),,Time,0.17706134891121983,0.027915678512141186,N1_mean_occipitoparietal_lateral_trimmean
+9,scatter,Time (other),,Time,0.07206915725548804,0.06303078293644913,P1_mean_occipitoparietal_lateral_trimmean
+9,scatter,Time (other),,Time,0.11518764495865284,-0.09204258779585543,P3a_mean_frontocentral_midline_trimmean
+9,scatter,Time (other),,Time,0.07753161222507703,0.12983037480746482,P3b_mean_centroparietal_midline_trimmean
+9,scatter,Time (other),,Time,0.31156922447121044,-0.10043078396249817,PE_alpha_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.27266865472127516,-0.07200698092818053,PE_alpha_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.032806060473458284,-0.026934848093068425,PE_alpha_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.0951755267310847,0.09981311008624369,PE_alpha_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,0.15836245013584227,-0.12289933958842689,PE_alpha_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.09839385260508718,-0.010012666014541946,PE_alpha_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.03340834251889962,-0.06788464474024908,PE_alpha_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.004155201384666852,-0.011648784942888677,PE_alpha_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.0990282643465714,0.0592204897201148,PE_alpha_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.13439439526447505,0.05264059504271585,PE_beta_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.04537558068105982,-0.08601626974647399,PE_beta_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.033813310235268776,-0.07712690950947877,PE_beta_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.05054989886085296,-0.06644846423397119,PE_beta_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.042864296488755865,0.26057690746489914,PE_beta_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.10093573985217423,-0.07792431602340323,PE_beta_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.04141020680733947,-0.04613573091053599,PE_beta_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.21885792910307436,-0.05672004940441284,PE_beta_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.04389174161968942,-0.023056105654881583,PE_beta_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.17549355653958262,-0.06339261011635876,PE_gamma_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.1559136601939703,-0.07149794490995241,PE_gamma_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.06565195586504277,-0.10135165893599005,PE_gamma_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.07854046992006114,-0.07382032066421047,PE_gamma_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.037275965699383726,0.15493167333603397,PE_gamma_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.07001765510020053,-0.07407811847625609,PE_gamma_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.0584690685736472,-0.07920297103804907,PE_gamma_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.17490073785772173,-0.09386534251198667,PE_gamma_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.018555836551206597,-0.05864601606636059,PE_gamma_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,-0.11529915362266752,0.08194081485885576,PE_theta_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,-0.045817848820089525,0.05059687674593619,PE_theta_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.03804805611697554,0.07770170193594418,PE_theta_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.06769546498438613,-0.10292458848188689,PE_theta_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.10795615919512763,-0.04488226698055095,PE_theta_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.10389341563037732,0.2608008766138694,PE_theta_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.01800740591224612,0.09826502440221892,PE_theta_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,-0.07195821694061039,0.09398410005053287,PE_theta_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.2393382841837879,0.08027207760729065,kolmogorov_complexity_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.2689567553958451,0.08754086965283321,kolmogorov_complexity_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.254355098169306,0.2126801807078632,kolmogorov_complexity_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.25711326232419685,0.248345063730185,kolmogorov_complexity_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.09499608550779724,0.05212554380104963,psd_relative_alpha_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.04643781409573685,-0.015815185059144758,psd_relative_alpha_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.0864819775587283,-0.055606655602726617,psd_relative_alpha_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.12958729733003274,0.044770642674461056,psd_relative_alpha_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.009037860520825393,-0.009521161924074994,psd_relative_alpha_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.21850890821897087,-0.014474283220670438,psd_relative_alpha_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.1455164206289638,0.05056958687980586,psd_relative_alpha_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.21143195465906456,0.07685152725691284,psd_relative_beta_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.05021979894480934,0.06475857273826995,psd_relative_beta_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.21684354530706043,0.14228157667946187,psd_relative_beta_mean_central_right_trimmean
+9,scatter,Time (other),,Time,-0.0844234423397874,0.3156221105336296,psd_relative_beta_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,0.04512390130599399,0.23018030685377358,psd_relative_beta_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.04890628031236892,-0.10384845942889788,psd_relative_beta_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.0460074643474607,-0.030662710908522926,psd_relative_beta_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.009649542324849818,-0.053941112721869564,psd_relative_beta_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,-0.007736551262315405,0.11822922682234427,psd_relative_delta_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.12878987689491647,-0.12719719029963789,psd_relative_delta_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.29796564953752686,0.002879436534072469,psd_relative_delta_mean_central_right_trimmean
+9,scatter,Time (other),,Time,-0.057619941698466674,0.42295668691475613,psd_relative_delta_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,0.11839119960366741,0.08309280285219665,psd_relative_delta_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.23639853637138417,-0.12827848279463336,psd_relative_delta_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.18076730550844994,-0.07280200198666922,psd_relative_delta_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,-0.030523582814768666,-0.0032116533478805244,psd_relative_delta_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.09742777904924858,-0.1082570249645287,psd_relative_gamma_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.17730375743962423,-0.10341668436052269,psd_relative_gamma_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,0.12843692060396966,-0.10467780473464666,psd_relative_gamma_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.08752809187502153,-0.04708387122374446,psd_relative_gamma_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.07214380767872157,0.07837054113587653,psd_relative_gamma_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.12465381093133615,0.04111488330281844,psd_relative_gamma_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.43379893905341804,-0.15572796067809536,psd_relative_theta_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.16277006790743317,-0.08819751131197168,psd_relative_theta_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.051045944024808255,0.08077499405889942,psd_relative_theta_mean_central_right_trimmean
+9,scatter,Time (other),,Time,-0.025303965103058414,0.03451743265729983,psd_relative_theta_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.03125605554524113,-0.029918677314121338,psd_relative_theta_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.058878653547206235,-0.056701587589302035,psd_relative_theta_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.1187131168102058,0.035348805092598135,psd_relative_theta_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,-0.08864735729906349,0.08693015027897191,psd_relative_theta_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,-0.0959575844944996,0.13266458731485278,psd_relative_theta_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.6670938521967904,-0.15306414746754218,slowwaves_Density_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.3186240182454837,-0.11126164284068396,slowwaves_Density_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.2494595291608337,0.0367894207913922,slowwaves_Density_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.34199898279645324,-0.10540585935295875,slowwaves_Density_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.3949073291519394,-0.08493448872684951,slowwaves_Density_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.06008879176776747,0.04546204353306301,slowwaves_Density_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.07410477123644377,0.015975399488918216,slowwaves_Density_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.370629392830677,-0.06116117573822904,slowwaves_Density_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,-0.037388086932426075,0.10793426551010753,slowwaves_Duration_mean_central_left_trimmean
+9,scatter,Time (other),,Time,-0.012505321547475072,0.19992233479577481,slowwaves_Duration_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,-0.051432652410337516,0.3990202397914261,slowwaves_Duration_mean_central_right_trimmean
+9,scatter,Time (other),,Time,-0.11376745903723842,-0.06308575060570057,slowwaves_Duration_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.03740051535818301,-0.07554819799108398,slowwaves_Duration_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,-0.03996575968869768,0.13905914954311693,slowwaves_Duration_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,-0.06358301382464579,0.00293450054360461,slowwaves_Duration_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,-0.06903215231906318,-0.06853967032312651,slowwaves_Duration_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.0856580552658233,-0.006839796641721626,slowwaves_Duration_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,-0.011825642445738988,0.0726357749413363,slowwaves_Frequency_mean_central_left_trimmean
+9,scatter,Time (other),,Time,-0.022951820596679117,0.05801840385090396,slowwaves_Frequency_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,-0.10551030761722432,-0.059059829373144405,slowwaves_Frequency_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.06427530064995182,-0.05675389482767838,slowwaves_Frequency_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,-0.013635468702550935,0.0398117113821919,slowwaves_Frequency_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.09066338339560867,0.08073699775001786,slowwaves_Frequency_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,-0.03667690398295914,-0.0742924785931571,slowwaves_Frequency_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.12719211637581432,-0.016831961361088298,slowwaves_Frequency_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,-0.09986467377289227,-0.015580403330833405,slowwaves_PTP_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.013654023147963188,-0.11237213749102108,slowwaves_PTP_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.06781809361979704,-0.10327903600570176,slowwaves_PTP_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,0.06077011629082396,-0.06603134948920109,slowwaves_PTP_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,-0.08473310146889297,-0.09692039343955758,slowwaves_PTP_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.34251391665710956,-0.147704607496954,slowwaves_PTP_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,-0.06534948951251164,-0.07987858838345507,slowwaves_PTP_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,-0.08515313939351285,-0.059882188314103794,slowwaves_PTP_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,-0.04540915813029374,0.054544878921053454,slowwaves_Slope_mean_central_left_trimmean
+9,scatter,Time (other),,Time,-0.03924588485563476,0.11739496336193178,slowwaves_Slope_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,-0.024763178610153588,-0.022075751610161724,slowwaves_Slope_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,0.012875006532206234,-0.08273000482117476,slowwaves_Slope_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.018722416227738133,-0.11011603683899443,slowwaves_Slope_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,0.21143823647908555,0.2826756406351813,slowwaves_Slope_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.01044468902586981,-0.09858921902670119,slowwaves_Slope_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.28274848676482167,0.08555673072748057,slowwaves_Slope_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,-0.08749397099379522,-0.010846216833226088,wsmi_alpha_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.043086093375154406,-0.07459907487287075,wsmi_alpha_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.05733352804014485,-0.05529524287621575,wsmi_alpha_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.08254305428829596,-0.08270097050650935,wsmi_alpha_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.025584746065364778,-0.08664751797086455,wsmi_alpha_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,-0.13313730521692796,0.09263560644158612,wsmi_alpha_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,-0.0680131772492842,0.04045087489588255,wsmi_alpha_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.3068326462261836,-0.084890818416526,wsmi_beta_mean_central_left_trimmean
+9,scatter,Time (other),,Time,-0.08560072298071705,0.03797695486549949,wsmi_beta_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.01405540644539989,0.02806204518117454,wsmi_beta_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.016786572613134605,-0.036488781571159715,wsmi_beta_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,-0.02143080248093268,-0.060404344867335195,wsmi_beta_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,-0.091236272481945,-0.09890788896280876,wsmi_beta_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,-0.09668197000788661,0.22517078493645468,wsmi_beta_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.1224068639718424,-0.00151770571581472,wsmi_beta_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,0.06051469067708547,0.19012649489181066,wsmi_beta_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,0.2724889829213221,-0.0766415087277668,wsmi_gamma_mean_central_left_trimmean
+9,scatter,Time (other),,Time,0.02897657689735161,0.007846614682283334,wsmi_gamma_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.42215957581179175,-0.016188330523090252,wsmi_gamma_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.0929996365462826,-0.05516060213682006,wsmi_gamma_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,0.13189175109075435,-0.1139772240966039,wsmi_gamma_mean_frontal_mid_trimmean
+9,scatter,Time (other),,Time,0.11062569120327466,-0.020486207851487633,wsmi_gamma_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,-0.11094616210967732,0.07524352682998213,wsmi_gamma_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,-0.13799393400459195,0.0068731345129808144,wsmi_gamma_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,-0.026778434038271893,0.040988893561528524,wsmi_gamma_mean_posterior_right_trimmean
+9,scatter,Time (other),,Time,-0.01415572164867749,0.26210479269493325,wsmi_theta_mean_central_left_trimmean
+9,scatter,Time (other),,Time,-0.0676378073091324,-0.03843590784795473,wsmi_theta_mean_central_mid_trimmean
+9,scatter,Time (other),,Time,0.07141107694848305,0.11534922289241713,wsmi_theta_mean_central_right_trimmean
+9,scatter,Time (other),,Time,0.3194816610838054,-0.10198360791318628,wsmi_theta_mean_frontal_left_trimmean
+9,scatter,Time (other),,Time,0.10849638433164786,-0.05280550890368022,wsmi_theta_mean_frontal_right_trimmean
+9,scatter,Time (other),,Time,-0.09978781503034308,-0.07866691172394145,wsmi_theta_mean_posterior_left_trimmean
+9,scatter,Time (other),,Time,0.21304807145786206,0.04577290731026801,wsmi_theta_mean_posterior_mid_trimmean
+9,scatter,Time (other),,Time,-0.05156747468057967,-0.058432173826955355,wsmi_theta_mean_posterior_right_trimmean
+10,scatter,Time,,Time,0.43708060656413233,0.059194906659069305,PE_theta_mean_central_left_trimmean
+10,scatter,Time,,Time,0.31428012960335955,1.0,kolmogorov_complexity_mean_central_left_trimmean
+10,scatter,Time,,Time,0.5285060172108462,0.654371314024782,kolmogorov_complexity_mean_central_right_trimmean
+10,scatter,Time,,Time,-0.04709288257282342,0.47282170848370325,kolmogorov_complexity_mean_frontal_left_trimmean
+10,scatter,Time,,Time,0.4843020240404635,-0.19351968889760757,kolmogorov_complexity_mean_frontal_mid_trimmean
+10,scatter,Time,,Time,0.32633396331305736,0.35761181964369004,kolmogorov_complexity_mean_posterior_mid_trimmean
+10,scatter,Time,,Time,0.5904000540378193,-0.12574342868667543,psd_relative_alpha_mean_frontal_mid_trimmean
+10,scatter,Time,,Time,0.24669613425134307,0.6087404266030402,psd_relative_alpha_mean_posterior_right_trimmean
+10,scatter,Time,,Time,1.0,-0.10333581836169765,psd_relative_beta_mean_frontal_mid_trimmean
+10,scatter,Time,,Time,0.8412760607911239,-0.18389508800970958,psd_relative_delta_mean_frontal_mid_trimmean
+10,scatter,Time,,Time,0.4152941926949567,0.07920423128687232,psd_relative_gamma_mean_central_mid_trimmean
+10,scatter,Time,,Time,0.3430403911146298,-0.06508280104732961,psd_relative_gamma_mean_central_right_trimmean
+10,scatter,Time,,Time,0.2542295391776437,0.11975702318366797,psd_relative_gamma_mean_frontal_mid_trimmean
+10,scatter,Time,,Time,0.6241282266817314,-0.13916879650949907,slowwaves_Density_mean_frontal_left_trimmean
+10,scatter,Time,,Time,-0.11795799591725663,0.4722425056407026,slowwaves_Frequency_mean_central_right_trimmean
+10,scatter,Time,,Time,0.19510809649801095,0.46619083386618543,slowwaves_PTP_mean_central_right_trimmean
+10,scatter,Time,,Time,0.03452478158049386,0.5926916094952788,slowwaves_Slope_mean_central_right_trimmean
+10,scatter,Time,,Time,0.26155315128144546,0.3748775584122008,wsmi_alpha_mean_central_right_trimmean
+10,scatter,Time,,Time,-0.10403162431355913,0.2735192692619623,wsmi_alpha_mean_posterior_left_trimmean
+10,scatter,Time,,Time,0.29003169318938155,-0.1086356871737604,wsmi_theta_mean_frontal_mid_trimmean
+11,scatter,,,Time,-1.05,0.12967941134333855,
+11,scatter,,,Time,1.05,-0.04805513972832,
+12,scatter,Confidence (other),,Confidence,0.1102026415400199,-0.00470028001456686,N1_mean_occipitoparietal_lateral_trimmean
+12,scatter,Confidence (other),,Confidence,-0.017975396079905177,-0.036873967808542754,P1_mean_occipitoparietal_lateral_trimmean
+12,scatter,Confidence (other),,Confidence,-0.08674923097079412,-0.01878807206880235,P3a_mean_frontocentral_midline_trimmean
+12,scatter,Confidence (other),,Confidence,0.15934834046263818,-0.026755050156349165,P3b_mean_centroparietal_midline_trimmean
+12,scatter,Confidence (other),,Confidence,0.1596892225166921,0.15129548204012344,PE_alpha_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.4264516285256653,-0.0006591609747414769,PE_alpha_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.010713833974441787,0.08422666199808798,PE_alpha_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.029492675173885752,-0.07783250094475738,PE_alpha_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.024341533096269817,0.12193214969566415,PE_alpha_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.3030414589379107,0.15426377716033177,PE_alpha_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.5297451609092486,0.08221638769835488,PE_beta_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.11825017034779627,0.01563658918594224,PE_beta_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.1682866866785216,0.23577598616806433,PE_beta_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.7364747194368804,-0.02305339244286056,PE_beta_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.15422342475255876,-0.060010018723924426,PE_beta_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.035524927556265365,-0.02399517177877422,PE_beta_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.12790769207278832,0.03751640535483489,PE_beta_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.2571296137246333,0.19210786936421637,PE_beta_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.6049121571071425,0.11127938573669469,PE_beta_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.42899768482419115,0.07400828109985465,PE_gamma_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.09790163704205747,0.11458156805194711,PE_gamma_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.20710307315326454,0.16790520311193594,PE_gamma_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.7447297815870086,-0.0215266209373203,PE_gamma_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.18737785341983854,-0.04461611413519388,PE_gamma_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.023786189957561935,-0.04061567240425857,PE_gamma_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.09542594098666786,0.009004010572292404,PE_gamma_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.3791086507030398,0.3795498931895375,PE_gamma_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.07529858386973624,0.03006088208113363,PE_theta_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.0018330023559766143,0.3176244817314975,PE_theta_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.21488274898856508,0.024270841538866262,PE_theta_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.2078907103477931,0.0031155917964854557,PE_theta_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.18677420048866827,0.08759119250598786,PE_theta_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.062265994179388585,0.012336719260928032,PE_theta_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.006480974960321541,-0.019138886637380295,PE_theta_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.0038620427244745134,-0.039471089786980176,PE_theta_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.005808410222803424,-0.03636886052032574,PE_theta_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.1237175434967891,-0.04577429764472012,kolmogorov_complexity_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.06584912051161362,-0.02659608333392259,kolmogorov_complexity_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.22447832905404902,0.2825143703436546,kolmogorov_complexity_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.13013890010570126,-0.0640126602630064,kolmogorov_complexity_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.03930835217494695,0.1403040953718329,kolmogorov_complexity_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.31379583019599344,-0.02444415552893772,kolmogorov_complexity_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.23429435045196437,0.12922136299144585,kolmogorov_complexity_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.12818803861398972,-0.039950326113564,kolmogorov_complexity_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.030969137204036108,0.25556081178775536,kolmogorov_complexity_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.16781911666094768,0.0766252461191339,psd_relative_alpha_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.004473369249433591,-0.02821072873711247,psd_relative_alpha_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.7436431772090885,0.08121930422898037,psd_relative_alpha_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.044868128880175245,0.06754228507858714,psd_relative_alpha_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.03666019741156559,0.032595272069197975,psd_relative_alpha_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.02112442512145144,-0.04706943028628698,psd_relative_alpha_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.2892626569837191,-0.007207963675494252,psd_relative_alpha_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.33959296253281374,0.03976068062313674,psd_relative_alpha_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.017664546822886016,-0.07137747951540349,psd_relative_beta_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.06364209953224512,-0.07011503132606295,psd_relative_beta_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.04718836949001044,0.02724309346368903,psd_relative_beta_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.24979259199515524,-0.055343891473165305,psd_relative_beta_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.21010191205490925,-0.018742297284968838,psd_relative_beta_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.1063035266645269,-0.04074556339785738,psd_relative_beta_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.2139551407293903,-0.006523974939270537,psd_relative_beta_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.06942549176051283,0.09936608659993253,psd_relative_beta_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.12368742313107384,-0.014619012355812902,psd_relative_delta_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.07864793995656946,-0.01886065936129594,psd_relative_delta_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.060963844221758726,-0.04711843447438931,psd_relative_delta_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.2433159920709325,-0.056869562752114446,psd_relative_delta_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.14029366298484547,0.048121876833310345,psd_relative_delta_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.08286013996163724,0.026693058633914593,psd_relative_delta_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.0018980843803801618,0.09638710272623824,psd_relative_delta_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.012304149826605947,0.07247706395625039,psd_relative_delta_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.02920292960100567,0.19242890983289093,psd_relative_delta_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.41652476191393994,0.1716025278753606,psd_relative_gamma_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.302045447520655,0.013218763995249665,psd_relative_gamma_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.3382165930633447,-0.0737162447113739,psd_relative_gamma_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.09387474420702947,-0.0808357802146791,psd_relative_gamma_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.1765944698122127,-0.003851085826322055,psd_relative_gamma_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.5368531671262229,0.0481949606148861,psd_relative_gamma_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.19372811969045592,-0.05603756658418888,psd_relative_theta_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.015999919959534526,-0.03902517878042182,psd_relative_theta_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.3307989645940547,-0.06629275764957482,psd_relative_theta_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.06415973796182371,-0.008133812389409693,psd_relative_theta_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.015670552130096646,0.11634917759490358,psd_relative_theta_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.13808400502383508,-0.02181659230478877,psd_relative_theta_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.23230301516135193,-0.04069781688218949,psd_relative_theta_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.1920961721181355,-0.04990523226918413,psd_relative_theta_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.185748324232924,0.2309568656263255,slowwaves_Density_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.09840127818140489,0.41479281675562735,slowwaves_Density_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.3786931070775315,0.12476272330108912,slowwaves_Density_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.13526484553294338,0.020479369888703337,slowwaves_Duration_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.3343792239862175,-0.017039411709801236,slowwaves_Duration_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.07810950469275574,-0.03667352246928068,slowwaves_Duration_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.27790579586908637,0.0036154635664111764,slowwaves_Duration_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.010153458481637956,0.06690494086158634,slowwaves_Duration_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.23998140768080597,-0.024125936598214735,slowwaves_Duration_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.039110350534430356,0.03042759961722285,slowwaves_Duration_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.05980492772371863,-0.0008777823546676525,slowwaves_Duration_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.04155832964307228,0.03623402119928565,slowwaves_Duration_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.14640992940357672,-0.004262227232570273,slowwaves_Frequency_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.13420186140033552,-0.007879597065680411,slowwaves_Frequency_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.1456018811620764,-0.026248385826240454,slowwaves_Frequency_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.2343626490452206,-0.020926890301746128,slowwaves_Frequency_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.05049634686555055,0.0224640874499093,slowwaves_Frequency_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.22157393382724708,-0.00834290479292961,slowwaves_Frequency_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.01569004622267439,0.023035639485828333,slowwaves_Frequency_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.03914424136125039,-0.015646921485370863,slowwaves_Frequency_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.009089511601692836,-0.008134982182298491,slowwaves_Frequency_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.049626391742684635,-0.012535074322097465,slowwaves_PTP_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.03486208938929033,0.033333803728015476,slowwaves_PTP_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.0019261795230546997,0.11028412273591477,slowwaves_PTP_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.36313063193073275,0.0715656422128495,slowwaves_PTP_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.2126734101824664,-0.011611582618423814,slowwaves_PTP_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.5790036416597883,0.12499670224527938,slowwaves_PTP_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.07307702049657676,-0.022210652292829605,slowwaves_PTP_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.001651634379176693,0.022832327884344316,slowwaves_PTP_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.14264606698854748,-0.011531580160795587,slowwaves_PTP_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.11229386082826802,-0.03303911548837091,slowwaves_Slope_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.255853891843384,-0.0326198991011584,slowwaves_Slope_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.3086285544343451,-0.005239199444992998,slowwaves_Slope_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.033110986923684846,0.004639162505894957,slowwaves_Slope_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.024210313379953774,-0.02081047843543404,slowwaves_Slope_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.11728177724476682,0.0026614425219196286,slowwaves_Slope_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.3010768268059496,-0.019800399562302867,slowwaves_Slope_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.11151246435450006,0.04787790031606484,slowwaves_Slope_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.11448863304371022,-0.041046747626313995,slowwaves_Slope_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.0008987061650811726,-0.009446440424747243,wsmi_alpha_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.4630434105372037,-0.03148634329259518,wsmi_alpha_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.08795643911805935,0.0005335383744267929,wsmi_alpha_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.170220889543205,0.07655623258329769,wsmi_alpha_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.028510195290596924,-0.026412969503911272,wsmi_alpha_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.002083488301399435,-0.01635501030834146,wsmi_alpha_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.12256743791838273,-0.02462693466585015,wsmi_alpha_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.08419582796705409,-0.03934881142015469,wsmi_alpha_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.007714053404509608,-0.02465389965400648,wsmi_beta_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.02596892911207893,-0.04749454173308315,wsmi_beta_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.07193890763413001,0.06876859556499959,wsmi_beta_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.032094908374153366,-0.050367300072718384,wsmi_beta_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.026946393028006232,0.128151125127467,wsmi_beta_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.09197087362600867,-0.017776458279812647,wsmi_beta_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.04105767681281401,-0.012683471318105015,wsmi_beta_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.03146231933547229,-0.03032326228828124,wsmi_beta_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.014572655228295135,-0.04918410283716193,wsmi_beta_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.031422778697715925,-0.05204329262779947,wsmi_gamma_mean_central_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.0799424103654807,0.0043772999580599554,wsmi_gamma_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.09212050587690651,0.015299309121376673,wsmi_gamma_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,0.04798455403678249,-0.02272286336243759,wsmi_gamma_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.044910131049893796,-0.036949414226424886,wsmi_gamma_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,0.2364679453996503,0.0103449667545634,wsmi_gamma_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.05671350648553925,-0.022050992766534213,wsmi_gamma_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,-0.036825531936618465,-0.04541210047999398,wsmi_gamma_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.08207378564789754,-0.0510397539195676,wsmi_gamma_mean_posterior_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.04183331581988493,0.19464697638006495,wsmi_theta_mean_central_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.026616953440978548,0.17353368002926392,wsmi_theta_mean_central_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.07290915195663937,0.2065945891932252,wsmi_theta_mean_frontal_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.02385841641991069,0.23583541513233133,wsmi_theta_mean_frontal_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.01291245863915836,0.07579861131223434,wsmi_theta_mean_frontal_right_trimmean
+12,scatter,Confidence (other),,Confidence,-0.0981238144700694,-0.03062653477504915,wsmi_theta_mean_posterior_left_trimmean
+12,scatter,Confidence (other),,Confidence,0.039961389260576435,0.16379210487468931,wsmi_theta_mean_posterior_mid_trimmean
+12,scatter,Confidence (other),,Confidence,-0.049116558779808285,0.39383490858295017,wsmi_theta_mean_posterior_right_trimmean
+13,scatter,Confidence,,Confidence,0.5947110896314297,0.08086124734803382,PE_alpha_mean_central_left_trimmean
+13,scatter,Confidence,,Confidence,0.46581597032351124,0.4646718855552299,PE_alpha_mean_central_right_trimmean
+13,scatter,Confidence,,Confidence,0.5434008000455759,0.5031975976927809,PE_alpha_mean_posterior_right_trimmean
+13,scatter,Confidence,,Confidence,0.8466264378506272,0.10854946352251132,PE_gamma_mean_posterior_right_trimmean
+13,scatter,Confidence,,Confidence,0.26922989860931296,0.487161902962993,psd_relative_alpha_mean_frontal_left_trimmean
+13,scatter,Confidence,,Confidence,0.5652686833038462,0.30186656565434367,psd_relative_beta_mean_posterior_right_trimmean
+13,scatter,Confidence,,Confidence,0.7245639939187976,-0.021732710753143793,psd_relative_gamma_mean_central_left_trimmean
+13,scatter,Confidence,,Confidence,0.7832185374706757,-0.05946679851818253,psd_relative_gamma_mean_frontal_left_trimmean
+13,scatter,Confidence,,Confidence,1.0,0.1878593411375721,psd_relative_gamma_mean_posterior_right_trimmean
+13,scatter,Confidence,,Confidence,0.925133768334059,-0.07493476932375592,psd_relative_theta_mean_posterior_right_trimmean
+13,scatter,Confidence,,Confidence,0.8800302049384907,0.707753833663072,slowwaves_Density_mean_frontal_left_trimmean
+13,scatter,Confidence,,Confidence,0.5920970611307197,1.0,slowwaves_Density_mean_frontal_mid_trimmean
+13,scatter,Confidence,,Confidence,0.7958645378762403,0.8076573363364021,slowwaves_Density_mean_frontal_right_trimmean
+13,scatter,Confidence,,Confidence,0.3062718982941801,0.6011856058365219,slowwaves_Density_mean_posterior_left_trimmean
+13,scatter,Confidence,,Confidence,0.5684481254006222,0.9254478183441762,slowwaves_Density_mean_posterior_mid_trimmean
+13,scatter,Confidence,,Confidence,0.3105528871767418,0.5390832948083875,slowwaves_Density_mean_posterior_right_trimmean
+13,scatter,Confidence,,Confidence,0.5223414819539931,0.058835493619168344,wsmi_alpha_mean_central_mid_trimmean
+13,scatter,Confidence,,Confidence,0.1412624262761202,0.8810917805237206,wsmi_theta_mean_central_left_trimmean
+14,scatter,,,Confidence,-1.05,-0.2608758079488858,
+14,scatter,,,Confidence,1.05,0.3082310060038898,

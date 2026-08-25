@@ -1,0 +1,542 @@
+# Andrillon 2020 Cluster-Permutation Pipeline Configuration
+# Implements the statistical methodology from Andrillon et al. (2020)
+
+# Project paths and data filtering
+project:
+  features_root: "<PATH_TO_YOUR_BIDS_FEATURES_ROOT>/"
+  # Output structure: output_path / model_folder / marker_folder
+  output_path: "<PATH_TO_YOUR_REPO_ROOT>/results/andrillon_cluster"
+  montage_path: "<PATH_TO_YOUR_REPO_ROOT>/Preprocessing_pipeline_new/CACS-64_REF.bvef"
+  
+  # PCA results path (optional)
+  pca_results_path: "<PATH_TO_YOUR_REPO_ROOT>/results/Behavior/probe_data/pca_results.csv"
+
+  # Behavioral data path — probe-level numeric ratings (onoff, valence, selfother, time, confidence).
+  # Required when aggregated marker CSVs do not contain these columns (pre-2026 data).
+  behavioral_data_path: "<PATH_TO_YOUR_REPO_ROOT>/results/Behavior/probe_data/probe_level_aggregated_data.csv"
+  
+  # QA filtering (optional)
+  qa_summary_path: "<PATH_TO_YOUR_BIDS_DERIVATIVES_ROOT>/qa_summary.csv"
+  exclude_failed_qa: true
+  
+  # Data filtering
+  subjects: ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43"]
+  tasks: ["Sart1", "Sart2", "Sart3", "Sart4"]
+  # Filter probes by onoff value (optional)
+  onoff_max_value: 100
+
+  # Filter subjects by predictor variability (optional). Measured as
+  # within-subject range (peak-to-peak) of the predictor of interest.
+  min_predictor_variability: 30
+  # min_predictor_variability_sq: 15  — removed 2026-08-13 with the quadratic
+  # terms. Its justifying comment ("quadratic predictors live on a 0-50 scale,
+  # use half the linear threshold so the criterion is equivalent") was based on
+  # a false premise: the ORTHOGONALIZED residual spans about -10..+79 with
+  # median -5 and SD 11.7, not 0-50, so 15 was not an equivalent criterion. In
+  # practice it selected for exactly the wrong thing — it correlated 0.53 (time)
+  # with a subject having extreme probes, and kept subjects whose median
+  # max|time-50| was 43.5 vs 22.0 for those dropped, i.e. it preferentially
+  # retained the subjects supplying the high-leverage observations. Do not
+  # reintroduce a "half the linear threshold" rule for any derived predictor
+  # without checking the derived column's actual range.
+
+# =============================================================================
+# FEATURE FAMILIES (identical to Statistics — same Junifer marker names)
+# =============================================================================
+feature_families:
+  all: null
+
+  erp:
+    - "P1"
+    - "N1"
+    # - "P2"
+    - "P3a"
+    - "P3b"
+
+  # spectral:
+  #   - "psd_bands_delta"
+  #   - "psd_bands_theta"
+  #   - "psd_bands_alpha"
+  #   - "psd_bands_beta"
+  #   - "psd_bands_jota"
+  #   - "psd_bands_gamma"
+
+  spectral_ratio:
+    # - "psd_bands_theta_beta_ratio"
+    # - "psd_bands_alpha_theta_ratio"
+    - "psd_relative_theta_beta_ratio"
+    - "psd_relative_alpha_theta_ratio"
+
+  spectral_relative:
+    - "psd_relative_delta"
+    - "psd_relative_theta"
+    - "psd_relative_alpha"
+    - "psd_relative_beta"
+    # - "psd_relative_jota"
+    - "psd_relative_gamma"
+
+  connectivity:
+    - "wsmi_theta"
+    - "wsmi_alpha"
+    - "wsmi_beta"
+    - "wsmi_gamma"
+
+  information_theory:
+    - "PE_theta"
+    - "PE_alpha"
+    - "PE_beta"
+    - "PE_gamma"
+    - "kolmogorov_complexity"
+
+  sleep:
+    - "slowwaves"
+    # spindles excluded: LMM design matrix is singular on every channel for
+    # spindle markers under treatment*mind_state (too few non-zero observations
+    # per cell). Re-add when sparsity is fixed.
+
+# =============================================================================
+# SELECTED MARKERS
+# =============================================================================
+# Which families to run, per epoch type.
+# Epoch types must match the marker_type column in the aggregated CSVs:
+#   evoked — ERP time-locked epochs
+#   sleep  — pre-probe state epochs (spectral, connectivity, IT, slow waves)
+#
+# Use ["all"] to include every available marker for that epoch type.
+selected_markers:
+  evoked:
+    - erp
+  # "state" epoch type dropped entirely: its spectral/connectivity/information-
+  # theory markers are the same quantities also computed on the pre-probe "sleep"
+  # epochs, so running both duplicated every hypothesis and inflated m.
+  # "spectral" (absolute psd_bands_*) removed for the same reason: those markers
+  # duplicate the information in psd_relative_* and were only ever run
+  # exploratorily, so keeping them penalised the hypotheses actually tested.
+  sleep:
+    # - spectral_ratio
+    - spectral_relative
+    - connectivity
+    - information_theory
+    - sleep
+
+# =============================================================================
+# DERIVED RATIO MARKERS
+# =============================================================================
+# Virtual markers computed channel-wise as numerator / denominator.
+# epoch_type must match the epoch type used in selected_markers above.
+derived_ratios:
+  psd_bands_theta_beta_ratio:
+    epoch_type: state
+    numerator: psd_bands_theta
+    denominator: psd_bands_beta
+  psd_bands_alpha_theta_ratio:
+    epoch_type: state
+    numerator: psd_bands_alpha
+    denominator: psd_bands_theta
+  psd_relative_theta_beta_ratio:
+    epoch_type: state
+    numerator: psd_relative_theta
+    denominator: psd_relative_beta
+  psd_relative_alpha_theta_ratio:
+    epoch_type: state
+    numerator: psd_relative_alpha
+    denominator: psd_relative_theta
+
+# Preprocessing parameters
+preprocessing:
+  # Subject-level normalization
+  normalize_by_subject: true
+  subject_column: "subject"
+  normalization_method: "zscore"
+  channel_wise: false
+
+  # ── Response transform ──────────────────────────────────────────────────
+  # Applied to the marker matrix BEFORE normalize_by_subject. Order is not
+  # optional: the per-subject z-score is a linear map and cannot remove skew,
+  # so a transform applied afterwards would leave residual shape untouched.
+  #
+  # SELECTION RULE (fixed here, before looking at any cluster p-value).
+  # A marker is transformed iff its mean residual excess kurtosis exceeds
+  # RESIDUAL_EXKURT_FLAG (= 3.0, see Statistics/lmm_model.py), as measured by
+  # Stats_andrillon/lmm_assumption_diagnostics.py on the observed fits. That
+  # criterion is blind to the predictor's significance — it describes the shape
+  # of the residual distribution, not the size of any effect — so applying it
+  # per marker is not a forking path. The specific transform per marker is then
+  # dictated by the measurement scale, not chosen by trial and error:
+  #   psd_relative_*   proportions in (0,1)          -> log (empirically better
+  #                                                     behaved than logit here)
+  #   slowwaves_PTP    strictly positive amplitude   -> log
+  #   slowwaves_Density counts with ~44% zeros       -> log1p
+  #
+  # WHY THESE THREE AND NOT ALL 23. The diagnostics run over every marker
+  # (results/andrillon_cluster/*/assumption_diagnostics/assumption_summary.csv)
+  # shows mean residual excess kurtosis of 20.5, 12.0 and 7.3 for these three
+  # against < 5 for all the rest, and < 3 for 17 of 23. Markers whose raw values
+  # look badly skewed — PE_theta, wsmi_beta — have well-behaved *residuals*
+  # (excess kurtosis 2.7 and 1.4) once the model and the per-subject z-score are
+  # applied, so transforming them would be cosmetic.
+  #
+  # KNOWN CAVEAT, recorded deliberately. Transforming a subset means markers are
+  # no longer all on the same response scale. This is acceptable because the
+  # cluster statistic is a sum of t-values — scale-free by construction — and
+  # because the multiple-comparisons family is defined over markers, not over a
+  # shared scale. It would NOT be acceptable if effect sizes were being compared
+  # across markers in raw units; they are not.
+  #
+  # SENSITIVITY. Correlations between the raw and transformed observed t-maps are
+  # r = 0.90 (psd_relative_gamma), 0.99 (slowwaves_PTP), 0.96 (slowwaves_Density),
+  # so no topography is overturned. Report the untransformed run alongside.
+  #
+  # Options per marker: none | log | log1p | logit | sqrt | rank_inverse_normal
+  response_transform:
+    enabled: false   # flip to true to run the transformed track
+    default: "none"
+    by_marker:
+      sleep/psd_relative_gamma: "log"
+      sleep/slowwaves_PTP: "log"
+      sleep/slowwaves_Density: "log1p"
+
+  # Orthogonalized quadratic features — DISABLED 2026-08-13.
+  #
+  # For each base_col this computed (base_col - 50)^2 / 50 then residualized
+  # w.r.t. base_col via OLS, intended as a U-shaped predictor orthogonal to the
+  # linear term. It was retired because the resulting regressor is dominated by
+  # a handful of probes, not because of an implementation bug — re-enabling it
+  # without changing the construction reinstates the artifact:
+  #
+  #   - The probe sliders are bounded and skewed, so the residual has skew
+  #     2.4-2.7: the top 5% of observations carry 61-64% of its variance
+  #     (vs 13% for a linear predictor like onoff).
+  #   - Drop-test, evoked/P1 at Oz: t(time_sq) 2.76 -> 1.15 when the top 5% is
+  #     removed, while t(time) holds (2.41 -> 2.26).
+  #   - Behaviour (GLMM, n=2460): both FDR-significant valence_sq effects
+  #     REVERSE SIGN when the top 5% is dropped — omission_rate z 2.52 -> -1.10,
+  #     total_errors z 2.25 -> -0.73.
+  #   - Model-free binning shows the supposed U is one tail bin (n=28 for time)
+  #     with the adjacent bin going the other way.
+  #   - Extremes are unbalanced by construction: valence has 19 probes <=10 vs
+  #     615 >=90, so the "extreme negative" arm rests on 19 probes.
+  #
+  # Orthogonalization is NOT the problem and re-fitting it post-filter does not
+  # help: the highest-order term is invariant under that reparametrization
+  # (verified — t is identical raw vs orthogonalized). What the quadratic term
+  # DID change was the linear term, whose t swung from -0.43 to +3.05 for the
+  # same data depending on parametrization.
+  quadratic_features:
+    enabled: false
+    features: {}
+
+# Linear mixed model parameters
+lmm:
+  # Formula for the LMM
+  # Same syntax as current pipeline
+  # Linear-only specification (2026-08-13). The quadratic terms valence_sq and
+  # time_sq were removed as covariates as well as targets — see the
+  # `quadratic_features` block above for the evidence. Because the model folder
+  # name is derived from the fixed effects, runs under this formula land in new
+  # directories and the previous quadratic-spec results stay on disk untouched.
+  formula: "power ~ onoff + valence + selfother + time + time_on_task + confidence + (1|subject)"
+
+  # Predictor of interest (will be permuted and tested)
+  # predictor_of_interest can be a single string or a list.
+  # - Single string: run directly with python Stats_andrillon/run_andrillon_pipeline.py
+  # - List: use submit_andrillon_array.sh / submit_parallel_andrillon_markers.sh to submit loop
+  # Five targets: the five MDES probe dimensions. valence_sq/time_sq were
+  # dropped 2026-08-13 (see `quadratic_features`), so the cross-dimension BH
+  # denominator in omnibus_test.py is now 5, not 7.
+  predictor_of_interest:
+    - "onoff"
+    - "valence"
+    - "selfother"
+    - "time"
+    # confidence is the 5th MDES probe dimension (Q3, metacognitive certainty).
+    # It was already a covariate in the formula; testing it as a target asks
+    # whether metacognitive certainty itself has a neural correlate, and keeps
+    # the dimension set complete.
+    - "confidence"
+    # - "time_on_task"
+    # Interaction examples (requires per_predictor_formula override below):
+    # - "onoff:confidence"
+    # - "valence:confidence"
+
+  # Per-predictor formula overrides.
+  # Only needed for interaction terms — main-effect predictors use formula above.
+  per_predictor_formula:
+    # "onoff:confidence": "power ~ onoff * confidence + valence + valence_sq + selfother + time + time_sq + time_on_task + (1|subject)"
+    # "valence:confidence": "power ~ valence * confidence + onoff + valence_sq + selfother + time + time_sq + time_on_task + (1|subject)"
+
+  # LMM fitting parameters
+  method: "powell"  # Optimization method (ignored by R backend — lme4 uses bobyqa)
+  maxiter: 200     # Maximum iterations (mapped to lmerControl optCtrl maxfun for R backend)
+  random_state: 42  # Random seed
+
+  # ── Backend selection ────────────────────────────────────────────────────
+  # "python"  Use statsmodels mixedlm (default, no extra dependencies).
+  # "r"       Use lme4::lmer via rpy2 — required for exact WLS-LMM when
+  #           obs_weight_col is set.
+  #
+  # Dependencies for backend "r":
+  #   Python:  conda install -c conda-forge rpy2  (already installed)
+  #   R:       conda install -c conda-forge r-lme4 r-lmertest  (already installed)
+  backend: "python"
+
+  # ── Observation weighting (IWV / WLS-LMM) ───────────────────────────────
+  # Column in df_behavioral to use as per-observation weights.
+  # null  → no weighting (standard LMM).
+  # "confidence" → weight each probe by the subject's confidence in their
+  #   on/off-task rating, so reliable probes drive the fixed-effect estimates
+  #   more than uncertain ones.  Requires backend: "r" for exact WLS-LMM.
+  obs_weight_col: null
+
+  # How to normalize weights before passing to lmer:
+  #   "subject_minmax" — min-max scale within each subject → [0.01, 1].
+  #               The most confident probe gets weight 1; the least gets 0.01.
+  #               Bounded range: no single probe can dominate via outlier-high
+  #               confidence.  Purely ordinal: only within-subject ranking
+  #               matters.  Recommended.
+  #   "subject_zscore" — z-score within each subject, shifted to be positive.
+  #               Removes mean + SD differences across subjects, but unbounded
+  #               (high-confidence outliers can get weights > 4).
+  #   "subject" — divide by subject mean only (removes mean differences but
+  #               not scale differences between subjects).
+  #   "global"  — divide by global mean.
+  #   null      — use raw values (must all be > 0).
+  weight_normalization: "subject_minmax"
+
+# Andrillon 2020 Cluster-Permutation Parameters
+# ================================================
+# This section implements the specific methodology from Andrillon et al. (2020)
+andrillon_clustering:
+  # Cluster alpha: p-value threshold for candidate clusters
+  # Andrillon uses 0.025 (paper line 103-104)
+  # "Candidate clusters were defined as neighbouring electrodes with a 
+  # p-value below a threshold (called cluster alpha) of 0.025"
+  cluster_alpha: 0.025
+  
+  # Number of permutations
+  # Andrillon uses 1000 (paper line 106-107)
+  # "We then created permuted datasets by permuting the labels of the 
+  # predictor within each subject, each task and each electrode (N=1,000 permutations)"
+  n_permutations: 5000
+  
+  # Parallel processing for permutations.
+  # Must match `#SBATCH --cpus-per-task` in run_andrillon_marker_array.sh.
+  # Do NOT use -1 on SLURM: loky reads the node's physical core count
+  # (28 here), not the cgroup allocation, so -1 oversubscribes the 16
+  # allocated cores → heavy context-switching that made 5000 permutations
+  # take ~8h on 2 cores and time out. A fixed n_jobs matching the allocation
+  # keeps one worker per allocated core.
+  n_jobs: 16
+  
+  # Monte Carlo alpha: threshold for significant clusters
+  # Andrillon uses 0.05 (paper line 111-113)
+  # "A Monte-Carlo p-value was derived from this comparison (p_cluster<0.05...)"
+  montecarlo_alpha: 0.05
+  
+  # Cluster statistic function
+  # Andrillon uses "sum" of t-values (paper line 104-105)
+  # "For each candidate cluster, we computed the sum of the t-values for all 
+  # the electrodes belonging to the cluster"
+  stat_fun: "sum"  # Always "sum" for Andrillon method
+  
+  # Bonferroni correction for multiple comparisons
+  # Andrillon applies this when testing multiple markers (paper line 114-115)
+  # "In cases where several cluster-permutations were performed in the same 
+  # analysis (Fig. 5 and 6), we corrected the Monte-Carlo p-values of the 
+  # real clusters with the Bonferroni method"
+  bonferroni_correction: true
+  
+  # Permutation strategy
+  # Andrillon permutes within subject × task × electrode
+  # Since we fit per electrode, we permute within subject × task
+  permutation_within: ["subject"]
+
+  # Permutation method:
+  #   - "simple":         shuffle the predictor labels within the
+  #                       `permutation_within` groups (Andrillon 2020 default).
+  #                       Correct when the predictor is uncorrelated with the
+  #                       other covariates in the formula. With correlated
+  #                       covariates, simple permutation destroys collinearity
+  #                       only in the null, contracting the null distribution
+  #                       and inflating FPR.
+  #   - "freedman_lane":  fit a reduced model (formula minus predictor_of_interest)
+  #                       once, permute its residuals within subject, reconstruct
+  #                       Y* = Ŷ_reduced + R_perm, refit the FULL model on Y*.
+  #                       Preserves the covariance structure between predictor
+  #                       and other covariates under H0; recommended when the
+  #                       formula contains covariates correlated with the
+  #                       predictor of interest (time_on_task, valence, etc.).
+  permutation_method: "freedman_lane"  # Recommended when covariates are correlated with predictor
+
+  # Random seed for reproducibility
+  seed: 42
+
+# Channel exclusion (same as current pipeline)
+# Prevents boundary artifacts by excluding edge channels from clustering
+channel_exclusion:
+  enabled: true
+  method: "manual"
+  
+  # Edge channels to exclude from clustering
+  # These channels are still tested but cannot form/connect clusters
+  channel_names:
+    # Most extreme lateral (|Theta| >= 90°)
+    - "FT9"
+    - "TP9"
+    - "FT10"
+    - "TP10"
+    # - "F7"
+    # - "F8"
+    # - "T7"
+    # - "T8"
+    # - "P7"
+    # - "P8"
+    # Extreme anterior
+    # - "Fp1"
+    # - "Fp2"
+    # Extreme posterior
+    - "Iz"
+
+# Multiple comparisons correction
+# Applied when testing multiple markers (cluster-permutation tests).
+#
+# WHAT IS *NOT* CORRECTED HERE: multiplicity across electrodes. That is already
+# controlled by the cluster-permutation test itself, whose null distribution is
+# built from the maximum cluster statistic across the montage. Applying a second
+# correction over electrodes would double-penalise the same multiplicity.
+#
+# WHAT *IS* CORRECTED HERE: multiplicity across markers. The family is exactly
+# what selected_markers/feature_families declare (currently 4 evoked, 16 state,
+# 5 sleep), NOT whatever happens to sit on disk. Markers kept only for
+# exploration were deliberately removed from feature_families: carrying them
+# inflates m and penalises the hypotheses that are actually being tested.
+#
+# UNIT — one p-value per marker, not per cluster.
+# Each cluster p-value is already calibrated against a max-statistic null, so
+# only the most extreme cluster of a marker is properly calibrated; sub-maximal
+# clusters carry conservative p-values. Pooling every cluster would therefore
+# (a) inflate the family size with non-independent, mis-calibrated tests and
+# (b) let a marker's rank in the family depend on how many clusters it happened
+# to fragment into. Representing each marker by its max-statistic p-value makes
+# the family size equal to the number of hypotheses actually posed ("does this
+# marker track the probe dimension?"). Cluster-level significance is then
+# resolved by hierarchical gatekeeping: a cluster is significant only if its
+# marker survived the correction AND its own permutation p-value is < alpha.
+#
+# METHOD — Benjamini-Hochberg, with a documented caveat.
+# BH is the de facto standard in the EEG/neuroimaging literature and is used
+# here for comparability. It controls FDR under independence or positive
+# regression dependence (PRDS).
+#
+# KNOWN CAVEAT, recorded deliberately rather than glossed over: the PRDS
+# assumption is only clearly satisfied by the evoked family. Correlating the
+# markers' t-maps (pooled over all model directories) gives:
+#     evoked  m=4    mean r = +0.55,  0% of pairs negative   -> PRDS plausible
+#     state   m=16   mean r = +0.01, 52% negative, 19% < -0.3 -> PRDS doubtful
+#     sleep   m=5    mean r = +0.07, 30% negative, 20% < -0.3 -> PRDS doubtful
+# The negative dependence in `state` is structural, not noise: psd_relative_*
+# are compositional (they sum to ~1, so one band rising forces others down,
+# e.g. psd_relative_beta vs psd_relative_delta r = -0.72) and the ratios share
+# a denominator with their own components (psd_relative_beta vs
+# psd_relative_theta_beta_ratio r = -0.81, essentially mechanical).
+# Under such dependence BH's realised FDR can exceed the nominal 0.05. The
+# C(m) penalty that Benjamini-Yekutieli pays to be valid under arbitrary
+# dependence is a worst-case bound, so BY is correspondingly conservative.
+# BECAUSE THE CHOICE IS DEBATABLE, report the BY-vs-BH sensitivity analysis
+# alongside the primary BH results rather than the BH numbers alone.
+# Bonferroni is rejected outright: combined with the permutation-floor p
+# (~1/(n_permutations+1)), it leaves significance unreachable in the larger
+# families regardless of effect size.
+#
+# Correction is applied separately within each marker family (evoked/state/sleep).
+multiple_comparisons:
+  # Unit of correction — what counts as one hypothesis.
+  # Options:
+  #   - "marker":  one max-statistic p-value per marker (see rationale above)
+  #   - "cluster": every cluster is a hypothesis (legacy Statistics/ behaviour)
+  unit: "marker"
+
+  # Correction method per marker family.
+  # Options:
+  #   - "fdr_bh" or "fdr_indep": Benjamini-Hochberg FDR (assumes independence
+  #     or positive regression dependence — used here, see caveat above)
+  #   - "fdr_by" or "fdr_negcorr": Benjamini-Yekutieli FDR (valid under
+  #     arbitrary dependence; the sensitivity analysis to run against BH)
+  #   - "bonferroni": Bonferroni FWER (very conservative — see note above)
+  #   - "none" or false: No correction
+  evoked: "fdr_bh"
+
+  # Correction for state markers
+  state: "fdr_bh"
+
+  sleep: "fdr_bh"
+
+  # Alpha level
+  alpha: 0.05
+
+  # Family membership is resolved from selected_markers/feature_families above,
+  # NOT from whichever marker directories happen to exist under output_path.
+  # When true, a declared marker that produced no results aborts the correction
+  # instead of silently shrinking the family (a smaller m means a weaker
+  # correction, so a crashed marker would otherwise *increase* significance).
+  # Set to false only to proceed deliberately with a known-incomplete family.
+  require_complete_family: true
+
+# Output options
+output:
+  save_pickle: true
+  save_csv: true
+  save_figures: true
+  fig_format: "png"
+  fig_dpi: 300
+  overwrite: true
+  
+  # Save permutation results (can be large files)
+  # Useful for debugging and validation
+  save_permutations: false
+
+# ============================================================================
+# COMPARISON WITH CURRENT PIPELINE
+# ============================================================================
+#
+# Key Differences from Statistics/config.yaml:
+#
+# 1. PERMUTATION METHOD:
+#    - Current: Freedman-Lane (permutes residuals from reduced model)
+#    - Andrillon: Simple permutation (permutes predictor labels within groups)
+#
+# 2. CLUSTER THRESHOLD:
+#    - Current: Fixed t-threshold (e.g., t > 3.0)
+#    - Andrillon: P-value threshold (p < 0.025)
+#
+# 3. CLUSTER STATISTIC:
+#    - Current: Sum of F-values (from ANOVA-style test)
+#    - Andrillon: Sum of t-values (from LMM predictor)
+#
+# 4. MULTIPLE COMPARISONS:
+#    - Current: FDR correction
+#    - Andrillon: Bonferroni correction
+#
+# 5. NO TFCE:
+#    - Current: Optional TFCE
+#    - Andrillon: Not used (only threshold-based clustering)
+#
+# ============================================================================
+# QUICK REFERENCE: Formula Patterns
+# ============================================================================
+#
+# Same as current pipeline - see Statistics/config.yaml for examples
+#
+# 1. Single predictor:
+#    formula: "power ~ onoff + (1|subject)"
+#    predictor_of_interest: "onoff"
+#
+# 2. Multiple predictors:
+#    formula: "power ~ onoff + valence + (1|subject)"
+#    predictor_of_interest: "onoff"
+#
+# 3. Interaction:
+#    formula: "power ~ onoff * valence + (1|subject)"
+#    predictor_of_interest: "onoff"  # or "onoff:valence" for interaction
+#
+# ============================================================================

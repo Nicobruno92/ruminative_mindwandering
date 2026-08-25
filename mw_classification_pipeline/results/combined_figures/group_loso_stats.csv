@@ -1,0 +1,6 @@
+row_label,col_label,xref,yref,x,y,text
+On/Off-Task,,paper,y domain,1.01,0.5,<b>*** p < .001</b> | (FDR: p < .001)
+Valence,,paper,y2 domain,1.01,0.5,<b>p = 0.102</b> | (FDR: p = 0.127)
+Self/Other,,paper,y3 domain,1.01,0.5,<b>p = 0.266</b> | (FDR: p = 0.266)
+Time,,paper,y4 domain,1.01,0.5,<b>p = 0.080</b> | (FDR: p = 0.127)
+Confidence,,paper,y5 domain,1.01,0.5,<b>*** p < .001</b> | (FDR: p < .001)

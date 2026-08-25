@@ -1,0 +1,328 @@
+# Wandering Mind Sleep Epochs Pipeline - No Baseline Correction
+# Processes sleep epochs (desc-sleep) which are long pre-probe epochs (20s before probe)
+# Supports sessions (a, b) and tasks (sartauditiva, sartvisual)
+# Outputs features to BIDS-structured features directory
+
+with:
+  - junifer_eeg
+  - sart_datagrabber_picnic
+workdir: .
+
+datagrabber:
+  kind: PatternDataGrabber
+  patterns:
+    EEG:
+      pattern: '{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif'
+      space: native
+  replacements: [subject, task, desc]
+  types:
+    - EEG
+  # CYBERSART derivatives directory
+  datadir: <PATH_TO_YOUR_BIDS_DERIVATIVES_ROOT>
+
+datareader:
+  kind: SARTDataReader
+  preserve_annotations: true
+  extract_behavioral_params: true
+  channel_selection: eeg    # Keep only EEG channels, drop stimulus channels
+  types:
+    - EEG
+
+storage:
+  kind: HDF5FeatureStorage
+  # With single_output: false, creates individual files per element
+  # Pattern: element_{subject}_{task}_sleep_markers.h5
+  uri: <PATH_TO_YOUR_BIDS_FEATURES_ROOT>/junifer/markers.h5
+  single_output: false
+  
+markers:
+  # ========================================
+  # 1. SPECTRAL ANALYSIS: Absolute Power (dB)
+  # ========================================
+  - kind: SpectralPowerBands
+    name: psd_bands
+    bands:
+      delta: [1.0, 4.0]
+      theta: [4.0, 8.0]
+      alpha: [8.0, 12.0]
+      beta: [12.0, 25.0]
+      iota: [25.0, 35.0]
+      gamma: [35.0, 45.0]
+    normalize: false
+    dB: true
+    n_fft: 1024
+    n_per_seg: 512
+    n_overlap: 256
+    trial_method: null
+    on: EEG
+
+  # ========================================
+  # 2. SPECTRAL ANALYSIS: Relative Power (normalized)
+  # ========================================
+  - kind: SpectralPowerBands
+    name: psd_relative
+    bands:
+      delta: [1.0, 4.0]
+      theta: [4.0, 8.0]
+      alpha: [8.0, 12.0]
+      beta: [12.0, 25.0]
+      iota: [25.0, 35.0]
+      gamma: [35.0, 45.0]
+    normalize: true
+    dB: false
+    n_fft: 1024
+    n_per_seg: 512
+    n_overlap: 256 
+    trial_method: null
+    on: EEG
+
+  # ========================================
+  # 4. CONNECTIVITY: Weighted Symbolic Mutual Information
+  # ========================================
+  - kind: SymbolicMutualInformation
+    name: wsmi_theta
+    tmin:
+    tmax:
+    kernel: 3
+    taus: [8]
+    weighted: true
+    csd: true
+    on: EEG
+  
+  - kind: SymbolicMutualInformation
+    name: wsmi_alpha
+    tmin:
+    tmax:
+    kernel: 3
+    taus: [4]
+    weighted: true
+    csd: true
+    on: EEG
+
+  - kind: SymbolicMutualInformation
+    name: wsmi_beta
+    tmin:
+    tmax:
+    kernel: 3
+    taus: [2]
+    weighted: true
+    csd: true
+    on: EEG
+  
+  - kind: SymbolicMutualInformation
+    name: wsmi_gamma
+    tmin:
+    tmax:
+    kernel: 3
+    taus: [1]
+    weighted: true
+    csd: true
+    on: EEG
+
+  # ========================================
+  # 5. INFORMATION THEORY: Permutation Entropy
+  # ========================================
+  - kind: PermutationEntropy
+    name: PE_theta
+    kernel: 3
+    taus: [8]
+    trial_method: null
+    on: EEG
+
+  - kind: PermutationEntropy
+    name: PE_alpha
+    kernel: 3
+    taus: [4]
+    trial_method: null
+    on: EEG
+
+  - kind: PermutationEntropy
+    name: PE_beta
+    kernel: 3
+    taus: [2]
+    trial_method: null
+    on: EEG
+
+  - kind: PermutationEntropy
+    name: PE_gamma
+    kernel: 3
+    taus: [1]
+    trial_method: null
+    on: EEG
+
+  # ========================================
+  # 6. INFORMATION THEORY: Kolmogorov Complexity
+  # ========================================
+  - kind: KolmogorovComplexity
+    name: kolmogorov_complexity
+    trial_method: null
+    on: EEG
+
+  # ========================================
+  # 7. SLEEP SPECIFIC: Slow Waves & Spindles
+  # ========================================
+  # Andrillon 2021 / Pinggal 2022 slow-wave pipeline (no-placebo adaptation):
+  #   - custom zero-crossing detector with Chebyshev II 1–10 Hz bandpass
+  #   - post-detection filters:
+  #       * Frequency ≤ 7 Hz                       (freq_threshold)
+  #       * |PosPeak| < 75 µV                       (artifact_threshold)
+  #       * NO PTP cap on the wave itself (Pinggal does not define one;
+  #         max_ptp_amplitude=100000 effectively disables Junifer's cap)
+  #       * ±1 s proximity to >150 µV event         (proximity_amplitude/window)
+  #   - per-channel PTP threshold derived from the pooled distribution across
+  #     all four Sart blocks of the same subject (condition-blind by
+  #     construction); computed in step 0 → CSV consumed via ptp_thresholds_path
+  #   - ptp_thresholds_strict=true: a missing subject in the CSV must fail
+  #     loudly rather than silently fall back to an in-element percentile
+  #
+  # SlowWavesDetection requires one entry per feature; the singleton cache
+  # shares detection across them so only the first call is expensive. ALL
+  # entries MUST share the same detection/filter parameters for the cache to
+  # hit and for the threshold semantics to remain consistent.
+  - kind: SlowWavesDetection
+    name: slowwaves_Duration
+    feature: Duration
+    detection_method: "custom"
+    freq_sw: [1.0, 10.0]
+    amp_ptp_initial: 15.0
+    freq_threshold: 7.0
+    artifact_threshold: 75.0
+    max_ptp_amplitude: 100000.0
+    proximity_amplitude: 150.0
+    proximity_window: 1.0
+    ptp_threshold_mode: "adaptive"
+    ptp_percentile: 90.0
+    ptp_thresholds_path: <PATH_TO_YOUR_BIDS_FEATURES_ROOT>/sw_thresholds/pooled_sw_thresholds.csv
+    ptp_thresholds_strict: true
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG
+
+  - kind: SlowWavesDetection
+    name: slowwaves_PTP
+    feature: PTP
+    detection_method: "custom"
+    freq_sw: [1.0, 10.0]
+    amp_ptp_initial: 15.0
+    freq_threshold: 7.0
+    artifact_threshold: 75.0
+    max_ptp_amplitude: 100000.0
+    proximity_amplitude: 150.0
+    proximity_window: 1.0
+    ptp_threshold_mode: "adaptive"
+    ptp_percentile: 90.0
+    ptp_thresholds_path: <PATH_TO_YOUR_BIDS_FEATURES_ROOT>/sw_thresholds/pooled_sw_thresholds.csv
+    ptp_thresholds_strict: true
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG
+
+  - kind: SlowWavesDetection
+    name: slowwaves_Frequency
+    feature: Frequency
+    detection_method: "custom"
+    freq_sw: [1.0, 10.0]
+    amp_ptp_initial: 15.0
+    freq_threshold: 7.0
+    artifact_threshold: 75.0
+    max_ptp_amplitude: 100000.0
+    proximity_amplitude: 150.0
+    proximity_window: 1.0
+    ptp_threshold_mode: "adaptive"
+    ptp_percentile: 90.0
+    ptp_thresholds_path: <PATH_TO_YOUR_BIDS_FEATURES_ROOT>/sw_thresholds/pooled_sw_thresholds.csv
+    ptp_thresholds_strict: true
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG
+
+  - kind: SlowWavesDetection
+    name: slowwaves_Slope
+    feature: Slope
+    detection_method: "custom"
+    freq_sw: [1.0, 10.0]
+    amp_ptp_initial: 15.0
+    freq_threshold: 7.0
+    artifact_threshold: 75.0
+    max_ptp_amplitude: 100000.0
+    proximity_amplitude: 150.0
+    proximity_window: 1.0
+    ptp_threshold_mode: "adaptive"
+    ptp_percentile: 90.0
+    ptp_thresholds_path: <PATH_TO_YOUR_BIDS_FEATURES_ROOT>/sw_thresholds/pooled_sw_thresholds.csv
+    ptp_thresholds_strict: true
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG
+
+  - kind: SlowWavesDetection
+    name: slowwaves_Density
+    feature: Density
+    detection_method: "custom"
+    freq_sw: [1.0, 10.0]
+    amp_ptp_initial: 15.0
+    freq_threshold: 7.0
+    artifact_threshold: 75.0
+    max_ptp_amplitude: 100000.0
+    proximity_amplitude: 150.0
+    proximity_window: 1.0
+    ptp_threshold_mode: "adaptive"
+    ptp_percentile: 90.0
+    ptp_thresholds_path: <PATH_TO_YOUR_BIDS_FEATURES_ROOT>/sw_thresholds/pooled_sw_thresholds.csv
+    ptp_thresholds_strict: true
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG
+
+  # SpindlesDetection: one entry per feature (Duration/Amplitude/Frequency/Density).
+  - kind: SpindlesDetection
+    name: spindles_Duration
+    feature: Duration
+    freq_sp: [12, 15]
+    freq_broad: [1, 30]
+    duration: [0.5, 2.5]
+    min_distance: 500
+    thresh_rms: 1.5
+    thresh_corr: 0.65
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG
+
+  - kind: SpindlesDetection
+    name: spindles_Amplitude
+    feature: Amplitude
+    freq_sp: [12, 15]
+    freq_broad: [1, 30]
+    duration: [0.5, 2.5]
+    min_distance: 500
+    thresh_rms: 1.5
+    thresh_corr: 0.65
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG
+
+  - kind: SpindlesDetection
+    name: spindles_Frequency
+    feature: Frequency
+    freq_sp: [12, 15]
+    freq_broad: [1, 30]
+    duration: [0.5, 2.5]
+    min_distance: 500
+    thresh_rms: 1.5
+    thresh_corr: 0.65
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG
+
+  - kind: SpindlesDetection
+    name: spindles_Density
+    feature: Density
+    freq_sp: [12, 15]
+    freq_broad: [1, 30]
+    duration: [0.5, 2.5]
+    min_distance: 500
+    thresh_rms: 1.5
+    thresh_corr: 0.65
+    reference_channels: ["TP9", "TP10"]
+    channel_method: null
+    on: EEG

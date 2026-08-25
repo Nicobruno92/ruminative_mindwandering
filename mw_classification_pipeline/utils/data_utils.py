@@ -1,0 +1,1428 @@
+"""
+Mind-Wandering Classification Pipeline — Data Utilities.
+
+Handles loading EEG features from Junifer aggregated probe CSV files
+and preparing them for classification analysis.
+
+Data format (from aggregate_markers_by_probe.py):
+    CSV files in long format: sub-XX_task-YY_desc-probe-NNN_TYPE_aggMarkers.csv
+    Columns: subject, task, probe_number, marker_type, marker, channel, value, onoff, ...
+
+Project: depressed_mindwandering
+"""
+
+import os
+import glob
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
+import pandas as pd
+import yaml
+
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+def load_config(config_path: str) -> Dict:
+    """
+    Load configuration from YAML file.
+
+    Parameters
+    ----------
+    config_path : str
+        Path to YAML configuration file.
+
+    Returns
+    -------
+    Dict
+        Configuration dictionary.
+    """
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+
+def get_project_root() -> Path:
+    """
+    Get project root directory.
+
+    Assumes this file is at:
+        depressed_mindwandering/mw_classification_pipeline/wandering_mind_data_utils.py
+
+    Returns
+    -------
+    Path
+        Path to project root (depressed_mindwandering/).
+    """
+    return Path(__file__).resolve().parent.parent
+
+
+def _normalize_epoch_types(
+    epoch_types: Union[str, List, Dict],
+) -> Dict[str, Optional[List[str]]]:
+    """
+    Convert any epoch_types config value to a canonical dict.
+
+    Accepts:
+        "state"                          → {"state": None}
+        ["state", "evoked"]              → {"state": None, "evoked": None}
+        ["sleep", {"evoked": ["erp"]}]   → {"sleep": None, "evoked": ["erp"]}
+        {"state": ["spectral"], ...}     → as-is
+
+    Returns
+    -------
+    Dict mapping epoch_type → list of family names to pre-filter (None = all).
+    """
+    if isinstance(epoch_types, str):
+        return {epoch_types: None}
+    if isinstance(epoch_types, dict):
+        return epoch_types
+    result: Dict[str, Optional[List[str]]] = {}
+    for item in epoch_types:
+        if isinstance(item, str):
+            result[item] = None
+        elif isinstance(item, dict):
+            result.update(item)
+    return result
+
+
+def get_model_results_folder(config: Dict, model_name: str, model_type: str) -> str:
+    """
+    Generate the results folder name for a model.
+
+    Parameters
+    ----------
+    config : Dict
+        Configuration dictionary (may contain results_folder_pattern).
+    model_name : str
+        Name of the model/contrast (e.g., "ON_vs_OFF").
+    model_type : str
+        Type of classifier (e.g., "rf", "lr").
+
+    Returns
+    -------
+    str
+        Folder name for results.
+    """
+    pattern = config.get("results_folder_pattern", "{model_name}_{model_type}_Distribution")
+    return pattern.format(model_name=model_name, model_type=model_type.upper())
+
+
+# =============================================================================
+# DATA LOADING
+# =============================================================================
+
+def find_probe_csvs(
+    features_root: str,
+    subject: str,
+    task: str,
+    marker_types: Union[str, List[str]],
+    data_format: str = "per_channel",
+    include_connectivity_pairs: bool = False,
+) -> Dict[str, List[str]]:
+    """
+    Find aggregated probe CSV files for a subject/task.
+
+    Supports both old format in `junifer` and new format in `junifer_aggregated`.
+
+    Parameters
+    ----------
+    features_root : str
+        Root directory for features.
+    subject : str
+        Subject ID (zero-padded, e.g., "04").
+    task : str
+        Task name (e.g., "Sart1").
+    marker_types : str or List[str]
+        Marker type(s) to load: "evoked", "state", "sleep".
+    data_format : str
+        "per_channel" or "per_roi"
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        Mapping of marker_type -> list of CSV file paths.
+    """
+    if isinstance(marker_types, str):
+        marker_types = [marker_types]
+
+    base_dir = Path(features_root) / f"sub-{subject}" / "eeg"
+    found = {}
+
+    for mtype in marker_types:
+        for folder in ["junifer", "junifer_aggregated"]:
+            search_dir = base_dir / folder
+            if not search_dir.exists():
+                continue
+            
+            # Pattern 1: old style
+            old_pattern = f"sub-{subject}_task-{task}_desc-probe-*_{mtype}_aggMarkers.csv"
+            # Pattern 2: new style (e.g., onTask_evoked.csv or onTask_evoked_connectivity.csv)
+            new_pattern = f"sub-{subject}_task-{task}_probe-*_*{mtype}*.csv"
+
+            files = []
+            files.extend(glob.glob(str(search_dir / old_pattern)))
+            # Gather all new pattern files then filter by data_format
+            all_new = glob.glob(str(search_dir / new_pattern))
+            for fpath in all_new:
+                is_agg = fpath.endswith("_agg.csv")
+                is_connectivity_agg = fpath.endswith("_connectivity_agg.csv")
+                is_connectivity_base = fpath.endswith("_connectivity.csv")
+                
+                # If per_roi, we only want the _agg.csv files
+                if data_format == "per_roi":
+                    # Some connectivity might be aggregated. We accept anything ending in _agg.csv
+                    # If connectivity doesn't have an _agg version, it might just not be included?
+                    if is_agg or is_connectivity_agg:
+                        files.append(fpath)
+                    elif include_connectivity_pairs and is_connectivity_base:
+                        files.append(fpath)
+                    elif fpath.endswith("aggMarkers.csv"):
+                        files.append(fpath) # fallback for old
+                else:
+                    # per_channel: we skip _agg.csv files
+                    if not is_agg and not is_connectivity_agg and not fpath.endswith("aggMarkers.csv"):
+                        if not include_connectivity_pairs and is_connectivity_base:
+                            continue # skip connectivity if not requested
+                        files.append(fpath)
+            
+            if files:
+                if mtype not in found:
+                    found[mtype] = []
+                found[mtype].extend(files)
+
+    # De-duplicate files list per marker type
+    for mtype in found:
+        found[mtype] = sorted(list(set(found[mtype])))
+
+    return found
+
+
+def load_probe_csv(filepath: str) -> pd.DataFrame:
+    """
+    Load a single aggregated probe CSV file.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to CSV file.
+
+    Returns
+    -------
+    pd.DataFrame
+        Probe data in long format.
+    """
+    df = pd.read_csv(filepath)
+
+    # Standardize subject to zero-padded string
+    if "subject" in df.columns:
+        df["subject"] = df["subject"].astype(str).str.zfill(2)
+
+    # Convert new wide format (markers as columns) to long format if needed
+    if "marker" not in df.columns and "value" not in df.columns:
+        metadata_cols = ["subject", "task", "probe_number", "label", "n_epochs", "channel", "ontask_label", "content", "confidence_level", "depth_level", "onoff", "valence", "confidence", "time", "selfother", "average"]
+        present_meta = [c for c in metadata_cols if c in df.columns]
+        marker_cols = [c for c in df.columns if c not in present_meta]
+        
+        if marker_cols:
+            df = pd.melt(
+                df, 
+                id_vars=present_meta, 
+                value_vars=marker_cols, 
+                var_name="marker", 
+                value_name="value"
+            )
+            
+            # Infer marker_type from filename
+            fname = Path(filepath).name
+            if "evoked" in fname:
+                df["marker_type"] = "evoked"
+            elif "sleep" in fname:
+                df["marker_type"] = "sleep"
+            elif "state" in fname:
+                df["marker_type"] = "state"
+            else:
+                df["marker_type"] = "unknown"
+
+    return df
+
+
+def load_subject_data(
+    features_root: str,
+    subject: str,
+    task: str,
+    marker_types: Union[str, List[str], Dict[str, List[str]]],
+    verbose: bool = False,
+    feature_families_config: Optional[Dict] = None,
+    data_format: str = "per_channel",
+    include_connectivity_pairs: bool = False,
+) -> pd.DataFrame:
+    """
+    Load all probe CSVs for a subject/task combination.
+
+    Parameters
+    ----------
+    features_root : str
+        Root directory for features.
+    subject : str
+        Subject ID.
+    task : str
+        Task name.
+    marker_types : str or List[str]
+        Marker type(s) to load.
+    verbose : bool
+        Print progress.
+
+    Returns
+    -------
+    pd.DataFrame
+        Combined long-format data for this subject/task.
+    """
+    # Determine which marker types (epoch types) to load files for
+    if isinstance(marker_types, dict):
+        mtypes_to_load = list(marker_types.keys())
+    else:
+        mtypes_to_load = marker_types
+
+    csv_files = find_probe_csvs(features_root, subject, task, mtypes_to_load, data_format=data_format, include_connectivity_pairs=include_connectivity_pairs)
+
+    if not csv_files:
+        return pd.DataFrame()
+
+    all_dfs = []
+    for mtype, files in csv_files.items():
+        for f in files:
+            df = load_probe_csv(f)
+            if not df.empty:
+                # If specific families are requested for this epoch type, filter markers
+                if isinstance(marker_types, dict) and feature_families_config:
+                    families = marker_types.get(mtype, [])
+                    if families and "all" not in families:
+                        allowed_prefixes = []
+                        for fam in families:
+                            fam_prefixes = feature_families_config.get(fam)
+                            if fam_prefixes:
+                                allowed_prefixes.extend(fam_prefixes)
+                        
+                        if allowed_prefixes:
+                            mask = df["marker"].apply(lambda x: any(str(p) in str(x) for p in allowed_prefixes))
+                            df = df[mask]
+                
+                if not df.empty:
+                    all_dfs.append(df)
+
+    if not all_dfs:
+        return pd.DataFrame()
+
+    combined = pd.concat(all_dfs, ignore_index=True)
+
+    if verbose:
+        print(f"  Loaded sub-{subject} {task}: {len(combined)} rows, "
+              f"{combined['probe_number'].nunique()} probes")
+
+    return combined
+
+
+def load_all_subjects(
+    features_root: str,
+    subjects: List[str],
+    tasks: List[str],
+    marker_types: Union[str, List[str], Dict[str, List[str]]],
+    verbose: bool = True,
+    feature_families_config: Optional[Dict] = None,
+    data_format: str = "per_channel",
+    include_connectivity_pairs: bool = False,
+) -> pd.DataFrame:
+    """
+    Load and concatenate data across all subjects and tasks.
+
+    Parameters
+    ----------
+    features_root : str
+        Root directory for features.
+    subjects : List[str]
+        List of subject IDs (zero-padded).
+    tasks : List[str]
+        List of task names.
+    marker_types : str or List[str]
+        Marker type(s) to load.
+    verbose : bool
+        Print progress.
+
+    Returns
+    -------
+    pd.DataFrame
+        Combined long-format data across all subjects.
+    """
+    all_dfs = []
+
+    for subject in subjects:
+        for task in tasks:
+            df = load_subject_data(
+                features_root, subject, task, marker_types, verbose, feature_families_config, data_format=data_format, include_connectivity_pairs=include_connectivity_pairs
+            )
+            if not df.empty:
+                all_dfs.append(df)
+
+    if not all_dfs:
+        if verbose:
+            print("WARNING: No data loaded! Check paths and file existence.")
+        return pd.DataFrame()
+
+    combined = pd.concat(all_dfs, ignore_index=True)
+
+    # Standardize types
+    combined["subject"] = combined["subject"].astype(str).str.zfill(2)
+    combined["task"] = combined["task"].astype(str)
+    if "probe_number" in combined.columns:
+        combined["probe_number"] = combined["probe_number"].astype(int)
+
+    if verbose:
+        n_subjects = combined["subject"].nunique()
+        n_probes = combined.groupby(["subject", "task"])["probe_number"].nunique().sum()
+        print(f"\nTotal: {len(combined)} rows from {n_subjects} subjects, "
+              f"{n_probes} total probes")
+
+    return combined
+
+
+# =============================================================================
+# PIVOT LONG → WIDE FORMAT
+# =============================================================================
+
+def pivot_to_wide(
+    df_long: pd.DataFrame,
+    data_format: str = "per_channel",
+) -> pd.DataFrame:
+    """
+    Pivot long-format probe data to wide format for classification.
+
+    Long format: one row per (probe, marker, channel) combination
+    Wide format (per_channel): one row per probe, columns = {channel}_{marker}_value
+    Wide format (aggregated): one row per probe, columns = {marker}_value
+                              (requires pre-aggregated ROI data)
+
+    Parameters
+    ----------
+    df_long : pd.DataFrame
+        Long-format data with columns: subject, task, probe_number,
+        marker_type, marker, channel, value, onoff, ...
+    data_format : str
+        "per_channel" for channel-level features,
+        "aggregated" for ROI-aggregated features.
+
+    Returns
+    -------
+    pd.DataFrame
+        Wide-format DataFrame with one row per probe.
+    """
+    # Identify probe-level metadata columns (same for all rows of a probe)
+    probe_keys = ["subject", "task", "probe_number"]
+    behavioral_cols = ["onoff", "valence", "selfother", "confidence", "time"]
+    behavioral_cols = [c for c in behavioral_cols if c in df_long.columns]
+    meta_cols = probe_keys + behavioral_cols
+
+    # Create feature name column
+    if data_format == "per_channel" and "channel" in df_long.columns:
+        df_long = df_long.copy()
+        df_long["feature_name"] = df_long["channel"] + "_" + df_long["marker"]
+    else:
+        df_long = df_long.copy()
+        df_long["feature_name"] = df_long["marker"]
+
+    # Extract metadata (one row per probe)
+    df_meta = df_long.groupby(probe_keys)[behavioral_cols].first().reset_index()
+
+    # Pivot: rows = probes, columns = features, values = marker value
+    df_wide = df_long.pivot_table(
+        index=probe_keys,
+        columns="feature_name",
+        values="value",
+        aggfunc="first",  # Should be unique per (probe, feature)
+    ).reset_index()
+
+    # Flatten multi-level columns
+    df_wide.columns = [c if isinstance(c, str) else str(c) for c in df_wide.columns]
+
+    # Merge metadata back
+    df_wide = pd.merge(df_wide, df_meta, on=probe_keys, how="left")
+
+    return df_wide
+
+
+# =============================================================================
+# LABEL CONTRAST CREATION
+# =============================================================================
+
+def residualize_within_subject(
+    df: pd.DataFrame,
+    target_col: str,
+    predictor_cols: List[str],
+    min_valid: int,
+) -> Tuple[np.ndarray, List]:
+    """
+    OLS-residualize target_col against predictor_cols, fit separately per subject.
+
+    For each subject, fits target ~ predictors + intercept using rows where
+    target and all predictors are non-NaN, then replaces those rows with
+    their residuals. Subjects with fewer than `min_valid` such rows are
+    excluded entirely (residual = NaN for all their rows) rather than left
+    unresidualized, so residualized and raw scores are never mixed within
+    one output. Individual rows with a missing predictor are NaN in the
+    output even for an otherwise-included subject.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain 'subject', target_col, and all predictor_cols.
+    target_col : str
+        Column to residualize.
+    predictor_cols : List[str]
+        Columns to regress out of target_col.
+    min_valid : int
+        Minimum non-NaN (target + all predictors) rows required per subject
+        to fit the regression.
+
+    Returns
+    -------
+    Tuple[np.ndarray, List]
+        (residuals aligned to df's row order, list of excluded subject IDs).
+    """
+    x_all = df[target_col].values.astype(float)
+    preds_all = df[predictor_cols].values.astype(float)
+    resid = np.full_like(x_all, np.nan)
+    excluded_subjects = []
+    for subj in df["subject"].unique():
+        mask = (df["subject"] == subj).values
+        x_s = x_all[mask]
+        preds_s = preds_all[mask]
+        valid = ~np.isnan(x_s) & ~np.isnan(preds_s).any(axis=1)
+        if valid.sum() < min_valid:
+            excluded_subjects.append(subj)
+            continue
+        A = np.column_stack([preds_s[valid], np.ones(valid.sum())])
+        coeffs, _, _, _ = np.linalg.lstsq(A, x_s[valid], rcond=None)
+        resid[np.where(mask)[0][valid]] = x_s[valid] - A @ coeffs
+    return resid, excluded_subjects
+
+
+def create_label_contrast(
+    df: pd.DataFrame,
+    contrast_config: Dict,
+) -> pd.DataFrame:
+    """
+    Create binary target column from a continuous label score (e.g., onoff).
+
+    Supports several splitting methods driven by 'split_method' or legacy keys:
+    - 'global_median': Split by median across all subjects.
+    - 'within_subject_median': Split by median calculated per subject.
+    - 'threshold': Fixed threshold split (e.g. > 50).
+    - 'extreme_groups': Takes top and bottom groups, drops middle.
+
+    An optional 'restrict_to' sub-config restricts the probes *before*
+    binarizing the target column. It is itself a valid contrast spec plus a
+    'keep' key ('positive' or 'negative'); the function binarizes on it, keeps
+    the requested side, drops that helper target, then binarizes the real
+    label column on the remaining subset. Use it to classify content
+    dimensions (valence, selfother, time, confidence) only within off-task
+    probes, e.g. restrict_to: {column_name: onoff,
+    split_method: within_subject_median, keep: negative}.
+
+    An optional 'transform' key applies a within-subject transform to the
+    label column before splitting: 'midpoint_sq' ((x-50)²/50, U-shaped),
+    'midpoint_sq_residual' (midpoint_sq residualized against its own linear
+    dimension, isolating curvature), 'linear_residual' (label_col
+    residualized via OLS against the columns in 'residualize_against',
+    isolating variance not shared with the other listed dimensions;
+    subjects with fewer than 'min_valid_for_residual' valid probes are
+    excluded from the contrast rather than left unresidualized), or
+    'midpoint_sq_residual_cross' (midpoint_sq residualized jointly against
+    its own linear dimension AND the columns in 'residualize_against' in
+    one regression — isolates curvature AND cross-dimension variance at
+    once; same exclusion convention as linear_residual).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Wide-format DataFrame with the target label column.
+    contrast_config : Dict
+        Contrast configuration from config.yaml.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with added 'target' column. Rows outside contrast are dropped.
+    """
+    # Allow column_name as fallback to label_source for compatibility
+    label_col = contrast_config.get("label_source", contrast_config.get("column_name", "onoff"))
+
+    if label_col not in df.columns:
+        available = list(df.columns)
+        raise ValueError(
+            f"Label column '{label_col}' not found. Available: {available}"
+        )
+
+    df = df.copy()
+
+    # Optional pre-binarization restriction (e.g. classify content dimensions
+    # only within off-task probes). The 'restrict_to' sub-config is itself a
+    # valid contrast spec; we binarize on it, keep the requested side, then
+    # drop that helper target before binarizing the real label column.
+    restrict_to = contrast_config.get("restrict_to", None)
+    if restrict_to is not None:
+        keep = restrict_to.get("keep")
+        if keep not in ("positive", "negative"):
+            raise ValueError(
+                f"restrict_to.keep must be 'positive' or 'negative', got {keep!r}."
+            )
+        keep_val = 1 if keep == "positive" else 0
+        restricted = create_label_contrast(df, restrict_to)
+        n_before = len(df)
+        df = restricted[restricted["target"] == keep_val].drop(columns=["target"]).copy()
+        print(f"  restrict_to[{restrict_to.get('column_name')}={keep}]: "
+              f"kept {len(df)}/{n_before} probes before binarizing '{label_col}'")
+
+    split_method = contrast_config.get("split_method", None)
+    positive_above = contrast_config.get("positive_above", True)
+
+    # Optional label transform applied before split (e.g. midpoint_sq: (x-50)²/50).
+    # Creates a temporary column so the existing split_method logic is unchanged.
+    _transform_col = None
+    label_transform = contrast_config.get("transform", None)
+    if label_transform == "midpoint_sq":
+        _transform_col = f"_t_{label_col}"
+        x = df[label_col].values.astype(float)
+        df[_transform_col] = (x - 50.0) ** 2 / 50.0
+        df.loc[np.isnan(x), _transform_col] = np.nan
+        label_col = _transform_col
+        print(f"  Transform [midpoint_sq]: ({contrast_config.get('label_source', contrast_config.get('column_name'))}-50)²/50")
+    elif label_transform == "midpoint_sq_residual":
+        # (x-50)²/50 with within-subject OLS residualization of the linear component.
+        # Removes correlation with the raw dimension so the label is purely quadratic.
+        _transform_col = f"_t_{label_col}"
+        orig_col = contrast_config.get("label_source", contrast_config.get("column_name"))
+        x_all = df[label_col].values.astype(float)
+        sq_all = (x_all - 50.0) ** 2 / 50.0
+        resid = np.full_like(sq_all, np.nan)
+        for subj in df["subject"].unique():
+            mask = (df["subject"] == subj).values
+            x_s = x_all[mask]
+            sq_s = sq_all[mask]
+            valid = ~np.isnan(x_s) & ~np.isnan(sq_s)
+            if valid.sum() < 3:
+                resid[mask] = sq_s
+                continue
+            A = np.column_stack([x_s[valid], np.ones(valid.sum())])
+            coeffs, _, _, _ = np.linalg.lstsq(A, sq_s[valid], rcond=None)
+            resid[np.where(mask)[0][valid]] = sq_s[valid] - A @ coeffs
+        df[_transform_col] = resid
+        label_col = _transform_col
+        print(f"  Transform [midpoint_sq_residual]: ({orig_col}-50)²/50 residualized by {orig_col} within subject")
+    elif label_transform == "linear_residual":
+        # Within-subject OLS residualization of label_col against the other
+        # dimension columns listed in 'residualize_against'. Isolates the
+        # variance in this dimension not explained by the others, to test
+        # whether decoding of a dimension survives once its correlation with
+        # the rest is removed. Subjects without enough valid probes to fit a
+        # stable regression are excluded from this contrast entirely (not
+        # fallen back to raw values) so residualized and raw scores are never
+        # silently mixed within one contrast.
+        predictors = contrast_config.get("residualize_against", None)
+        if not predictors:
+            raise ValueError(
+                "transform 'linear_residual' requires a non-empty "
+                "'residualize_against' list of column names."
+            )
+        missing = [c for c in predictors if c not in df.columns]
+        if missing:
+            raise ValueError(f"residualize_against columns not found: {missing}")
+        min_valid = contrast_config.get("min_valid_for_residual", 15)
+
+        _transform_col = f"_t_{label_col}"
+        resid, excluded_subjects = residualize_within_subject(
+            df, target_col=label_col, predictor_cols=predictors, min_valid=min_valid
+        )
+        df[_transform_col] = resid
+        label_col = _transform_col
+        print(f"  Transform [linear_residual]: residualized against {predictors} within subject "
+              f"(min_valid_for_residual={min_valid}); excluded {len(excluded_subjects)} subject(s): "
+              f"{excluded_subjects}")
+    elif label_transform == "midpoint_sq_residual_cross":
+        # (x-50)²/50 residualized (within-subject OLS) against BOTH its own
+        # linear dimension AND the other content dimensions listed in
+        # 'residualize_against'. Combines midpoint_sq_residual's curvature
+        # isolation with linear_residual's cross-dimension isolation in one
+        # joint regression, rather than two separate residualization passes
+        # (which would be order-dependent). Unlike midpoint_sq_residual,
+        # subjects without enough valid probes are excluded from the
+        # contrast (not fallen back to the raw quadratic score), matching
+        # linear_residual's convention — see design doc.
+        predictors = contrast_config.get("residualize_against", None)
+        if not predictors:
+            raise ValueError(
+                "transform 'midpoint_sq_residual_cross' requires a non-empty "
+                "'residualize_against' list of column names (the OTHER "
+                "content dimensions; the own linear dimension is added "
+                "automatically)."
+            )
+        missing = [c for c in predictors if c not in df.columns]
+        if missing:
+            raise ValueError(f"residualize_against columns not found: {missing}")
+        min_valid = contrast_config.get("min_valid_for_residual", 15)
+        orig_col = contrast_config.get("label_source", contrast_config.get("column_name"))
+
+        _transform_col = f"_t_{label_col}"
+        _sq_col = f"_sq_{label_col}"
+        x = df[label_col].values.astype(float)
+        df[_sq_col] = (x - 50.0) ** 2 / 50.0
+        df.loc[np.isnan(x), _sq_col] = np.nan
+
+        all_predictors = [orig_col] + list(predictors)
+        resid, excluded_subjects = residualize_within_subject(
+            df, target_col=_sq_col, predictor_cols=all_predictors, min_valid=min_valid
+        )
+        df[_transform_col] = resid
+        df = df.drop(columns=[_sq_col])
+        label_col = _transform_col
+        print(f"  Transform [midpoint_sq_residual_cross]: ({orig_col}-50)²/50 residualized "
+              f"against {all_predictors} within subject (min_valid_for_residual={min_valid}); "
+              f"excluded {len(excluded_subjects)} subject(s): {excluded_subjects}")
+    elif label_transform is not None:
+        raise ValueError(
+            f"Unknown label transform: {label_transform!r}. "
+            f"Supported: 'midpoint_sq', 'midpoint_sq_residual', 'linear_residual', "
+            f"'midpoint_sq_residual_cross'."
+        )
+
+    # Mode 1: Global Median
+    if split_method == "global_median" or split_method == "median":
+        median_val = df[label_col].median()
+        if positive_above:
+            df["target"] = (df[label_col] > median_val).astype(int)
+        else:
+            df["target"] = (df[label_col] <= median_val).astype(int)
+        print(f"  Global median split: {label_col} {'>' if positive_above else '<='} {median_val:.2f}")
+
+    # Mode 2: Within-Subject Median
+    elif split_method == "within_subject_median":
+        if "subject" not in df.columns:
+            raise ValueError(
+                "Cannot compute within-subject median because 'subject' column is missing."
+            )
+        subject_medians = df.groupby("subject")[label_col].transform("median")
+        gap = contrast_config.get("gap", 0)
+
+        if gap == 0:
+            # No neutral zone: samples at exactly the median fall into the positive class.
+            if positive_above:
+                df["target"] = (df[label_col] >= subject_medians).astype(int)
+            else:
+                df["target"] = (df[label_col] < subject_medians).astype(int)
+            print(f"  Within-subject median split (gap=0): {label_col} "
+                  f"{'>=' if positive_above else '<'} subject_median")
+        else:
+            # Neutral zone: probes within ±gap of the subject median are excluded.
+            df["target"] = np.nan
+            if positive_above:
+                df.loc[df[label_col] > subject_medians + gap, "target"] = 1
+                df.loc[df[label_col] < subject_medians - gap, "target"] = 0
+            else:
+                df.loc[df[label_col] < subject_medians - gap, "target"] = 1
+                df.loc[df[label_col] > subject_medians + gap, "target"] = 0
+            n_before = len(df)
+            df = df.dropna(subset=["target"])
+            n_excluded = n_before - len(df)
+            df["target"] = df["target"].astype(int)
+            print(f"  Within-subject median split (gap=±{gap}): "
+                  f"excluded {n_excluded}/{n_before} probes in neutral zone "
+                  f"({n_excluded / n_before:.1%})")
+
+    # Mode 3: Simple fixed threshold
+    elif split_method == "threshold" or ("threshold" in contrast_config and "threshold_low" not in contrast_config):
+        threshold = contrast_config.get("threshold", 50)
+        if positive_above:
+            df["target"] = (df[label_col] > threshold).astype(int)
+        else:
+            df["target"] = (df[label_col] <= threshold).astype(int)
+        print(f"  Threshold binarization: {label_col} {'>' if positive_above else '<='} {threshold}")
+
+    # Mode 4: Extreme groups (exclude middle range)
+    elif split_method == "extreme_groups" or ("threshold_low" in contrast_config and "threshold_high" in contrast_config):
+        low = contrast_config["threshold_low"]
+        high = contrast_config["threshold_high"]
+
+        df["target"] = np.nan
+        df.loc[df[label_col] <= low, "target"] = 0
+        df.loc[df[label_col] >= high, "target"] = 1
+
+        n_before = len(df)
+        df = df.dropna(subset=["target"])
+        n_excluded = n_before - len(df)
+
+        print(f"  Extreme groups: {label_col} <= {low} → OFF, "
+              f"{label_col} >= {high} → ON")
+        print(f"  Excluded {n_excluded} probes in middle range ({low}-{high})")
+
+        df["target"] = df["target"].astype(int)
+
+    else:
+        raise ValueError(
+            f"Invalid contrast config: {contrast_config}. "
+            f"Specify a valid 'split_method' (global_median, within_subject_median, "
+            f"threshold, extreme_groups) or legacy threshold parameters."
+        )
+
+    if _transform_col is not None and _transform_col in df.columns:
+        df = df.drop(columns=[_transform_col])
+
+    return df
+
+
+def get_class_distribution(df: pd.DataFrame, target_col: str = "target") -> Dict:
+    """
+    Get class distribution statistics.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with target column.
+    target_col : str
+        Name of target column.
+
+    Returns
+    -------
+    Dict
+        Distribution statistics.
+    """
+    counts = df[target_col].value_counts()
+    total = len(df)
+
+    return {
+        "n_positive": counts.get(1, 0),
+        "n_negative": counts.get(0, 0),
+        "total": total,
+        "positive_fraction": counts.get(1, 0) / total if total > 0 else 0,
+        "negative_fraction": counts.get(0, 0) / total if total > 0 else 0,
+    }
+
+
+# =============================================================================
+# FEATURE EXTRACTION
+# =============================================================================
+
+def get_feature_columns(
+    df: pd.DataFrame,
+    exclude_patterns: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Identify feature columns (exclude metadata and label columns).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Wide-format feature DataFrame.
+    exclude_patterns : List[str], optional
+        Additional column name patterns to exclude.
+
+    Returns
+    -------
+    List[str]
+        List of feature column names.
+    """
+    # Metadata columns to exclude
+    metadata_cols = {
+        "subject", "task", "probe_number", "channel", "marker", "marker_type",
+        "value", "onoff", "valence", "selfother", "confidence", "time",
+        "label", "ontask_label", "content", "target", "sample_id",
+        "subject_id", "observation_id", "n_epochs", "feature_name",
+    }
+
+    # Add custom patterns
+    if exclude_patterns:
+        for pattern in exclude_patterns:
+            metadata_cols.update(
+                c for c in df.columns if pattern in c.lower()
+            )
+
+    # Numeric columns not in metadata
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    feature_cols = [c for c in numeric_cols if c not in metadata_cols]
+
+    return feature_cols
+
+
+def handle_missing_features(
+    X: pd.DataFrame,
+    groups: pd.Series,
+    max_feature_nan_frac: float = 0.25,
+    imputation: str = "mean",
+    verbose: bool = True,
+    zero_fill_patterns: Optional[List[str]] = None,
+) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
+    """
+    Resolve missing values in the feature matrix without discarding all samples.
+
+    Event-property markers (e.g. ``spindles_Amplitude``, ``slowwaves_Slope``) are
+    mathematically undefined on channels/probes where no event was detected, so
+    junifer emits NaN there. In awake SART data these events are rare, producing
+    many partially-NaN columns. The previous logic dropped only *all*-NaN columns
+    and then dropped every *sample* containing any residual NaN — which silently
+    erased the entire dataset. This function fixes that by operating at the
+    column level first.
+
+    Strategy, in order:
+      0. Zero-fill event-rate columns matching ``zero_fill_patterns`` (e.g.
+         ``*Density*``). A NaN in an event-rate marker means "no event was
+         detected", i.e. a true zero — not a missing value. This is done BEFORE
+         the NaN-fraction drop so that legitimately-sparse density columns (rare
+         events) are not discarded by ``max_feature_nan_frac``.
+      1. Drop columns that are entirely NaN.
+      2. Drop columns whose global NaN fraction exceeds ``max_feature_nan_frac``
+         (the genuinely sparse event-property markers, e.g. amplitude/slope of an
+         event that did not occur — undefined, not zero).
+      3. Resolve the remaining sparse values:
+         - ``imputation`` in {"mean", "median"}: fill per subject (the natural
+           context in a within-subject design), with a global fallback for any
+           subject that is fully NaN in a surviving column. No samples dropped.
+         - ``imputation == "none"``: drop the (now few) samples that still
+           contain NaN — deterministic, no imputed values.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Feature matrix (samples × features). Index is used to align the returned
+        mask; it is reset internally so callers should rely on positional order.
+    groups : pd.Series
+        Subject identifier per sample, positionally aligned with ``X``.
+    max_feature_nan_frac : float
+        Maximum tolerated global NaN fraction per column. Columns above this are
+        dropped. ``0.0`` keeps only fully-observed features.
+    imputation : str
+        One of {"median", "mean", "none"}.
+    verbose : bool
+        Print a summary of what was dropped/filled.
+
+    Returns
+    -------
+    X_clean : pd.DataFrame
+        Feature matrix with sparse columns removed and (unless ``imputation`` is
+        "none") all NaN filled. Row order matches the input; if samples were
+        dropped, only valid rows remain.
+    valid_mask : pd.Series
+        Boolean mask (positionally aligned to the input) marking retained
+        samples. All-True unless ``imputation == 'none'``.
+    feature_cols : List[str]
+        Surviving feature column names.
+    """
+    if imputation not in {"median", "mean", "none"}:
+        raise ValueError(
+            f"imputation must be one of 'median', 'mean', 'none'; got '{imputation}'"
+        )
+
+    X = X.reset_index(drop=True)
+    groups = pd.Series(np.asarray(groups), index=X.index)
+
+    # 0: Zero-fill event-rate markers (e.g. *Density*) BEFORE the NaN-fraction
+    # drop. NaN here == "no event detected" == true zero, not missing data.
+    if zero_fill_patterns:
+        zero_cols = [
+            c for c in X.columns
+            if any(pat.lower() in str(c).lower() for pat in zero_fill_patterns)
+        ]
+        if zero_cols:
+            n_zero_filled = int(X[zero_cols].isna().sum().sum())
+            X[zero_cols] = X[zero_cols].fillna(0.0)
+            if verbose and n_zero_filled:
+                print(
+                    f"[INFO] Zero-filled {n_zero_filled} NaN across {len(zero_cols)} "
+                    f"event-rate columns matching {zero_fill_patterns} "
+                    f"(NaN = no event = 0)"
+                )
+
+    n_cols_before = X.shape[1]
+    nan_frac = X.isna().mean()
+
+    # 1 + 2: drop all-NaN and over-threshold columns in one pass.
+    keep_cols = nan_frac[nan_frac <= max_feature_nan_frac].index.tolist()
+    dropped_cols = [c for c in X.columns if c not in keep_cols]
+    X = X[keep_cols]
+
+    if verbose and dropped_cols:
+        print(
+            f"\n[INFO] Dropped {len(dropped_cols)}/{n_cols_before} sparse feature "
+            f"columns (NaN fraction > {max_feature_nan_frac:.0%})"
+        )
+
+    valid_mask = pd.Series(True, index=X.index)
+
+    residual_nan = int(X.isna().sum().sum())
+    if residual_nan > 0:
+        if imputation == "none":
+            valid_mask = ~X.isna().any(axis=1)
+            n_dropped = int((~valid_mask).sum())
+            if verbose:
+                print(
+                    f"[INFO] imputation='none': dropping {n_dropped} samples with "
+                    f"residual NaN across {len(keep_cols)} features"
+                )
+            X = X[valid_mask]
+        else:
+            agg = "median" if imputation == "median" else "mean"
+            # Per-subject fill: each subject is its own context in a
+            # within-subject pipeline, so this introduces no cross-subject leakage.
+            subj_fill = X.groupby(groups.values).transform(agg)
+            X = X.fillna(subj_fill)
+            # Global fallback for subjects that are entirely NaN in a column.
+            global_fill = X.agg(agg)
+            X = X.fillna(global_fill)
+            if verbose:
+                print(
+                    f"[INFO] Imputed {residual_nan} residual NaN values "
+                    f"(per-subject {agg}, global {agg} fallback); no samples dropped"
+                )
+
+    return X, valid_mask, keep_cols
+
+
+# =============================================================================
+# PARTICIPANT FILTERING
+# =============================================================================
+
+def filter_participants_by_balance(
+    df: pd.DataFrame,
+    subject_col: str,
+    target_col: str,
+    min_minority_fraction: float,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Filter out participants with extreme class imbalance.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Data DataFrame.
+    subject_col : str
+        Column name for subject identifier.
+    target_col : str
+        Column name for target variable.
+    min_minority_fraction : float
+        Minimum fraction of minority class required (0.0-0.5).
+    verbose : bool
+        Print filtering information.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered DataFrame.
+    """
+    if min_minority_fraction <= 0:
+        return df
+
+    subjects_to_drop = []
+
+    for subject, group in df.groupby(subject_col):
+        counts = group[target_col].value_counts(normalize=True)
+
+        if len(counts) < 2:
+            subjects_to_drop.append((subject, 0.0, "Only one class"))
+        else:
+            minority_fraction = counts.min()
+            if minority_fraction < min_minority_fraction:
+                subjects_to_drop.append(
+                    (subject, minority_fraction, f"Minority {minority_fraction:.2%}")
+                )
+
+    if not subjects_to_drop:
+        return df
+
+    if verbose:
+        print(f"\nFiltering participants with minority class < "
+              f"{min_minority_fraction:.0%}:")
+        for subject, frac, reason in subjects_to_drop:
+            print(f"  Dropping sub-{subject}: {reason}")
+
+    drop_ids = [s[0] for s in subjects_to_drop]
+    filtered_df = df[~df[subject_col].isin(drop_ids)].copy()
+
+    if verbose:
+        n_kept = df[subject_col].nunique() - len(drop_ids)
+        print(f"  Kept {len(filtered_df)} samples from {n_kept} subjects")
+
+    return filtered_df
+
+
+def filter_participants_by_sample_count(
+    df: pd.DataFrame,
+    subject_col: str,
+    min_samples: int,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Filter out participants with fewer than minimum number of samples.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Data DataFrame.
+    subject_col : str
+        Column name for subject identifier.
+    min_samples : int
+        Minimum number of samples required per subject.
+    verbose : bool
+        Print filtering information.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered DataFrame.
+    """
+    if min_samples <= 0:
+        return df
+
+    subjects_to_drop = []
+
+    for subject, group in df.groupby(subject_col):
+        n_samples = len(group)
+        if n_samples < min_samples:
+            subjects_to_drop.append((subject, n_samples))
+
+    if not subjects_to_drop:
+        return df
+
+    if verbose:
+        print(f"\nFiltering participants with < {min_samples} samples:")
+        for subject, n_samples in subjects_to_drop:
+            print(f"  Dropping sub-{subject}: {n_samples} samples")
+
+    drop_ids = [s[0] for s in subjects_to_drop]
+    filtered_df = df[~df[subject_col].isin(drop_ids)].copy()
+
+    if verbose:
+        n_kept = df[subject_col].nunique() - len(drop_ids)
+        print(f"  Kept {len(filtered_df)} samples from {n_kept} subjects")
+
+    return filtered_df
+
+
+# =============================================================================
+# MAIN DATA PREPARATION
+# =============================================================================
+
+def prepare_data_for_contrast(
+    config: Dict,
+    contrast_name: str,
+    verbose: bool = True,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, List[str]]:
+    """
+    Main entry point: load data and prepare for classification.
+
+    Parameters
+    ----------
+    config : Dict
+        Configuration dictionary.
+    contrast_name : str
+        Name of contrast from label_contrasts config.
+    verbose : bool
+        Print progress information.
+
+    Returns
+    -------
+    Tuple containing:
+        - df_prepared: Full prepared DataFrame
+        - X: Feature matrix (pd.DataFrame)
+        - y: Target vector (pd.Series)
+        - groups: Subject grouping for CV (pd.Series)
+        - feature_cols: List of feature column names
+    """
+    # Extract config values
+    features_root = config["data_paths"]["features_root"]
+    subjects = config.get("subjects")
+    tasks = config["tasks"]
+    epoch_types = _normalize_epoch_types(config.get("epoch_types", ["state"]))
+    feature_families_config = config.get("feature_families", {})
+    data_format = config.get("data_format", "per_channel")
+    min_minority_ratio = config.get("min_minority_ratio", 0.15)
+    min_samples = config.get("min_samples", 0)
+
+    # Auto-detect subjects if not specified
+    if subjects is None:
+        project_root = get_project_root()
+        abs_features_root = features_root
+        if not os.path.isabs(features_root):
+            abs_features_root = str(project_root / features_root)
+
+        if verbose:
+            print("No subjects specified, scanning features directory...")
+        subject_dirs = sorted(glob.glob(os.path.join(abs_features_root, "sub-*")))
+        subjects = [os.path.basename(d).replace("sub-", "") for d in subject_dirs]
+        if verbose:
+            print(f"  Found {len(subjects)} subjects: {subjects}")
+
+    # Validate contrast
+    if contrast_name not in config["label_contrasts"]:
+        available = list(config["label_contrasts"].keys())
+        raise ValueError(f"Contrast '{contrast_name}' not found. Available: {available}")
+
+    contrast_config = config["label_contrasts"][contrast_name]
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"Preparing data for contrast: {contrast_name}")
+        print(f"  Marker types: {epoch_types}")
+        print(f"  Data format: {data_format}")
+        print(f"  Contrast config: {contrast_config}")
+        print(f"{'='*60}\n")
+
+    # Resolve features_root
+    project_root = get_project_root()
+    if not os.path.isabs(features_root):
+        features_root = str(project_root / features_root)
+
+    # Load all data in long format
+    if verbose:
+        print("Loading aggregated probe marker CSVs...")
+
+    include_connectivity_pairs = config.get("include_connectivity_pairs", False)
+
+    df_long = load_all_subjects(
+        features_root, subjects, tasks, epoch_types, verbose, feature_families_config, data_format=data_format, include_connectivity_pairs=include_connectivity_pairs
+    )
+
+    if df_long.empty:
+        raise ValueError("No data loaded! Check paths and file existence.")
+
+    # Exclude connectivity pairs if requested
+    if not include_connectivity_pairs and "marker" in df_long.columns:
+        mask = df_long["marker"].astype(str).str.contains("_pairs", na=False)
+        dropped = mask.sum()
+        if dropped > 0:
+            if verbose:
+                print(f"Excluding {dropped} pairwise connectivity features... ({len(df_long) - dropped} rows remaining)")
+            df_long = df_long[~mask]
+
+    if df_long.empty:
+        raise ValueError("No data left after excluding connectivity pairs.")
+
+    # Pivot to wide format (one row per probe)
+    if verbose:
+        print(f"\nPivoting to wide format ({data_format})...")
+
+    df_wide = pivot_to_wide(df_long, data_format)
+
+    if verbose:
+        print(f"  Wide format: {df_wide.shape[0]} probes × {df_wide.shape[1]} columns")
+
+    # Create binary target
+    if verbose:
+        print(f"\nCreating binary target for {contrast_name}...")
+
+    df_wide = create_label_contrast(df_wide, contrast_config)
+
+    # Check class distribution
+    dist = get_class_distribution(df_wide)
+    if verbose:
+        print(f"  Class 0 (OFF): {dist['n_negative']} ({dist['negative_fraction']:.1%})")
+        print(f"  Class 1 (ON):  {dist['n_positive']} ({dist['positive_fraction']:.1%})")
+
+    # Capture subject-exclusion provenance for the per-classification report.
+    # A subject can disappear at three stages: never loaded / all trials in the
+    # neutral gap, removed for too few samples, removed for class imbalance.
+    _subjects_requested = sorted(str(s) for s in subjects)
+    _subjects_with_data = set(df_wide["subject"].astype(str).unique())
+    _counts_before = (
+        df_wide.groupby(df_wide["subject"].astype(str)).size().astype(int).to_dict()
+    )
+
+    # Filter participants by minimum sample count
+    if min_samples > 0:
+        df_wide = filter_participants_by_sample_count(
+            df_wide, "subject", min_samples, verbose
+        )
+    _subjects_after_count = set(df_wide["subject"].astype(str).unique())
+
+    # Filter participants by class balance
+    df_wide = filter_participants_by_balance(
+        df_wide, "subject", "target", min_minority_ratio, verbose
+    )
+    _subjects_after_balance = set(df_wide["subject"].astype(str).unique())
+
+    if df_wide.empty:
+        raise ValueError("No data remaining after participant filtering!")
+
+    _dropped_low_count = sorted(_subjects_with_data - _subjects_after_count)
+    _dropped_imbalance = sorted(_subjects_after_count - _subjects_after_balance)
+    _no_data = sorted(set(_subjects_requested) - _subjects_with_data)
+    config["_data_provenance"] = {
+        "contrast": contrast_name,
+        "split_method": contrast_config.get("split_method"),
+        "gap": contrast_config.get("gap", 0),
+        "min_samples": int(min_samples),
+        "min_minority_ratio": float(min_minority_ratio),
+        "n_subjects_requested": len(_subjects_requested),
+        "n_subjects_final": len(_subjects_after_balance),
+        "subjects_final": sorted(_subjects_after_balance),
+        "excluded_no_data_or_all_neutral": _no_data,
+        "excluded_min_samples": {s: _counts_before.get(s) for s in _dropped_low_count},
+        "excluded_min_minority_ratio": _dropped_imbalance,
+    }
+
+    # Get feature columns
+    feature_cols = get_feature_columns(df_wide)
+
+    # Drop columns whose suffix matches any pattern in exclude_column_suffixes.
+    # Declared in config to keep the decision in one place (e.g. ["_std"] to
+    # keep only _trimmean aggregations and halve the feature space).
+    exclude_suffixes = config.get("exclude_column_suffixes", [])
+    if exclude_suffixes:
+        before = len(feature_cols)
+        feature_cols = [
+            c for c in feature_cols
+            if not any(c.endswith(s) for s in exclude_suffixes)
+        ]
+        df_wide = df_wide.drop(
+            columns=[c for c in df_wide.columns
+                     if c not in feature_cols and c in df_wide.columns
+                     and any(c.endswith(s) for s in exclude_suffixes)],
+            errors="ignore",
+        )
+        if verbose:
+            print(f"  Dropped {before - len(feature_cols)} columns matching "
+                  f"exclude_column_suffixes={exclude_suffixes} "
+                  f"({len(feature_cols)} remaining)")
+
+    if verbose:
+        print(f"\nIdentified {len(feature_cols)} feature columns")
+        if len(feature_cols) > 10:
+            print(f"  Examples: {feature_cols[:5]} ... {feature_cols[-5:]}")
+        else:
+            print(f"  Features: {feature_cols}")
+
+    # Create sample_id for tracking
+    df_wide["sample_id"] = (
+        df_wide["subject"].astype(str) + "_"
+        + df_wide["task"].astype(str) + "_"
+        + df_wide["probe_number"].astype(str)
+    )
+
+    # Extract X, y, groups
+    X = df_wide[feature_cols].copy().reset_index(drop=True)
+    y = df_wide["target"].copy().reset_index(drop=True)
+    groups = df_wide["subject"].copy().reset_index(drop=True)
+    df_wide = df_wide.reset_index(drop=True)
+
+    # Resolve sparse / missing features. Event-property markers
+    # (spindles/slowwaves) are undefined when no event occurs, producing
+    # partially-NaN columns; dropping samples on any-NaN would erase the dataset.
+    preprocessing_cfg = config.get("preprocessing", {})
+    max_feature_nan_frac = preprocessing_cfg.get("max_feature_nan_frac", 0.25)
+    imputation = preprocessing_cfg.get("imputation", "mean")
+    zero_fill_patterns = preprocessing_cfg.get("zero_fill_patterns", ["density"])
+
+    n_before = len(X)
+    X, valid_mask, feature_cols = handle_missing_features(
+        X,
+        groups,
+        max_feature_nan_frac=max_feature_nan_frac,
+        imputation=imputation,
+        verbose=verbose,
+        zero_fill_patterns=zero_fill_patterns,
+    )
+
+    # Align the other structures to surviving samples (valid_mask is all-True
+    # unless imputation == 'none').
+    y = y[valid_mask].reset_index(drop=True)
+    groups = groups[valid_mask].reset_index(drop=True)
+    df_prepared = df_wide[valid_mask].reset_index(drop=True)
+    X = X.reset_index(drop=True)
+    n_after = len(X)
+
+    if n_before > n_after and verbose:
+        print(f"  Dropped {n_before - n_after} samples with residual missing features")
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"Final dataset:")
+        print(f"  Samples: {len(X)}")
+        print(f"  Features: {len(feature_cols)}")
+        print(f"  Subjects: {groups.nunique()}")
+        print(f"  Class distribution: {y.value_counts().to_dict()}")
+        print(f"{'='*60}\n")
+
+    return df_prepared, X, y, groups, feature_cols
+
+
+def get_features_target_groups(
+    df_prepared: pd.DataFrame,
+    feature_cols: List[str],
+) -> Tuple[pd.DataFrame, pd.Series, pd.Series, Dict]:
+    """
+    Extract X, y, groups from prepared data.
+
+    Compatibility function matching pipeline signature.
+
+    Parameters
+    ----------
+    df_prepared : pd.DataFrame
+        Prepared DataFrame from prepare_data_for_contrast.
+    feature_cols : List[str]
+        List of feature column names.
+
+    Returns
+    -------
+    Tuple containing:
+        - X: Feature matrix
+        - y: Target vector
+        - groups: Subject groups for CV
+        - class_info: Dictionary with class metadata
+    """
+    X = df_prepared[feature_cols].copy()
+    y = df_prepared["target"].copy()
+    groups = df_prepared["subject"].copy()
+
+    class_info = {
+        "classes_flipped": False,
+        "positive_class_name": "ON-task (1)",
+        "negative_class_name": "OFF-task (0)",
+    }
+
+    return X, y, groups, class_info
+
+
+# =============================================================================
+# CONVENIENCE
+# =============================================================================
+
+def load_and_prepare_from_config_path(
+    config_path: str,
+    contrast_name: Optional[str] = None,
+    verbose: bool = True,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, List[str], Dict]:
+    """
+    Load config and prepare data in one call.
+
+    Parameters
+    ----------
+    config_path : str
+        Path to config YAML file.
+    contrast_name : str, optional
+        Contrast to prepare. If None, uses config["contrast"].
+    verbose : bool
+        Print progress.
+
+    Returns
+    -------
+    Tuple containing:
+        - df_prepared, X, y, groups, feature_cols, config
+    """
+    config = load_config(config_path)
+
+    if contrast_name is None:
+        contrast_name = config.get("contrast", "ON_vs_OFF")
+
+    df_prepared, X, y, groups, feature_cols = prepare_data_for_contrast(
+        config, contrast_name, verbose=verbose
+    )
+
+    return df_prepared, X, y, groups, feature_cols, config

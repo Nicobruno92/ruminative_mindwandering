@@ -1,0 +1,113 @@
+# =============================================================================
+# TYPE I ERROR EVALUATION — WITHIN-SUBJECT PIPELINE
+# Simulation-specific configuration.
+#
+# Loaded alongside the parent within_subject_pipeline/config.yaml.
+# Values in the 'simulation' block override n_runs and n_permutations
+# from the parent config for each simulation run.
+#
+# All other pipeline settings (classifiers, feature_selection, oversampling,
+# preprocessing, cv, etc.) are inherited from the parent config unchanged,
+# ensuring the simulation runs the EXACT same pipeline procedure.
+#
+# USAGE:
+#   # Single simulation (SLURM array):
+#   python run_type1_error_within.py \
+#       --config config_type1_error.yaml \
+#       --contrast on_vs_off_within_median \
+#       --family all \
+#       --model_type rf \
+#       --sim_idx 5
+#
+#   # Aggregate after all jobs complete:
+#   python run_type1_error_within.py \
+#       --config config_type1_error.yaml \
+#       --contrast on_vs_off_within_median \
+#       --family all \
+#       --model_type rf \
+#       --aggregate
+#
+#   # Local sequential run (testing):
+#   python run_type1_error_within.py \
+#       --config config_type1_error.yaml \
+#       --contrast on_vs_off_within_median \
+#       --family all \
+#       --model_type rf
+# =============================================================================
+
+simulation:
+
+  # ---------------------------------------------------------------------------
+  # Number of null simulations.
+  # N=200 gives 95% CI of ±2.2% on FPR at alpha=0.05.
+  # ---------------------------------------------------------------------------
+  n_simulations: 200
+
+  # ---------------------------------------------------------------------------
+  # Alpha levels at which to report empirical FPR.
+  # ---------------------------------------------------------------------------
+  alpha_levels: [0.01, 0.05, 0.10]
+
+  # ---------------------------------------------------------------------------
+  # Which label contrasts to evaluate for Type I error.
+  # FPR calibration is a property of the pipeline PROCEDURE (feature selection,
+  # SMOTE, within-subject scaling), so a single representative contrast — the
+  # primary onoff — is sufficient and 7x cheaper than sweeping the parent's
+  # full run_contrasts (7 dimensions). Matches loso_pipeline/type1_error's
+  # same rationale/override, so WS and LOSO Type I error runs are comparable.
+  # This OVERRIDES the parent config's run_contrasts for the simulation only;
+  # the main pipeline's run_contrasts is left untouched.
+  # Set to null (or remove) to fall back to the parent run_contrasts (sweep all).
+  # ---------------------------------------------------------------------------
+  contrasts: ["on_vs_off_within_median"]
+
+  # ---------------------------------------------------------------------------
+  # Compute budget per simulation (overrides parent config).
+  #
+  # n_runs=3: fewer true-run seeds per simulation (vs. 100 in main pipeline).
+  # n_permutations=200: the empirical p-value uses the add-one estimator
+  #   p = (1 + #{perm >= true}) / (1 + n_perm), so the smallest reportable p
+  #   is 1/(n_perm+1). With n_perm=50 the floor is 1/51 ≈ 0.0196, which is
+  #   ABOVE the smallest reported alpha_levels entry (0.01) — that alpha would
+  #   be structurally unmeasurable (FPR forced to 0). n_perm=200 puts the
+  #   floor at 1/201 ≈ 0.005, below 0.01, and matches loso_pipeline/type1_error
+  #   (permutation_runs=200) so WS and LOSO Type I error runs are comparable.
+  # ---------------------------------------------------------------------------
+  n_runs: 3
+  n_permutations: 200
+
+  # ---------------------------------------------------------------------------
+  # Synthetic data generation.
+  #
+  # covariance_scope:
+  #   'per_participant' (recommended) — separate Ledoit-Wolf covariance per
+  #     subject. Preserves individual neural covariance structure.
+  #   'global' — single covariance matrix across all subjects.
+  #   'diag' — diagonal (independent features). Degenerate baseline.
+  #
+  # covariance_method:
+  #   'ledoit_wolf' (recommended) — regularized for wide feature matrices.
+  #   'full' — unregularized sample covariance.
+  # ---------------------------------------------------------------------------
+  covariance_scope: "per_participant"
+  covariance_method: "ledoit_wolf"
+
+  # ---------------------------------------------------------------------------
+  # Results subdirectory (under data_paths.results_root from parent config).
+  # Full path: {results_root}/Type1Error/WithinSubject/{contrast}/{family}/{model}/
+  # ---------------------------------------------------------------------------
+  results_subdir: "Type1Error/WithinSubject"
+
+  # ---------------------------------------------------------------------------
+  # SLURM walltime override for this array (submit_type1_error_within.sh).
+  # Each task fits a per-participant Ledoit-Wolf covariance over the full
+  # "all" family (1268 features x 41 subjects) plus n_runs=3 WS fits — heavier
+  # per-task than the parent config's slurm.time=02:00:00, which was sized for
+  # the main pipeline's own array granularity, not per-simulation covariance
+  # fitting. The first submission (2026-08-05) timed out 200/200 at 2h with
+  # zero output printed, run concurrently with 14 LOSO type1_error arrays
+  # competing for the same nodes; unclear how much was contention vs. genuine
+  # cost, so this is a generous margin, not a measured requirement.
+  # Leave unset (null) to fall back to the parent config's slurm.time.
+  # ---------------------------------------------------------------------------
+  slurm_time: "06:00:00"

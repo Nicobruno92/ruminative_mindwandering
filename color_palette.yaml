@@ -1,0 +1,68 @@
+# =============================================================================
+# Project color palette  (Observable10-based)
+# =============================================================================
+# Single source of truth for plot colors across the project. Load this file
+# instead of hardcoding hex values, so every figure stays visually consistent.
+#
+# Resolve from any script with:
+#   import yaml
+#   from pathlib import Path
+#   PALETTE = yaml.safe_load(open(Path(__file__).resolve().parents[N] / "color_palette.yaml"))
+# (N = depth from the script to the repo root.)
+# =============================================================================
+
+# Named palette (the 10 base swatches).
+palette:
+  blue:       "#4269D0"
+  orange:     "#EFB118"
+  red:        "#FF725C"
+  cyan:       "#6CC5B0"
+  green:      "#3CA951"
+  pink:       "#FF8AB7"
+  purple:     "#A463F2"
+  light_blue: "#97BBF5"
+  brown:      "#9C6B4E"
+  gray:       "#9498A0"
+
+# Canonical display order (used as a categorical color cycle / COLORS list).
+order:
+  - "#4269D0"   # blue
+  - "#EFB118"   # orange
+  - "#FF725C"   # red
+  - "#6CC5B0"   # cyan
+  - "#3CA951"   # green
+  - "#FF8AB7"   # pink
+  - "#A463F2"   # purple
+  - "#97BBF5"   # light blue
+  - "#9C6B4E"   # brown
+  - "#9498A0"   # gray
+
+# Per-dimension assignment. Probe dimensions + PCA components.
+# Keep these stable so a dimension keeps its color in every figure of the paper.
+dimensions:
+  onoff:      "#FF725C"   # red
+  valence:    "#4269D0"   # blue
+  selfother:  "#3CA951"   # green
+  time:       "#A463F2"   # purple
+  confidence: "#EFB118"   # orange
+  pc1:        "#6CC5B0"   # cyan
+  pc2:        "#FF8AB7"   # pink
+  pc3:        "#97BBF5"   # light blue
+
+# Quadratic-term tints: lighter version of the base dimension color (40% white
+# mix) so _sq predictors are visually distinct but clearly in the same hue.
+quadratic:
+  valence_sq: "#8EA5E3"   # light blue  — 40% tint of valence (#4269D0)
+  time_sq:    "#C8A1F7"   # light purple — 40% tint of time (#A463F2)
+
+# Significance encoding convention (project-wide):
+#   Color encodes the DIMENSION, never significance.
+#   Significant (after correction) = FILLED / solid marker.
+#   Non-significant                = HOLLOW / empty (white face, colored edge) or DASHED.
+# Keep this consistent across forest plots, topomaps, heatmaps and any new figure.
+
+# Neutral / utility colors (not tied to a dimension).
+neutral:
+  accent:      "#4269D0"  # blue   — default single-series accent
+  permutation: "#9498A0"  # gray   — permuted / chance / null baseline
+  covariate:   "#9498A0"  # gray   — non-dimension covariate (e.g. time_on_task)

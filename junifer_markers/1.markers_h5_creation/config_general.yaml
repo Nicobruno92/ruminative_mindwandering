@@ -1,0 +1,210 @@
+# Wandering Mind Final Pipeline - Advanced BIDS-compatible Processing
+# Processes all subjects and sessions in BIDS derivatives directory
+# Supports sessions (a, b) and tasks (sartauditiva, sartvisual)
+# Outputs features to BIDS-structured features directory
+
+with:
+  - junifer_eeg
+  - sart_datagrabber_picnic
+workdir: .
+
+datagrabber:
+  kind: PatternDataGrabber
+  patterns:
+    EEG:
+      # Pattern includes session: sub-XX/ses-X/eeg/sub-XX_ses-X_task-X_desc-X_epo.fif
+      pattern: '{subject}/eeg/{subject}_task-{task}_desc-{desc}_epo.fif'
+      space: native
+  replacements: [subject, task, desc]
+  types:
+    - EEG
+  # CYBERSART derivatives directory
+  datadir: <PATH_TO_YOUR_BIDS_DERIVATIVES_ROOT>
+
+datareader:
+  kind: SARTDataReader
+  preserve_annotations: true
+  extract_behavioral_params: true
+  channel_selection: eeg    # Keep only EEG channels, drop stimulus channels
+  types:
+    - EEG
+
+storage:
+  kind: HDF5FeatureStorage
+  # With single_output: false, creates individual files per element
+  # Pattern: element_{subject}_{session}_{task}_{desc}_markers.h5
+  uri: <PATH_TO_YOUR_BIDS_FEATURES_ROOT>/junifer/markers.h5
+  single_output: false
+  
+markers:
+  # ========================================
+  # 1. SPECTRAL ANALYSIS: Absolute Power (dB)
+  # ========================================
+  - kind: SpectralPowerBands
+    name: psd_bands
+    bands:
+      delta: [1.0, 4.0]
+      theta: [4.0, 8.0]
+      alpha: [8.0, 12.0]
+      beta: [12.0, 25.0]
+      iota: [25.0, 35.0]
+      gamma: [35.0, 45.0]
+    normalize: false
+    dB: true
+    n_fft: 1024
+    n_per_seg: 512
+    n_overlap: 256
+    trial_method: null
+    on: EEG
+
+  # ========================================
+  # 2. SPECTRAL ANALYSIS: Relative Power (normalized)
+  # ========================================
+  - kind: SpectralPowerBands
+    name: psd_relative
+    bands:
+      delta: [1.0, 4.0]
+      theta: [4.0, 8.0]
+      alpha: [8.0, 12.0]
+      beta: [12.0, 25.0]
+      iota: [25.0, 35.0]
+      gamma: [35.0, 45.0]
+    normalize: true
+    dB: false
+    n_fft: 1024
+    n_per_seg: 512
+    n_overlap: 256 
+    trial_method: null
+    on: EEG
+
+  # ========================================
+  # 4. CONNECTIVITY: Weighted Symbolic Mutual Information
+  # ========================================
+  - kind: SymbolicMutualInformation
+    name: wsmi_theta
+    tmin:
+    tmax:
+    kernel: 3
+    taus: [8]
+    weighted: true
+    csd: true
+    on: EEG
+  
+  - kind: SymbolicMutualInformation
+    name: wsmi_alpha
+    tmin:
+    tmax:
+    kernel: 3
+    taus: [4]
+    weighted: true
+    csd: true
+    on: EEG
+
+  - kind: SymbolicMutualInformation
+    name: wsmi_beta
+    tmin:
+    tmax:
+    kernel: 3
+    taus: [2]
+    weighted: true
+    csd: true
+    on: EEG
+  
+  - kind: SymbolicMutualInformation
+    name: wsmi_gamma
+    tmin:
+    tmax:
+    kernel: 3
+    taus: [1]
+    weighted: true
+    csd: true
+    on: EEG
+
+  # ========================================
+  # 5. INFORMATION THEORY: Permutation Entropy
+  # ========================================
+  - kind: PermutationEntropy
+    name: PE_theta
+    kernel: 3
+    taus: [8]
+    trial_method: null
+    on: EEG
+
+  - kind: PermutationEntropy
+    name: PE_alpha
+    kernel: 3
+    taus: [4]
+    trial_method: null
+    on: EEG
+
+  - kind: PermutationEntropy
+    name: PE_beta
+    kernel: 3
+    taus: [2]
+    trial_method: null
+    on: EEG
+
+  - kind: PermutationEntropy
+    name: PE_gamma
+    kernel: 3
+    taus: [1]
+    trial_method: null
+    on: EEG
+
+  # ========================================
+  # 6. INFORMATION THEORY: Kolmogorov Complexity
+  # ========================================
+  - kind: KolmogorovComplexity
+    name: kolmogorov_complexity
+    trial_method: null
+    on: EEG
+
+  # ========================================
+  # 7. TIME-LOCKED TOPOGRAPHIES: ERP Analysis
+  # ========================================
+  # Early components (P1, N1, P2)
+  - kind: TimeLockedTopography
+    name: P1
+    tmin: 0.080
+    tmax: 0.130
+    baseline: [-0.2, 0]
+    reference: ["TP9", "TP10"]
+    trial_method: null
+    on: EEG
+
+  - kind: TimeLockedTopography
+    name: N1
+    tmin: 0.140
+    tmax: 0.200
+    baseline: [-0.2, 0]
+    reference: ["TP9", "TP10"]
+    trial_method: null
+    on: EEG
+
+  - kind: TimeLockedTopography
+    name: P2
+    tmin: 0.180
+    tmax: 0.250
+    baseline: [-0.2, 0]
+    reference: ["TP9", "TP10"]
+    trial_method: null
+    on: EEG
+  
+  # Late component (P3-like, ) 
+  - kind: TimeLockedTopography
+    name: P3a # Fronto-central, novelty-related
+    tmin: 0.250
+    tmax: 0.350
+    baseline: [-0.2, 0]
+    reference: ["TP9", "TP10"]
+    trial_method: null
+    on: EEG
+
+  - kind: TimeLockedTopography
+    name: P3b # anterior/central, attention-related
+    tmin: 0.300
+    tmax: 0.500
+    baseline: [-0.2, 0]
+    reference: ["TP9", "TP10"]
+    trial_method: null
+    on: EEG
