@@ -186,7 +186,7 @@ LAYOUT = dict(
     # ── Number of labelled markers per panel ─────────────────────────────
     # Union of top-N by |cluster_stat| and top-N by |SHAP importance|.
     # Fewer labels → less overlap; more labels → more context.
-    n_labels = 3,
+    n_labels = 4,
 
     # ── Scatter marker sizes (Plotly px, ~screen px at 96 dpi) ───────────
     marker_size_bg    = 10.0,   # unlabelled (background) markers
