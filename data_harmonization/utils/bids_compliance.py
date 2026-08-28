@@ -93,14 +93,6 @@ class BIDSCompliance:
             recording_duration=raw.times[-1] if raw.times is not None else None,
         )
         
-        # Add montage info to sidecar
-        montage = raw.get_montage()
-        if montage is not None:
-            sidecar["MontagePreserved"] = True
-            sidecar["MontageName"] = getattr(montage, 'name', 'custom') or 'custom'
-        else:
-            sidecar["MontagePreserved"] = False
-        
         json_path = out_path.replace(".fif", ".json")
         with open(json_path, "w") as f:
             json.dump(sidecar, f, indent=2)
