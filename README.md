@@ -15,19 +15,19 @@ pruned to the code that generates the paper's reported results. Each
 top-level folder corresponds to a stage of the pipeline described in the
 paper's Methods section:
 
-| Folder | Paper section | What it does |
-|---|---|---|
-| `data_harmonization/` | Methods 2.2-2.3 | Raw BrainVision -> BIDS conversion, trial/probe metadata, resampling to 250 Hz |
-| `Preprocessing_pipeline_new/` | Methods 2.3 | EEG preprocessing: ASR, PyPREP bad-channel detection, ICA/ICLabel, epoching, AutoReject |
-| `junifer_markers/` | Methods 2.4, Table 1, Suppl. 9.2 | Extraction of the 23 EEG markers (evoked, spectral, information-theoretic, connectivity, slow-wave) |
-| `Behavior/Objective_Markers/` | Methods 2.5, Fig 2, Fig S1 | Behavioral GLMMs (omission rate, commission rate, RTCV) |
-| `Behavior/Extract_data_from_eeg/` | -- | Upstream probe/behavioral extraction from BIDS raw `events.tsv` |
-| `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` | Fig 1C/D | Probe distributions and pairwise Spearman correlations |
-| `Behavior/Demographics/` | -- | Sample demographics/psychometrics characterization |
-| `Stats_andrillon/`, `Statistics/plot_results.py` | Methods 2.6, Fig 3, Suppl. 9.3 | Cluster-based permutation test (CBPT) and cross-dimension omnibus test |
-| `mw_classification_pipeline/` | Methods 2.7, Fig 4-7, S2-S8, Suppl. 9.4-9.6 | Decoding analysis: within-subject and LOSO classification, residualized contrasts, spatial searchlight, SHAP importance, Type-I error calibration |
-| `utils/` | -- | Shared project utilities (BIDS I/O, epoch filtering) |
-| `results/` | -- | Final figures and source-data tables referenced above (not the full per-contrast diagnostic output) |
+| Folder                                                    | Paper section                               | What it does                                                                                                                                      |
+| --------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data_harmonization/`                                   | Methods 2.2-2.3                             | Raw BrainVision -> BIDS conversion, trial/probe metadata, resampling to 250 Hz                                                                    |
+| `Preprocessing_pipeline_new/`                           | Methods 2.3                                 | EEG preprocessing: ASR, PyPREP bad-channel detection, ICA/ICLabel, epoching, AutoReject                                                           |
+| `junifer_markers/`                                      | Methods 2.4, Table 1, Suppl. 9.2            | Extraction of the 23 EEG markers (evoked, spectral, information-theoretic, connectivity, slow-wave)                                               |
+| `Behavior/Objective_Markers/`                           | Methods 2.5, Fig 2, Fig S1                  | Behavioral GLMMs (omission rate, commission rate, RTCV)                                                                                           |
+| `Behavior/Extract_data_from_eeg/`                       | --                                          | Upstream probe/behavioral extraction from BIDS raw`events.tsv`                                                                                  |
+| `Behavior/Probe_analysis/probe_dimension_cloud_plot.py` | Fig 1C/D                                    | Probe distributions and pairwise Spearman correlations                                                                                            |
+| `Behavior/Demographics/`                                | --                                          | Sample demographics/psychometrics characterization                                                                                                |
+| `Stats_CBPT/`, `Statistics/plot_results.py`           | Methods 2.6, Fig 3, Suppl. 9.3              | Cluster-based permutation test (CBPT) and cross-dimension omnibus test                                                                            |
+| `mw_classification_pipeline/`                           | Methods 2.7, Fig 4-7, S2-S8, Suppl. 9.4-9.6 | Decoding analysis: within-subject and LOSO classification, residualized contrasts, spatial searchlight, SHAP importance, Type-I error calibration |
+| `utils/`                                                | --                                          | Shared project utilities (BIDS I/O, epoch filtering)                                                                                              |
+| `results/`                                              | --                                          | Final figures and source-data tables referenced above (not the full per-contrast diagnostic output)                                               |
 
 ## Setup
 
